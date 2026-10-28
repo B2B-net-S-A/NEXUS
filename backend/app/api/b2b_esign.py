@@ -58,6 +58,8 @@ from app.core.scheduling import business_date
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.candidate import Candidate
+from app.models.job import Job
+from app.models.job_work_assignment import JobWorkAssignment
 from app.models.notification import NotificationType
 from app.models.user import User, UserRole
 from app.schemas.b2b_contract_generator import B2BConfirmFullySignedRequest
@@ -85,6 +87,10 @@ MSG_MANDATE = (
     "NEXUSEM i oznacz ją jako podpisaną w rejestrze."
 )
 MSG_SIGNER = "Wybierz osobę, która podpisze za B2B Network, z listy w ustawieniach."
+MSG_CC = (
+    "Do wiadomości dodasz tylko osoby z zespołu tej rekrutacji albo autora "
+    "umowy, które same widzą tę umowę ze stawkami."
+)
 MSG_PDF = (
     "Nie udało się zrobić PDF-a z umowy. Spróbuj za chwilę albo wyślij umowę jak dotąd."
 )
@@ -127,6 +133,12 @@ class EsignPerson(BaseModel):
     name: str
 
 
+class EsignCcPerson(EsignPerson):
+    # Prowadzący rekrutację — okno zaznacza go od razu (decyzja Artura
+    # 27.10.2026: mail z własnej skrzynki, rekruter w DW).
+    suggested: bool = False
+
+
 class EsignSettingsOut(BaseModel):
     mode: Literal["off", "pilot", "all"]
     can_send: bool
@@ -147,6 +159,8 @@ class EsignSendIn(BaseModel):
     contractor_email: EmailStr
     company_signer_id: int
     days: int = Field(default=14, ge=1, le=30)
+    # Osoby z NEXUSA w DW (27.10.2026) — tylko z ``cc_candidates`` okna.
+    cc_user_ids: list[int] = Field(default_factory=list, max_length=10)
 
 
 class EsignRequestOut(BaseModel):
@@ -163,6 +177,7 @@ class EsignRequestOut(BaseModel):
     completed_at: Optional[datetime]
     closed_at: Optional[datetime]
     close_reason: Optional[str]
+    cc: list[EsignPerson] = Field(default_factory=list)
     # Tylko w liście „Czeka na mój podpis” (pulpit i rejestr) — reszta zna wiersz.
     contract_number: Optional[str] = None
     client_name: Optional[str] = None
@@ -182,6 +197,14 @@ class EsignDefaultsOut(BaseModel):
     contractor_email: Optional[str]
     company_signers: list[EsignPerson]
     mailbox_connected: bool
+    # Kogo można dodać do DW: zespół rekrutacji i autor, którzy sami
+    # mogliby wysłać tę umowę (widzą stawki).
+    cc_candidates: list[EsignCcPerson] = Field(default_factory=list)
+
+
+class EsignRenewIn(BaseModel):
+    # Okno pokazuje 1, 3, 5 albo 7 dni, jak przy wysyłce.
+    days: int = Field(default=3, ge=1, le=30)
 
 
 class EsignWithdrawIn(BaseModel):
@@ -191,8 +214,11 @@ class EsignWithdrawIn(BaseModel):
 class PublicSignView(BaseModel):
     contract_number: str
     contractor_name: str
-    status: Literal["waiting", "signed_by_you", "completed", "closed"]
+    status: Literal["waiting", "signed_by_you", "completed", "expired", "closed"]
+    # Przy ``waiting`` — do kiedy działa link; przy ``expired`` — kiedy minął.
     expires_at: Optional[datetime]
+    # Kontraktor już poprosił o nowy link (27.10.2026), czeka na odpowiedź.
+    renewal_requested_at: Optional[datetime] = None
     # Do kiedy działa „Pobierz umowę podpisaną przez obie strony” (26.10.2026).
     signed_pdf_until: Optional[datetime] = None
 
@@ -210,10 +236,10 @@ async def _names(db: AsyncSession, ids: list[int]) -> dict[int, str]:
 async def _out(
     db: AsyncSession, request: B2BSigningRequest, *, with_contact: bool = True
 ) -> EsignRequestOut:
-    names = (
-        await _names(db, [request.company_signer_id])
-        if request.company_signer_id
-        else {}
+    cc_ids = list(request.cc_user_ids or [])
+    names = await _names(
+        db,
+        [*([request.company_signer_id] if request.company_signer_id else []), *cc_ids],
     )
     return EsignRequestOut(
         id=request.id,
@@ -231,7 +257,56 @@ async def _out(
         completed_at=request.completed_at,
         closed_at=request.closed_at,
         close_reason=request.close_reason,
+        cc=[EsignPerson(id=uid, name=names[uid]) for uid in cc_ids if uid in names],
     )
+
+
+async def _cc_candidates(
+    db: AsyncSession, row: B2BGeneratedContract, sender: User
+) -> list[EsignCcPerson]:
+    """Kogo nadawca może dodać do DW: zespół rekrutacji z nadania (prowadzący,
+    TAC, Delivery Lead, aktywne przypisanie) i autor umowy — każdy tylko wtedy,
+    gdy sam mógłby ją wysłać. DW dostaje link do PDF-a ze stawkami, więc ta
+    sama bramka co wysyłka (``_assert_row_sender``)."""
+    ids: list[int] = []
+    lead: Optional[int] = None
+    if row.job_id:
+        job = await db.get(Job, row.job_id)
+        if job is not None:
+            lead = job.recruiter_id
+            ids += [job.recruiter_id, job.tac_id, job.delivery_lead_id]
+        ids += list(
+            await db.scalars(
+                select(JobWorkAssignment.user_id).where(
+                    JobWorkAssignment.job_id == row.job_id,
+                    JobWorkAssignment.state == "active",
+                    JobWorkAssignment.source != "owner",
+                )
+            )
+        )
+    ids.append(row.created_by)
+    out: list[EsignCcPerson] = []
+    for uid in dict.fromkeys(i for i in ids if i and i != sender.id):
+        user = await db.get(User, uid)
+        if user is None or not user.is_active or not user.email:
+            continue
+        if await _may_send(db, user, row):
+            out.append(EsignCcPerson(id=uid, name=user.name, suggested=uid == lead))
+    return out
+
+
+async def _cc_for_mail(
+    db: AsyncSession, row: B2BGeneratedContract, user_ids: list[int]
+) -> list[str]:
+    """Adresy DW sprawdzane PRZED każdym mailem, nie tylko przy wysyłce
+    (przegląd kodu 27.10.2026): kto wypadł z zespołu rekrutacji, nie dostaje
+    już linku do PDF-a ze stawkami ani kopii podpisanej umowy."""
+    allowed: list[int] = []
+    for uid in user_ids:
+        user = await db.get(User, uid)
+        if user is not None and user.is_active and await _may_send(db, user, row):
+            allowed.append(uid)
+    return await esign_mail.cc_emails(db, allowed)
 
 
 async def _assert_row_sender(
@@ -355,6 +430,10 @@ async def send_for_esign(
         raise HTTPException(status_code=409, detail=MSG_MANDATE)
     await _assert_row_sender(db, current_user, row)
     service.assert_sendable(row)
+    if body.cc_user_ids:
+        allowed = {p.id for p in await _cc_candidates(db, row, current_user)}
+        if not set(body.cc_user_ids) <= allowed:
+            raise HTTPException(status_code=422, detail=MSG_CC)
     docx = await _render_generated_row_docx(db, row)
     try:
         pdf = await pdf_from_docx(docx)
@@ -370,6 +449,7 @@ async def send_for_esign(
         company_signer_id=body.company_signer_id,
         days=body.days,
         now=_now(),
+        cc_user_ids=body.cc_user_ids,
     )
     await db.commit()
     url = _sign_url(token)
@@ -389,12 +469,17 @@ async def _mail_link(
     request: EsignRequestOut,
     row: B2BGeneratedContract,
     url: str,
+    request_key: Optional[str] = None,
+    renewed: bool = False,
 ) -> tuple[bool, Optional[str]]:
     """Mail z linkiem ze skrzynki nadawcy — kontraktor zna ten adres.
 
     Awaria nie cofa wysyłki: okno pokazuje link do skopiowania."""
     subject, body = esign_mail.contractor_sign_message(
-        number=row.contract_number, url=url, expires_at=request.expires_at
+        number=row.contract_number,
+        url=url,
+        expires_at=request.expires_at,
+        renewed=renewed,
     )
     return await esign_mail.send_from(
         db,
@@ -403,7 +488,8 @@ async def _mail_link(
         subject=subject,
         body_html=body,
         candidate_id=row.candidate_id,
-        request_key=f"b2b-esign-{request.id}",
+        request_key=request_key or f"b2b-esign-{request.id}",
+        cc=await _cc_for_mail(db, row, [p.id for p in request.cc]),
     )
 
 
@@ -434,6 +520,7 @@ async def esign_defaults(
             if uid in names
         ],
         mailbox_connected=connected,
+        cc_candidates=await _cc_candidates(db, row, current_user),
     )
 
 
@@ -485,6 +572,95 @@ async def withdraw_esign(
     )
     await db.commit()
     return await _out(db, updated)
+
+
+async def _row_of(db: AsyncSession, request_id: int) -> B2BGeneratedContract:
+    request = await db.get(B2BSigningRequest, request_id)
+    if request is None:
+        raise HTTPException(status_code=404, detail="Wniosek o podpis nie istnieje.")
+    row = await db.get(B2BGeneratedContract, request.generated_contract_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Wpis nie został znaleziony")
+    return row
+
+
+@router.post("/esign/{request_id}/extend", response_model=EsignRequestOut)
+async def extend_esign(
+    request_id: int,
+    body: EsignRenewIn,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignRequestOut:
+    """„Przedłuż termin” — link z pierwszego maila działa dłużej, PDF ten sam.
+
+    Jak wycofanie: działa także po wyłączeniu przełącznika."""
+    row = await _row_of(db, request_id)
+    await _assert_row_sender(db, current_user, row)
+    updated = await service.extend(
+        db,
+        request_id=request_id,
+        actor_id=current_user.id,
+        days=body.days,
+        now=_now(),
+    )
+    await db.commit()
+    out = await _out(db, updated)
+    subject, mail_body = esign_mail.contractor_extended_message(
+        number=row.contract_number, expires_at=updated.expires_at
+    )
+    await esign_mail.send_from(
+        db,
+        user_id=current_user.id,
+        to=updated.contractor_email or "",
+        subject=subject,
+        body_html=mail_body,
+        candidate_id=row.candidate_id,
+        request_key=f"b2b-esign-{request_id}-extended-{len(updated.events or [])}",
+        cc=await _cc_for_mail(db, row, list(updated.cc_user_ids or [])),
+    )
+    return out
+
+
+@router.post("/esign/{request_id}/relink", response_model=EsignSendOut)
+async def relink_esign(
+    request_id: int,
+    body: EsignRenewIn,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignSendOut:
+    """„Wyślij nowy link” po terminie — ten sam zamrożony PDF (27.10.2026).
+
+    Nowa wysyłka robi PDF o innych bajtach, więc plik podpisany przed terminem
+    byłby odrzucony. Tu kontraktor wgrywa go bez ponownego podpisu."""
+    current = await esign_settings.load(db)
+    if not current.can_send(current_user):
+        raise HTTPException(status_code=403, detail=MSG_OFF)
+    row = await _row_of(db, request_id)
+    await _assert_row_sender(db, current_user, row)
+    updated, token = await service.relink(
+        db,
+        row_id=row.id,
+        request_id=request_id,
+        actor_id=current_user.id,
+        days=body.days,
+        signer_ids=current.company_signer_ids,
+        now=_now(),
+    )
+    await db.commit()
+    url = _sign_url(token)
+    out = await _out(db, updated)
+    mail_sent, problem = await _mail_link(
+        db,
+        sender_id=current_user.id,
+        request=out,
+        row=row,
+        url=url,
+        request_key=f"b2b-esign-{request_id}-relink-{len(updated.events or [])}",
+        renewed=True,
+    )
+    return EsignSendOut(
+        request=out, sign_url=url, mail_sent=mail_sent, mail_problem=problem
+    )
 
 
 # ── Podpis za B2B Network ───────────────────────────────────────────────────
@@ -654,6 +830,27 @@ async def _notify(
         await db.rollback()
 
 
+async def _notify_many(
+    db: AsyncSession,
+    *,
+    user_ids: list[int],
+    title: str,
+    message: str,
+    ntype: NotificationType,
+    request_id: int,
+) -> None:
+    """Ten sam dzwonek dla nadawcy i osób w DW."""
+    for user_id in user_ids:
+        await _notify(
+            db,
+            user_id=user_id,
+            title=title,
+            message=message,
+            ntype=ntype,
+            request_id=request_id,
+        )
+
+
 async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
     request = await db.get(B2BSigningRequest, request_id)
     if request is None:
@@ -723,6 +920,9 @@ async def _send_contractor_copy(db: AsyncSession, request_id: int) -> None:
         body_html=body,
         candidate_id=row.candidate_id if row else None,
         request_key=f"b2b-esign-{request_id}-copy",
+        cc=(
+            await _cc_for_mail(db, row, list(request.cc_user_ids or [])) if row else []
+        ),
         attachments=[
             m365_sender.FileAttachment(
                 name=contract_file_name(
@@ -754,7 +954,8 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
     if request is None or request.status != "completed":
         return
     row_id = request.generated_contract_id
-    sender_id = request.sent_by
+    # Dzwonek o podpisie obu stron: nadawca i osoby w DW (27.10.2026).
+    watcher_ids = service.watchers(request)
     final_path = request.final_pdf_path
     row = await db.get(B2BGeneratedContract, row_id)
     number = row.contract_number if row else ""
@@ -816,9 +1017,9 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             logger.exception("[b2b_esign] plik nie trafił do Dokumentów row=%d", row_id)
             await db.rollback()
     if reason is None:
-        await _notify(
+        await _notify_many(
             db,
-            user_id=sender_id,
+            user_ids=watcher_ids,
             title=f"Umowa {number} podpisana przez obie strony",
             message=(
                 "Kontrakt i szkic zamówienia założone, kandydat na „Zatrudniony”, "
@@ -828,9 +1029,9 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
             request_id=request_id,
         )
     else:
-        await _notify(
+        await _notify_many(
             db,
-            user_id=sender_id,
+            user_ids=watcher_ids,
             title=f"Umowa {number} podpisana — oznacz ją w rejestrze",
             message=(
                 "Obie strony podpisały umowę w NEXUSIE, ale kontrakt nie powstał "
@@ -852,6 +1053,8 @@ def _public_status(request: B2BSigningRequest, now: datetime) -> str:
         return "signed_by_you"
     if request.status == "completed":
         return "completed"
+    if service.is_expired(request, now):
+        return "expired"
     return "waiting" if service.is_link_live(request, now) else "closed"
 
 
@@ -859,12 +1062,19 @@ async def _public_view(db: AsyncSession, request: B2BSigningRequest) -> PublicSi
     row = await db.get(B2BGeneratedContract, request.generated_contract_id)
     now = _now()
     status = _public_status(request, now)
+    if status == "expired" and not await service.renewable(db, request, now):
+        # Umowę anulowano, poprawiono albo wysłano od nowa — stary link nie
+        # obiecuje, że podpisany plik przejdzie.
+        status = "closed"
     copy_until = service.signed_copy_until(request)
     return PublicSignView(
         contract_number=row.contract_number if row else "",
         contractor_name=request.contractor_name,
         status=status,
-        expires_at=request.expires_at if status == "waiting" else None,
+        expires_at=(request.expires_at if status in ("waiting", "expired") else None),
+        renewal_requested_at=(
+            service.renewal_requested_at(request) if status == "expired" else None
+        ),
         signed_pdf_until=copy_until if copy_until and copy_until > now else None,
     )
 
@@ -945,4 +1155,33 @@ async def public_sign_submit(
     await db.commit()
     signing_id = signing.id
     await _after_contractor_signed(db, signing_id)
+    return await _public_view(db, await _fresh(db, signing_id))
+
+
+@public_router.post("/b2b-sign/{token}/renewal", response_model=PublicSignView)
+@limiter.limit("5/minute;20/hour")
+async def public_request_renewal(
+    token: str,
+    request: Request,  # wymagane przez slowapi
+    db: AsyncSession = Depends(get_db),
+) -> PublicSignView:
+    """„Poproś o nowy link” z wygasłego linku (27.10.2026) — dzwonek do osoby,
+    która wysłała umowę; kolejne kliknięcia w ciągu doby nic nie dodają."""
+    signing, fresh = await service.request_renewal(db, token=token, now=_now())
+    await db.commit()
+    signing_id = signing.id
+    if fresh:
+        row = await db.get(B2BGeneratedContract, signing.generated_contract_id)
+        number = row.contract_number if row else ""
+        await _notify_many(
+            db,
+            user_ids=service.watchers(signing),
+            title=f"Kontraktor prosi o nowy link do umowy {number}",
+            message=(
+                f"{signing.contractor_name}: link wygasł. „Wyślij nowy link” "
+                "w rejestrze wyśle ten sam PDF."
+            ),
+            ntype=NotificationType.signature_renewal_requested,
+            request_id=signing_id,
+        )
     return await _public_view(db, await _fresh(db, signing_id))

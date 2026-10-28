@@ -21,6 +21,12 @@ export interface EsignPerson {
   name: string;
 }
 
+/** Kandydat do DW: zespół rekrutacji i autor, którzy sami widzą umowę ze stawkami. */
+export interface EsignCcPerson extends EsignPerson {
+  /** Prowadzący rekrutację — zaznaczony od razu (decyzja Artura 27.10.2026). */
+  suggested: boolean;
+}
+
 export interface EsignSettings {
   mode: EsignMode;
   can_send: boolean;
@@ -43,6 +49,8 @@ export interface EsignRequest {
   completed_at: string | null;
   closed_at: string | null;
   close_reason: string | null;
+  /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
+  cc?: EsignPerson[];
   /** Tylko w liście „Czeka na mój podpis” (`/esign/mine`). */
   contract_number?: string | null;
   client_name?: string | null;
@@ -53,6 +61,7 @@ export interface EsignDefaults {
   contractor_email: string | null;
   company_signers: EsignPerson[];
   mailbox_connected: boolean;
+  cc_candidates?: EsignCcPerson[];
 }
 
 export interface EsignSendResult {
@@ -62,13 +71,21 @@ export interface EsignSendResult {
   mail_problem: string | null;
 }
 
-export type PublicSignState = "waiting" | "signed_by_you" | "completed" | "closed";
+export type PublicSignState =
+  | "waiting"
+  | "signed_by_you"
+  | "completed"
+  | "expired"
+  | "closed";
 
 export interface PublicSignView {
   contract_number: string;
   contractor_name: string;
   status: PublicSignState;
+  /** Przy `waiting` do kiedy działa link, przy `expired` kiedy minął termin. */
   expires_at: string | null;
+  /** Kontraktor poprosił już o nowy link (27.10.2026). */
+  renewal_requested_at?: string | null;
   /** Do kiedy link daje pobrać umowę podpisaną przez obie strony (26.10.2026). */
   signed_pdf_until?: string | null;
 }
@@ -101,13 +118,28 @@ export const b2bEsignApi = {
       .then((r) => r.data),
   send: (
     generatedId: number,
-    body: { contractor_email: string; company_signer_id: number; days: number },
+    body: {
+      contractor_email: string;
+      company_signer_id: number;
+      days: number;
+      cc_user_ids?: number[];
+    },
   ) =>
     api
       .post<EsignSendResult>(
         `/api/b2b-generator/generated/${generatedId}/esign/send`,
         body,
       )
+      .then((r) => r.data),
+  /** „Przedłuż termin”: link z pierwszego maila działa dłużej, PDF ten sam. */
+  extend: (requestId: number, days: number) =>
+    api
+      .post<EsignRequest>(`/api/b2b-generator/esign/${requestId}/extend`, { days })
+      .then((r) => r.data),
+  /** „Wyślij nowy link” po terminie: ten sam zamrożony PDF (27.10.2026). */
+  relink: (requestId: number, days: number) =>
+    api
+      .post<EsignSendResult>(`/api/b2b-generator/esign/${requestId}/relink`, { days })
       .then((r) => r.data),
   withdraw: (requestId: number, reason: string) =>
     api

@@ -127,3 +127,19 @@ class B2BSigningRequest(Base, TimestampMixin):
     last_reminder_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Odcisk danych umowy przy wysyłce (``service.payload_fingerprint``) —
+    # „Wyślij nowy link” na tym samym PDF-ie tylko przy niezmienionej umowie.
+    source_payload_sha256: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True
+    )
+    # Osoby z NEXUSA w DW (0604, 27.10.2026): mail z linkiem, kopia podpisanej
+    # umowy i dzwonki. Tylko ci, którzy sami mogliby wysłać tę umowę (stawki).
+    cc_user_ids: Mapped[list[int]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    # Zdarzenia, których nie da się odczytać z pól stanu (0603, 27.10.2026):
+    # przedłużenie, nowy link, prośba kontraktora o link, wygaśnięcie
+    # i przypomnienie sprzed kolejnego terminu. Wpis: ``{"kind", "at", …}``.
+    events: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )

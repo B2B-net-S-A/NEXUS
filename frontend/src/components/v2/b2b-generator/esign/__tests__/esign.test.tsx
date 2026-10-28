@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   mine: vi.fn(),
   companySign: vi.fn(),
   withdraw: vi.fn(),
+  extend: vi.fn(),
+  relink: vi.fn(),
   signedPdf: vi.fn(),
   downloadBlob: vi.fn(),
   showSuccess: vi.fn(),
@@ -38,6 +40,8 @@ vi.mock("@/lib/api/b2bEsign", async (importOriginal) => {
       companySign: (...a: unknown[]) => mocks.companySign(...a),
       companyPdf: vi.fn(),
       withdraw: (...a: unknown[]) => mocks.withdraw(...a),
+      extend: (...a: unknown[]) => mocks.extend(...a),
+      relink: (...a: unknown[]) => mocks.relink(...a),
       signedPdf: (...a: unknown[]) => mocks.signedPdf(...a),
     },
   };
@@ -99,10 +103,42 @@ describe("SendForSignatureDialog", () => {
         contractor_email: "piotr@example.com",
         company_signer_id: 9,
         days: 3,
+        cc_user_ids: [],
       }),
     );
     expect(await within(dialog).findByLabelText("Link do podpisu")).toHaveValue(
       "https://nexus.example/sign/b2b/abc",
+    );
+  });
+
+  it("DW: prowadzący rekrutację zaznaczony, inne osoby z zespołu do wyboru (27.10.2026)", async () => {
+    mocks.defaults.mockResolvedValue({
+      contractor_name: "Piotr Przykładowy",
+      contractor_email: "piotr@example.com",
+      company_signers: [{ id: 9, name: "Olaf Reprezentant" }],
+      mailbox_connected: true,
+      cc_candidates: [
+        { id: 21, name: "Rita Rekruterka", suggested: true },
+        { id: 22, name: "Dawid Delivery", suggested: false },
+      ],
+    });
+    mocks.send.mockResolvedValue({
+      request: { contractor_email: "piotr@example.com" },
+      sign_url: "https://nexus.example/sign/b2b/abc",
+      mail_sent: true,
+      mail_problem: null,
+    });
+    wrap(<SendForSignatureDialog row={ROW} onClose={() => undefined} />);
+    const dialog = await screen.findByRole("dialog");
+    const cc = await within(dialog).findByRole("group", { name: /Do wiadomości \(DW\)/ });
+    expect(within(cc).getByRole("checkbox", { name: /Rita Rekruterka/ })).toBeChecked();
+    expect(within(cc).getByRole("checkbox", { name: /Dawid Delivery/ })).not.toBeChecked();
+    expect(within(cc).getByText(/Mail wychodzi z Twojej skrzynki/)).toBeInTheDocument();
+    await userEvent.click(within(cc).getByRole("checkbox", { name: /Dawid Delivery/ }));
+    await userEvent.click(within(dialog).getByLabelText(/Sprawdziłam\/em treść umowy/));
+    await userEvent.click(within(dialog).getByRole("button", { name: /Wyślij link do kontraktora/ }));
+    await waitFor(() =>
+      expect(mocks.send).toHaveBeenCalledWith(5, expect.objectContaining({ cc_user_ids: [21, 22] })),
     );
   });
 
@@ -304,7 +340,7 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
       expect(document.body.textContent).not.toContain("—");
     }
     unmount();
-    for (const state of ["signed_by_you", "completed"] as const) {
+    for (const state of ["signed_by_you", "completed", "expired"] as const) {
       const view = render(<B2BSignForm token="t" initialState={state} />);
       expect(document.body.textContent).not.toContain("—");
       view.unmount();
@@ -312,6 +348,46 @@ describe("strona kontraktora — instrukcja per narzędzie (etap 1b)", () => {
     const big = new File(["x"], "umowa.pdf", { type: "application/pdf" });
     Object.defineProperty(big, "size", { value: 21 * 1024 * 1024 });
     expect(signedPdfProblem(big)).not.toContain("—");
+  });
+});
+
+describe("strona kontraktora po terminie (27.10.2026)", () => {
+  it("mówi, kiedy minął termin, i wysyła prośbę o nowy link", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        contract_number: "1555/2026",
+        contractor_name: "Jan Przykładowy",
+        status: "expired",
+        expires_at: "2026-10-30T10:00:00Z",
+        renewal_requested_at: "2026-10-31T09:00:00Z",
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<B2BSignForm token="t" initialState="expired" expiredOn="30.10.2026" />);
+    expect(screen.getByText("Termin na podpis minął 30.10.2026")).toBeInTheDocument();
+    expect(screen.getByText(/Nowy link go przyjmie/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Poproś o nowy link" }));
+    await waitFor(() => expect(screen.getByText("Prośba wysłana")).toBeInTheDocument());
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/public\/b2b-sign\/t\/renewal$/);
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
+    expect(screen.queryByRole("button", { name: "Poproś o nowy link" })).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("prośba wysłana wcześniej: bez przycisku, z datą", async () => {
+    const { default: B2BSignForm } = await import("@/app/sign/b2b/[token]/B2BSignForm");
+    render(
+      <B2BSignForm
+        token="t"
+        initialState="expired"
+        expiredOn="30.10.2026"
+        renewalRequestedOn="31.10.2026"
+      />,
+    );
+    expect(screen.getByText(/dostała Twoją prośbę 31\.10\.2026/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Poproś o nowy link" })).toBeNull();
   });
 });
 
@@ -381,6 +457,69 @@ describe("EsignRowStatus (audyt 22.10)", () => {
       blob,
       "Umowa B2B 1555-2026 Przykladowy Piotr podpisana.pdf",
     );
+  });
+
+  const dayFromNow = (days: number) =>
+    new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+
+  it("wygasły link: „Wyślij nowy link” na tym samym PDF-ie (27.10.2026)", async () => {
+    mocks.relink.mockResolvedValue({
+      request: { id: 4, status: "sent", contractor_email: "jan@example.com", expires_at: dayFromNow(3) },
+      sign_url: "https://nexus.example/sign/b2b/nowy",
+      mail_sent: false,
+      mail_problem: "Twoja skrzynka Microsoft 365 nie jest połączona z NEXUSEM.",
+    });
+    wrap(
+      <EsignRowStatus
+        row={row(
+          { status: "expired", expires_at: dayFromNow(-1), renewal_requested_at: dayFromNow(0) },
+          { can_relink_esign: true },
+        )}
+      />,
+    );
+    expect(screen.getByText(/Link wygasł/)).toBeInTheDocument();
+    expect(screen.getByText(/Kontraktor prosi o nowy link/)).toBeInTheDocument();
+    expect(screen.getByText(/podpisany już plik przejdzie/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Wyślij nowy link/ }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.click(within(dialog).getByRole("button", { name: /Wyślij nowy link/ }));
+    await waitFor(() => expect(mocks.relink).toHaveBeenCalledWith(4, 3));
+    expect(await within(dialog).findByLabelText("Nowy link do podpisu")).toHaveValue(
+      "https://nexus.example/sign/b2b/nowy",
+    );
+  });
+
+  it("wygasły link bez prawa albo po poprawce umowy: bez „Wyślij nowy link”", () => {
+    wrap(<EsignRowStatus row={row({ status: "expired", expires_at: dayFromNow(-1) })} />);
+    expect(screen.getByText(/Link wygasł/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Wyślij nowy link/ })).toBeNull();
+  });
+
+  it("termin minął, zanim pętla zamknęła wniosek: już widać „Link wygasł”", () => {
+    wrap(<EsignRowStatus row={row({ status: "sent", expires_at: dayFromNow(-0.1) })} />);
+    expect(screen.getByText(/Link wygasł/)).toBeInTheDocument();
+    expect(screen.queryByText(/Link ważny do/)).toBeNull();
+  });
+
+  it("link działa: „Przedłuż termin” wybiera liczbę dni", async () => {
+    mocks.extend.mockResolvedValue({ id: 4, status: "sent", expires_at: dayFromNow(8) });
+    wrap(
+      <EsignRowStatus
+        row={row({ status: "sent", expires_at: dayFromNow(1) }, { can_extend_esign: true })}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Przedłuż termin/ }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.selectOptions(within(dialog).getByLabelText("O ile dni"), "7");
+    await userEvent.click(within(dialog).getByRole("button", { name: /Przedłuż termin/ }));
+    await waitFor(() => expect(mocks.extend).toHaveBeenCalledWith(4, 7));
+    expect(await within(dialog).findByText(/Termin przedłużony do/)).toBeInTheDocument();
+  });
+
+  it("pokazuje, kto jest w DW wysyłki", () => {
+    wrap(<EsignRowStatus row={row({ expires_at: dayFromNow(2), cc_names: ["Rita Rekruterka"] })} />);
+    expect(screen.getByText("Rita Rekruterka")).toBeInTheDocument();
+    expect(screen.getByText(/DW:/)).toBeInTheDocument();
   });
 
   it("F45: bez prawa do pliku nie ma przycisku pobrania", () => {

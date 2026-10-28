@@ -457,3 +457,73 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
             )
         )
         assert kept == "dismissed"  # decyzja handlowca przetrwała drugi bieg
+
+
+# ── Bieg na produkcji przez coolify-ops (action=atlas-import) ─────────────────
+# Cron Coolify odpala jednorazowe zadanie co minutę, a log Actions jest publiczny.
+
+
+def _ops_lock() -> str:
+    return f"/tmp/nexus-atlas-import-{uuid.uuid4().int % 10**12}"
+
+
+def test_lock_accepts_only_the_ops_shape() -> None:
+    import argparse
+
+    from scripts.import_atlas_sales import _lock_path
+
+    assert (
+        str(_lock_path("/tmp/nexus-atlas-import-123")) == "/tmp/nexus-atlas-import-123"
+    )
+    for bad in (
+        "/tmp/x",
+        "/app/nexus-atlas-import-1",
+        "/tmp/nexus-atlas-import-1/../../etc",
+    ):
+        with pytest.raises(argparse.ArgumentTypeError):
+            _lock_path(bad)
+
+
+def test_second_firing_with_the_same_lock_does_not_import_again(
+    monkeypatch, capsys
+) -> None:
+    import shutil
+
+    from scripts import import_atlas_sales as script
+
+    calls: list[tuple[bool, bool]] = []
+
+    async def fake_main(apply: bool, files: bool) -> int:
+        calls.append((apply, files))
+        return 0
+
+    monkeypatch.setattr(script, "_main", fake_main)
+    lock = _ops_lock()
+    try:
+        assert script.main(["--apply", "--lock", lock]) == 0
+        assert script.main(["--apply", "--lock", lock]) == 3
+    finally:
+        shutil.rmtree(lock, ignore_errors=True)
+    assert calls == [(True, False)]
+    assert "already ran" in capsys.readouterr().err
+
+
+def test_failure_under_lock_prints_only_the_error_type(monkeypatch, capsys) -> None:
+    import shutil
+    from pathlib import Path
+
+    from scripts import import_atlas_sales as script
+
+    async def failing_main(apply: bool, files: bool) -> int:
+        raise RuntimeError("Firma Testowa sp. z o.o. — kontakt@example.com")
+
+    monkeypatch.setattr(script, "_main", failing_main)
+    lock = _ops_lock()
+    try:
+        assert script.main(["--lock", lock]) == 1
+        out = capsys.readouterr()
+        assert "RuntimeError" in out.out
+        assert "Firma Testowa" not in out.out + out.err
+        assert "Firma Testowa" in (Path(lock) / "error.log").read_text()
+    finally:
+        shutil.rmtree(lock, ignore_errors=True)

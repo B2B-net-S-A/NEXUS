@@ -215,6 +215,12 @@ def test_entrypoint_mirrors_the_signing_table():
     entrypoint = (root / "entrypoint.sh").read_text(encoding="utf-8")
     assert "CREATE TABLE IF NOT EXISTS b2b_signing_requests" in entrypoint
     assert "uq_b2b_signing_requests_open_per_row" in entrypoint
+    # 0603: dziennik zdarzeń i odcisk danych umowy (wygasły link, 27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS events" in entrypoint
+    assert "source_payload_sha256 VARCHAR(64)" in entrypoint
+    assert "'signature_renewal_requested'" in entrypoint
+    # 0604: osoby w DW przy wysyłce (27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS cc_user_ids" in entrypoint
     migration = (root / "alembic/versions/0499_b2b_signing_requests.py").read_text()
     assert re.search(r'down_revision = "0496_b2b_generated_signed_file"', migration)
 
@@ -997,7 +1003,10 @@ async def test_sweeper_reminds_a_day_before_the_deadline_once_then_expires_the_l
     async with AsyncSessionLocal() as db:
         request = await db.get(B2BSigningRequest, request_id)
         assert request is not None and request.status == "expired"
-    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+    # Wygasły link nie znika: kontraktor widzi termin i „Poproś o nowy link”
+    # (27.10.2026), ale pliku już nie wgra.
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.status_code == 200 and view.json()["status"] == "expired"
     titles = await _notices(esign_env["admin_id"], request_id)
     assert any("wygasł" in t for t in titles), titles
 
@@ -1433,3 +1442,649 @@ async def test_withdraw_stays_available_after_the_switch_goes_off(
     item = await _register_item(app_client, app_auth_headers, generated_id)
     assert item["can_send_esign"] is False
     assert item["can_withdraw_esign"] is True
+
+
+# ── wygasły link: ten sam PDF, przedłużenie, prośba kontraktora (27.10.2026) ──
+
+
+def test_payload_fingerprint_follows_the_contract_data_not_the_pdf_bytes():
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.service import payload_fingerprint
+
+    row = SimpleNamespace(contract_number="1555/2026", render_payload={"a": 1, "b": 2})
+    same = SimpleNamespace(contract_number="1555/2026", render_payload={"b": 2, "a": 1})
+    edited = SimpleNamespace(
+        contract_number="1555/2026", render_payload={"a": 1, "b": 3}
+    )
+    renumbered = SimpleNamespace(
+        contract_number="1556/2026", render_payload={"a": 1, "b": 2}
+    )
+    assert payload_fingerprint(row) == payload_fingerprint(same)
+    assert payload_fingerprint(row) != payload_fingerprint(edited)
+    assert payload_fingerprint(row) != payload_fingerprint(renumbered)
+
+
+def test_history_keeps_every_deadline_new_link_and_the_contractor_request():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.history import esign_history
+
+    t0 = datetime(2026, 10, 27, 9, 0, tzinfo=timezone.utc)
+    request = SimpleNamespace(
+        id=5,
+        status="sent",
+        sent_at=t0,
+        sent_by=7,
+        last_reminder_at=None,
+        contractor_signed_at=None,
+        completed_at=None,
+        closed_at=None,
+        closed_by=None,
+        close_reason=None,
+        company_signer_id=9,
+        events=[
+            {"kind": "contractor_reminder", "at": (t0 + timedelta(days=2)).isoformat()},
+            {"kind": "expired", "at": (t0 + timedelta(days=3)).isoformat()},
+            {"kind": "renewal_requested", "at": (t0 + timedelta(days=4)).isoformat()},
+            {
+                "kind": "relinked",
+                "at": (t0 + timedelta(days=4, hours=2)).isoformat(),
+                "user_id": 8,
+                "until": (t0 + timedelta(days=7, hours=2)).isoformat(),
+            },
+            {"kind": "nieznany", "at": t0.isoformat()},
+        ],
+    )
+
+    entries = esign_history([request])
+
+    assert [e.label for e in entries] == [
+        "Wysłana do podpisu w NEXUSIE",
+        "Przypomnienie do kontraktora",
+        "Link do podpisu wygasł",
+        "Kontraktor poprosił o nowy link",
+        "Nowy link do kontraktora, ten sam PDF, ważny do 03.11.2026",
+    ]
+    assert entries[-1].user_id == 8
+    assert len({e.key for e in entries}) == len(entries)
+
+
+async def _expire(request_id: int, now) -> None:
+    from app.tasks import b2b_esign_sweeper
+
+    assert await b2b_esign_sweeper._handle(request_id, now) == "expired"
+
+
+@pytest.mark.asyncio
+async def test_new_link_after_the_deadline_keeps_the_pdf_so_a_signed_file_passes(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Zespół 27.10.2026: „co jeśli link wygaśnie?”. LibreOffice daje z tego
+    samego Worda inne bajty, więc nowa wysyłka odrzucała plik podpisany przed
+    terminem. „Wyślij nowy link” zostaje na zamrożonym PDF-ie."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.api import b2b_esign
+
+    renders: list[int] = []
+
+    async def _pdf(docx: bytes) -> bytes:
+        renders.append(1)
+        return SOURCE if len(renders) == 1 else SOURCE + b"% inny /ID\n"
+
+    monkeypatch.setattr(b2b_esign, "pdf_from_docx", _pdf)
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    partner = await _partner(scenario["generated_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    assert sent.status_code == 200, sent.text
+    request_id = sent.json()["request"]["id"]
+    old_token = _token(sent.json()["sign_url"])
+    # Kontraktor pobiera i podpisuje plik, ale nie zdąży go wgrać.
+    contractor_pdf = SOURCE + b"% podpis kontraktora\n"
+    now = datetime.now(timezone.utc)
+    await _expire(request_id, now + timedelta(days=3, minutes=1))
+
+    view = await app_client.get(f"/api/public/b2b-sign/{old_token}")
+    assert view.status_code == 200, view.text
+    assert view.json()["status"] == "expired"
+    assert view.json()["expires_at"] is not None
+    _FakeValidator.report = _report((f"CN={partner}", "TOTAL_PASSED", "QESig"))
+    late = await app_client.post(
+        f"/api/public/b2b-sign/{old_token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert late.status_code == 410, late.text
+    assert "Poproś o nowy link" in late.json()["detail"]
+
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_relink_esign"] is True
+    assert listed["can_extend_esign"] is False
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert relinked.json()["request"]["id"] == request_id
+    assert relinked.json()["request"]["status"] == "sent"
+    new_token = _token(relinked.json()["sign_url"])
+    assert new_token != old_token
+    assert len(renders) == 1, "nowy link nie robi nowego PDF-a"
+    assert (
+        await app_client.get(f"/api/public/b2b-sign/{old_token}")
+    ).status_code == 404
+    pdf = await app_client.get(f"/api/public/b2b-sign/{new_token}/pdf")
+    assert pdf.content == SOURCE
+
+    signed = await app_client.post(
+        f"/api/public/b2b-sign/{new_token}",
+        files={"file": ("u.pdf", contractor_pdf, "application/pdf")},
+    )
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "signed_by_you"
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/status-history",
+        headers=app_auth_headers,
+    )
+    assert history.status_code == 200, history.text
+    labels = [e["label"] for e in history.json() if e.get("kind") == "esign"]
+    assert "Link do podpisu wygasł" in labels, labels
+    assert any(label.startswith("Nowy link do kontraktora") for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_new_link_needs_an_expired_link_and_an_unchanged_contract(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    live = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert live.status_code == 409, live.text
+    assert "Przedłuż termin" in live.json()["detail"]
+
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.render_payload = {**(row.render_payload or {}), "poprawka": "stawka"}
+        await db.commit()
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_relink_esign"] is False
+    edited = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert edited.status_code == 409, edited.text
+    assert "Wyślij ją do podpisu od nowa" in edited.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_extend_keeps_the_link_and_the_new_deadline_gets_its_own_reminder(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    first_deadline = datetime.fromisoformat(sent.json()["request"]["expires_at"])
+    now = datetime.now(timezone.utc)
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
+        == "reminded"
+    )
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["can_extend_esign"] is True
+    assert listed["can_relink_esign"] is False
+
+    extended = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/extend",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert extended.status_code == 200, extended.text
+    new_deadline = datetime.fromisoformat(extended.json()["expires_at"])
+    assert new_deadline - first_deadline == timedelta(days=3)
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.json()["status"] == "waiting", "link z pierwszego maila działa dalej"
+
+    # Stary termin nic już nie zamyka; nowy dostaje jedno przypomnienie.
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=3, minutes=1))
+        is None
+    )
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=5, minutes=1))
+        == "reminded"
+    )
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        kinds = [e["kind"] for e in request.events]
+    assert kinds == ["contractor_reminder", "extended"]
+
+    await _expire(request_id, now + timedelta(days=6, minutes=1))
+    late = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/extend",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert late.status_code == 409, late.text
+    assert "nowy link" in late.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_contractor_asks_for_a_new_link_and_the_sender_gets_one_bell_a_day(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=1,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    too_early = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert too_early.status_code == 409, too_early.text
+
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=1, minutes=1))
+    asked = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["status"] == "expired"
+    assert asked.json()["renewal_requested_at"] is not None
+    again = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert again.status_code == 200, again.text
+
+    titles = await _notices(esign_env["admin_id"], request_id)
+    assert sum("prosi o nowy link" in t for t in titles) == 1, titles
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["renewal_requested_at"] is not None
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["renewal_requested_at"] is None
+
+    bogus = await app_client.post("/api/public/b2b-sign/zly-link/renewal")
+    assert bogus.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_after_a_new_link_the_reminder_counts_from_that_link_not_the_first_mail(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Przegląd kodu 27.10.2026: przypomnienie liczone od pierwszej wysyłki
+    wychodziło zaraz po nowym linku i wskazywało martwy link z pierwszego maila."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+    from app.tasks import b2b_esign_sweeper
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    t0 = datetime.now(timezone.utc)
+    await _expire(request_id, t0 + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 1},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    relinked_at = datetime.now(timezone.utc)
+    # Pierwsza wysyłka była dni temu (w teście „teraz” to czas wysyłki).
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        request.sent_at -= timedelta(days=4)
+        await db.commit()
+
+    assert (
+        await b2b_esign_sweeper._handle(request_id, relinked_at + timedelta(minutes=31))
+        is None
+    )
+    mails: list[str] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs["body_html"])
+        return False, "bez skrzynki"
+
+    original = b2b_esign_sweeper.esign_mail.send_from
+    b2b_esign_sweeper.esign_mail.send_from = _capture
+    try:
+        assert (
+            await b2b_esign_sweeper._handle(
+                request_id, relinked_at + timedelta(hours=12, minutes=1)
+            )
+            == "reminded"
+        )
+    finally:
+        b2b_esign_sweeper.esign_mail.send_from = original
+    assert (
+        mails
+        and relinked_at.astimezone(b2b_esign_sweeper._WARSAW).strftime("%d.%m.%Y")
+        in mails[0]
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_link_moves_to_a_listed_representative_when_the_old_one_left(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_signing_request import B2BSigningRequest
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    async with AsyncSessionLocal() as db:
+        await esign_settings.save(
+            db,
+            esign_settings.EsignSettings(
+                mode="all", company_signer_ids=(esign_env["admin_id"],)
+            ),
+            actor_id=esign_env["admin_id"],
+        )
+        await db.commit()
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert relinked.json()["request"]["company_signer_id"] == esign_env["admin_id"]
+    async with AsyncSessionLocal() as db:
+        request = await db.get(B2BSigningRequest, request_id)
+        assert request is not None
+        changed = [e for e in request.events if e["kind"] == "signer_changed"]
+    assert changed and changed[0]["previous"] == esign_env["signer_id"]
+
+
+@pytest.mark.asyncio
+async def test_expired_link_of_a_cancelled_or_resent_contract_does_not_promise_a_new_link(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.b2b_generated_contract import B2BGeneratedContract
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    token = _token(sent.json()["sign_url"])
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+
+    # Poprawka umowy po wygaśnięciu: link nie obiecuje już tego samego PDF-a.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        original_payload = row.render_payload
+        row.render_payload = {**(row.render_payload or {}), "poprawka": "stawka"}
+        await db.commit()
+    view = await app_client.get(f"/api/public/b2b-sign/{token}")
+    assert view.json()["status"] == "closed", view.text
+    asked = await app_client.post(f"/api/public/b2b-sign/{token}/renewal")
+    assert asked.status_code == 409, asked.text
+
+    # Umowa wraca do treści z wysyłki, ale idzie nowa wysyłka: stary link gaśnie.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(B2BGeneratedContract, scenario["generated_id"])
+        assert row is not None
+        row.render_payload = original_payload
+        await db.commit()
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).json()[
+        "status"
+    ] == "expired"
+    fresh = await _send(
+        app_client, app_auth_headers, scenario["generated_id"], esign_env["signer_id"]
+    )
+    assert fresh.status_code == 200, fresh.text
+    assert (await app_client.get(f"/api/public/b2b-sign/{token}")).status_code == 404
+
+
+# ── DW przy wysyłce (decyzja Artura 27.10.2026) ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_cc_is_the_recruitment_team_and_gets_the_link_mail_and_the_bells(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """DW tylko z zespołu rekrutacji i autora, którzy sami widzą umowę ze
+    stawkami; mail z własnej skrzynki nadawcy, rekruter w DW."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import User, UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    outsider_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+        recruiter_email = (await db.get(User, recruiter_id)).email
+
+    defaults = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/defaults",
+        headers=app_auth_headers,
+    )
+    assert defaults.status_code == 200, defaults.text
+    candidates = {p["id"]: p for p in defaults.json()["cc_candidates"]}
+    assert candidates[recruiter_id]["suggested"] is True
+    assert outsider_id not in candidates
+    assert esign_env["admin_id"] not in candidates, "nadawca nie jest w DW"
+
+    outsider = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [outsider_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert outsider.status_code == 422, outsider.text
+
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert [p["id"] for p in sent.json()["request"]["cc"]] == [recruiter_id]
+    assert mails[0]["to"] == "anna@example.com"
+    assert mails[0]["cc"] == [recruiter_email]
+    assert mails[0]["user_id"] == esign_env["admin_id"], "mail z własnej skrzynki"
+
+    listed = await _register_item(
+        app_client, app_auth_headers, scenario["generated_id"]
+    )
+    assert listed["esign"]["cc_names"] == ["Signature recruiter"]
+
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    assert any("wygasł" in t for t in await _notices(recruiter_id, request_id))
+    assert any("wygasł" in t for t in await _notices(esign_env["admin_id"], request_id))
+    assert not await _notices(outsider_id, request_id)
+
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [recruiter_email], "nowy link też idzie do DW"
+
+
+def test_watchers_are_the_sender_and_cc_without_repeats():
+    from types import SimpleNamespace
+
+    from app.services.b2b_esign.service import watchers
+
+    assert watchers(SimpleNamespace(sent_by=7, cc_user_ids=[9, 7, 9, 11])) == [7, 9, 11]
+    assert watchers(SimpleNamespace(sent_by=None, cc_user_ids=[])) == []
+
+
+@pytest.mark.asyncio
+async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Przegląd kodu 27.10.2026: DW sprawdzane tylko przy wysyłce — rekruter
+    przepięty z rekrutacji dostawał nowy link do PDF-a ze stawkami."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    successor_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = recruiter_id
+        await db.commit()
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    sent = await app_client.post(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/esign/send",
+        json={
+            "contractor_email": "anna@example.com",
+            "company_signer_id": esign_env["signer_id"],
+            "days": 3,
+            "cc_user_ids": [recruiter_id],
+        },
+        headers=app_auth_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert mails[-1]["cc"], "przy wysyłce rekruter jest w DW"
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, scenario["job_id"])
+        assert job is not None
+        job.recruiter_id = successor_id
+        await db.commit()
+    request_id = sent.json()["request"]["id"]
+    await _expire(request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1))
+    relinked = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/relink",
+        json={"days": 3},
+        headers=app_auth_headers,
+    )
+    assert relinked.status_code == 200, relinked.text
+    assert mails[-1]["cc"] == [], "kto wypadł z zespołu, nie dostaje nowego linku"

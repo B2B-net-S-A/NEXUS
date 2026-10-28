@@ -1203,6 +1203,7 @@ async def _serialize_generated_contracts(
     esign_mode = await esign_settings.load(db)
     esign_allowed = esign_mode.can_send(current_user)
     latest_esign: dict[int, B2BSigningRequest] = {}
+    list_now = datetime.now(timezone.utc)
     if rows:
         esign_rows = await db.scalars(
             select(B2BSigningRequest)
@@ -1218,7 +1219,7 @@ async def _serialize_generated_contracts(
         latest_esign = {r.generated_contract_id: r for r in esign_rows.all()}
     esign_signer_ids = {
         r.company_signer_id for r in latest_esign.values() if r.company_signer_id
-    }
+    } | {uid for r in latest_esign.values() for uid in (r.cc_user_ids or [])}
     esign_signer_names: dict[int, str] = {}
     if esign_signer_ids:
         named = await db.execute(
@@ -1359,6 +1360,21 @@ async def _serialize_generated_contracts(
             and row.render_payload is not None
         )
 
+        # Wygasły link: nowy na tym samym PDF-ie, gdy umowy nikt nie poprawił.
+        can_extend_esign = (
+            may_handle_esign
+            and esign is not None
+            and esign_service.is_link_live(esign, list_now)
+        )
+        can_relink_esign = (
+            esign_allowed
+            and may_handle_esign
+            and esign is not None
+            and esign_service.is_expired(esign, list_now)
+            and esign_service.row_still_signable(row)
+            and esign.source_payload_sha256 == esign_service.payload_fingerprint(row)
+        )
+
         linked_status, linked_end = linked_contracts.get(row.contract_id, (None, None))
         job = jobs.get(row.job_id) if row.job_id is not None else None
         # Kolumna „Partner": nazwa firmy z rejestru, a dla spółki dodatkowo
@@ -1454,12 +1470,20 @@ async def _serialize_generated_contracts(
                         company_signer_name=esign_signer_names.get(
                             esign.company_signer_id or -1
                         ),
+                        renewal_requested_at=esign_service.renewal_requested_at(esign),
+                        cc_names=[
+                            esign_signer_names[uid]
+                            for uid in (esign.cc_user_ids or [])
+                            if uid in esign_signer_names
+                        ],
                     )
                     if esign is not None
                     else None
                 ),
                 can_send_esign=can_send_esign,
                 can_withdraw_esign=may_handle_esign and esign_open,
+                can_extend_esign=can_extend_esign,
+                can_relink_esign=can_relink_esign,
                 # Ta sama bramka co trasa `signed-pdf` (nadawca albo reprezentant).
                 can_download_signed_esign=(
                     esign is not None
