@@ -55,6 +55,26 @@ osobie z kartoteki i uczestniku Akademii.
   `from __future__ import annotations`). Token tylko w adresie, w bazie SHA-256;
   14 dni, jednorazowy; nowy link unieważnia poprzednie. Zły, zużyty, wygasły
   i unieważniony token wyglądają z zewnątrz tak samo.
+- **Poprawka tylko przed podpisem, anulowanie przed potwierdzeniem** (decyzja
+  Artura 28.10.2026, prośba recepcji o „edycję” protokołów; logika
+  w `app/services/equipment/protocol_changes.py`, uprawnienie „Sprzęt”).
+  `PATCH /protocols/{id}` przyjmuje wyłącznie protokół `oczekuje` — podpisany
+  albo potwierdzony = 409 „zrób zwrot i nowe wydanie”. Zmienia się: data (w tym
+  samym roku — numer jest z roku), imię i nazwisko w protokole (nazwa konta
+  nie), per pozycja wartość (wydanie, bez SIM i karty dostępu — D6), dodatki
+  w nazwie (wydanie, kontrola D10 jak notatki) oraz stan i uwagi (zwrot; stan
+  przestawia egzemplarz jak przy zwrocie, a ponownie wydanego nie rusza).
+  Pozycji nie dodaje się ani nie usuwa. Numer zostaje, `total_value` się
+  przelicza, aktywny link przestaje działać (osoba nie podpisze starej treści),
+  różnice idą do audytu (`protocol_corrected`). `POST /protocols/{id}/cancel`
+  z powodem: `oczekuje` i `podpisany` (potwierdzony = 409). Anulowane wydanie
+  zamyka swoje wydania (egzemplarze `na_stanie`, pozycje zakładki kontraktu
+  znikają; gdy część już wróciła — 409 „najpierw anuluj zwrot”), anulowany
+  zwrot przywraca wydania (egzemplarz ponownie wydany albo wycofany = 409).
+  Link unieważniony, zadanie „podpis” → `anulowane`, kto/kiedy/dlaczego
+  w `cancelled_at`, `cancelled_by`, `cancel_reason` (0609). Stan `anulowany` nie
+  liczy się do „Czeka na podpis” ani „Bez podpisu”. Ekran: „Popraw” w oknie
+  protokołu (z „Anuluj protokół…” w stopce), te same akcje w ⋯ wiersza listy.
 
 ## Zadania recepcji („Do zrobienia”)
 

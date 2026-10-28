@@ -85,6 +85,12 @@ CHAIN = (
         "0508_candidate_data_access_alert",
         "care_board_schema",
     ),
+    # Poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    (
+        "0609_equipment_protocol_cancel",
+        "0608_linkedin_extension",
+        "equipment_protocol_cancel_schema",
+    ),
 )
 
 

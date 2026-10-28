@@ -221,6 +221,14 @@ class EquipmentProtocol(Base, TimestampMixin):
         ForeignKey("equipment_protocol_templates.id", ondelete="RESTRICT"),
         nullable=True,
     )
+    # 0609: anulowanie protokołu (decyzja Artura 28.10.2026).
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelled_by: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    cancel_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class EquipmentAssignment(Base, TimestampMixin):

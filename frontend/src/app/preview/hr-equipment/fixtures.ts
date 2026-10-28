@@ -604,6 +604,10 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
         unit_value: spec.kind === "wydanie" && !noValue ? item.model.price_pln : null,
         condition: spec.kind === "zwrot" ? (spec.condition ?? "sprawny") : null,
         notes: null,
+        // Okno „Popraw protokół” rozdziela nazwę z rejestru i dodatki recepcji.
+        ...(spec.kind === "wydanie"
+          ? { base_name: lineName(item, null), accessories: spec.accessories?.[item.id] ?? "" }
+          : {}),
       };
     });
     const totalCents = lines.reduce(

@@ -290,6 +290,10 @@ def protocol_payload(
         "confirmed_at": (
             protocol.confirmed_at.isoformat() if protocol.confirmed_at else None
         ),
+        "cancelled_at": (
+            protocol.cancelled_at.isoformat() if protocol.cancelled_at else None
+        ),
+        "cancel_reason": protocol.cancel_reason,
         "template_version": protocol.template_version,
         "template_id": protocol.template_id,
         "created_at": protocol.created_at.isoformat() if protocol.created_at else None,
