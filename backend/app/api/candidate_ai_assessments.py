@@ -1,4 +1,4 @@
-"""„Oceń z AI” na zaznaczonych osobach w rekrutacji (0615).
+"""„Oceń z AI” na zaznaczonych osobach w rekrutacji (0616).
 
 Dostęp jak dodanie kandydata do rekrutacji (``proposals/bulk``): sekcja
 Pipeline (zależności routera), ``RecruiterPlus`` i członkostwo w zespole

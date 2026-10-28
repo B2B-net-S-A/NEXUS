@@ -1,4 +1,4 @@
-"""„Oceń z AI” na zaznaczonych osobach w oknie „Kandydaci do dodania” (0615).
+"""„Oceń z AI” na zaznaczonych osobach w oknie „Kandydaci do dodania” (0616).
 
 Zgłoszenie rekrutera z 28.10.2026: zamiast ufać „Propozycjom z bazy” pobierał
 CV hurtem (alarm „masowe przeglądanie CV”), wrzucał je do prywatnego czatu,
