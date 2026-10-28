@@ -1,4 +1,4 @@
-"""„Ogłoszenia” na pulpicie (0613, decyzja Artura 28.10.2026).
+"""„Ogłoszenia” na pulpicie (0614, decyzja Artura 28.10.2026).
 
 Publikują Head of Recruitment i admin; odbiorcy to wszyscy albo wybrane role;
 „przeczytane” per osoba; po dniu „widoczne do” ogłoszenie znika samo.
@@ -46,7 +46,7 @@ def test_entrypoint_mirrors_the_migration() -> None:
     assert "from app.services import announcements_schema" in entry
     assert "*_announcements_schema.TABLE_DDL" in entry
     assert "*_announcements_schema.INDEX_DDL" in entry
-    migration = (BACKEND / "alembic/versions/0613_announcements.py").read_text()
+    migration = (BACKEND / "alembic/versions/0614_announcements.py").read_text()
     assert "ENUM_DDL, INDEX_DDL, TABLE_DDL" in migration
     assert len(TABLE_DDL) == 2 and len(INDEX_DDL) == 2
 

@@ -827,7 +827,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
     # 0612: nowa osoba po pierwszym logowaniu — do HoR i adminów.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
-    # 0613: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
+    # 0614: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -1218,7 +1218,7 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
 
-# Ogłoszenia na pulpicie (0613): tabele i indeksy — JEDNO źródło z migracją
+# Ogłoszenia na pulpicie (0614): tabele i indeksy — JEDNO źródło z migracją
 # (`app/services/announcements_schema.py`).
 try:
     from app.services import announcements_schema as _announcements_schema
@@ -6830,7 +6830,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
-    # 0613: ogłoszenia na pulpicie (po `users`, na które wskazują).
+    # 0614: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
 ]
 
