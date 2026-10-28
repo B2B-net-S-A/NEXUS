@@ -275,3 +275,31 @@ export function clearSearchMemory(): void {
     }
   }
 }
+
+// ── Powrót z profilu do „Szukaj ręcznie” rekrutacji ────────────────────────
+// Ostatnio otwarta osoba i osoby „wybrane” na profilu (pamięć karty, per
+// rekrutacja). Okno po powrocie wyróżnia ostatnią i zaznacza wybrane.
+
+const JOB_RETURN_PREFIX = `${SEARCH_MEMORY_PREFIX}job-return:`;
+
+export interface JobSearchReturn {
+  lastOpenedId: number | null;
+  picked: number[];
+}
+
+export function readJobSearchReturn(jobId: number): JobSearchReturn {
+  const v = readJson(session(), `${JOB_RETURN_PREFIX}${jobId}`);
+  if (!isRecord(v)) return { lastOpenedId: null, picked: [] };
+  return {
+    lastOpenedId: typeof v.lastOpenedId === "number" ? v.lastOpenedId : null,
+    picked: Array.isArray(v.picked)
+      ? v.picked.filter((id): id is number => typeof id === "number")
+      : [],
+  };
+}
+
+export function writeJobSearchReturn(jobId: number, patch: Partial<JobSearchReturn>): JobSearchReturn {
+  const next = { ...readJobSearchReturn(jobId), ...patch };
+  writeJson(session(), `${JOB_RETURN_PREFIX}${jobId}`, next);
+  return next;
+}

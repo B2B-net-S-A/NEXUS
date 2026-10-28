@@ -77,6 +77,8 @@ import {
   writeListSearch,
   readCvSeen,
   markCvSeen,
+  readJobSearchReturn,
+  writeJobSearchReturn,
 } from "@/lib/search-memory";
 import { RecentSearchesMenu } from "@/components/v2/filters/RecentSearchesMenu";
 import {
@@ -167,6 +169,7 @@ import {
   encodeFilterCriteria,
   encodeFilters,
   encodeNavContext,
+  withJobSearchBackRef,
   filtersEqual,
   filtersToApiParams,
   parseRateBound,
@@ -1229,7 +1232,9 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  }, [applied, restoredBanner, forJob]);
  // Przewinięcie listy i ostatnio otwarta osoba — przywracane po powrocie.
  const [lastOpenedId] = useState<number | null>(() =>
- initialList.restored || initialList.memory?.query === encodeFilters({ ...filtersSnapshot, savedSearchId: null, view: "list" }).toString()
+ embed
+ ? readJobSearchReturn(embed.jobId).lastOpenedId
+ : initialList.restored || initialList.memory?.query === encodeFilters({ ...filtersSnapshot, savedSearchId: null, view: "list" }).toString()
  ? initialList.memory?.lastOpenedId ?? null
  : null,
  );
@@ -1481,6 +1486,22 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  useEffect(() => {
  virtualizer.measure();
  }, [virtualizer, data, hasSearchTerms]);
+ // Powrót z profilu do okna rekrutacji: lista staje na ostatnio otwartej osobie.
+ const scrolledToLastRef = useRef(false);
+ useEffect(() => {
+ if (!embed || scrolledToLastRef.current || lastOpenedId === null || !data || isFetching) return;
+ scrolledToLastRef.current = true;
+ const idx = items.findIndex((c) => c.id === lastOpenedId);
+ if (idx < 0) return;
+ virtualizer.scrollToIndex(idx, { align: "center" });
+ // Lista w oknie zwykle zaczyna się pod filtrami — przewijamy też samo okno.
+ window.setTimeout(() => {
+ parentRef.current
+ ?.querySelector(`a[href^="/candidates/${lastOpenedId}?"]`)
+ ?.scrollIntoView({ block: "center" });
+ }, 300);
+ // eslint-disable-next-line react-hooks/exhaustive-deps
+ }, [data, isFetching]);
  // Okno CV przechodzi po osobach z CV z bieżącej strony, w kolejności listy.
  const cvPeople = useMemo<CvBrowserPerson[]>(
  () =>
@@ -1504,7 +1525,12 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  // przy montowaniu, jak reszta stanu listy; `encodeFilters` go nie zapisuje,
  // więc pierwszy zapis adresu (zawsze replaceState, wyżej) zdejmuje parametr.
  const [selectedIds, setSelectedIds] = useState<Set<number>>(
- () => new Set(decodeSelectedIds(new URLSearchParams(searchParams.toString())))
+ () =>
+ new Set([
+ ...decodeSelectedIds(new URLSearchParams(searchParams.toString())),
+ // Osoby „wybrane” na profilu otwartym z tego okna wracają zaznaczone.
+ ...(embed ? readJobSearchReturn(embed.jobId).picked : []),
+ ])
  );
  const toggleId = useCallback((id: number) => {
  setSelectedIds((prev) => {
@@ -1515,6 +1541,12 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  });
  }, []);
  const clearSelection = () => setSelectedIds(new Set());
+ // Zaznaczenie w oknie i „Wybieram” na profilu to jeden zbiór: profil widzi,
+ // kogo już zaznaczono, a dodani do „Nowych” znikają z obu miejsc.
+ useEffect(() => {
+ if (embedJobId === null) return;
+ writeJobSearchReturn(embedJobId, { picked: Array.from(selectedIds) });
+ }, [embedJobId, selectedIds]);
 
  // „Szukaj ręcznie” z rekrutacji: dopasowanie do TEJ rekrutacji (tylko
  // wiersze na ekranie, paczki po 20) i dodanie wprost do „Nowych” — ta sama
@@ -2668,12 +2700,17 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
-                                  href={`/candidates/${candidate.id}?${encodeNavContext(queryFilters, position).toString()}`}
+                                  href={`/candidates/${candidate.id}?${(embed
+                                    ? withJobSearchBackRef(encodeNavContext(queryFilters, position), embed.jobId)
+                                    : encodeNavContext(queryFilters, position)
+                                  ).toString()}`}
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     if (!embed) {
                                       writeListSearch({ query: memoryQuery, lastOpenedId: candidate.id });
+                                      return;
                                     }
+                                    writeJobSearchReturn(embed.jobId, { lastOpenedId: candidate.id });
                                   }}
                                   className="min-w-0 truncate font-medium text-foreground hover:text-primary hover:underline"
                                   title={fullName}
@@ -2687,7 +2724,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                                     Nowy
                                   </Badge>
                                 ) : null}
-                                {candidate.id === lastOpenedId ? (
+                                {/* W oknie rekrutacji wystarcza pasek z lewej — plakietka ściskała nazwisko przy 1280. */}
+                                {candidate.id === lastOpenedId && !embed ? (
                                   <Badge size="sm" variant="info" className="shrink-0">
                                     Ostatnio otwarta
                                   </Badge>
