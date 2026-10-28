@@ -48,6 +48,7 @@ from app.models.contract import (
     Contract,
     ContractStatus,
     ContractTerminationReason,
+    ContractType,
     EngagementModel,
     ProlongationStatus,
     RateUnit,
@@ -1499,6 +1500,7 @@ def _apply_contract_list_filters(
     subcategory: Optional[list[str]] = None,
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
+    agreement_not_terminated: bool = False,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1598,6 +1600,17 @@ def _apply_contract_list_filters(
             Contract.end_date.isnot(None),
             Contract.end_date <= cutoff,
             Contract.end_date >= today,
+        )
+    if agreement_not_terminated:
+        # „Umowa nierozwiązana” (decyzja Artura 28.10.2026): projekt B2B
+        # zakończony albo kończący się, a umowa bez zapisanego rozwiązania —
+        # lista zaległych porozumień/wypowiedzeń. Od 23.09 pole wypełnia okno
+        # „Zakończ współpracę” albo podpis porozumienia w generatorze. Łączy się
+        # z filtrem statusu przez AND.
+        query = query.where(
+            Contract.contract_type == ContractType.b2b,
+            Contract.status.in_((ContractStatus.ended, ContractStatus.ending)),
+            Contract.agreement_termination_mode.is_(None),
         )
     return query
 
@@ -2167,6 +2180,14 @@ async def list_contracts(
     order_end_to: Optional[date] = Query(
         None, description="Koniec zamówienia u klienta — górna granica."
     ),
+    agreement_not_terminated: bool = Query(
+        False,
+        description=(
+            "„Umowa nierozwiązana”: kontrakty B2B „Zakończone” albo „Kończące "
+            "się” bez zapisanego rozwiązania umowy "
+            "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
+        ),
+    ),
     sort_by: Optional[ContractSortKey] = Query(
         None,
         description=(
@@ -2231,6 +2252,7 @@ async def list_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     sort_expr = (
         _contract_sort_expression(sort_by, business_today()) if sort_by else None
@@ -2566,6 +2588,7 @@ async def export_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
+    agreement_not_terminated: bool = Query(False),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -2604,6 +2627,7 @@ async def export_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     query = query.order_by(Contract.id).limit(limit)
     result = await db.execute(query)

@@ -862,7 +862,7 @@
       {
         "id": "hr.approvals.history",
         "label": "Zdecydowane",
-        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja i anulowanie, oraz rozpatrzone zgody."
+        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
       },
       {
         "id": "hr.approvals.on_behalf",

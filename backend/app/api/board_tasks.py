@@ -63,6 +63,7 @@ from app.services import (
     dl_send_queue,
     move_requirements,
     new_job_leads,
+    new_person_setup,
     pending_job_completion,
     prep_attention,
     request_allocation_proposals,
@@ -208,6 +209,19 @@ class AllocationProposalRow(BaseModel):
     leave_until: Optional[date] = None
     base_matches: Optional[int] = None
     proposed_at: datetime
+
+
+class NewPersonSetupRow(BaseModel):
+    """Osoba do ustawienia (0612) — kształt = ``new_person_setup.NewPersonRow``."""
+
+    user_id: int
+    name: str
+    email: str
+    since: datetime
+    # Konto po pierwszym logowaniu — nikt jeszcze nie zdecydował, kim jest.
+    needs_decision: bool
+    # Czego brakuje rekruterowi: "categories", "manager".
+    missing: list[str] = []
 
 
 class NewJobLeadRow(BaseModel):
@@ -534,6 +548,9 @@ class BoardTasksResponse(BaseModel):
     # Kto prowadzi rekrutacje przekazane do searchu w ostatnich dniach — lista
     # informacyjna, tylko dla admina i Head of Recruitment.
     new_job_leads: list[NewJobLeadRow] = []
+    # 0612 (28.10.2026): „Nowe osoby do ustawienia” — admin i Head of
+    # Recruitment. `None` = liczenie się nie powiodło.
+    new_people: Optional[list[NewPersonSetupRow]] = []
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
     # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
     cv_in_transit: Optional[CvInTransitBlock] = None
@@ -671,6 +688,9 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     job_leads = (
         await new_job_leads.load_safely(db, now=now) if can_decide_proposals else []
     )
+    people_rows = (
+        await new_person_setup.load_rows_safely(db) if can_decide_proposals else []
+    )
     # Finanse nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
     transit = (
         None
@@ -727,6 +747,11 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
         can_decide_proposals=can_decide_proposals,
         allocation_leave_known=leave_known,
         new_job_leads=[NewJobLeadRow(**asdict(lead)) for lead in job_leads],
+        new_people=(
+            None
+            if people_rows is None
+            else [NewPersonSetupRow(**row.as_dict()) for row in people_rows]
+        ),
         cv_in_transit=_transit_block(transit),
         pending_jobs=(
             PendingJobsBlock(

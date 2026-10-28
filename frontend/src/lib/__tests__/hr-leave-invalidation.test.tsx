@@ -57,7 +57,7 @@ const MUTATIONS: [string, () => { mutateAsync: (arg: never) => Promise<unknown> 
   ["zgłoszenie własnego wniosku", useSubmitLeave, INPUT],
   ["anulowanie własnego wniosku", useCancelMyLeave, "r1"],
   ["decyzja akceptującego", useDecideLeave, { id: "r1", decision: "approve" }],
-  ["anulowanie urlopu w zespole", useCancelTeamLeave, "r1"],
+  ["anulowanie urlopu w zespole", useCancelTeamLeave, { id: "r1" }],
   ["wpis za pracownika", useEnterOnBehalf, { ...INPUT, user_id: 7 }],
   ["kolizja zgłoszona przez koordynatora", useReportConflict, { id: "r1", note: "termin" }],
 ];

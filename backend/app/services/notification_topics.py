@@ -81,6 +81,7 @@ _JOBS = (
     _T.request_review_needed,
     _T.client_job_opened,
     _T.job_p0_set,
+    _T.job_p0_requested,
     _T.job_closed_people_waiting,
     _T.request_allocation_proposals,
     # 0526: brakujące ogłoszenia (codzienne, bez dymka).
@@ -166,6 +167,7 @@ _JOBS_TOAST = (
     _T.request_review_needed,
     _T.client_job_opened,
     _T.job_p0_set,
+    _T.job_p0_requested,
     _T.job_closed_people_waiting,
     _T.request_allocation_proposals,
     _T.care_front_office_handoff,

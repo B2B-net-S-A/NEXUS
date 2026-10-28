@@ -129,6 +129,10 @@ const PRIVATE_ROUTES = [
   "/manager",
   "/preview/shell",
   "/jakas/zupelnie/nowa/trasa",
+  "/wtyczka",
+  "/wtyczka/prywatnosc-admin",
+  "/wtyczka/prywatnosc/panel",
+  "/extension/connect",
 ]
 
 describe("brak tokenu → ekran logowania", () => {
@@ -181,6 +185,17 @@ describe("ważny token → dostęp", () => {
 })
 
 describe("linki publiczne działają bez tokenu", () => {
+  it("polityka wtyczki jest publiczna także na produkcji i z wygasłą sesją", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      expect(destination("/wtyczka/prywatnosc")).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc", expiredAdmin)).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc/panel")).toBe("/login")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     "/login",
     "/login/forgot-password",
@@ -189,6 +204,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/register",
     "/register/verify",
     "/403",
+    "/wtyczka/prywatnosc",
     "/apply/abc123",
     "/share/champion-card/abc123",
     "/sign/abc123",

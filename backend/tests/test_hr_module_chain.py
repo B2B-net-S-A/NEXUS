@@ -85,6 +85,12 @@ CHAIN = (
         "0508_candidate_data_access_alert",
         "care_board_schema",
     ),
+    # Poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    (
+        "0611_equipment_protocol_cancel",
+        "0610_job_p0_request",  # down_revision — przepina rechain_migration.py
+        "equipment_protocol_cancel_schema",
+    ),
 )
 
 

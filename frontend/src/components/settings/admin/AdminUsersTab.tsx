@@ -50,6 +50,7 @@ import { ResetPasswordModal } from "./ResetPasswordModal";
 import { SystemTab } from "./SystemTab";
 import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
+import { NewPersonSetupDialog } from "@/components/v2/dashboard/NewPersonSetupDialog";
 import { AdminToolsGrid } from "./AdminToolsGrid";
 import { DISCARD_PERMISSION_CHANGES, PermissionsTab } from "./PermissionsTab";
 import {
@@ -134,6 +135,8 @@ export function AdminUsersTab({
   // W Ustawieniach domyślnie aktywni: 207 z 252 kont to byli pracownicy (prod 21.10.2026).
   const [statusFilter, setStatusFilter] = useState<AdminUserStatus>(embedded ? "active" : "all");
   const [idleOnly, setIdleOnly] = useState(false);
+  const [pendingOnly, setPendingOnly] = useState(false);
+  const [setupFor, setSetupFor] = useState<AdminUser | null>(null);
   const [sort, setSort] = useState<AdminUserSort>("name");
   const [page, setPage] = useState(0);
   // UAT M11-B02: przy ~240 kontach sama lista ze statusem nie wystarczała.
@@ -242,13 +245,14 @@ export function AdminUsersTab({
         role: roleFilter,
         search,
         idle: idleOnly,
+        pending: pendingOnly,
         sort,
       }),
-    [users, statusFilter, roleFilter, search, idleOnly, sort],
+    [users, statusFilter, roleFilter, search, idleOnly, pendingOnly, sort],
   );
   const counts = useMemo(() => adminUserCounts(users ?? []), [users]);
   const filtersActive =
-    statusFilter !== "all" || roleFilter !== "all" || search.trim() !== "" || idleOnly;
+    statusFilter !== "all" || roleFilter !== "all" || search.trim() !== "" || idleOnly || pendingOnly;
   const pageCount = Math.max(1, Math.ceil(displayedUsers.length / ADMIN_USERS_PAGE_SIZE));
   const currentPage = Math.min(page, pageCount - 1);
   const pageUsers = displayedUsers.slice(
@@ -367,6 +371,22 @@ export function AdminUsersTab({
   return (
     <div className="space-y-6">
       {confirmDialog}
+      <NewPersonSetupDialog
+        person={
+          setupFor && setupFor.setup_pending_since
+            ? {
+                user_id: setupFor.id,
+                name: setupFor.name,
+                email: setupFor.email,
+                since: setupFor.setup_pending_since,
+                needs_decision: true,
+                missing: [],
+              }
+            : null
+        }
+        isAdmin
+        onClose={() => setSetupFor(null)}
+      />
       {embedded ? (
         // W Ustawieniach zakładki i „Dodaj użytkownika” stoją w jednym rzędzie
         // (makieta 02.10.2026). Osobny, pusty rząd nad zakładkami zabierał
@@ -438,6 +458,22 @@ export function AdminUsersTab({
                 Bez aktywności · <span className="tabular-nums">{counts.idle}</span>
               </button>
             ) : null}
+            {counts.pending > 0 || pendingOnly ? (
+              // 0612: konta po pierwszym logowaniu, o których nikt nie zdecydował.
+              <button
+                type="button"
+                onClick={() => withFirstPage(setPendingOnly)(!pendingOnly)}
+                aria-pressed={pendingOnly}
+                title="Konta po pierwszym logowaniu — nikt jeszcze nie zdecydował, kim jest ta osoba"
+                className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                  pendingOnly
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+                }`}
+              >
+                Do decyzji · <span className="tabular-nums">{counts.pending}</span>
+              </button>
+            ) : null}
             <input
               type="search"
               value={search}
@@ -503,6 +539,15 @@ export function AdminUsersTab({
                           <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-destructive/15 text-destructive">
                             Nieaktywny
                           </span>
+                        ) : null}
+                        {u.is_active && u.setup_pending_since ? (
+                          <button
+                            type="button"
+                            onClick={() => setSetupFor(u)}
+                            className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                          >
+                            Nowa · zdecyduj
+                          </button>
                         ) : null}
                       </div>
                       <div className="text-xs text-muted-foreground">{u.email}</div>
@@ -711,6 +756,7 @@ export function adminUserCounts(users: readonly AdminUser[]) {
     active: active.length,
     inactive: users.length - active.length,
     idle: active.filter((u) => !u.last_activity).length,
+    pending: active.filter((u) => u.setup_pending_since).length,
   };
 }
 
@@ -726,14 +772,24 @@ export function filterAdminUsers(
     role,
     search,
     idle = false,
+    pending = false,
     sort = "name",
-  }: { status: AdminUserStatus; role: string; search: string; idle?: boolean; sort?: AdminUserSort },
+  }: {
+    status: AdminUserStatus;
+    role: string;
+    search: string;
+    idle?: boolean;
+    /** Tylko konta czekające na decyzję po pierwszym logowaniu (0612). */
+    pending?: boolean;
+    sort?: AdminUserSort;
+  },
 ): AdminUser[] {
   const needle = foldText(search.trim());
   const list = users.filter((u) => {
     if (status === "active" && !u.is_active) return false;
     if (status === "inactive" && u.is_active) return false;
     if (idle && (!u.is_active || u.last_activity)) return false;
+    if (pending && !u.setup_pending_since) return false;
     if (role !== "all" && u.role !== role && !(u.roles ?? []).includes(role)) {
       return false;
     }

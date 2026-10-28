@@ -179,6 +179,13 @@ class RejectIn(BaseModel):
     note: str = Field(min_length=1, max_length=2000)
 
 
+class LeaveCancelIn(BaseModel):
+    """Powód cofnięcia — wymagany od pierwszego dnia (3–500 znaków, polskie
+    komunikaty z ``leave_policy.approver_cancel_refusal``)."""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
+
+
 class ConsentIn(BaseModel):
     consent: bool
 
@@ -670,11 +677,16 @@ async def reject_request(
 async def cancel_team_request(
     request_id: uuid.UUID,
     current_user: LeaveApprover,
+    payload: Optional[LeaveCancelIn] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         outcome = await service.cancel_as_approver(
-            db, actor=current_user, request_id=request_id, today=business_today()
+            db,
+            actor=current_user,
+            request_id=request_id,
+            today=business_today(),
+            reason=payload.reason if payload else None,
         )
     except _HANDLED as exc:
         await db.rollback()

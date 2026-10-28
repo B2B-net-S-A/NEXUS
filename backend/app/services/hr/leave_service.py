@@ -83,6 +83,7 @@ from app.services.hr.leave_policy import (
     can_decide,
     covering_manager,
     forward_target_allowed,
+    approver_cancel_refusal,
     own_cancel_refusal,
     plan_days,
     requested_days,
@@ -922,6 +923,7 @@ async def _after_cancel(
     subject: User,
     profile: Optional[EmployeeProfile],
     today: date,
+    reason: Optional[str] = None,
 ) -> tuple[str, ...]:
     await _set_days_active(db, request.id, False)
     await db.refresh(request)
@@ -930,7 +932,11 @@ async def _after_cancel(
         actor_id=actor.id,
         request=request,
         action="leave_cancelled",
-        extra={"previous_status": previous_status},
+        extra={
+            "previous_status": previous_status,
+            **({"reason": reason} if reason else {}),
+        },
+        free_text=reason,
     )
     await notify_cancelled(
         db,
@@ -939,6 +945,7 @@ async def _after_cancel(
         actor=actor,
         subject=subject,
         profile=profile,
+        reason=reason,
     )
     if previous_status != "approved":
         return ()
@@ -983,7 +990,9 @@ async def cancel_own(
             raise LeavePolicyError(refusal)
         raise LeaveConflict(refusal)
     previous = request.status
-    extra = (LeaveRequest.start_date > today,) if previous == "approved" else ()
+    # Ten sam warunek co w ``own_cancel_refusal``, w zapytaniu: edycja Kadr
+    # w międzyczasie nie przesunie startu przed „dziś” za plecami osoby.
+    extra = (LeaveRequest.start_date > today,)
     changed = await _conditional_status(
         db,
         request_id,
@@ -1006,8 +1015,16 @@ async def cancel_own(
 
 
 async def cancel_as_approver(
-    db: AsyncSession, *, actor: User, request_id: uuid.UUID, today: date
+    db: AsyncSession,
+    *,
+    actor: User,
+    request_id: uuid.UUID,
+    today: date,
+    reason: Optional[str] = None,
 ) -> LeaveOutcome:
+    """Cofnięcie przez przełożonego albo Kadry; od pierwszego dnia z powodem
+    (dni wracają do raportu godzin, osoba dostaje powód — 28.10.2026)."""
+
     request, subject, profile = await _decidable(db, actor, request_id)
     refusal = team_cancel_refusal(status=request.status)
     if refusal is not None:
@@ -1019,12 +1036,22 @@ async def cancel_as_approver(
         and not actor_of(actor).sees_everyone
     ):
         raise LeaveForbidden(REPORT_CANCEL_FORBIDDEN)
+    reason = _clean(reason)
+    reason_refusal = approver_cancel_refusal(
+        start=request.start_date, today=today, reason=reason
+    )
+    if reason_refusal is not None:
+        raise LeavePolicyError(reason_refusal)
     previous = request.status
+    # Bez powodu tylko przyszły termin — także gdy edycja w międzyczasie
+    # przesunęła start.
+    extra = () if reason else (LeaveRequest.start_date > today,)
     changed = await _conditional_status(
         db,
         request_id,
         from_statuses=(previous,),
         values={"status": "cancelled"},
+        extra_where=extra,
     )
     if not changed:
         raise LeaveConflict("Ten wniosek zmienił się w międzyczasie — odśwież listę.")
@@ -1036,6 +1063,7 @@ async def cancel_as_approver(
         subject=subject,
         profile=profile,
         today=today,
+        reason=reason,
     )
     return LeaveOutcome(request, locked)
 

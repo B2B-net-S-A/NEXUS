@@ -37,8 +37,9 @@ import { SectionError } from "./_shared";
  * 1. **Plakietka „X/dzień" mówi, skąd ma mianownik.** Oryginał dzielił przez
  *    sztywną liczbę dni i pokazywał „3.1/dzień" osobie, która połowę miesiąca
  *    była na urlopie. Tu mianownikiem są dni robocze, które upłynęły w tym
- *    miesiącu, minus urlop z COMPASSA. Gdy urlopu nie znamy (`workdays_source:
- *    "calendar"`), plakietka ma dopisek „bez urlopów" — ta sama liczba bez
+ *    miesiącu, minus zatwierdzona nieobecność (`workdays_source: "nexus"`,
+ *    urlopy NEXUSA; dawniej `"compass"`). Gdy nieobecności nie znamy
+ *    (`"calendar"`), plakietka ma dopisek „bez urlopów" — ta sama liczba bez
  *    dopisku czytałaby się jak ocena osoby na urlopie.
  * 2. **Niezakwalifikowany zostaje na liście.** Backend celowo zwraca go
  *    z `qualified: false` i powodem (`competitions.py`); ukrycie zamieniłoby
@@ -124,15 +125,32 @@ const RACE_COPY: Record<
 };
 
 /**
- * Próg kwalifikacji Wyścigu Rekomendacji jest WSPÓLNY i KALENDARZOWY:
- * `competitions.py` liczy `4 × dni robocze, które upłynęły w miesiącu`
- * (Pon–Pt minus święta) — bez indywidualnych urlopów. Plakietka „X/dzień"
- * obok odejmuje urlop z COMPASSA, gdy go zna, więc bez tego zdania ekran
- * obiecywał regułę, której backend nie stosuje (audyt B44). Decyzja
- * o progu per osoba jest produktowa i leży poza tym ekranem.
+ * Próg kwalifikacji Wyścigu Rekomendacji. Przy urlopach NEXUSA
+ * (`workdays_source: "nexus"`) `competitions.py` liczy go z dni pracy osoby —
+ * tych samych co plakietka „X/dzień" (decyzja Artura 28.10.2026). Przy innym
+ * źródle próg jest wspólny i kalendarzowy, a ekran mówi to wprost, żeby nie
+ * obiecywać reguły, której backend nie stosuje (audyt B44).
  */
-const RACE_THRESHOLD_TOOLTIP =
-  "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów ani dni roboczych z COMPASSA — te wpływają tylko na plakietkę „/dzień”.";
+const RACE_THRESHOLD_SHARED =
+  "Próg kwalifikacji jest wspólny dla wszystkich: 4 weryfikacje × liczba dni roboczych, które upłynęły w tym miesiącu (Pon–Pt bez świąt). Nie uwzględnia indywidualnych urlopów — te wpływają tylko na plakietkę „/dzień”.";
+const RACE_THRESHOLD_PER_PERSON =
+  "Próg kwalifikacji liczy się z dni pracy osoby: 4 weryfikacje × dni robocze, które upłynęły w tym miesiącu (Pon–Pt bez świąt), minus jej zatwierdzona nieobecność. Ten sam mianownik ma plakietka „/dzień”, więc urlop nie podnosi wymagania.";
+
+function raceThresholdNote(entry: MonthlyRaceEntry | undefined): string {
+  // `threshold_basis` zamraża się z wynikiem — zamknięty miesiąc nie ma
+  // `workdays_source`, a próg dalej jest liczony per osoba.
+  return entry?.threshold_basis === "workdays" ||
+    entry?.workdays_source === "nexus"
+    ? RACE_THRESHOLD_PER_PERSON
+    : RACE_THRESHOLD_SHARED;
+}
+
+/** „15” albo „14,5” — dni pracy mogą mieć połówkę (pół dnia nieobecności). */
+function formatWorkdays(days: number): string {
+  return Number.isInteger(days)
+    ? String(days)
+    : days.toFixed(1).replace(".", ",");
+}
 
 /** Ile miejsc wyścigu widać bez klikania. */
 const DEFAULT_VISIBLE_ROWS = 5;
@@ -159,7 +177,7 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
     return (
       <span
         className="inline-flex items-center gap-1 rounded border border-dashed border-border bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
-        title={`Weryfikacje na dzień roboczy: ${label}. Mianownik to dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA. Ta plakietka nie decyduje o kwalifikacji: próg „wymaganych weryfikacji” obok jest wspólny i kalendarzowy.`}
+        title={`Weryfikacje na dzień pracy: ${label}. Mianownik to dni robocze, które upłynęły w tym miesiącu, minus zatwierdzona nieobecność.`}
       >
         <span className="font-semibold">—</span>
         <span>/dzień</span>
@@ -171,15 +189,18 @@ function PerDayBadge({ entry }: { entry: MonthlyRaceEntry }) {
   // Miesiąc rozliczony w DynaReporterze: mianownik to dni przepracowane
   // zgłoszone tam, zapisane przy rozliczeniu — nie dni z COMPASSA.
   const fromDynaReporter = entry.workdays_source === "dynareporter";
+  const fromNexus = entry.workdays_source === "nexus";
   return (
     <span
       className="inline-flex items-center gap-1 rounded bg-info-muted px-1.5 py-0.5 text-[11px] font-semibold text-info-muted-foreground"
       title={
         fromDynaReporter
           ? "Weryfikacje na dzień przepracowany: liczba dni przepracowanych zgłoszona w DynaReporterze, zapisana przy rozliczeniu miesiąca."
-          : withoutLeave
-            ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — COMPASS nie potwierdził nieobecności w tym okresie."
-            : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
+          : fromNexus
+            ? "Weryfikacje na dzień pracy: dni robocze, które upłynęły w tym miesiącu, minus zatwierdzona nieobecność tej osoby."
+            : withoutLeave
+              ? "Weryfikacje na dzień roboczy liczone z dni kalendarzowych, które upłynęły w tym miesiącu (Pon–Pt bez świąt), bez urlopów — nieobecności z tego okresu nie są znane."
+              : "Weryfikacje na dzień roboczy: dni robocze, które upłynęły w tym miesiącu, minus urlop z COMPASSA."
       }
     >
       {perDay.value.toFixed(1)}/dzień
@@ -227,10 +248,14 @@ function RaceRow({
   entry,
   variant,
   isMe = false,
+  fullWorkdays = null,
 }: {
   entry: MonthlyRaceEntry;
   variant: RaceVariant;
   isMe?: boolean;
+  /** Najwięcej dni pracy w tym rankingu — dopisek „liczone z N dni pracy”
+   *  stoi tylko przy osobach, które miały ich mniej (makieta 28.10.2026). */
+  fullWorkdays?: number | null;
 }) {
   const copy = RACE_COPY[variant];
   const disqualified = describeDisqualification(entry);
@@ -279,13 +304,21 @@ function RaceRow({
             <>
               {" · "}
               <span
-                title={RACE_THRESHOLD_TOOLTIP}
+                title={raceThresholdNote(entry)}
                 className="underline decoration-dotted underline-offset-2"
                 data-testid="race-threshold"
               >
                 {count(entry.verifications)} /{" "}
                 {count(entry.required_verifications)} wymaganych weryfikacji
               </span>
+              {entry.workdays_source === "nexus" &&
+              typeof entry.workdays === "number" &&
+              fullWorkdays !== null &&
+              entry.workdays < fullWorkdays ? (
+                <span className="whitespace-nowrap">
+                  {" · "}liczone z {formatWorkdays(entry.workdays)} dni pracy
+                </span>
+              ) : null}
             </>
           ) : null}
         </p>
@@ -325,6 +358,11 @@ function RaceCard({
   const copy = RACE_COPY[variant];
   const Icon = copy.icon;
   const ranking = race.ranking ?? [];
+  const workdayCounts = ranking
+    .map((entry) => entry.workdays)
+    .filter((days): days is number => typeof days === "number");
+  const fullWorkdays =
+    workdayCounts.length > 0 ? Math.max(...workdayCounts) : null;
   // Pierwsza piątka i własny wiersz widać od razu (przebudowa 24.09.2026).
   const visible = showAll
     ? ranking
@@ -407,6 +445,7 @@ function RaceCard({
                   entry={entry}
                   variant={variant}
                   isMe={entry.user_id === meId}
+                  fullWorkdays={fullWorkdays}
                 />
               ))}
             </ol>
@@ -446,7 +485,7 @@ function RaceCard({
             {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
                 weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
             {variant === "recommendations" && ranking.length > 0 ? (
-              <p>{RACE_THRESHOLD_TOOLTIP}</p>
+              <p>{raceThresholdNote(ranking[0])}</p>
             ) : null}
             <p>{copy.tieRule}</p>
           </div>

@@ -582,6 +582,44 @@ describe("RequestBoardView — wariant daily", () => {
   })
 })
 
+describe("RequestBoardView — sama tabela (panel P0, 28.10.2026)", () => {
+  const p0Board: RequestBoard = {
+    ...board,
+    requests: [
+      {
+        ...board.requests[3],
+        is_p0: true,
+        p0_until: new Date(Date.now() + 20 * 3_600_000).toISOString(),
+        p0_reason: "Klient zamyka listę w piątek",
+      },
+    ],
+  }
+
+  it("bez nagłówka, filtrów i obłożenia; powód P0 linijką pod tytułem", () => {
+    render(
+      <RequestBoardView
+        board={p0Board}
+        today={TODAY}
+        filters={EMPTY_FILTERS}
+        onFilters={vi.fn()}
+        canStaff={false}
+        canDecide={false}
+        onAddPerson={vi.fn()}
+        onRemovePerson={vi.fn()}
+        onAcceptProposal={vi.fn()}
+        tableOnly
+      />,
+    )
+    expect(screen.queryByRole("heading", { name: "Requesty i obłożenie" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Na daily" })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Wyczyść filtry/ })).toBeNull()
+    expect(screen.getByRole("link", { name: "Kotlin Developer" })).toBeInTheDocument()
+    expect(screen.getByTestId("request-row-p0-reason")).toHaveTextContent(
+      "„Klient zamyka listę w piątek”",
+    )
+  })
+})
+
 describe("CompetenceTeamView", () => {
   it("adds a person to 1st priority and excludes from allocation", async () => {
     const user = userEvent.setup()

@@ -37,6 +37,7 @@ import { PriceListTab } from "./PriceListTab";
 import { ProtocolDialog } from "./ProtocolDialog";
 import { ProtocolTemplatesTab } from "./ProtocolTemplatesTab";
 import { ProtocolsTab } from "./ProtocolsTab";
+import { MoveToAccountDialog } from "./MoveToAccountDialog";
 import { ReturnWizard } from "./ReturnWizard";
 import { StockTiles } from "./StockTiles";
 import { TasksTab } from "./TasksTab";
@@ -91,16 +92,25 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
   const { replaceUrl } = useUrlWriter();
   const [tab, setTab] = useUrlSyncedState<EquipmentTab>(tabFrom(searchParams.get("tab")), "items");
   const protocolFromUrl = Number(searchParams.get("protocol")) || null;
-  const [protocolId, setProtocolId] = useState<number | null>(protocolFromUrl);
+  const [protocolId, setProtocolIdState] = useState<number | null>(protocolFromUrl);
+  // „Popraw…” z ⋯ listy protokołów otwiera okno protokołu od razu na poprawce.
+  const [correctOnOpen, setCorrectOnOpen] = useState(false);
+  const setProtocolId = (id: number | null) => {
+    setCorrectOnOpen(false);
+    setProtocolIdState(id);
+  };
   // Dzwonek „protokół podpisany” prowadzi tu miękką nawigacją — bez odmontowania.
   useEffect(() => {
-    if (protocolFromUrl) setProtocolId(protocolFromUrl);
+    if (!protocolFromUrl) return;
+    setCorrectOnOpen(false);
+    setProtocolIdState(protocolFromUrl);
   }, [protocolFromUrl]);
   const [itemId, setItemId] = useState<number | null>(null);
   const [adding, setAdding] = useState(false);
   const [issuing, setIssuing] = useState<IssueRequest | null>(null);
   const [itemsCategory, setItemsCategory] = useState<EquipmentCategory | "">("");
   const [returning, setReturning] = useState<{ holder: EquipmentHolder | null } | null>(null);
+  const [movingPerson, setMovingPerson] = useState<EquipmentHolder | null>(null);
   const allowed = config.me.equipment || config.me.is_admin;
   const moduleOpen = config.open_modules.equipment;
   const summary = useEquipmentSummary(allowed && moduleOpen);
@@ -215,7 +225,13 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           onOpenProtocol={setProtocolId}
         />
       ) : tab === "protocols" ? (
-        <ProtocolsTab onOpenProtocol={setProtocolId} />
+        <ProtocolsTab
+          onOpenProtocol={setProtocolId}
+          onCorrectProtocol={(id) => {
+            setProtocolIdState(id);
+            setCorrectOnOpen(true);
+          }}
+        />
       ) : tab === "templates" ? (
         <ProtocolTemplatesTab />
       ) : tab === "prices" ? (
@@ -236,6 +252,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           onOpenProtocol={setProtocolId}
           onIssue={(items) => setIssuing({ holder: null, items })}
           onReturn={(holder) => setReturning({ holder })}
+          onMoveToAccount={setMovingPerson}
           initialView={searchParams.get("view") === "modele" ? "modele" : "sztuki"}
         />
       )}
@@ -253,7 +270,12 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
         />
       ) : null}
       {protocolId ? (
-        <ProtocolDialog key={protocolId} protocolId={protocolId} onClose={() => setProtocolId(null)} />
+        <ProtocolDialog
+          key={`${protocolId}-${correctOnOpen}`}
+          protocolId={protocolId}
+          startCorrecting={correctOnOpen}
+          onClose={() => setProtocolId(null)}
+        />
       ) : null}
       {issuing ? (
         <IssueWizard
@@ -265,6 +287,13 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
       ) : null}
       {returning ? (
         <ReturnWizard presetHolder={returning.holder} onClose={() => setReturning(null)} />
+      ) : null}
+      {movingPerson ? (
+        <MoveToAccountDialog
+          key={movingPerson.id}
+          person={movingPerson}
+          onClose={() => setMovingPerson(null)}
+        />
       ) : null}
     </div>
   );

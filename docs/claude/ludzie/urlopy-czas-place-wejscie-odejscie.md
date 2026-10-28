@@ -17,6 +17,10 @@
   422 przy wniosku albo zgodzie, wykonawca M365 odmawia (`substitute_outside_company`).
 - Akceptacja urlopu usuwa godziny z dni urlopu w „Moim miesiącu” i przelicza
   sumę kontrolną (`time_hooks.on_leave_approved` / `on_leave_cancelled`).
+  Pół dnia nie kasuje godzin, tylko skraca zwykłe ręczne wpisy dnia do 4 h
+  (od najpóźniej dodanego, nadgodzin i auto-wpisu `leave_paid` nie rusza;
+  ślad `leave_hours_trimmed`) — decyzja Artura z 28.10.2026, bo wpis 8 h
+  sprzed wniosku dawał akceptującemu 12 h.
 - Powiadomienia (dymek) i mail zastępcy nie zdradzają rodzaju ani notatki (D6);
   mail „Czas i ludzie” nie niesie rodzaju nikomu, także przełożonemu i Kadrom
   (`services/hr/hr_mail.py`, reguła w `modul-ludzie-dostep-schemat-i-przelaczenie.md`).
@@ -213,6 +217,21 @@ decyduje o słowach i o przebiegu nieobecności.
   autoodpowiedź urlopu zaczynającego się nie wcześniej — wykonawca pisze taką
   tylko do skrzynki bez naszej trwającej, więc osoba wyłączyła tę pierwszą.
   Przekazanie autoodpowiedzi po anulowaniu pomija wnioski z Outlooka.
+- **Anulowanie terminu, który już trwa albo minął** (decyzja Artura
+  28.10.2026): osoba faktycznie była nieobecna, więc od pierwszego dnia
+  (`start_date <= business_today()`) sama nie anuluje ani zatwierdzonego, ani
+  OCZEKUJĄCEGO wniosku — `own_cancel_refusal` = 422, `can_cancel: false`,
+  warunek `start_date > dziś` także w UPDATE `cancel_own`. Cofa przełożony albo
+  Kadry (`POST /approvals/{id}/cancel`) i od pierwszego dnia musi podać powód:
+  ciało `{reason}` 3–500 znaków (`approver_cancel_refusal`, brak = 422 po
+  polsku; przed pierwszym dniem powód opcjonalny, a bez powodu UPDATE ma
+  warunek `start_date > dziś`). Powód idzie do śladu `leave_cancelled`
+  (`details.reason`, wrażliwość `health` jak notatka) i tylko do dymka osoby
+  („… Powód: …”); przełożony i zastępca dostają dymek bez powodu, a mail
+  ucina treść przed „Powód: ” (`hr_mail.mail_text`, D6). Front: „Anuluj”
+  w „Wszystkich wnioskach” przy trwającym albo minionym terminie otwiera
+  `CancelLeaveDialog` (słowa raportu godzin z formy osoby), przyszły — zwykłe
+  `useConfirmV2`.
 - **„Wszystkie wnioski”**: `counts` per status w odpowiedzi historii (zakres
   i filtry bez statusu), plakietki źródła „Wpis za pracownika”, „Z Outlooka”,
   „Import z Compassa”.

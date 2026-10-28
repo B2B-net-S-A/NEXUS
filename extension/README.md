@@ -19,8 +19,14 @@ Kontrakt z backendem: [`API.md`](API.md) (trasy `/api/extension/*`, klucz w nag�
 
 ## Instalacja
 
-**Zespół:** wtyczka jest w Chrome Web Store jako niepubliczna — link dostajesz od
-administratora NEXUSA. „Dodaj do Chrome”, potem przypnij ikonę NEXUSA na pasku.
+**Zespół:** docelowa dystrybucja to Chrome Web Store jako niepubliczna (Unlisted).
+Publikacja i przydzielenie identyfikatora sklepu są jeszcze do wykonania;
+po publikacji link dostaniesz od administratora NEXUSA. Wtedy wybierz
+„Dodaj do Chrome” i przypnij ikonę NEXUSA na pasku.
+
+Polityka prywatności: [NEXUS — wtyczka](https://nexus.b2bnetwork.pl/wtyczka/prywatnosc).
+Strona jest przygotowywana w tym samym wydaniu co materiały sklepu;
+przed publikacją administrator sprawdza jej dostępność bez logowania.
 
 **Wersja deweloperska („Wczytaj rozpakowane”):**
 
@@ -88,14 +94,23 @@ Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy wydaniach), nie ma
 4. Kopia HTML (bez skryptów, obrazków i bloków `<code>`) jedzie obok jako zapas:
    czytniki starszego układu (`profile.js`, `recruiter-profile.js`,
    `search-results.js`) uzupełniają tylko puste pola i tylko wtedy, gdy rozpoznały
-   tę samą osobę.
+   tę samą osobę. W Recruiterze zrzut HTML ogranicza się do wybranego profilu
+   i jawnie powiązanego panelu linku publicznego; tło wyników nie identyfikuje osoby.
 
 Zmierzone na żywym LinkedInie 28.10.2026 (interfejs po angielsku): profil `/in/`
-i lista wyników wyszukiwania osób. **Recruiter (`/talent/…`) czeka na pomiar** —
-czytnik najpierw próbuje atrybutów `data-test-*` ze starszego układu, potem tego
-samego podejścia tekstowego (imię = pierwszy `h1`/`h2`, sekcje po nagłówkach,
-pozycje po `[role=listitem]`, `li`, `tr`, link „Public profile”/„Profil publiczny”).
-Przy pierwszym użyciu w Recruiterze sprawdź, czy pola się wypełniają.
+i lista wyników wyszukiwania osób. Tego dnia zmierzono też **aktywny
+LinkedIn Recruiter**: trzy wiersze wyników i dwa układy profilu (panel boczny
+oraz osobna strona `/talent/profile/…`). W obu układach sprawdzono obecność
+imienia i nazwiska, nagłówka, lokalizacji, pozycji doświadczenia i umiejętności.
+Pomiar wykrył, że przed imieniem w wierszu występuje kontrolka „Select …”,
+a panel profilu leży poza główną sekcją strony z listą wyników. Wersja **1.0.1**
+wprowadza poprawki czytnika dla tych struktur. W repo są wyłącznie syntetyczne
+fixture’y; rzeczywiste nazwiska i treść profili nie są materiałem testowym.
+
+Pomiar rzeczywistej strony i lokalny test instalacji ZIP-a są osobnymi etapami.
+Nie potwierdzają pełnej ścieżki zainstalowanej wtyczki z kontem rekrutera i API
+produkcyjnym. Przed uznaniem wydania za gotowe trzeba sprawdzić pola w panelu
+na rzeczywistym Recruiterze oraz połączenie z NEXUSEM.
 
 ## Gdy LinkedIn zmieni stronę
 
@@ -126,7 +141,16 @@ sh extension/scripts/pack.sh   # → extension/dist/nexus-linkedin-<wersja>.zip
 ```
 
 ZIP zawiera tylko `manifest.json`, `icons/` i `src/`. Przed wysłaniem podbij
-`version` w `manifest.json`.
+`version` w `manifest.json`, jeśli sklep otrzymał już tę wersję.
+Skrypt wymaga zainstalowanych zależności testów i zielonego wyniku testów;
+zapisuje też sumę SHA-256 ZIP-a.
+
+Gotowe teksty formularza, uzasadnienia uprawnień i instrukcje do recenzji:
+[`docs/linkedin-extension-webstore.md`](../docs/linkedin-extension-webstore.md).
+Zrzuty sklepu na fikcyjnych danych: `node extension/scripts/store-screenshots.mjs`
+(z katalogu repozytorium; wymaga istniejącej zależności Playwright frontendu).
+Generator renderuje rzeczywiste komponenty panelu w rozmiarze 1280×800;
+nie zastępuje sprawdzenia czytnika na żywym Recruiterze.
 
 ## Budowa
 

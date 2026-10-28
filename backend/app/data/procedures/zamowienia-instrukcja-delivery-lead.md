@@ -646,6 +646,11 @@ Zapis przelicza „zafakturowano" i „pozostało" na karcie zamówienia i zdejm
 uwagę „Brak zejścia za [miesiąc]" dla tego miesiąca. **Ręcznego wpisu import
 Finansów nie nadpisuje**: wiersz arkusza za ten sam miesiąc dostaje status
 „Jest ręczny wpis za ten miesiąc — faktura pominięta" i czeka na decyzję.
+Uwaga „Brak zejścia za [miesiąc]" dotyczy tylko osoby, która w tym miesiącu
+była na zamówieniu: kto zaczyna później albo skończył wcześniej, jej nie
+dostaje. Osoba dopisana od przyszłego miesiąca ma w zakładce zamiast
+formularza informację „Zaczyna pracę [data]" — pierwsze zejście przyjdzie
+z importu za miesiąc startu.
 
 ### Zakładka „Importy MD"
 

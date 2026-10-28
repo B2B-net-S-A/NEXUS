@@ -328,6 +328,8 @@ async def test_monthly_recommendation_qualification_is_four_per_day_and_75_perce
     assert [item.user_id for item in competitions.qualified_for_award(ranked)] == [1]
     assert ranked[0].extras["qualified"] is True
     assert ranked[0].extras["required_verifications"] == 40
+    # Bez urlopów NEXUSA próg jest wspólny — i tak się zamraża.
+    assert ranked[0].extras["threshold_basis"] == "calendar"
     assert ranked[0].extras["precision_pct"] == 75.0
     assert ranked[1].extras["qualified"] is False
     assert ranked[1].extras["disqualification_reasons"] == ["MIN_VERIFICATIONS_NOT_MET"]

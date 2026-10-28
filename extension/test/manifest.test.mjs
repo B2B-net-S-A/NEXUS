@@ -21,7 +21,7 @@ const JS = SRC.filter((p) => p.endsWith(".js"));
 test("manifest: MV3, nazwa, wersja, panel boczny i service worker istnieją", () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "NEXUS — LinkedIn");
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.0.1");
   assert.ok(existsSync(join(ROOT, manifest.side_panel.default_path)));
   assert.ok(existsSync(join(ROOT, manifest.background.service_worker)));
   assert.equal(manifest.background.type, "module");
@@ -31,7 +31,7 @@ test("manifest: MV3, nazwa, wersja, panel boczny i service worker istnieją", ()
 
 test("manifest: tylko potrzebne uprawnienia i hosty", () => {
   assert.deepEqual([...manifest.permissions].sort(), ["scripting", "sidePanel", "storage"]);
-  assert.deepEqual(manifest.host_permissions, ["https://www.linkedin.com/*", "https://*.b2bnetwork.pl/*", "https://api.nexus.dynaminds.pl/*", "http://localhost:8100/*"]);
+  assert.deepEqual(manifest.host_permissions, ["https://www.linkedin.com/*", "https://nexus.b2bnetwork.pl/*", "https://api.nexus.b2bnetwork.pl/*", "https://api.nexus.dynaminds.pl/*", "http://localhost:8100/*"]);
   assert.deepEqual(manifest.externally_connectable.matches, ["https://nexus.b2bnetwork.pl/*", "http://localhost:3100/*", "http://localhost:3101/*"]);
   assert.equal(manifest.content_scripts, undefined, "nic nie doklejamy do stron LinkedIna");
   assert.equal(manifest.web_accessible_resources, undefined);

@@ -428,6 +428,12 @@ class JobResponse(BaseModel):
     p0_set_at: Optional[datetime] = None
     p0_set_by_name: Optional[str] = None
     can_set_p0: Optional[bool] = None
+    # 0609: oczekująca prośba Delivery Leada o P0 i czy ten użytkownik może
+    # o nie prosić (DL tej rekrutacji) — tylko `GET /api/jobs/{id}`.
+    p0_request_reason: Optional[str] = None
+    p0_request_duration: Optional[str] = None
+    p0_requested_at: Optional[datetime] = None
+    can_request_p0: Optional[bool] = None
     # Migawka dopasowań z przekazania do searchu — tylko odpowiedź
     # ``POST /api/jobs`` (rekrutacja bez szkiców, 04.10.2026).
     snapshot_id: Optional[int] = None

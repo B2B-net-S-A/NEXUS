@@ -35,7 +35,7 @@ function makeCtx(state, apiOverrides = {}) {
       },
     },
   );
-  const ctx = { state, api, calls, renders: 0, render: () => (ctx.renders += 1), onWrite: () => {}, refreshLookup: () => {}, retry: () => {}, forceAdd: () => {}, checkList: () => {}, startConnect: () => {}, openSettings: () => {}, closeSettings: () => {}, saveServer: () => {} };
+  const ctx = { state, api, calls, renders: 0, render: () => (ctx.renders += 1), onWrite: () => {}, addLocalContact: (...args) => calls.push(["addLocalContact", ...args]), refreshLookup: () => {}, retry: () => {}, forceAdd: () => {}, checkList: () => {}, startConnect: () => {}, openSettings: () => {}, closeSettings: () => {}, saveServer: () => {} };
   return ctx;
 }
 
@@ -204,6 +204,8 @@ test("ekran 5: wiadomość — szkic z /draft-message, kopiowanie, zapis kontakt
   [...node.querySelectorAll("button")].find((b) => b.textContent === "Wysłałem, zapisz kontakt").click();
   await flush();
   assert.deepEqual(ctx.calls.find((c) => c[0] === "addContact")[2], { channel: "inmail", jobId: 1, note: "Cześć Zofia, mam rekrutację Java Developer.", remindInDays: 3 });
+  assert.deepEqual(ctx.calls.find((c) => c[0] === "addLocalContact").slice(1), ["inmail", "rekrutacja: Java Developer"]);
+  assert.equal(state.person.message.error, null);
 });
 
 test("ekran 6: lista — przed sprawdzeniem tylko przycisk, po sprawdzeniu liczniki i zaznaczanie", () => {

@@ -78,9 +78,49 @@ export function suggestedLastDay(
   return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(lastOfMonth).padStart(2, "0")}`;
 }
 
+/**
+ * Co z umową B2B przy końcu projektu — wybór obowiązkowy przy jednej umowie
+ * (propozycja zespołu 28.10.2026: 18 z 22 zakończeń od 23.09 zostawiło umowę
+ * bez rozwiązania, a generator porozumień nie wydał ani jednego dokumentu).
+ * `prepare` = zapis końca + generator porozumienia z datami z okna,
+ * `done` = umowa już rozwiązana (dotychczasowe pola), `keep` = umowa zostaje
+ * („Umowy bez projektu” w generatorze).
+ */
+export type AgreementPlan = "" | "prepare" | "done" | "keep";
+
+export const AGREEMENT_PLANS: { value: Exclude<AgreementPlan, "">; label: string; hint: string }[] = [
+  {
+    value: "prepare",
+    label: "Przygotuj porozumienie o rozwiązaniu",
+    hint: "Po zapisie otworzy się generator z tą umową i datą końca projektu.",
+  },
+  {
+    value: "done",
+    label: "Umowa jest już rozwiązana albo wypowiedziana",
+    hint: "Wpisz tryb i daty, dołącz skan.",
+  },
+  {
+    value: "keep",
+    label: "Umowa zostaje — osoba wraca na inny projekt",
+    hint: "Umowa trafi do „Umów bez projektu” w generatorze.",
+  },
+];
+
+/** Zakaz konkurencji w porozumieniu: `release` = zdjęty dla klienta projektu. */
+export type NonCompetePlan = "keep" | "release";
+
+/** Przejście do klienta = zwykle zdjęcie zakazu dla tego klienta. */
+export function defaultNonCompetePlan(reason: ContractTerminationReason | ""): NonCompetePlan {
+  return reason === "poached_by_client" ? "release" : "keep";
+}
+
 export interface TerminationFormState {
   reason: ContractTerminationReason | "";
   projectEndDate: string;
+  agreementPlan: AgreementPlan;
+  nonCompete: NonCompetePlan;
+  /** Ręcznie wybrany zakaz nie jest nadpisywany przy zmianie powodu. */
+  nonCompeteTouched: boolean;
   agreementTerminated: boolean;
   mode: AgreementTerminationMode | "";
   party: AgreementTerminationParty | "";
@@ -95,6 +135,9 @@ export function emptyTerminationForm(
   return {
     reason: "",
     projectEndDate: "",
+    agreementPlan: "",
+    nonCompete: "keep",
+    nonCompeteTouched: false,
     agreementTerminated: false,
     mode: "",
     party: "",
@@ -106,10 +149,14 @@ export function emptyTerminationForm(
 }
 
 /** Czego brakuje, żeby „Zakończ" zapisało — puste = gotowe. */
-export function missingTerminationFields(form: TerminationFormState): string[] {
+export function missingTerminationFields(
+  form: TerminationFormState,
+  { requirePlan = false }: { requirePlan?: boolean } = {},
+): string[] {
   const missing: string[] = [];
   if (!form.reason) missing.push("Powód zakończenia");
   if (!form.projectEndDate) missing.push("Data zakończenia projektu");
+  if (requirePlan && !form.agreementPlan) missing.push("Co z umową B2B");
   if (form.agreementTerminated) {
     if (!form.mode) missing.push("Tryb");
     if (!form.party) missing.push("Strona");

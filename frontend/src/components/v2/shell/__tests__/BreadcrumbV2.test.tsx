@@ -88,7 +88,7 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     const appDir = path.resolve(__dirname, "../../../../app");
     const skipTop = new Set([
       "preview", "kariera", "share", "cv", "apply", "r", "auth", "sign",
-      "login", "register", "microsoft365", "__tests__", "fonts", "engagement",
+      "login", "register", "microsoft365", "__tests__", "fonts", "engagement", "wtyczka",
     ]);
     const skipSeg = new Set(["callback", "forgot-password", "reset", "verify", "microsoft"]);
     const missing = new Set<string>();

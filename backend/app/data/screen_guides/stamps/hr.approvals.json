@@ -1,8 +1,8 @@
 {
-  "entry": "0103d1ea0b0c01ecacaf5a8a41f4bfd2ed9c20f541683b00b5544d4f46915180",
+  "entry": "2bffa3ada0bf07ea4c08b833fc9e845526e9ebfc0fa616b1bb2652244cd7d08f",
   "guide": "hr.approvals",
   "sources": {
-    "frontend/src/components/hr/leave/ApprovalsScreen.tsx": "94241d69d7440201f3b4dbd4545a9bd1423d2dbb2837e4cc17aa985b7407eb80",
+    "frontend/src/components/hr/leave/ApprovalsScreen.tsx": "2e28edaeb4a5736c909cddd7e5a6e3af07e98f9ebbdfac1341bf4d2be489c796",
     "frontend/src/components/hr/leave/EditLeaveDialog.tsx": "a7304afe6c21b7de8304ce4ff2b094442d1baa4cdefc74ecc27696b71f3349e6",
     "frontend/src/components/hr/time/TimesheetApprovalsSection.tsx": "727b84b0d7219038e1f96912a9422e182354e8df11dcbb19f66c801c6c5b7ac7"
   }

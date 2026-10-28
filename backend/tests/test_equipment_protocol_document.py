@@ -2,22 +2,27 @@
 
 Oczekiwany tekst niżej jest przepisany ze wzoru recepcji (16.10.2026) z polami
 wypełnionymi fikcją — nie jest liczony z modułu szablonu, więc zmiana treści
-klauzuli w kodzie wywraca test. Jedyny dopisek względem wzoru to numer
-protokołu pod tytułem (makieta „Wydaj sprzęt”).
+klauzuli w kodzie wywraca test. Dopiski względem wzoru: numer protokołu pod
+tytułem (makieta „Wydaj sprzęt”) i blok podpisów jako niewidoczna tabela
+z nazwiskami stron i miejscem na potwierdzenie z NEXUSA (zgłoszenie recepcji
+28.10.2026 — podpisy ułożone spacjami rozjeżdżały się w PDF).
 """
 
 from __future__ import annotations
 
 import io
-from datetime import date
+from dataclasses import replace
+from datetime import date, datetime, timezone
+from types import SimpleNamespace
 from decimal import Decimal
 
 import docx
 import pytest
+from docx.oxml.ns import qn
 
 from app.services import cv_pdf_preview
 from app.services.equipment import protocol_document as doc
-from app.services.equipment import protocol_template
+from app.services.equipment import protocol_template, protocols
 
 WZOR_WYDANIA = [
     "PROTOKÓŁ",
@@ -97,8 +102,12 @@ WZOR_WYDANIA = [
     "Powyższy protokół został sporządzony w 2 jednobrzmiących egzemplarzach. ",
     "",
     "",
-    "                  Strona przekazująca\t\t\t\t\t\t    Strona przyjmująca",
-    "(podpis)" + " " * 48 + "\t" + " " * 52 + "(podpis)",
+    [
+        ["Strona przekazująca", "Strona przyjmująca"],
+        ["Zofia Testowa", "Anna Przykładowa"],
+        ["." * 60, "." * 60],
+        ["(podpis)\n", "(podpis)\n"],
+    ],
 ]
 
 
@@ -214,9 +223,58 @@ def test_committed_templates_match_the_builder(tmp_path) -> None:
         assert [p.text for p in built.paragraphs] == [
             p.text for p in committed.paragraphs
         ]
-        assert [[c.text for c in row.cells] for row in built.tables[0].rows] == [
-            [c.text for c in row.cells] for row in committed.tables[0].rows
-        ]
+        assert len(built.tables) == len(committed.tables)
+        for built_table, committed_table in zip(built.tables, committed.tables):
+            assert [[c.text for c in row.cells] for row in built_table.rows] == [
+                [c.text for c in row.cells] for row in committed_table.rows
+            ]
+
+
+@pytest.mark.parametrize(
+    "name", [protocol_template.ISSUE_TEMPLATE, protocol_template.RETURN_TEMPLATE]
+)
+def test_item_table_keeps_column_widths_in_pdf(name: str) -> None:
+    """LibreOffice (PDF) czyta siatkę tabeli, nie szerokości komórek: bez niej
+    kolumny wychodziły równe, a IMEI łamał się na trzy wiersze (28.10.2026)."""
+    table = docx.Document(str(protocol_template.TEMPLATE_DIR / name)).tables[0]
+    widths = [
+        int(col.get(qn("w:w"))) for col in table._tbl.tblGrid.findall(qn("w:gridCol"))
+    ]
+    assert tuple(widths) == protocol_template._COLUMN_WIDTHS
+    layout = table._tbl.tblPr.find(qn("w:tblLayout"))
+    assert layout is not None and layout.get(qn("w:type")) == "fixed"
+
+
+def _signature_rows(view: doc.ProtocolView) -> list[list[str]]:
+    rendered = _flatten(doc.document_blocks(doc.render_docx(view)))
+    return [item for item in rendered if isinstance(item, list)][-1]
+
+
+def test_issue_signature_notes_sit_under_their_party() -> None:
+    view = replace(
+        _issue_view(),
+        holder_signature="Potwierdzono elektronicznie linkiem z NEXUSA jako „Anna P.”",
+        issuer_signature="Zatwierdzono w NEXUSIE: Zofia Testowa",
+    )
+    rows = _signature_rows(view)
+    assert rows[1] == ["Zofia Testowa", "Anna Przykładowa"]
+    assert rows[3] == [
+        "(podpis)\nZatwierdzono w NEXUSIE: Zofia Testowa",
+        "(podpis)\nPotwierdzono elektronicznie linkiem z NEXUSA jako „Anna P.”",
+    ]
+
+
+def test_return_signature_puts_the_holder_on_the_handing_side() -> None:
+    view = replace(
+        _issue_view(),
+        kind="zwrot",
+        holder_signature="linkiem",
+        issuer_signature="recepcja",
+    )
+    rows = _signature_rows(view)
+    assert rows[0] == ["Strona przekazująca", "Strona przyjmująca"]
+    assert rows[1] == ["Anna Przykładowa", "Zofia Testowa"]
+    assert rows[3] == ["(podpis)\nlinkiem", "(podpis)\nrecepcja"]
 
 
 def test_template_field_typo_fails_loudly() -> None:
@@ -246,3 +304,53 @@ async def test_pdf_unavailable_is_a_named_error(monkeypatch) -> None:
     monkeypatch.setattr(cv_pdf_preview, "pdf_from_docx", broken)
     with pytest.raises(doc.ProtocolPdfUnavailable):
         await doc.render_pdf(_issue_view())
+
+
+def _protocol(**values) -> SimpleNamespace:
+    base = {
+        "signature_method": "brak",
+        "signed_at": None,
+        "signer_name": None,
+        "status": "oczekuje",
+        "confirmed_at": None,
+        "issuer_name": "Zofia Testowa",
+    }
+    return SimpleNamespace(**{**base, **values})
+
+
+def test_link_signature_note_names_the_signer_in_warsaw_time() -> None:
+    signed = _protocol(
+        signature_method="link",
+        signed_at=datetime(2026, 10, 20, 10, 29, tzinfo=timezone.utc),
+        signer_name="ANNA PRZYKŁADOWA",
+        status="podpisany",
+    )
+    assert protocols.holder_signature(signed) == (
+        "Potwierdzono elektronicznie linkiem z NEXUSA jako „ANNA PRZYKŁADOWA”, "
+        "20.10.2026, godz. 12:29"
+    )
+
+
+def test_paper_and_unsigned_protocols_get_no_holder_note() -> None:
+    assert protocols.holder_signature(_protocol()) == ""
+    paper = _protocol(
+        signature_method="papier",
+        signed_at=datetime(2026, 10, 20, 10, 0, tzinfo=timezone.utc),
+        signer_name="Anna Przykładowa",
+    )
+    assert protocols.holder_signature(paper) == ""
+
+
+def test_issuer_note_only_after_confirmation_and_names_who_confirmed() -> None:
+    assert protocols.issuer_signature(_protocol(status="podpisany"), None) == ""
+    confirmed = _protocol(
+        status="potwierdzony",
+        confirmed_at=datetime(2026, 1, 15, 9, 5, tzinfo=timezone.utc),
+    )
+    confirmer = SimpleNamespace(name="Recepcja Przykładowa", email="r@example.test")
+    assert protocols.issuer_signature(confirmed, confirmer) == (
+        "Zatwierdzono w NEXUSIE: Recepcja Przykładowa, 15.01.2026, godz. 10:05"
+    )
+    assert protocols.issuer_signature(confirmed, None).startswith(
+        "Zatwierdzono w NEXUSIE: Zofia Testowa,"
+    )

@@ -27,13 +27,14 @@ import { orderGroupsApi } from "@/lib/api/orderGroups";
 
 const api = vi.mocked(orderGroupsApi);
 
-function costGroup(): { group: OrderGroupRead; line: OrderLineRead } {
+function costGroup(lineOverrides: Partial<OrderLineRead> = {}): { group: OrderGroupRead; line: OrderLineRead } {
   const line = makeOrderLine({
     id: 844,
     consultant_name: "Jan Testowy",
     start_date: "2026-03-30",
     end_date: null,
     missing_consumption_month: "2026-09",
+    ...lineOverrides,
   });
   const group = makeOrderGroup({
     id: 102,
@@ -60,8 +61,8 @@ function response(overrides: Partial<CostConsumptionsResponse> = {}): CostConsum
   };
 }
 
-function renderTab(canEdit = true) {
-  const { group, line } = costGroup();
+function renderTab(canEdit = true, lineOverrides: Partial<OrderLineRead> = {}) {
+  const { group, line } = costGroup(lineOverrides);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -87,6 +88,20 @@ describe("CostConsumptionTab", () => {
 
     expect(screen.getByText(/Po zapisie na zamówieniu zostanie 36\s?310,00/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Dodaj wpis" })).toBeEnabled();
+  });
+
+  it("osoba dopisana od przyszłego miesiąca: data startu zamiast formularza i braku zejścia", async () => {
+    const today = new Date();
+    const next = new Date(today.getFullYear(), today.getMonth() + 1, 2);
+    const iso = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-02`;
+    api.listCostConsumptions.mockResolvedValue({ data: response() } as never);
+    renderTab(true, { start_date: iso, missing_consumption_month: null });
+
+    const [year, month] = iso.split("-");
+    expect(await screen.findByText(new RegExp(`Zaczyna pracę 02\\.${month}\\.${year}`))).toBeInTheDocument();
+    expect(screen.queryByText(/Brak zejścia za/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/brakujący miesiąc dodasz niżej/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Miesiąc *")).not.toBeInTheDocument();
   });
 
   it("zapis wysyła kwotę, status i notatkę za wybrany miesiąc", async () => {
