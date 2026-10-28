@@ -99,6 +99,12 @@ export interface ProposalInboxItem {
    * weryfikacja gdzie indziej. Procentu dopasowania nie zmienia.
    */
   history?: ProposalHistory | null;
+  /**
+   * Najlepsze 40 (28.10.2026): osoba z samego nocnego przeglądu spod progu —
+   * na liście pod separatorem „Poniżej N%”, poza liczbami kafli i dzwonkiem.
+   * Starszy serwer pola nie zna (= od progu).
+   */
+  below_threshold?: boolean;
 }
 
 export interface ProposalHistoryRef {
@@ -123,8 +129,12 @@ export interface ProposalCounts {
   days: number;
   /** Otwarte propozycje z ogłoszeń z ostatnich `days` dni. */
   postings_recent: number;
-  /** Pozostałe otwarte propozycje (nocny przegląd bazy i reszta źródeł). */
+  /** Pozostałe otwarte propozycje od progu (nocny przegląd bazy i reszta źródeł). */
   base: number;
+  /** Najlepsze 40: osoby spod progu na liście — kafel ich nie liczy. */
+  below_threshold?: number;
+  /** Próg propozycji w % (`AUTO_FULL_REVIEW_MIN_SCORE` albo panel rankingu). */
+  threshold?: number;
   /** Zgłoszenia odłożone przez przegląd AI („Odrzuceni przez AI”). */
   screened_out: number;
   /** Must-have, po których nie da się szukać (zdania) — do rozmowy. */
@@ -216,6 +226,8 @@ export interface ProposalInboxPage {
    */
   dismissed_candidate_ids?: number[];
   total: number;
+  /** Próg propozycji w % — separator „Poniżej N%”. Starszy serwer pola nie zna. */
+  threshold?: number;
   /** Ukryci na TEJ stronie przez globalną czarną listę — nigdy po cichu. */
   hidden_on_page: number;
   limit: number;
@@ -319,6 +331,52 @@ export interface ProposalRoleMismatch {
 /** Sufit jednego zapytania o fakty (`MAX_FACT_CANDIDATES`). */
 export const PROPOSAL_FACTS_MAX_IDS = 100;
 
+/** Skąd cytat przy osobie ukrytej przez „musi mieć” (`must_text_evidence.SOURCE_*`). */
+export type HiddenTraceSource = "profile" | "cv" | "note" | (string & {});
+
+/** Osoba ukryta przez „musi mieć”, choć w CV jest coś bliskiego (28.10.2026). */
+export interface HiddenByCriticalItem {
+  candidate: ProposalInboxCandidate;
+  /** Krytyczna, której bramce brakuje (etykieta bramki, małymi literami). */
+  critical: string;
+  /** Ta krytyczna jako wiersz Championa, w pisowni DL-a; `null` = bez wiersza. */
+  row: string | null;
+  /** Bliskie słowo w pisowni z tekstu („SailPoint”). */
+  word: string;
+  /** Podgląd z CV/profilu/notatki, do ~40 znaków — liczony przy odczycie. */
+  snippet: string;
+  source: HiddenTraceSource;
+  eligibility: MatchEligibility | null;
+}
+
+/** Przycisk „„word” = critical” — dopisuje wariant do słów wiersza krytycznej. */
+export interface HiddenByCriticalVariant {
+  critical: string;
+  /** Wiersz Championa, do którego trafi wariant; `null` = nie ma gdzie dopisać. */
+  row: string | null;
+  word: string;
+  /** Ile osób z sekcji ma to słowo. */
+  people: number;
+  /** Słowo stoi już w wierszu (dopisane po przeglądzie) — liczy się od następnej nocy. */
+  in_row: boolean;
+}
+
+/** `GET /api/jobs/{id}/proposal-inbox/hidden-by-critical` (`services/hidden_by_critical.py`). */
+export interface HiddenByCriticalResponse {
+  job_id: number;
+  /** Najnowszy przegląd automatyczny; `null` = jeszcze go nie było. */
+  run_id: string | null;
+  items: HiddenByCriticalItem[];
+  total: number;
+  /** Serwer sprawdził pierwszych ~300 osób ze śladem — może być ich więcej. */
+  truncated: boolean;
+  /** Krytyczne i bliskie słowa, którymi szukaliśmy w CV. */
+  searched: Array<{ critical: string; row: string | null; words: string[] }>;
+  variants: HiddenByCriticalVariant[];
+  /** Osoba zapisuje Profil Championa tej rekrutacji (`PUT …/champion-profile`). */
+  can_add_variant: boolean;
+}
+
 /** Sufit `limit` po stronie serwera (`Query(20, le=100)`). */
 export const PROPOSAL_INBOX_MAX_LIMIT = 100;
 export const PROPOSAL_INBOX_PAGE = 20;
@@ -405,6 +463,12 @@ export const jobProposalsApi = {
     api
       .get<ProposalCounts>(`/api/jobs/${jobId}/proposal-counts`, { signal })
       .then((r) => r.data),
+  hiddenByCritical: (jobId: number, signal?: AbortSignal): Promise<HiddenByCriticalResponse> =>
+    api
+      .get<HiddenByCriticalResponse>(`/api/jobs/${jobId}/proposal-inbox/hidden-by-critical`, {
+        signal,
+      })
+      .then((r) => r.data),
   latestRun: (jobId: number, signal?: AbortSignal): Promise<LatestRunResponse> =>
     api
       .get<LatestRunResponse>(`/api/candidate-search/jobs/${jobId}/latest-run`, {
@@ -433,6 +497,8 @@ export const jobProposalsKeys = {
   latestRun: (jobId: number) => ["job-proposals", jobId, "latest-run"] as const,
   /** Pod wspólnym prefiksem — dodanie i „Pomiń” odświeżają też kafle. */
   counts: (jobId: number) => ["job-proposals", jobId, "counts"] as const,
+  /** Pod wspólnym prefiksem — dodanie i „Pomiń” odświeżają też sekcję ukrytych. */
+  hiddenByCritical: (jobId: number) => ["job-proposals", jobId, "hidden-by-critical"] as const,
   /** Fakty o osobach — klucz zawiera posortowane id, żeby lista w innej kolejności trafiała w cache. */
   facts: (jobId: number, candidateIds: readonly number[]) =>
     ["job-proposals", jobId, "facts", [...candidateIds].sort((a, b) => a - b).join(",")] as const,

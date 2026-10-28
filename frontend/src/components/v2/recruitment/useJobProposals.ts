@@ -48,7 +48,9 @@ import {
 } from "@/lib/job-proposals-api";
 import {
   countBySource,
+  DEFAULT_PROPOSAL_THRESHOLD,
   filterProposals,
+  isBelowThreshold,
   mergeProposals,
   type ProposalEntry,
   type ProposalViewFilters,
@@ -81,6 +83,12 @@ export interface AddToJobOptions {
   initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
+  /**
+   * Źródło dla osób spoza listy propozycji — sekcja „Ukryci przez »musi
+   * mieć«” (28.10.2026) dodaje osoby, których źródła okna nie zwracają.
+   * Bez niego takie id są pomijane jak dotąd.
+   */
+  unlistedSource?: BulkAddSource;
 }
 
 /**
@@ -242,6 +250,9 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     [inbox.data],
   );
   const inboxTotal = inbox.data?.pages[0]?.total ?? 0;
+  // Najlepsze 40 (28.10.2026): próg separatora „Poniżej N%” — ten sam, którym
+  // serwer liczy dzwonek i kafle.
+  const threshold = inbox.data?.pages[0]?.threshold ?? DEFAULT_PROPOSAL_THRESHOLD;
   const inboxHidden = inbox.data?.pages.reduce((n, p) => n + p.hidden_on_page, 0) ?? 0;
 
   const latestRun = useQuery({
@@ -328,8 +339,19 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     () => countBySource(filterProposals(allEntries, { ...filters, source: "all" }, { budgetHourly })),
     [allEntries, filters, budgetHourly],
   );
-  // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę.
-  const totalProposals = sourceCounts.all;
+  // Pasek etapów pokazuje łączną liczbę ze wszystkich źródeł, nie samą skrzynkę
+  // — bez osób spod progu (najlepsze 40), jak kafle i poranny dzwonek.
+  const totalProposals = useMemo(
+    () =>
+      countBySource(
+        filterProposals(
+          allEntries.filter((e) => !isBelowThreshold(e, threshold)),
+          { ...filters, source: "all" },
+          { budgetHourly },
+        ),
+      ).all,
+    [allEntries, filters, budgetHourly, threshold],
+  );
   // Publikujemy dopiero, gdy każde źródło się rozstrzygnęło — inaczej pasek
   // etapów pokazywał przez chwilę „0" (sama skrzynka) zamiast pełnej liczby.
   const countsSettled =
@@ -377,8 +399,11 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
     mutationFn: async ({ candidateIds, opts }: { candidateIds: number[]; opts: AddToJobOptions }) => {
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       const picked = candidateIds.flatMap((id) => entryById.get(id) ?? []);
+      const unlisted = opts.unlistedSource ? candidateIds.filter((id) => !entryById.has(id)) : [];
+      const groups = groupAddsByOrigin(picked, autoRunId);
+      if (unlisted.length > 0) groups.push({ ids: unlisted, source: opts.unlistedSource ?? null, runId: null });
       const parts: BulkProposalsResponse[] = [];
-      for (const group of groupAddsByOrigin(picked, autoRunId)) {
+      for (const group of groups) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
         if (opts.stageDefId != null) body.initial_stage_def_id = opts.stageDefId;
         else if (opts.initialStageLegacy) body.initial_stage_legacy = opts.initialStageLegacy;
@@ -561,6 +586,8 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       engineDegraded,
       /** Każde źródło się rozstrzygnęło (sukces albo błąd) — REC-02. */
       settled: countsSettled,
+      /** Próg propozycji w % (najlepsze 40: separator „Poniżej N%”). */
+      threshold,
       inbox: {
         total: inboxTotal,
         hidden: inboxHidden,

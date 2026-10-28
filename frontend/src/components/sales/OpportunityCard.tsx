@@ -37,6 +37,7 @@ import { OpportunityContacts } from "./OpportunityContacts";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
+import { SalesMotionPanel } from "./SalesMotionPanel";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -59,6 +60,7 @@ function Details({ opportunity }: { opportunity: OpportunityDetail }) {
       {opportunity.mrr_value && (
         <Row label="Miesięcznie">{formatDealAmount(opportunity.mrr_value, opportunity.currency)}</Row>
       )}
+      {opportunity.margin_pct && <Row label="Marża">{`${Number(opportunity.margin_pct)}%`}</Row>}
       <Row label="Model">
         {opportunity.service_line ? SERVICE_LINE_LABELS[opportunity.service_line] : null}
       </Row>
@@ -191,8 +193,9 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
         )}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
+            <SalesMotionPanel motion={data.atlas_motion} />
             <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
-            <ActivityTimeline opportunityId={data.id} />
+            <ActivityTimeline opportunityId={data.id} withCompanyMail />
           </div>
           <div className="space-y-4">
             <Card className="space-y-3 p-4">

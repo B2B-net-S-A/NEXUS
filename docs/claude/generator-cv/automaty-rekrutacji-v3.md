@@ -242,6 +242,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+  Od 28.10.2026 przy mniej niż `AUTO_FULL_REVIEW_MIN_COUNT` (40) osobach od
+  progu dochodzą najlepsi spod progu do łącznie 40 — liczniki i dzwonek liczą
+  tylko od progu (`rekrutacja-tablica/najlepsze-40-i-ukryci-przez-musi-miec.md`).
 - **A. Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026).** Najnowszy
   przegląd rekrutacji w pracy (ten sam warunek co wygaszanie `expired`) zastępuje
   `job_autofill_pool` rekrutacji: `AUTOFILL_POOL_SIZE` (150) najlepszych

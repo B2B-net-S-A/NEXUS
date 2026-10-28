@@ -121,7 +121,9 @@ Makiety: kanwa `LttSvWiuw2CLPPHU1jL7kN` (Jak to działa · Wagi z podglądem na
   zespołu. Szkic równy opublikowanym = brak szkicu.
 - **Próg nocnych propozycji** (`app_settings['auto_full_review_min_score']`)
   czyta `auto_full_review.publish_run_proposals` przez `nightly_min_score`;
-  bez zapisu działa env `AUTO_FULL_REVIEW_MIN_SCORE`.
+  bez zapisu działa env `AUTO_FULL_REVIEW_MIN_SCORE`. Ten sam próg dzieli
+  skrzynkę na „od progu” i „Poniżej N%” (najlepsze 40, 28.10.2026,
+  `job_proposals.meets_threshold`).
 - **Historia** (`scoring_weight_changes`, 0501): publikacja z panelu i każda
   edycja profilu starymi trasami admina (`admin_edit`) — kto, kiedy, przed/po,
   powód, wynik pomiaru. `PATCH` profilu ustawia `updated_at` (kolumna nie ma

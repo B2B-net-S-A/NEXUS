@@ -27,6 +27,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
@@ -39,7 +40,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
 from app.services import candidate_rate_change as rate_change
 from app.services import screening_form as form
@@ -207,6 +208,9 @@ async def get_joint_screening_context(
             "anchor": anchor,
             "pairs": [],
         }
+    from app.services import job_twins  # noqa: PLC0415
+
+    twin_set = set(await job_twins.twin_ids(db, job_id))
     pairs = await form.joint_pairs(
         db,
         user=user,
@@ -222,13 +226,72 @@ async def get_joint_screening_context(
         verified = await _resolve_stage_def(
             db, other, legacy_stage=PipelineStage.verified
         )
-        out.append({**pair, "verified_stage_def_id": verified.id if verified else None})
+        out.append(
+            {
+                **pair,
+                "verified_stage_def_id": verified.id if verified else None,
+                "twin": pair["job_id"] in twin_set,
+            }
+        )
     return {
         "candidate_id": candidate_id,
         "job_id": job_id,
         "anchor": anchor,
         "pairs": out,
+        # Bliźniaki (0615), w których osoby jeszcze nie ma — formularz dodaje
+        # ją do „Nowych” i bierze do rozmowy. Bez tego bramka „Zweryfikowany”
+        # zatrzyma ruch w tej rekrutacji.
+        "missing_twins": await _missing_twins(
+            db, user=user, candidate_id=candidate_id, twin_ids=twin_set
+        ),
     }
+
+
+async def _missing_twins(
+    db: AsyncSession, *, user: User, candidate_id: int, twin_ids: set[int]
+) -> list[dict]:
+    from app.api.pipeline import _resolve_stage_def  # noqa: PLC0415
+    from app.models.recruitment_pipeline import (  # noqa: PLC0415
+        CandidateStage,
+        PipelineStage,
+    )
+    from app.services.dealbreaker_filters import resolve_job_budget_hourly  # noqa: PLC0415
+    from app.services.job_working_title import display_title  # noqa: PLC0415
+
+    if not twin_ids:
+        return []
+    present = set(
+        (
+            await db.execute(
+                select(CandidateStage.job_id).where(
+                    CandidateStage.candidate_id == candidate_id,
+                    CandidateStage.job_id.in_(sorted(twin_ids)),
+                )
+            )
+        ).scalars()
+    )
+    out = []
+    for twin_id in sorted(twin_ids - present):
+        twin = await db.get(Job, twin_id)
+        if twin is None or twin.status == JobStatus.closed:
+            continue
+        if not await _is_member(db, user, twin_id):
+            continue
+        verified = await _resolve_stage_def(
+            db, twin, legacy_stage=PipelineStage.verified
+        )
+        budget = resolve_job_budget_hourly(twin)
+        out.append(
+            {
+                "job_id": twin_id,
+                "title": display_title(twin),
+                "client_reference": twin.client_reference,
+                "client_id": twin.client_id,
+                "verified_stage_def_id": verified.id if verified else None,
+                "budget_hourly": float(budget) if budget is not None else None,
+            }
+        )
+    return out
 
 
 @router.get("/screening-form/question-groups")
@@ -255,7 +318,13 @@ async def get_screening_question_groups(
             raise HTTPException(status_code=404, detail="Rekrutacja nie istnieje.")
         await ensure_job_read_access(db, user, jid)
         questions[jid] = screening_sheets.question_texts(job.champion_profile)
-    groups = group_questions(questions, order)
+    # Bliźniaki (0615): pary pytań potwierdzone przy łączeniu.
+    from app.services import job_twins  # noqa: PLC0415
+
+    pairs = job_twins.explicit_question_groups(
+        await job_twins.twin_links(db, order), order
+    )
+    groups = group_questions(questions, order, pairs)
     return {
         "groups": [
             [{"job_id": m.job_id, "question_id": m.question_id} for m in group]
@@ -275,6 +344,17 @@ async def save_screening_form(
     candidate, job = await _pair(db, body.candidate_id, body.job_id)
     # Zapis arkusza to mutacja pipeline'u tej rekrutacji — ta sama bramka co `/move`.
     await ensure_job_membership(db, user, job.id)
+    if body.rate is not None:
+        # Bliźniaki (0615, 28.10.2026): stawka ponad budżet się nie zapisze.
+        from app.services import job_twins  # noqa: PLC0415
+
+        await job_twins.assert_rate_within_budget(
+            db,
+            job=job,
+            amount=body.rate.amount,
+            unit=body.rate.unit,
+            currency=body.rate.currency,
+        )
     outcome = await form.save(db, user=user, candidate=candidate, job=job, data=body)
     return await _finish(
         db, user=user, candidate_id=candidate.id, job_id=job.id, outcome=outcome

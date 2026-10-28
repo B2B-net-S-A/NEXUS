@@ -9,16 +9,20 @@ import { TabbedNav } from "@/components/ds/TabbedNav";
 import { RequirePermission } from "@/components/RequirePermission";
 import { permissionLabel } from "@/lib/permissions";
 
-export type SalesSection = "opportunities" | "companies" | "leads" | "tasks";
+export type SalesSection = "summary" | "opportunities" | "companies" | "contacts" | "leads" | "tasks";
 
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
+  { value: "summary", label: "Podsumowanie", href: "/sales/summary" },
   { value: "opportunities", label: "Szanse", href: "/sales" },
   { value: "companies", label: "Firmy", href: "/sales/companies" },
+  { value: "contacts", label: "Kontakty", href: "/sales/contacts" },
   { value: "leads", label: "Leady", href: "/sales/leads" },
   { value: "tasks", label: "Zadania", href: "/sales/tasks" },
 ];
 
 export function activeSection(pathname: string): SalesSection {
+  if (pathname.startsWith("/sales/summary")) return "summary";
+  if (pathname.startsWith("/sales/contacts")) return "contacts";
   if (pathname.startsWith("/sales/companies")) return "companies";
   if (pathname.startsWith("/sales/tasks")) return "tasks";
   if (pathname.startsWith("/sales/leads")) return "leads";

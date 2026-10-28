@@ -92,7 +92,31 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   w 65 minut, **nie odpalaj `apply` drugi raz**, zanim nie sprawdzisz panelu
   Coolify — proces w kontenerze może dalej biec.
 
+## Po audycie importu (decyzje Artura 28.10.2026)
+
+- **Uprawnienia handlowcom dopiero po poprawionym imporcie.** Drugi bieg
+  importu odświeża wiersze nietknięte w NEXUSIE; wiersz zmieniony po imporcie
+  (`updated_at > synced_at`) zachowuje etap, status, tytuł, tagi, wykonanie
+  i przypisanie zadania. Opiekun i przypisanie zadania są tylko uzupełniane
+  (`COALESCE`), nigdy kasowane.
+- **Zadanie przy szansie należy do opiekuna szansy** (reguła Atlasa, liczona
+  przy imporcie). Lista „Zadania” obejmuje też telefony z terminem.
+- **Opiekun z Atlasa bez konta = `owner_label`.** Etykietę przypisuje do konta
+  admin (Firmy → „Opiekunowie z Atlasa”); nazwisk nie ma w kodzie ani w logach.
+- **Osoba w kilku firmach**: `sales_company_contacts` (rola, stanowisko,
+  obecna/była); `sales_contacts.company_id` to firma główna.
+- **Notatki Fireflies z przygotowań kandydatów** („Przygotowanie do spotkania
+  z Klientem…”) nie wchodzą do Sprzedaży — to dane kandydatów; import je usuwa.
+- **Leady z job boardów** (silnik odrzucony 27.10) nie są importowane.
+- **Historia bez utraty**: transkrypcje Fireflies przy szansach jako
+  spotkania, oferty jako pliki w folderze „Oferty (Atlas)”, daty plików ze
+  źródła. Sales Motion (mapa decyzyjna, proces zakupowy) i produkty — tylko
+  odczyt na karcie szansy; edytor dopiero na prośbę zespołu.
+- **Scalanie firm** przenosi wszystko i archiwizuje źródło (nic nie kasuje).
+
 ## Poza zakresem (świadomie)
 
-Oferty, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, poczta i kalendarz M365
-przy szansie, Fireflies, „Kogo możemy dać od ręki” (Talent Radar na rolach).
+Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
+poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo,
+cele i KPI tygodniowe, kanał przetargów, eksport CSV (najpierw limit i dziennik
+odczytów), „Kogo możemy dać od ręki” (Talent Radar na rolach).

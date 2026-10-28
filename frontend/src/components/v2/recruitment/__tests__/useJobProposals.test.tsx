@@ -142,6 +142,17 @@ describe("useJobProposals", () => {
     }
   });
 
+  it("osoba spoza listy (sekcja „Ukryci przez »musi mieć«”) idzie jak propozycja tylko z `unlistedSource`", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([777]));
+    act(() => result.current.addToJob([2, 777], { unlistedSource: "proposal_inbox" }));
+    await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(2));
+    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [2], source: "proposal_inbox" });
+    expect(mocks.add).toHaveBeenCalledWith(JOB, { candidate_ids: [777], source: "proposal_inbox" });
+    expect(mocks.add).not.toHaveBeenCalledWith(JOB, expect.objectContaining({ candidate_ids: [777, 2] }));
+  });
+
   it("dodanie oddaje wynik wołającemu (okno zostawia dodanych z „Cofnij”)", async () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));

@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  TrendingUp,
   Users,
 } from "lucide-react";
 import {
@@ -28,6 +29,7 @@ import {
   visiblePaletteEntries,
 } from "@/lib/nav-registry";
 import { hasSectionAccess } from "@/lib/section-access";
+import { hasPermission } from "@/lib/permissions";
 import { useHrNavState, useHrProgram } from "@/lib/api/hr";
 import { useCandidateContactFeature } from "@/hooks/useCandidateContactFeature";
 import { useCapabilities } from "@/hooks/useCapability";
@@ -57,7 +59,10 @@ type QuickResult =
       employment?: EmploymentMarker | null;
     }
   | { type: "job"; id: number; title: string; subtitle: string | null }
-  | { type: "client"; id: number; title: string; subtitle: string | null };
+  | { type: "client"; id: number; title: string; subtitle: string | null }
+  // Sprzedaż (Atlas → NEXUS): firmy i szanse — w Atlasie ⌘K szukał ich od zawsze.
+  | { type: "sales_company"; id: number; title: string; subtitle: string | null }
+  | { type: "sales_opportunity"; id: number; title: string; subtitle: string | null };
 
 // Loose shape of the rows returned by the list endpoints — only the fields the
 // palette reads. The three endpoints share a `{ items, total }` envelope but
@@ -90,6 +95,7 @@ export function CommandPaletteV2({
     hasSectionAccess(user, "sourcing") && can["nav.candidates"];
   const canSearchJobs = hasSectionAccess(user, "pipeline");
   const canSearchClients = hasSectionAccess(user, "delivery");
+  const canSearchSales = hasPermission(user, "sales_view");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<QuickResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -123,10 +129,18 @@ export function CommandPaletteV2({
       candidate: [],
       job: [],
       client: [],
+      sales_company: [],
+      sales_opportunity: [],
     };
     const flush = () => {
       if (cancelled) return;
-      setResults([...buckets.candidate, ...buckets.job, ...buckets.client]);
+      setResults([
+        ...buckets.candidate,
+        ...buckets.job,
+        ...buckets.client,
+        ...buckets.sales_company,
+        ...buckets.sales_opportunity,
+      ]);
     };
 
     setResults([]);
@@ -211,6 +225,34 @@ export function CommandPaletteV2({
             }),
         );
       }
+      if (canSearchSales) {
+        requests.push(
+          api
+            .get("/api/sales/companies", { params: { q: term, limit: 5 }, signal: ctrl.signal })
+            .then((res) => {
+              buckets.sales_company = ((res.data?.items ?? []) as RawSearchItem[]).map((c) => ({
+                type: "sales_company" as const,
+                id: c.id,
+                title: c.name ?? `Firma #${c.id}`,
+                subtitle: "Sprzedaż · firma",
+              }));
+              flush();
+            }),
+          api
+            .get("/api/sales/opportunities", { params: { q: term, limit: 5 }, signal: ctrl.signal })
+            .then((res) => {
+              buckets.sales_opportunity = (
+                (res.data?.items ?? []) as (RawSearchItem & { company?: { name?: string } })[]
+              ).map((o) => ({
+                type: "sales_opportunity" as const,
+                id: o.id,
+                title: o.title ?? `Szansa #${o.id}`,
+                subtitle: ["Sprzedaż", o.company?.name].filter(Boolean).join(" · "),
+              }));
+              flush();
+            }),
+        );
+      }
       // Clear the "searching…" hint only once every request has settled
       // (resolved, rejected, or aborted). Odróżniamy przy tym awarię od pustki:
       // gdy KAŻDE zapytanie padło, pokazujemy komunikat o błędzie zamiast
@@ -228,7 +270,7 @@ export function CommandPaletteV2({
       ctrl.abort();
       clearTimeout(timer);
     };
-  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients]);
+  }, [query, open, canSearchCandidates, canSearchJobs, canSearchClients, canSearchSales]);
 
   const go = (href: string) => {
     onOpenChange(false);
@@ -364,6 +406,8 @@ export function CommandPaletteV2({
                   <Users className="h-4 w-4" />
                 ) : r.type === "job" ? (
                   <Briefcase className="h-4 w-4" />
+                ) : r.type === "sales_opportunity" ? (
+                  <TrendingUp className="h-4 w-4" />
                 ) : (
                   <Building2 className="h-4 w-4" />
                 )}
@@ -494,5 +538,9 @@ function resultHref(r: QuickResult): string {
       return `/jobs/${r.id}`;
     case "client":
       return `/clients/${r.id}`;
+    case "sales_company":
+      return `/sales/companies/${r.id}`;
+    case "sales_opportunity":
+      return `/sales/opportunities/${r.id}`;
   }
 }

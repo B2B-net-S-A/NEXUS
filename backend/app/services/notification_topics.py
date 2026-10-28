@@ -71,6 +71,7 @@ _JOBS = (
     _T.champion_profile_updated,
     _T.champions_changed,
     _T.champion_search_resumed,
+    _T.job_twin_linked,
     _T.job_deadline_7d,
     _T.job_deadline_3d,
     _T.job_deadline_1d,

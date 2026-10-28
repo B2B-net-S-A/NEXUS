@@ -18,7 +18,11 @@ Na produkcji: workflow ``Coolify Ops`` → ``action=atlas-import`` (jednorazowe
 zadanie Coolify z ``--lock``; ``ATLAS_DATABASE_URL`` w env aplikacji przez
 „Coolify set env” z sekretu repo). Cron zadania odpala się co minutę, więc
 ``--lock`` zakłada katalog i każde kolejne odpalenie kończy się kodem 3 bez
-importu. Log Actions jest publiczny: przy ``--lock`` błąd wypisuje tylko typ
+importu. Drugi bieg ``--apply`` poprawia wiersze z pierwszego importu, ale nie
+nadpisuje pól zmienionych w NEXUSIE (``synced_at``); usunięcia (notatki
+z przygotowań kandydata, otwarte leady z ogłoszeń) biegną w tej samej
+transakcji, więc na sucho są tylko policzone. ``--files`` przenosi też pliki
+ofert Atlasa (bucket ``offers``, folder „Oferty (Atlas)”). Log Actions jest publiczny: przy ``--lock`` błąd wypisuje tylko typ
 wyjątku, pełny traceback ląduje w ``<lock>/error.log`` w kontenerze. Pliki z Supabase Storage: drugi bieg z ``--files`` (wymaga
 ``ATLAS_SUPABASE_URL`` i ``ATLAS_SUPABASE_SERVICE_KEY``; na stagingu host
 Supabase musi być w ``STAGING_EXTRA_ALLOWED_HOSTS``).
@@ -55,6 +59,12 @@ TABLES = {
     "linkedin_leads": "linkedin_leads",
     "press_signals": "press_signals",
 }
+#: Tabele, których starszy Atlas nie ma — brak tabeli = pusta lista.
+OPTIONAL_TABLES = {
+    "company_attachments": "company_attachments",
+    "company_team_members": "company_team_members",
+    "meeting_transcripts": "meeting_transcripts",
+}
 
 
 def _postgres_dsn(url: str) -> str:
@@ -72,8 +82,13 @@ class AsyncpgSource:
 
     async def _rows(self, key: str) -> list[dict[str, Any]]:
         if key not in self._cache:
-            table = TABLES[key]
-            records = await self._connection.fetch(f"SELECT * FROM {table}")  # noqa: S608 — stała lista tabel
+            table = TABLES.get(key) or OPTIONAL_TABLES[key]
+            try:
+                records = await self._connection.fetch(f"SELECT * FROM {table}")  # noqa: S608 — stała lista tabel
+            except asyncpg.UndefinedTableError:
+                if key not in OPTIONAL_TABLES:
+                    raise
+                records = []
             self._cache[key] = [dict(record) for record in records]
         return self._cache[key]
 
@@ -118,6 +133,15 @@ class AsyncpgSource:
 
     async def press_signals(self):
         return await self._rows("press_signals")
+
+    async def company_attachments(self):
+        return await self._rows("company_attachments")
+
+    async def company_team_members(self):
+        return await self._rows("company_team_members")
+
+    async def meeting_transcripts(self):
+        return await self._rows("meeting_transcripts")
 
     async def attachments_count(self) -> int:
         total = 0
@@ -185,6 +209,8 @@ async def _copy_files(
             db,
             deal_attachments=await rows("deal_attachments"),
             company_attachments=await rows("company_attachments"),
+            offers=await rows("offers"),
+            offer_versions=await rows("offer_versions"),
             fetch=fetch,
             users_by_email=users,
             dry_run=not apply,

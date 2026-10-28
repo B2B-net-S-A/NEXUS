@@ -28,10 +28,12 @@
   "board"
  ],
  "routes": {
+  "DELETE /api/sales/contacts/{contact_id}/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/contacts/{contact_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/sales/contacts/{contact_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/contacts/{contact_id}/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -79,6 +79,8 @@ class LeadOut(BaseModel):
     opportunity_id: Optional[int]
     dismissed_reason: Optional[str]
     created_at: datetime
+    #: Surowe dane sygnału (z Atlasa: ogłoszenie, źródło, uzasadnienie wyniku).
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class LeadList(BaseModel):

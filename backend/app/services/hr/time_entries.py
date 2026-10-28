@@ -45,9 +45,6 @@ from app.services.hr_time_schema import (
 
 STANDARD = Decimal(STANDARD_DAY_HOURS)
 OVERTIME_MAX = Decimal(OVERTIME_MAX_HOURS)
-#: Opis auto-wpisu płatnego urlopu — na karcie pracy wygląda jak dzień pracy
-#: (decyzja Compassa z 03.06.2026; to samo co domyślny opis „Wypełnij miesiąc”).
-STANDARD_DESCRIPTION = "Praca standardowa"
 MAX_DESCRIPTION = 2000
 MAX_PROJECT = 200
 MAX_OVERTIME_REASON = 1000
@@ -57,6 +54,17 @@ LOCKED_DETAIL = (
     "miesiąca przez Płace."
 )
 CHANGED_DETAIL = "Timesheet zmienił się w międzyczasie. Odśwież widok."
+
+
+def standard_description(employment_type: Optional[str]) -> str:
+    """Opis auto-wpisu płatnej puli i domyślny opis „Wypełnij miesiąc”.
+
+    Na karcie dzień puli wygląda jak dzień pracy (decyzja Compassa z
+    03.06.2026). Słowo z formy: B2B i zlecenie „Realizacja usług zgodnie
+    z umową”, UoP „Praca standardowa” (decyzja Artura 28.10.2026).
+    """
+
+    return terms(employment_type)["standard_description"]
 
 
 class TimeError(Exception):
@@ -676,7 +684,7 @@ async def sync_leave_paid(
                 work_date=day,
                 hours=hours,
                 project=None,
-                description=STANDARD_DESCRIPTION,
+                description=standard_description(employment_type),
                 source="leave_paid",
             )
         )
