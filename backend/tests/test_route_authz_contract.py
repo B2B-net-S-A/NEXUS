@@ -238,6 +238,10 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # bliźniaczo do /api/procedures.
     ("GET", "/api/help/screens"),
     ("GET", "/api/help/screens/{key}"),
+    # Nowości do przeklikania (0614) — wyłącznie własny stan przy nowościach
+    # swojej roli; treść to rejestr bez danych domenowych.
+    ("GET", "/api/novelties/mine"),
+    ("POST", "/api/novelties/{novelty_id}/events"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/contracts"),

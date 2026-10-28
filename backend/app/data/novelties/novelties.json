@@ -1,0 +1,85 @@
+[
+  {
+    "id": "wybieram-i-powrot-do-wynikow",
+    "title": "„Wybieram” na profilu i powrót do wyników",
+    "why": "Przeglądasz osoby z „Szukaj ręcznie” bez gubienia listy — wybrane wracają zaznaczone, a „Dodaj do Nowych” dodaje je jednym kliknięciem.",
+    "tier": "tour",
+    "shipped_on": "2026-10-28",
+    "pr": 2757,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Kandydaci do dodania",
+    "href": "/jobs",
+    "dot_anchor": "jobs.sources.search",
+    "used_anchor": "candidate.profile.pick",
+    "steps": [
+      {
+        "anchor": "jobs.sources.search",
+        "text": "Kliknij „Szukaj w bazie”.",
+        "hint": "To przycisk w pasku „Kandydaci do dodania” na Twojej rekrutacji."
+      },
+      {
+        "anchor": "jobs.add.manual-tab",
+        "text": "Przejdź na zakładkę „Szukaj ręcznie”.",
+        "hint": "Tu przeglądasz całą bazę z filtrami tej rekrutacji."
+      },
+      {
+        "anchor": "candidates.list.name",
+        "text": "Otwórz profil dowolnej osoby — kliknij nazwisko.",
+        "hint": "Profil otworzy się w pełnym oknie, lista na Ciebie poczeka."
+      },
+      {
+        "anchor": "candidate.profile.pick",
+        "text": "Kliknij „Wybieram”.",
+        "hint": "Osoba wróci zaznaczona w oknie rekrutacji."
+      },
+      {
+        "anchor": "candidate.profile.back-to-search",
+        "text": "Wróć do wyników wyszukiwania.",
+        "hint": "Lista stanie na osobie, którą oglądasz, z zaznaczeniem."
+      }
+    ]
+  },
+  {
+    "id": "umowa-b2b-przy-zakonczeniu",
+    "title": "„Co z umową B2B?” przy zakończeniu kontraktu",
+    "why": "Od 28.10 bez tej odpowiedzi kontraktu nie zakończysz: wypowiedzenie, porozumienie albo umowa kończy się sama. Porozumienie generuje się od razu z okna.",
+    "tier": "process",
+    "shipped_on": "2026-10-28",
+    "pr": 2762,
+    "audience": {"permissions": ["contract_status"]},
+    "where": "Kontrakty → Zakończ współpracę",
+    "href": "/contracts",
+    "path_prefix": "/contracts",
+    "dot_anchor": "contract.panel.end",
+    "used_anchor": "contract.end.b2b-question",
+    "steps": [
+      {
+        "anchor": "contracts.list.row",
+        "text": "Otwórz dowolny kontrakt z listy.",
+        "hint": "Nic nie zmienisz — przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "contract.panel.end",
+        "text": "Kliknij „Zakończ współpracę”.",
+        "hint": "Okno zakończenia otworzy się bez zapisywania czegokolwiek."
+      },
+      {
+        "anchor": "contract.end.b2b-question",
+        "text": "Tu jest nowe pole „Co z umową B2B?”.",
+        "hint": "Bez wyboru jednej z trzech odpowiedzi kontraktu nie zakończysz. Zamknij okno bez zapisu.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "schowaj-robota-jarvisa",
+    "title": "Robota Jarvisa schowasz krzyżykiem",
+    "why": "× na robocie chowa go na tym urządzeniu; wraca z menu „Wygląd” w górnym pasku.",
+    "tier": "dot",
+    "shipped_on": "2026-10-28",
+    "pr": 2759,
+    "where": "Robot Jarvisa w rogu ekranu",
+    "href": "/dashboard",
+    "dot_anchor": "jarvis.mascot.hide"
+  }
+]
