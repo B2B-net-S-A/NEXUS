@@ -6,6 +6,10 @@ należy też do jej firmy. Zrobiona aktywność odświeża „ostatnią aktywno�
 szansy — z niej liczymy szanse zaniedbane. Usuwa autor albo admin.
 
 „Dziś” i „po terminie” liczymy w kalendarzu firmy (``app/core/scheduling``).
+Lista zadań obejmuje też telefony z terminem (``TASK_KINDS``) — w Atlasie
+Task Center pokazywał każdy otwarty rodzaj. Na osi szansy można dołożyć maile
+i spotkania jej firmy z Outlooka (``with_company_mail``), jak karta szansy
+w Atlasie: synchronizacja przypina je do firmy, nie do szansy.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -35,9 +39,13 @@ router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiej aktywności."
 AUTHOR_ONLY_DETAIL = "Aktywność usuwa jej autor albo administrator."
+EDIT_AUTHOR_ONLY_DETAIL = "Aktywność poprawia jej autor albo administrator."
+#: Maile i spotkania z Outlooka (Microsoft Graph) — ``external_source`` z Atlasa.
+COMPANY_MAIL_SOURCE_PATTERN = "msgraph-%"
 
 Kind = Literal[schema.ACTIVITY_KINDS]  # type: ignore[valid-type]
 Priority = Literal[schema.PRIORITIES]  # type: ignore[valid-type]
+TaskKind = Literal[schema.TASK_KINDS]  # type: ignore[valid-type]
 
 
 class ActivityFields(BaseModel):
@@ -59,7 +67,15 @@ class ActivityCreate(ActivityFields):
 
 
 class ActivityUpdate(ActivityFields):
-    pass
+    kind: Optional[Kind] = None
+
+
+class CompleteTasksRequest(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class CompleteTasksOut(BaseModel):
+    updated: int
 
 
 class Ref(BaseModel):
@@ -84,6 +100,17 @@ class ActivityOut(BaseModel):
     author: Optional[Ref]
     overdue: bool
     created_at: datetime
+    external_source: Optional[str] = None
+    web_link: Optional[str] = None
+    direction: Optional[str] = None
+    duration_minutes: Optional[int] = None
+    #: Mail albo spotkanie firmy dołożone do osi szansy (``with_company_mail``).
+    from_company: bool = False
+
+
+class TaskList(BaseModel):
+    items: list[ActivityOut]
+    total: int
 
 
 def _ref(id_: Optional[int], name: Optional[str]) -> Optional[Ref]:
@@ -112,7 +139,23 @@ def _base_query():
     )
 
 
-def _out(row, now: datetime) -> ActivityOut:
+def _is_open_item(kind: str, due_at: Optional[datetime]) -> bool:
+    """Zadanie albo telefon z terminem — pozycja listy zadań, nie wpis historii."""
+
+    return kind == "task" or (kind in schema.TASK_KINDS and due_at is not None)
+
+
+def _task_items():
+    return or_(
+        SalesActivity.kind == "task",
+        and_(
+            SalesActivity.kind.in_(schema.TASK_KINDS),
+            SalesActivity.due_at.is_not(None),
+        ),
+    )
+
+
+def _out(row, now: datetime, *, from_company: bool = False) -> ActivityOut:
     activity: SalesActivity = row.SalesActivity
     return ActivityOut(
         id=activity.id,
@@ -135,6 +178,11 @@ def _out(row, now: datetime) -> ActivityOut:
             and activity.due_at < now
         ),
         created_at=activity.created_at,
+        external_source=activity.external_source,
+        web_link=activity.web_link,
+        direction=activity.direction,
+        duration_minutes=activity.duration_minutes,
+        from_company=from_company,
     )
 
 
@@ -154,7 +202,7 @@ async def _touch_opportunity(
 
     if activity.opportunity_id is None:
         return
-    if activity.kind == "task" and activity.done_at is None:
+    if activity.kind in schema.TASK_KINDS and activity.done_at is None:
         return
     opp = await db.get(SalesOpportunity, activity.opportunity_id)
     if opp is not None and (
@@ -186,7 +234,9 @@ async def list_activities(
     company_id: Optional[int] = None,
     opportunity_id: Optional[int] = None,
     kind: Optional[Kind] = None,
+    with_company_mail: bool = False,
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
 ) -> list[ActivityOut]:
     """Oś czasu firmy albo szansy: najpierw przypięte, potem od najnowszych."""
 
@@ -199,7 +249,26 @@ async def list_activities(
     if company_id is not None:
         query = query.where(SalesActivity.company_id == company_id)
     if opportunity_id is not None:
-        query = query.where(SalesActivity.opportunity_id == opportunity_id)
+        scope = SalesActivity.opportunity_id == opportunity_id
+        mail_company_id = (
+            await db.scalar(
+                select(SalesOpportunity.company_id).where(
+                    SalesOpportunity.id == opportunity_id
+                )
+            )
+            if with_company_mail
+            else None
+        )
+        if mail_company_id is not None:
+            scope = or_(
+                scope,
+                and_(
+                    SalesActivity.company_id == mail_company_id,
+                    SalesActivity.opportunity_id.is_(None),
+                    SalesActivity.external_source.like(COMPANY_MAIL_SOURCE_PATTERN),
+                ),
+            )
+        query = query.where(scope)
     if kind:
         query = query.where(SalesActivity.kind == kind)
     rows = (
@@ -207,35 +276,50 @@ async def list_activities(
             query.order_by(
                 SalesActivity.is_pinned.desc(),
                 func.coalesce(
-                    SalesActivity.occurred_at,
-                    SalesActivity.done_at,
-                    SalesActivity.created_at,
+                    SalesActivity.occurred_at, SalesActivity.created_at
                 ).desc(),
                 SalesActivity.id.desc(),
-            ).limit(limit)
+            )
+            .limit(limit)
+            .offset(offset)
         )
     ).all()
     now = datetime.now(timezone.utc)
-    return [_out(row, now) for row in rows]
+    return [
+        _out(
+            row,
+            now,
+            from_company=(
+                opportunity_id is not None
+                and row.SalesActivity.opportunity_id != opportunity_id
+            ),
+        )
+        for row in rows
+    ]
 
 
-@router.get("/tasks", response_model=list[ActivityOut])
+@router.get("/tasks", response_model=TaskList)
 async def list_tasks(
     current_user: SalesViewUser,
     db: AsyncSession = Depends(get_db),
     scope: Literal["mine", "team"] = "mine",
     bucket: Literal["open", "overdue", "today", "done"] = "open",
-    limit: int = Query(default=200, ge=1, le=500),
-) -> list[ActivityOut]:
-    query = _base_query().where(SalesActivity.kind == "task")
+    kind: Optional[TaskKind] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> TaskList:
+    """Zadania i telefony z terminem (Task Center z Atlasa)."""
+
+    query = _base_query().where(_task_items())
+    if kind:
+        query = query.where(SalesActivity.kind == kind)
     if scope == "mine":
         query = query.where(SalesActivity.assignee_user_id == current_user.id)
     now = datetime.now(timezone.utc)
     day = local_day_bounds(local_now())
     if bucket == "done":
-        query = query.where(SalesActivity.done_at.is_not(None)).order_by(
-            SalesActivity.done_at.desc()
-        )
+        query = query.where(SalesActivity.done_at.is_not(None))
+        order = (SalesActivity.done_at.desc(), SalesActivity.id.desc())
     else:
         query = query.where(SalesActivity.done_at.is_(None))
         if bucket == "overdue":
@@ -245,11 +329,48 @@ async def list_tasks(
                 SalesActivity.due_at >= day.start_utc,
                 SalesActivity.due_at <= day.end_utc,
             )
-        query = query.order_by(
-            SalesActivity.due_at.asc().nulls_last(), SalesActivity.id
+        order = (SalesActivity.due_at.asc().nulls_last(), SalesActivity.id)
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (await db.execute(query.order_by(*order).limit(limit).offset(offset))).all()
+    return TaskList(items=[_out(row, now) for row in rows], total=int(total or 0))
+
+
+@router.post("/tasks/complete", response_model=CompleteTasksOut)
+async def complete_tasks(
+    payload: CompleteTasksRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> CompleteTasksOut:
+    """Odhacz kilka zadań naraz; zrobione wcześniej zostają bez zmian."""
+
+    now = datetime.now(timezone.utc)
+    done = (
+        await db.execute(
+            update(SalesActivity)
+            .where(
+                SalesActivity.id.in_(set(payload.ids)),
+                SalesActivity.done_at.is_(None),
+                _task_items(),
+            )
+            .values(done_at=now)
+            .returning(SalesActivity.opportunity_id)
         )
-    rows = (await db.execute(query.limit(limit))).all()
-    return [_out(row, now) for row in rows]
+    ).all()
+    opportunity_ids = {row[0] for row in done if row[0] is not None}
+    if opportunity_ids:
+        await db.execute(
+            update(SalesOpportunity)
+            .where(
+                SalesOpportunity.id.in_(opportunity_ids),
+                or_(
+                    SalesOpportunity.last_activity_at.is_(None),
+                    SalesOpportunity.last_activity_at < now,
+                ),
+            )
+            .values(last_activity_at=now)
+        )
+    await db.commit()
+    return CompleteTasksOut(updated=len(done))
 
 
 @router.post("", response_model=ActivityOut, status_code=status.HTTP_201_CREATED)
@@ -279,6 +400,7 @@ async def create_activity(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Nie ma takiej firmy w kartotece sprzedaży.",
         )
+    open_item = _is_open_item(payload.kind, payload.due_at)
     if (
         payload.kind != "task"
         and not ((payload.subject or "") + (payload.body or "")).strip()
@@ -301,7 +423,9 @@ async def create_activity(
     )
     for key, value in fields.items():
         setattr(activity, key, value.strip() if isinstance(value, str) else value)
-    if payload.kind == "task":
+    if open_item:
+        # Zadanie albo telefon z terminem: trafia na listę zadań autora,
+        # jeśli nikt inny nie jest wskazany.
         activity.assignee_user_id = activity.assignee_user_id or current_user.id
         if payload.done:
             activity.done_at = now
@@ -324,12 +448,26 @@ async def update_activity(
     activity = await db.get(SalesActivity, activity_id)
     if activity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    if activity.created_by_user_id != current_user.id and not is_admin(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=EDIT_AUTHOR_ONLY_DETAIL)
     fields = payload.model_dump(exclude_unset=True)
+    if fields.get("kind", "") is None:
+        fields.pop("kind")
     await _check_links(db, fields)
     for key, value in fields.items():
         if key == "is_pinned" and value is None:
             continue
         setattr(activity, key, value.strip() if isinstance(value, str) else value)
+    if activity.kind == "task" and not (activity.subject or "").strip():
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Wpisz, co jest do zrobienia."
+        )
+    if (
+        _is_open_item(activity.kind, activity.due_at)
+        and activity.done_at is None
+        and activity.assignee_user_id is None
+    ):
+        activity.assignee_user_id = current_user.id
     await db.commit()
     return await _load(db, activity_id)
 
@@ -359,7 +497,7 @@ async def reopen_activity(
     activity = await db.get(SalesActivity, activity_id)
     if activity is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
-    if activity.kind == "task" and activity.done_at is not None:
+    if _is_open_item(activity.kind, activity.due_at) and activity.done_at is not None:
         activity.done_at = None
         await db.commit()
     return await _load(db, activity_id)
