@@ -316,6 +316,7 @@ from app.api import integrations_companies as integrations_companies_api
 from app.api import oauth_clients as oauth_clients_api
 from app.api import oauth_token as oauth_token_api
 from app.api import service_accounts as service_accounts_api
+from app.api import linkedin_extension as linkedin_extension_api
 from app.api import candidate_sources as candidate_sources_api
 from app.api import contract_client_reassign as contract_client_reassign_api
 from app.api import contract_document_folders as contract_document_folders_api
@@ -2254,6 +2255,14 @@ app.include_router(oauth_token_api.router, prefix="/api", tags=["oauth-token"])
 # i jest wpięte w chronione endpointy, nie w ten router.
 app.include_router(
     service_accounts_api.router, prefix="/api", tags=["service-accounts"]
+)
+
+# Wtyczka LinkedIn (28.10.2026): połączenie i Ustawienia na JWT, reszta na
+# kluczu ``X-Extension-Key`` (``api/extension_deps.py``). Bramka sekcji
+# Sourcing siedzi na trasach, nie na routerze: ``require_section_access`` czyta
+# JWT, a trasy z kluczem liczą ten sam sufit w ``ExtensionReader``/``Writer``.
+app.include_router(
+    linkedin_extension_api.router, prefix="/api/extension", tags=["linkedin-extension"]
 )
 
 # Multi-source attribution (#4): /api/candidates/{cid}/sources + reports.

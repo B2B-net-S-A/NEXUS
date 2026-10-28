@@ -144,6 +144,14 @@ description = "NEXUS service account API key (X-API-Key)"
 regex = '''nxs_v2_[0-9a-f]{24}_[A-Za-z0-9_-]{32,}'''
 tags = ["nexus", "api-key", "service-account"]
 
+# Klucz wtyczki LinkedIn (nagłówek X-Extension-Key, migracja 0607) — ten sam
+# kształt co klucz konta serwisowego, inny prefiks; należy do jednej osoby.
+[[rules]]
+id = "nexus-linkedin-extension-key"
+description = "NEXUS LinkedIn extension key (X-Extension-Key)"
+regex = '''nxe_v1_[0-9a-f]{24}_[A-Za-z0-9_-]{32,}'''
+tags = ["nexus", "api-key", "linkedin-extension"]
+
 [[rules]]
 id = "fireflies-api-key"
 description = "Fireflies API key (UUID format used for bearer tokens)"

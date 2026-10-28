@@ -58,6 +58,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F35 | autofill_quality_report          | claude-sonnet-5 (z Haiku)|
 | F36 | client_form_fill                 | claude-sonnet-5 (z Opus) |
 | F37 | consent_screenshot_check         | claude-sonnet-5 (z Haiku)|
+| F38 | linkedin_message_draft           | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -453,6 +454,16 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "porównując odczyt z rekrutacją. Pomiar 27.10 na 121 zrzutach z produkcji: "
         "11 złych (plakat zamiast zgody, prośba rekrutera, inna osoba, inny ZOB). "
         "Awaria modelu nie blokuje zgody — sprawdza ją wtedy Delivery Lead w QC CV.",
+    ),
+    AIFeatureKey.linkedin_message_draft: ModelChoice(
+        default=SONNET_5,
+        env_vars=("LINKEDIN_MESSAGE_DRAFT_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F38 (decyzja Artura 28.10.2026, POZA badaniem 16.09). Wtyczka LinkedIn: "
+        "krótki szkic InMaila, zaproszenia (≤ 300 znaków) albo wiadomości po polsku pod "
+        "rekrutację, z profilu otwartego na LinkedInie. Krótki tekst w tonie rekrutera — "
+        "ta sama klasa zadania co frazowanie odpowiedzi (F29), ale bez JSON-a. Rekruter "
+        "czyta i wysyła sam; awaria modelu daje szablon z rekrutacji.",
     ),
 }
 

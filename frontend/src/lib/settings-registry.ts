@@ -380,6 +380,15 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin"], section: "system_admin" },
   },
   {
+    id: "linkedin-extension", area: "sys", title: "Wtyczka LinkedIn", group: "Integracje",
+    description: "Kto połączył wtyczkę NEXUSA na LinkedInie, ile dziś z niej korzysta, odłączanie.",
+    keywords: "wtyczka linkedin recruiter chrome rozszerzenie extension panel polaczenie odlacz limit",
+    route: "/settings/linkedin-extension",
+    // Wejście przez „Integracje → Zarządzaj”, jak „Klucze API”.
+    hidden: true,
+    gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
     id: "traffit", area: "sys", title: "Import z Traffita", group: "Integracje",
     description: "Wyłączony 14.10.2026 — historia ostatnich importów.",
     keywords: "traffit synchronizacja import",

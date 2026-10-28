@@ -190,6 +190,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     roles: SYSTEM_ADMIN_ROLES,
     section: "system_admin",
   },
+  // Połączenia wtyczki LinkedIn — backend `AdminUser` (`/api/extension/connections`).
+  {
+    prefix: "/settings/linkedin-extension",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
   {
     prefix: "/settings/diagnostics",
     roles: SYSTEM_ADMIN_ROLES,
