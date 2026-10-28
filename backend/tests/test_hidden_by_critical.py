@@ -197,7 +197,7 @@ async def test_section_lists_only_people_hidden_by_must_with_a_trace(
     owner_id, recruiter_headers = await _user(UserRole.recruiter)
     in_cv, in_note, no_trace, over_budget, dismissed = await _people(
         [
-            "Python developer. Onboarding applications to Sailpoint IdentityIQ.",
+            "Python developer. Onboarding applications to Sailpoint Identity Security Cloud.",
             "Python, Django, Okta.",
             "Python developer, Okta and Azure AD only.",
             "Python, SailPoint IdentityIQ administration.",
@@ -246,7 +246,7 @@ async def test_section_lists_only_people_hidden_by_must_with_a_trace(
     # Pisownia z CV, nie z bramki.
     assert by_id[in_cv]["word"] == "Sailpoint"
     assert by_id[in_cv]["source"] == "cv"
-    assert "Sailpoint IdentityIQ" in by_id[in_cv]["snippet"]
+    assert "Sailpoint Identity" in by_id[in_cv]["snippet"]
     assert len(by_id[in_cv]["snippet"].strip("…")) <= SNIPPET_CHARS
     assert by_id[in_note]["source"] == "note"
     assert body["searched"] == [
