@@ -1,11 +1,13 @@
 "use client";
 
 import type * as React from "react";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   AUTOFILL_REASON_GROUPS,
+  CLIENT_WIDE_REASONS,
   autofillBucketHint,
   type AutofillLearnedFrom,
   type AutofillReason,
@@ -29,6 +31,8 @@ export function AutofillFeedbackField({
   rateKnown,
   several,
   askRate = true,
+  wholeClient = false,
+  onWholeClientChange,
   children,
 }: {
   learnedFrom: AutofillLearnedFrom | null;
@@ -43,6 +47,9 @@ export function AutofillFeedbackField({
   several: boolean;
   /** `false` — kwotę niesie pole pod powodem „za drogo” w oknie (26.10.2026). */
   askRate?: boolean;
+  /** 27.10.2026: powód „klient” na cały klient (jedna osoba). */
+  wholeClient?: boolean;
+  onWholeClientChange?: (value: boolean) => void;
   children?: React.ReactNode;
 }) {
   const hint = autofillBucketHint(reason, rateKnown);
@@ -75,6 +82,24 @@ export function AutofillFeedbackField({
         </RadioGroup>
       </FormField>
       {children}
+      {reason && CLIENT_WIDE_REASONS.has(reason) && !several && onWholeClientChange ? (
+        <label
+          htmlFor="autofill-whole-client"
+          className="flex cursor-pointer items-start gap-2 rounded-md border border-primary/30 bg-primary/5 p-2 text-sm"
+          data-testid="autofill-whole-client"
+        >
+          <Checkbox
+            id="autofill-whole-client"
+            checked={wholeClient}
+            onCheckedChange={(value) => onWholeClientChange(value === true)}
+            className="mt-0.5"
+          />
+          <span>
+            Dotyczy wszystkich rekrutacji tego klienta: zdejmij tę osobę z pozostałych (karty od
+            systemu, których nikt nie ruszył) i nie podsuwaj jej więcej temu klientowi.
+          </span>
+        </label>
+      ) : null}
       {reason === "too_expensive" && !several && askRate ? (
         <FormField
           label="Ile chce? (zł/h, opcjonalnie)"

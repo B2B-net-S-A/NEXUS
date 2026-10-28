@@ -19,6 +19,8 @@ export type AutofillReason =
   | "not_looking"
   | "no_answer"
   | "in_other_process"
+  | "client_employed"
+  | "client_refused"
   | "other";
 
 export type AutofillLearnedFrom = "profile" | "call";
@@ -28,7 +30,19 @@ export interface AutofillFeedbackChoice {
   learnedFrom: AutofillLearnedFrom;
   /** „Ile chce?” z rozmowy (PLN/h) — trafia do „Stawki od”. */
   rateHourly: number | null;
+  /**
+   * 27.10.2026: powód „klient” dotyczy wszystkich rekrutacji klienta — serwer
+   * zdejmuje nietknięte karty tej osoby od systemu z pozostałych i więcej jej
+   * temu klientowi nie podsuwa.
+   */
+  wholeClient?: boolean;
 }
+
+/** Powody, przy których okno pyta „na cały klient” (lustro `CLIENT_WIDE_REASONS`). */
+export const CLIENT_WIDE_REASONS: ReadonlySet<AutofillReason> = new Set([
+  "client_employed",
+  "client_refused",
+]);
 
 export const AUTOFILL_REASON_GROUPS: {
   title: string;
@@ -58,6 +72,8 @@ export const AUTOFILL_REASON_GROUPS: {
       { value: "not_looking", label: "Nie szuka pracy" },
       { value: "no_answer", label: "Nie odbiera (3 próby)" },
       { value: "in_other_process", label: "Już u nas w innym procesie" },
+      { value: "client_employed", label: "Pracuje u tego klienta (też przez inną firmę)" },
+      { value: "client_refused", label: "Nie chce do tego klienta" },
       { value: "other", label: "Inne — opisz" },
     ],
   },
@@ -81,6 +97,8 @@ export const AUTOFILL_TEMPLATE_REASON: Record<AutofillReason, string | null> = {
   not_looking: null,
   no_answer: null,
   in_other_process: null,
+  client_employed: null,
+  client_refused: null,
   other: null,
 };
 
@@ -120,12 +138,15 @@ export function autofillMoveFields(choice: AutofillFeedbackChoice | null | undef
   autofill_reason?: AutofillReason;
   autofill_learned_from?: AutofillLearnedFrom;
   autofill_rate_hourly?: number;
+  autofill_whole_client?: boolean;
 } {
   if (!choice) return {};
   return {
     autofill_reason: choice.reason,
     autofill_learned_from: choice.learnedFrom,
     autofill_rate_hourly: choice.rateHourly ?? undefined,
+    autofill_whole_client:
+      choice.wholeClient && CLIENT_WIDE_REASONS.has(choice.reason) ? true : undefined,
   };
 }
 
@@ -143,7 +164,15 @@ export function autofillBucketHint(reason: AutofillReason | null, rateKnown: boo
   if (reason === "outdated_cv" || reason === "profile_mismatch") {
     return "Do raportu: „Brak danych” — to poprawiamy w bazie, nie w wyszukiwaniu.";
   }
-  if (reason === "not_looking" || reason === "no_answer" || reason === "in_other_process") {
+  if (reason === "client_employed") {
+    return "Do raportu: „Brak danych” — system nie wiedział, że pracuje u klienta (np. przez inną firmę).";
+  }
+  if (
+    reason === "not_looking" ||
+    reason === "no_answer" ||
+    reason === "in_other_process" ||
+    reason === "client_refused"
+  ) {
     return "Do raportu: „Sprawa osoby” — nie liczymy jako błędu wyszukiwania.";
   }
   if (reason === "other") return "Do raportu: „Inne” — z Twoim opisem.";

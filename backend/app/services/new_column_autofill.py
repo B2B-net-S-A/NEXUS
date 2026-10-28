@@ -14,7 +14,9 @@ Reguły, które łatwo cofnąć „przy okazji”:
 * Zawsze do ``TARGET``, także poniżej progu propozycji (decyzja „zawsze 20”).
 * System NIE dodaje: osób, które kiedykolwiek były w tej rekrutacji (także
   zamknięta karta i osoba usunięta z rekrutacji — archiwum
-  ``candidate_stage_removals``), pominiętych propozycji tej rekrutacji, osób,
+  ``candidate_stage_removals``), osób odrzuconych „na cały klient” w innej
+  rekrutacji tego klienta (``autofill_feedback.whole_client``, 27.10.2026),
+  pominiętych propozycji tej rekrutacji, osób,
   które dziś stoją na „Zatrudniony” gdziekolwiek, oraz każdego, przy kim bramka
   kwalifikacji mówi cokolwiek innego niż „brak przeciwwskazań” (ostrzeżenia
   o konflikcie z klientem zostawiamy człowiekowi). Off-limits u klienta:
@@ -52,10 +54,12 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select, union_all
+from sqlalchemy.orm import aliased
 
 from app.core.config import settings
 from app.core.scheduling import is_business_day
 from app.models.activity import Activity
+from app.models.autofill_feedback import AutofillFeedback
 from app.models.candidate import Candidate
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.job import Job, JobStatus
@@ -194,6 +198,19 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
         JobProposal.job_id == job_id, JobProposal.status == "dismissed"
     )
     hired_now = select(CandidateStage.candidate_id).where(current_hired_stage_clause())
+    # Odrzucenie „na cały klient” (27.10.2026): pracuje u klienta albo nie
+    # chce do niego — żadna rekrutacja tego klienta tej osoby nie dostaje.
+    rejected_job = aliased(Job)
+    refused_client = (
+        select(AutofillFeedback.candidate_id)
+        .join(rejected_job, rejected_job.id == AutofillFeedback.job_id)
+        .where(
+            AutofillFeedback.whole_client.is_(True),
+            rejected_job.client_id.is_not(None),
+            rejected_job.client_id
+            == select(Job.client_id).where(Job.id == job_id).scalar_subquery(),
+        )
+    )
     rows = (
         await db.execute(
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)
@@ -202,6 +219,7 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
                 both.c.candidate_id.not_in(removed),
                 both.c.candidate_id.not_in(dismissed),
                 both.c.candidate_id.not_in(hired_now),
+                both.c.candidate_id.not_in(refused_client),
             )
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )
