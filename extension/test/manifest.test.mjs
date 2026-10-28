@@ -21,7 +21,7 @@ const JS = SRC.filter((p) => p.endsWith(".js"));
 test("manifest: MV3, nazwa, wersja, panel boczny i service worker istnieją", () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "NEXUS — LinkedIn");
-  assert.equal(manifest.version, "1.0.0");
+  assert.equal(manifest.version, "1.0.1");
   assert.ok(existsSync(join(ROOT, manifest.side_panel.default_path)));
   assert.ok(existsSync(join(ROOT, manifest.background.service_worker)));
   assert.equal(manifest.background.type, "module");

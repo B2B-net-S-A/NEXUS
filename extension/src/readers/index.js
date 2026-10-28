@@ -9,6 +9,7 @@ import { missingFields, readProfile } from "./profile.js";
 import { readRecruiterProfile } from "./recruiter-profile.js";
 import { MAX_PEOPLE, readSearchResults } from "./search-results.js";
 import { readListText, readProfileText, readRecruiterText } from "./text.js";
+import { recruiterRoot } from "./recruiter-root.js";
 
 export { PAGE_KINDS, detectPage };
 
@@ -45,8 +46,13 @@ export function readPage({ url, snapshot = null, doc = null }) {
     case PAGE_KINDS.PROFILE:
       return combine(page, snapshot && readProfileText(snapshot, url), doc && readProfile(doc, url));
     case PAGE_KINDS.RECRUITER_PROFILE:
+      if (snapshot?.profileScopeInvalid || (doc && !recruiterRoot(doc))) return { ...page, ...readRecruiterProfile(doc, url) };
       return combine(page, doc && readRecruiterProfile(doc, url), snapshot && readRecruiterText(snapshot, url));
     case PAGE_KINDS.SEARCH_RESULTS: {
+      if (page.source !== "search" && doc) {
+        const fromDom = readSearchResults(doc);
+        if (fromDom.people.length || fromDom.skipped) return { ...page, ...fromDom };
+      }
       const fromText = snapshot ? readListText(snapshot, MAX_PEOPLE) : null;
       if (fromText && (fromText.people.length || fromText.skipped)) return { ...page, ...fromText };
       return { ...page, ...(doc ? readSearchResults(doc) : { people: [], truncated: false, skipped: 0 }) };

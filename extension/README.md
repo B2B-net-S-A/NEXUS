@@ -94,14 +94,23 @@ Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy wydaniach), nie ma
 4. Kopia HTML (bez skryptów, obrazków i bloków `<code>`) jedzie obok jako zapas:
    czytniki starszego układu (`profile.js`, `recruiter-profile.js`,
    `search-results.js`) uzupełniają tylko puste pola i tylko wtedy, gdy rozpoznały
-   tę samą osobę.
+   tę samą osobę. W Recruiterze zrzut HTML ogranicza się do wybranego profilu
+   i jawnie powiązanego panelu linku publicznego; tło wyników nie identyfikuje osoby.
 
 Zmierzone na żywym LinkedInie 28.10.2026 (interfejs po angielsku): profil `/in/`
-i lista wyników wyszukiwania osób. **Recruiter (`/talent/…`) czeka na pomiar** —
-czytnik najpierw próbuje atrybutów `data-test-*` ze starszego układu, potem tego
-samego podejścia tekstowego (imię = pierwszy `h1`/`h2`, sekcje po nagłówkach,
-pozycje po `[role=listitem]`, `li`, `tr`, link „Public profile”/„Profil publiczny”).
-Przy pierwszym użyciu w Recruiterze sprawdź, czy pola się wypełniają.
+i lista wyników wyszukiwania osób. Tego dnia zmierzono też **aktywny
+LinkedIn Recruiter**: trzy wiersze wyników i dwa układy profilu (panel boczny
+oraz osobna strona `/talent/profile/…`). W obu układach sprawdzono obecność
+imienia i nazwiska, nagłówka, lokalizacji, pozycji doświadczenia i umiejętności.
+Pomiar wykrył, że przed imieniem w wierszu występuje kontrolka „Select …”,
+a panel profilu leży poza główną sekcją strony z listą wyników. Wersja **1.0.1**
+wprowadza poprawki czytnika dla tych struktur. W repo są wyłącznie syntetyczne
+fixture’y; rzeczywiste nazwiska i treść profili nie są materiałem testowym.
+
+Pomiar rzeczywistej strony i lokalny test instalacji ZIP-a są osobnymi etapami.
+Nie potwierdzają pełnej ścieżki zainstalowanej wtyczki z kontem rekrutera i API
+produkcyjnym. Przed uznaniem wydania za gotowe trzeba sprawdzić pola w panelu
+na rzeczywistym Recruiterze oraz połączenie z NEXUSEM.
 
 ## Gdy LinkedIn zmieni stronę
 

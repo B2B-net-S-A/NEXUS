@@ -1,7 +1,8 @@
 # NEXUS — LinkedIn: materiały do Chrome Web Store
 
-Stan przygotowania: 28.10.2026. Materiały opisują kod w `extension/`.
-Nie są potwierdzeniem publikacji w sklepie ani testu na żywym Recruiterze.
+Stan przygotowania: 28.10.2026. Materiały opisują wersję **1.0.1** w `extension/`.
+Strukturę wyników i panelu profilu zmierzono na aktywnym Recruiterze. Nie jest to
+potwierdzenie publikacji wersji ani całej ścieżki zainstalowanej wtyczki z produkcją.
 
 ## Pola oferty
 
@@ -46,8 +47,9 @@ rekrutera. Połączenie odbywa się przez stronę logowania NEXUSA; wtyczka nie
 prosi o hasło do NEXUSA ani do LinkedIna.
 
 Wtyczka obsługuje profile publiczne i wyniki wyszukiwania osób na LinkedInie.
-Czytnik LinkedIn Recruiter jest dostępny, ale jego zgodność z aktualnym
-interfejsem wymaga jeszcze weryfikacji na koncie z licencją Recruiter.
+Strukturę wyników i panelu profilu LinkedIn Recruitera sprawdzono na aktywnym
+koncie. Pełne połączenie zainstalowanej wtyczki z NEXUSEM w Recruiterze wymaga
+jeszcze osobnego potwierdzenia.
 Układ i dostępność odczytywanych pól mogą zależeć od wersji strony LinkedIna.
 
 NEXUS — LinkedIn jest narzędziem NEXUSA. Nie jest produktem LinkedIn ani nie
@@ -147,7 +149,7 @@ pole instrukcji recenzenta. Ten plik i repozytorium nie zawierają danych logowa
 cd extension
 npm ci --ignore-scripts
 npm run pack
-# dist/nexus-linkedin-1.0.0.zip i dist/nexus-linkedin-1.0.0.zip.sha256
+# dist/nexus-linkedin-1.0.1.zip i dist/nexus-linkedin-1.0.1.zip.sha256
 ```
 
 Pakowanie wymaga zielonych testów; bez zależności kończy się błędem. Archiwum
