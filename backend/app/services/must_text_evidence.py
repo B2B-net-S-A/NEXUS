@@ -478,6 +478,57 @@ def mention_snippet(label: str, text: str) -> Optional[str]:
     return ("…" if start > 0 else "") + piece + ("…" if end < len(text) else "")
 
 
+def word_snippet(word: str, text: str, *, chars: int = SNIPPET_CHARS) -> Optional[str]:
+    """Fragment wokół pierwszego wystąpienia słowa jako CAŁEGO słowa (bez
+    wielkości liter), najwyżej ``chars`` znaków bez wielokropków.
+
+    Odpowiednik :func:`mention_snippet` dla słowa spoza słownika (człon nazwy
+    krytycznej, „SailPoint”): bez aliasów i odmiany — cytat ma pokazać to
+    słowo, a nie technologię, którą słownik z niego wyprowadza.
+    """
+    if not word or not text:
+        return None
+    found = re.search(
+        r"(?<![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])"
+        + re.escape(word)
+        + r"(?![0-9A-Za-ząćęłńóśźżĄĆĘŁŃÓŚŹŻ])",
+        text,
+        re.IGNORECASE,
+    )
+    if found is None:
+        return None
+    room = max(0, chars - (found.end() - found.start()))
+    start = max(0, found.start() - room // 2)
+    end = min(len(text), found.end() + room - (found.start() - start))
+    start = max(0, min(start, end - chars))
+    piece = " ".join(text[start:end].split())
+    return ("…" if start > 0 else "") + piece + ("…" if end < len(text) else "")
+
+
+async def load_note_texts_with_words(
+    db, candidate_ids: Sequence[int], words: Sequence[str]
+) -> dict[int, list[str]]:
+    """Notatki-dowody kandydatów, w których stoi któreś ze słów (bez granic
+    słowa — o trafieniu decyduje :func:`word_snippet`). Te same rodzaje
+    notatek i ten sam savepoint co :func:`load_evidence_note_texts`."""
+    ids = sorted({int(i) for i in candidate_ids})
+    forms = sorted({w.strip() for w in words if w and w.strip()}, key=len, reverse=True)
+    if not ids or not forms:
+        return {}
+    pattern = "|".join(re.escape(f) for f in forms)
+    try:
+        async with db.begin_nested():
+            _has, texts = await _load_notes(db, ids, pattern)
+    except Exception:  # noqa: BLE001 — dowód z notatek jest dodatkiem
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "close words: notes lookup failed", exc_info=True
+        )
+        return {}
+    return texts
+
+
 async def load_evidence_note_texts(
     db,
     candidate_ids: Sequence[int],

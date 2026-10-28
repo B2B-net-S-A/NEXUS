@@ -11,6 +11,7 @@ import {
   availabilityLabel,
   historyReason,
   isAvailableNow,
+  isBelowThreshold,
   mergeProposals,
   splitByPostings,
   normalizeFitScore,
@@ -452,5 +453,45 @@ describe("znani zespołowi (07.10.2026)", () => {
   it("bez historii — kolejność i powód jak dotąd", () => {
     const [entry] = mergeProposals({ inbox: [inboxItem(1, { sources: ["full_base"] })] });
     expect(entry.row.historyPoints).toBeUndefined();
+  });
+});
+
+describe("isBelowThreshold — najlepsze 40 (28.10.2026)", () => {
+  const byId = (entries: ReturnType<typeof mergeProposals>) =>
+    new Map(entries.map((e) => [e.row.candidateId, e] as const));
+
+  it("skrzynka: wierzy fladze serwera; inne źródło pary znosi „spod progu”", () => {
+    const entries = byId(
+      mergeProposals({
+        inbox: [
+          inboxItem(1, { sources: ["full_base"], score: 65, below_threshold: true }),
+          inboxItem(2, { sources: ["full_base"], score: 75 }),
+          // Nowe CV ma własny próg — 65% stąd liczy się normalnie.
+          inboxItem(3, { sources: ["new_cv"], score: 65 }),
+        ],
+        similar: [similar(4)],
+      }),
+    );
+    expect(isBelowThreshold(entries.get(1)!)).toBe(true);
+    expect(isBelowThreshold(entries.get(2)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(3)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(4)!)).toBe(false);
+  });
+
+  it("strona żywego przeglądu: rozstrzyga wynik względem progu", () => {
+    const entries = byId(
+      mergeProposals({ run: { runId: "r", rows: [runRow(5, 64), runRow(6, 72), runRow(7, null)] } }),
+    );
+    expect(isBelowThreshold(entries.get(5)!)).toBe(true);
+    expect(isBelowThreshold(entries.get(6)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(7)!)).toBe(false);
+    expect(isBelowThreshold(entries.get(6)!, 75)).toBe(true);
+  });
+
+  it("osoba z przeglądu i podobnej rekrutacji nie jest „spod progu”", () => {
+    const entries = byId(
+      mergeProposals({ run: { runId: "r", rows: [runRow(8, 60)] }, similar: [similar(8)] }),
+    );
+    expect(isBelowThreshold(entries.get(8)!)).toBe(false);
   });
 });

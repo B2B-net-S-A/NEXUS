@@ -25,7 +25,11 @@ describe("dodania z propozycji deklarują swoje pochodzenie", () => {
   it("każde dodanie bulk w segmencie propozycji idzie przez grupowanie po pochodzeniu", () => {
     const calls = [...hook.matchAll(/proposalsBulkApi\.add\(([\s\S]*?)\)\s*[;)]/g)];
     expect(calls.length).toBe(1);
-    expect(hook).toContain("for (const group of groupAddsByOrigin(picked, autoRunId))");
+    expect(hook).toContain("const groups = groupAddsByOrigin(picked, autoRunId);");
+    expect(hook).toContain("for (const group of groups)");
+    // Osoby spoza listy (sekcja „Ukryci przez »musi mieć«”) idą osobną grupą
+    // z jawnie podanym źródłem — nigdy bez pochodzenia.
+    expect(hook).toContain("source: opts.unlistedSource ?? null, runId: null");
     expect(hook).toContain("if (group.source) body.source = group.source;");
     expect(hook).toContain("if (group.runId) body.run_id = group.runId;");
   });

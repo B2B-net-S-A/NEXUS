@@ -361,7 +361,7 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
         await proposals.upsert_proposals(
             db,
             job_id,
-            [{"candidate_id": c, "score": 50} for c in world["candidate_ids"]],
+            [{"candidate_id": c, "score": 80} for c in world["candidate_ids"]],
             "full_base",
         )
         # Ta sama osoba z dwóch źródeł liczy się RAZ.
@@ -412,13 +412,19 @@ async def test_board_score_never_becomes_the_shown_match_score():
         await proposals.upsert_proposals(
             db,
             job_id,
-            [{"candidate_id": both, "score": 78}, {"candidate_id": board_only, "score": 77}],
+            [
+                {"candidate_id": both, "score": 78},
+                {"candidate_id": board_only, "score": 77},
+            ],
             "job_board",
         )
         await proposals.upsert_proposals(
             db,
             job_id,
-            [{"candidate_id": both, "score": 71}, {"candidate_id": base_only, "score": 74}],
+            [
+                {"candidate_id": both, "score": 71},
+                {"candidate_id": base_only, "score": 74},
+            ],
             "full_base",
         )
         await db.commit()
@@ -1185,11 +1191,11 @@ async def test_split_counts_sum_to_the_list_total_and_follow_the_window():
     # Nowe CV sprzed 6 dni i świeży portal obok starego przeglądu bazy = „z
     # ogłoszeń”; nowe CV sprzed 8 dni i sam przegląd bazy = „z bazy”. Osoba
     # w rekrutacji i osoba pominięta nie liczą się wcale — jak na liście.
-    assert split == {"postings_recent": 2, "base": 2}
+    assert split == {"postings_recent": 2, "base": 2, "below_threshold": 0}
     assert split["postings_recent"] + split["base"] == total == 4
     # Szersze okno przenosi ósmy dzień na stronę ogłoszeń; suma zostaje.
-    assert wide == {"postings_recent": 3, "base": 1}
-    assert empty == {"postings_recent": 0, "base": 0}
+    assert wide == {"postings_recent": 3, "base": 1, "below_threshold": 0}
+    assert empty == {"postings_recent": 0, "base": 0, "below_threshold": 0}
 
     by_id = {row.candidate_id: row for row in rows}
     assert by_id[people["base_only"]].posting_seen_at is None
@@ -1251,13 +1257,21 @@ async def test_inbox_items_and_counts_endpoint_agree_on_postings(
         "days",
         "postings_recent",
         "base",
+        "below_threshold",
+        "threshold",
         "screened_out",
         "not_searchable_must",
         "talk_checks",
     }
     assert (body["job_id"], body["days"]) == (job_id, 7)
     assert (body["postings_recent"], body["base"]) == (2, 2)
-    assert body["postings_recent"] + body["base"] == inbox.json()["total"]
+    # Najlepsze 40: osoby spod progu są w `total` listy, nie w liczbach kafli.
+    assert body["below_threshold"] == 0
+    assert body["threshold"] == inbox.json()["threshold"]
+    assert (
+        body["postings_recent"] + body["base"] + body["below_threshold"]
+        == inbox.json()["total"]
+    )
     assert sum(i["posting_recent"] for i in items.values()) == body["postings_recent"]
     # Ta sama liczba co `total` listy „Odrzuceni przez AI”.
     screened = await app_client.get(f"/api/jobs/{job_id}/screened-out", headers=headers)
