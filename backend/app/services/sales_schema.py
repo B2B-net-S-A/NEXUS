@@ -567,3 +567,37 @@ HISTORY_DDL: tuple[str, ...] = (
 HISTORY_DOWNGRADE_DDL: tuple[str, ...] = (
     "DROP TABLE IF EXISTS sales_opportunity_events",
 )
+
+
+# ── 0619: cele i KPI tygodniowe handlowców (decyzja Artura 28.10.2026) ─────
+# * ``sales_targets`` — cele tygodniowe osoby (spotkania, leady kwalifikowane,
+#   wejścia na etap „Oferta wysłana”), opcjonalny cel marży (netto MRR)
+#   z terminem i drużyna. Wiersz bez ``user_id`` to cel firmy (netto MRR),
+#   który w Atlasie był stałą w kodzie. Kwot nie ma w kodzie — wpisuje admin.
+# * KPI „Oferty” liczy wejścia na etap ``offer-sent`` z historii zmian szansy
+#   (``sales_opportunity_events``, 0618) — NEXUS nie ma ofert.
+
+TARGETS_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS sales_targets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+    meetings INTEGER NOT NULL DEFAULT 0,
+    qualified INTEGER NOT NULL DEFAULT 0,
+    offers_stage INTEGER NOT NULL DEFAULT 0,
+    margin_goal_amount NUMERIC(14, 2) NULL,
+    margin_goal_deadline DATE NULL,
+    team VARCHAR(60) NULL,
+    updated_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_targets_weekly CHECK (meetings >= 0 AND qualified >= 0 AND offers_stage >= 0),
+    CONSTRAINT ck_sales_targets_margin CHECK (margin_goal_amount IS NULL OR margin_goal_amount >= 0)
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_targets_user "
+    "ON sales_targets (user_id) WHERE user_id IS NOT NULL",
+    # Jeden wiersz firmowy: wszystkie mają tę samą wartość wyrażenia.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_targets_company "
+    "ON sales_targets ((user_id IS NULL)) WHERE user_id IS NULL",
+)
+
+TARGETS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_targets",)

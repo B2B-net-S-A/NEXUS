@@ -565,3 +565,52 @@ class SalesOpportunityEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class SalesTarget(Base, TimestampMixin):
+    """Cele tygodniowe handlowca albo (``user_id`` pusty) cel netto MRR firmy (0619)."""
+
+    __tablename__ = "sales_targets"
+    __table_args__ = (
+        CheckConstraint(
+            "meetings >= 0 AND qualified >= 0 AND offers_stage >= 0",
+            name="ck_sales_targets_weekly",
+        ),
+        CheckConstraint(
+            "margin_goal_amount IS NULL OR margin_goal_amount >= 0",
+            name="ck_sales_targets_margin",
+        ),
+        Index(
+            "ux_sales_targets_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("user_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_sales_targets_company",
+            text("(user_id IS NULL)"),
+            unique=True,
+            postgresql_where=text("user_id IS NULL"),
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE")
+    )
+    meetings: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    qualified: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: Wejścia na etap „Oferta wysłana” — NEXUS nie ma ofert (decyzja 28.10.2026).
+    offers_stage: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    margin_goal_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    margin_goal_deadline: Mapped[Optional[date]] = mapped_column(Date)
+    team: Mapped[Optional[str]] = mapped_column(String(60))
+    updated_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
