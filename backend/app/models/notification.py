@@ -282,6 +282,11 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
+    # 0614 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
+    # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
+    # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail
+    # obowiązkowy „Kandydaci po osobie, która odeszła” (`services/departure_care.py`).
+    departed_pairs_care = "departed_pairs_care"
     # 0610 (28.10.2026): Delivery Lead prosi o P0 dla swojej rekrutacji —
     # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
     # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).

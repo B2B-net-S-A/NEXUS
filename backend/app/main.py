@@ -3389,6 +3389,7 @@ async def api_health_deep_check():
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.pair_departure_care import PairDepartureCare
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3784,6 +3785,8 @@ async def api_health_deep_check():
         ("care_board_states", CARE_BOARD_STATES),
         # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
         ("candidate_job_owners", CandidateJobOwner),
+        # 0614: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
+        ("pair_departure_care", PairDepartureCare),
     ]
 
     checks: dict[str, str] = {}

@@ -148,6 +148,18 @@ CATALOG = (
         "ten, kto ją dodał; bez osoby, która zamknęła. W mailu: rekrutacja, klient, "
         "powód zamknięcia i lista osób.",
     ),
+    # Mail obowiązkowy (28.10.2026) — `services/departure_care.py`.
+    dict(
+        id="departed_care",
+        label="Kandydaci po osobie, która odeszła",
+        module="Rekrutacje",
+        trigger="Konto rekrutera zostało wyłączone (odejście z firmy), a w Twoich "
+        "rekrutacjach zostali jego kandydaci. Przypomnienie po 5 dniach roboczych, "
+        "gdy coś jeszcze nie jest domknięte.",
+        recipient_rule="Delivery Lead rekrutacji; bez niego główny Delivery Lead "
+        "klienta, a bez niego Head of Recruitment. W mailu: kto odszedł, ile osób "
+        "w ilu rekrutacjach i na jakich etapach.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -404,6 +416,7 @@ CLIENT_JOB_KIND = "client_job_opened"
 JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
 JOB_CLOSED_KIND = "job_closed"
+DEPARTED_CARE_KIND = "departed_care"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -420,6 +433,7 @@ REQUIRED_KINDS = frozenset(
         JOB_AD_KIND,
         JOB_P0_KIND,
         JOB_CLOSED_KIND,
+        DEPARTED_CARE_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -505,6 +519,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
+    DEPARTED_CARE_KIND: ("departed_pairs_care",),
 }
 
 

@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -510,6 +510,13 @@ async def update_user(
                 },
             )
         )
+    if original_active and data.is_active is False:
+        # Odejście z firmy: kandydaci osoby → Delivery Leadzi jej rekrutacji
+        # (``departure_care``, decyzja Artura 28.10.2026).
+        from app.services.departure_care import hand_over_safely
+
+        await db.flush()
+        await hand_over_safely(db, user, actor_id=_admin.id)
     if data.name is not None and data.name != original_name:
         db.add(
             Activity(
@@ -552,6 +559,22 @@ async def update_user(
     await db.flush()
     await db.refresh(user)
     return user
+
+
+@router.get("/users/{user_id}/departure-preview")
+async def departure_preview(
+    user_id: int,
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Co zostaje po koncie i który Delivery Lead to przejmie — okno
+    „Wyłącz konto” (``services/departure_care.py``, 28.10.2026)."""
+    from app.services.departure_care import preview
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await preview(db, user)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

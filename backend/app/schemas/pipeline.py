@@ -338,6 +338,12 @@ class CandidateStageResponse(BaseModel):
     owner_assigned_by_name: Optional[str] = None
     owner_assigned_at: Optional[datetime] = None
     owner_previous_name: Optional[str] = None
+    # Odejście z firmy (28.10.2026): osoba, która prowadziła parę, ma wyłączone
+    # konto, a parę domyka Delivery Lead (``departure_care``) — tylko gdy jest.
+    care_user_id: Optional[int] = None
+    care_user_name: Optional[str] = None
+    care_departed_name: Optional[str] = None
+    care_since: Optional[datetime] = None
     # 0348: kto wysyła osobę do Cpro — tylko na wierszu „Wysłać do Cpro".
     # Nazwisko wypełnia tablica.
     task_assignee_id: Optional[int] = None

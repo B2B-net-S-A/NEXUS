@@ -5,7 +5,8 @@ Robi to, co od początku robił ``DELETE /api/admin/users/{id}``: koniec sesji
 unieważnienie stałego linku kariery rekrutera (audyt 22.09 r2, SEC-06) i wpis
 ``activities`` z akcją ścieżki. Akcja powinna być w
 ``app.services.hr.account_profiles.DEACTIVATION_ACTIONS`` — z niej kartoteka
-bierze dzień wyłączenia.
+bierze dzień wyłączenia. Żywe pary kandydatów osoby przejmują Delivery Leadzi
+rekrutacji (``departure_care``, decyzja Artura 28.10.2026).
 
 Wołający blokuje wiersz konta (``SELECT … FOR UPDATE``), pilnuje ostatniego
 admina (``protect_active_admin_membership``) i commituje.
@@ -54,3 +55,8 @@ async def deactivate_account(
             details=details,
         )
     )
+    # Odejście z firmy: kandydaci osoby → Delivery Leadzi ich rekrutacji.
+    # Awaria nie zatrzymuje wyłączenia — pętla triggerów nadrobi.
+    from app.services.departure_care import hand_over_safely  # noqa: PLC0415
+
+    await hand_over_safely(db, user, actor_id=actor_id)

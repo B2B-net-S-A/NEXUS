@@ -31,6 +31,7 @@
   "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/users/{user_id}/departure-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
