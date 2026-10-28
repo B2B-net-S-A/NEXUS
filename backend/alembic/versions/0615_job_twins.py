@@ -1,7 +1,7 @@
 """Bliźniacze rekrutacje: rodzaj połączenia, pary pytań, odrzucone pary.
 
-Revision ID: 0614_job_twins
-Revises: 0613_timesheets_permission
+Revision ID: 0615_job_twins
+Revises: 0614_sales_atlas_gaps
 
 Decyzje Artura z 28.10.2026: Delivery Lead łączy swoje otwarte rekrutacje,
 Head of Recruitment i admin dowolne, także między klientami. Bliźniak to
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services.job_twin_schema import ALL_DDL, ENUM_DDL
 
-revision = "0614_job_twins"
-down_revision = "0613_timesheets_permission"
+revision = "0615_job_twins"
+down_revision = "0614_sales_atlas_gaps"
 branch_labels = None
 depends_on = None
 
@@ -28,7 +28,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'job_twin_linked'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0614 odmawia: notifications ma dzwonki o bliźniakach, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0615 odmawia: notifications ma dzwonki o bliźniakach, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

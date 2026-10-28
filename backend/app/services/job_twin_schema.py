@@ -1,4 +1,4 @@
-"""DDL bliźniaczych rekrutacji (0614) — jedno źródło dla migracji i entrypointu.
+"""DDL bliźniaczych rekrutacji (0615) — jedno źródło dla migracji i entrypointu.
 
 Decyzje Artura z 28.10.2026 (makiety https://claude.ai/artifact/83ybsjjmstNhKAzHYNraFw):
 bliźniak to rodzaj połączenia w istniejącej ``job_similar_links``

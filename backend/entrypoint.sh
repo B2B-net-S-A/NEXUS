@@ -799,7 +799,7 @@ _ENUM_STATEMENTS = [
     # 0450: championi rekrutacji — zapis listy / powrót do szukania.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champions_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
-    # 0614: bliźniacze rekrutacje — połączenie bliźniaka (do zespołów obu).
+    # 0615: bliźniacze rekrutacje — połączenie bliźniaka (do zespołów obu).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_twin_linked'",
     # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
@@ -6098,7 +6098,7 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_similar_links_similar_job_id "
     "ON job_similar_links (similar_job_id)",
-    # 0614: bliźniacze rekrutacje — rodzaj połączenia, pary pytań i pary
+    # 0615: bliźniacze rekrutacje — rodzaj połączenia, pary pytań i pary
     # odrzucone przez HoR (`app/services/job_twin_schema.py`).
     # Lustro 1:1 z migracją — pilnuje `test_job_twins.py`.
     "ALTER TABLE job_similar_links "

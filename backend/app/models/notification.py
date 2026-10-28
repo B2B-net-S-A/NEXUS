@@ -339,7 +339,7 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
-    # 0614: bliźniacze rekrutacje (28.10.2026) — ktoś połączył rekrutację
+    # 0615: bliźniacze rekrutacje (28.10.2026) — ktoś połączył rekrutację
     # z bliźniakiem. Do rekruterów i Delivery Leadów obu rekrutacji poza
     # osobą, która połączyła; link do rekrutacji. Bez maila.
     job_twin_linked = "job_twin_linked"

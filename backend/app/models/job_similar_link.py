@@ -5,7 +5,7 @@ ale ``services/job_similarity.link_jobs`` zakłada zawsze oba kierunki naraz,
 bo podobieństwo requestu jest symetryczne. Osoby wysłane do klienta w jednej
 rekrutacji trafiają do „Do przejrzenia" drugiej jako propozycja ``reassign``.
 
-Bliźniak (0614, 28.10.2026) to ten sam wiersz z ``kind = 'twin'``: osoba
+Bliźniak (0615, 28.10.2026) to ten sam wiersz z ``kind = 'twin'``: osoba
 przechodzi na „Zweryfikowany” po screeningu pod oba bliźniaki naraz.
 ``question_pairs`` z perspektywy wiersza: ``[{"own": "q3", "other": "q1"}]``
 — ``own`` to pytanie ``job_id``, ``other`` — ``similar_job_id``; wiersz

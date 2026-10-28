@@ -1,4 +1,4 @@
-"""Bliźniacze rekrutacje (0614, decyzje Artura z 28.10.2026).
+"""Bliźniacze rekrutacje (0615, decyzje Artura z 28.10.2026).
 
 Bez bazy: lustro DDL, podpowiedź par pytań na prawdziwej parze ZOB-2947 ↔
 ZOB-2964, grupy pytań wspólnego screeningu. Z bazą (prawdziwy Postgres,

@@ -1830,7 +1830,7 @@ async def apply_move(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
-    # Bliźniaki (0614, 28.10.2026): „Zweryfikowany” po screeningu pod każdy
+    # Bliźniaki (0615, 28.10.2026): „Zweryfikowany” po screeningu pod każdy
     # bliźniak albo z jawnym pominięciem (powód zostaje w Historii zdarzeń).
     from app.services import job_twins  # noqa: PLC0415
 
@@ -5385,7 +5385,7 @@ async def bulk_move_candidates(
             # pól obowiązuje tu także Delivery Leada (22.10.2026).
             allow_skip=False,
         )
-    # Bliźniaki (0614): ruch zbiorczy nie zna powodów pominięcia — każdy
+    # Bliźniaki (0615): ruch zbiorczy nie zna powodów pominięcia — każdy
     # bliźniak wymaga screeningu pary.
     from app.services import job_twins  # noqa: PLC0415
 

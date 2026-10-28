@@ -37,7 +37,7 @@ class StageMove(BaseModel):
     # `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`.
     # Przy innym ruchu albo u Nordei → 422 `FIX_FIELDS_NOT_ALLOWED`.
     fix_fields: Optional[list[str]] = Field(None, max_length=30)
-    # Bliźniaki (0614, 28.10.2026): pominięcie bliźniaka przy wejściu na
+    # Bliźniaki (0615, 28.10.2026): pominięcie bliźniaka przy wejściu na
     # „Zweryfikowany” — rekrutacja → kod powodu z `job_twins.SKIP_REASONS`.
     # Bez wpisu bramka wymaga screeningu pary także w bliźniaku.
     twin_skips: Optional[dict[int, str]] = Field(None, max_length=3)

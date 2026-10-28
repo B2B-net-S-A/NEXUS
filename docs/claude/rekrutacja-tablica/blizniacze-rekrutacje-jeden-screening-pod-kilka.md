@@ -1,11 +1,11 @@
-# Bliźniacze rekrutacje — jeden screening pod kilka (0614, 28.10.2026)
+# Bliźniacze rekrutacje — jeden screening pod kilka (0615, 28.10.2026)
 <!-- indeks: kto łączy (DL swoje, HoR/admin wszystko, też między klientami), kind='twin' w job_similar_links, pary pytań, bramka „Zweryfikowany” z pominięciem z powodem, stawka w budżecie, KPI osobno, bez kopiowania wcześniejszych, kafel „Otwarte podobne” -->
 
 Propozycja Olafa (HoR) z 28.10.2026: „bliźniaczy request” — tak podobny, że
 kandydaci weryfikują się od razu na oba — i „Podobne requesty P1”. Decyzje
 Artura z 28.10.2026, makiety: https://claude.ai/artifact/83ybsjjmstNhKAzHYNraFw.
 Serwis `services/job_twins.py`, trasy `api/job_twins.py`, DDL
-`services/job_twin_schema.py` (migracja 0614 + lustro w `entrypoint.sh`).
+`services/job_twin_schema.py` (migracja 0615 + lustro w `entrypoint.sh`).
 
 - **Bliźniak to rodzaj połączenia podobnych rekrutacji**: wiersz
   `job_similar_links` z `kind = 'twin'`, w obu kierunkach, z parami pytań

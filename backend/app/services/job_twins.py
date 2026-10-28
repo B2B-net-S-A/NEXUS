@@ -1,4 +1,4 @@
-"""Bliźniacze rekrutacje (0614, decyzje Artura z 28.10.2026).
+"""Bliźniacze rekrutacje (0615, decyzje Artura z 28.10.2026).
 
 Makiety: https://claude.ai/artifact/83ybsjjmstNhKAzHYNraFw. Bliźniak to
 podobna rekrutacja o tym samym profilu kandydata: osobę weryfikuje się raz,

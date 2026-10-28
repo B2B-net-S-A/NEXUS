@@ -515,7 +515,7 @@ def test_entrypoint_mirrors_0341():
         for s in statements
         if s.startswith("CREATE TABLE IF NOT EXISTS job_similar_links (")
     )
-    # 0614 (bliźniaki) dokłada kolumny i CHECK osobnymi poleceniami.
+    # 0615 (bliźniaki) dokłada kolumny i CHECK osobnymi poleceniami.
     added = " ".join(
         s
         for s in statements

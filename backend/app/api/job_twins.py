@@ -1,4 +1,4 @@
-"""Bliźniacze rekrutacje (0614, decyzje Artura z 28.10.2026).
+"""Bliźniacze rekrutacje (0615, decyzje Artura z 28.10.2026).
 
 * ``GET    /api/jobs/{id}/twins`` — bliźniaki rekrutacji i czy patrzący łączy.
 * ``GET    /api/jobs/{id}/twins/preview?other_job_id=`` — okno „Połącz

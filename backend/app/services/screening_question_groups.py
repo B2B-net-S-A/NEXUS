@@ -52,7 +52,7 @@ def group_questions(
     """Grupy pytań: każda lista to jedno pytanie do zadania w rozmowie.
 
     ``pairs`` — pary „to samo pytanie” potwierdzone przy łączeniu bliźniaków
-    (0614, 28.10.2026): mają pierwszeństwo przed regułą tekstu, bo pytania
+    (0615, 28.10.2026): mają pierwszeństwo przed regułą tekstu, bo pytania
     napisane innymi słowami reguła rozdzielała (ZOB-2947 i ZOB-2964: 0 z 8)."""
     partners: dict[tuple[int, str], set[tuple[int, str]]] = {}
     for a, b in pairs:
