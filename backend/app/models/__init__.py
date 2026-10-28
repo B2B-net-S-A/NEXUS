@@ -344,6 +344,9 @@ from app.models.service_account import (  # noqa: F401
     ServiceAccountKey,
     ServiceScope,
 )
+from app.models.linkedin_extension import (  # noqa: F401
+    LinkedinExtensionConnection,
+)
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,

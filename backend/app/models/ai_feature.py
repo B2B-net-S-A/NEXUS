@@ -183,6 +183,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0529 (27.10.2026): zrzut zgody RODO pod CV (PKO BP) — model odczytuje
     # nadawcę, datę, numer ZOB i nazwisko, a kod porównuje je z rekrutacją.
     consent_screenshot_check = "consent_screenshot_check"
+    # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
+    # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
+    linkedin_message_draft = "linkedin_message_draft"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -225,6 +228,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
     AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
     AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
+    AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
 }
 
 
@@ -402,6 +406,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Zrzut maila ze zgodą kandydata wgrany przez rekrutera",
         "Nazwa klienta, której zgoda dotyczy",
         "(bez danych kandydata z bazy — porównanie z rekrutacją robi kod)",
+    ],
+    AIFeatureKey.linkedin_message_draft: [
+        "Imię, nagłówek, stanowiska i umiejętności z otwartego profilu na LinkedInie",
+        "Tytuł, klient, wymagania i tryb pracy rekrutacji",
+        "(bez stawek, kontaktów i danych z bazy NEXUSA)",
     ],
 }
 

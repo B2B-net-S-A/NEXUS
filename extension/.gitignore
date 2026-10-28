@@ -1,5 +1,7 @@
-# Local pack artefacts (do NOT commit signed .crx — it leaks the private key)
+# Lokalne artefakty pakowania (podpisanego .crx nie commitujemy — zawiera klucz prywatny)
 *.crx
 *.pem
 *.zip
+dist/
+node_modules/
 .DS_Store

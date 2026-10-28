@@ -61,6 +61,7 @@ export type SettingsItemId =
   | "ai"
   | "qc-quality"
   | "api-keys"
+  | "linkedin-extension"
   | "traffit"
   | "job-boards"
   | "teams-prep"
@@ -376,6 +377,15 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     route: "/settings/api-keys",
     // `/api/settings/service-accounts` = `AdminUser`; middleware jak `/settings/api-integration`.
     // Z menu od 21.10.2026 — wejście przez „Integracje → Zarządzaj”.
+    hidden: true,
+    gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
+    id: "linkedin-extension", area: "sys", title: "Wtyczka LinkedIn", group: "Integracje",
+    description: "Kto połączył wtyczkę NEXUSA na LinkedInie, ile dziś z niej korzysta, odłączanie.",
+    keywords: "wtyczka linkedin recruiter chrome rozszerzenie extension panel polaczenie odlacz limit",
+    route: "/settings/linkedin-extension",
+    // Wejście przez „Integracje → Zarządzaj”, jak „Klucze API”.
     hidden: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },

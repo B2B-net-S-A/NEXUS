@@ -7288,6 +7288,43 @@ export interface ServiceAccountWebhookDto {
 
 const SERVICE_ACCOUNTS_URL = "/api/settings/service-accounts";
 
+// ── Wtyczka LinkedIn (`/api/extension/*`, migracja 0608) ─────────────────────
+// Strona `/extension/connect` łączy wtyczkę z kontem; Ustawienia → Wtyczka
+// LinkedIn pokazują połączenia i odłączają je. Pozostałe trasy woła sama
+// wtyczka kluczem `X-Extension-Key` (kontrakt: `extension/API.md`).
+export interface ExtensionConnectResponse {
+  key: string;
+  user: { id: number; name: string; initials: string };
+  expires_at: string;
+  api_base: string;
+  frontend_url: string;
+}
+
+export interface ExtensionConnectionDto {
+  key_id: string;
+  user_id: number;
+  user_name: string;
+  extension_version: string | null;
+  created_at: string;
+  expires_at: string;
+  last_used_at: string | null;
+  reads_today: number;
+  adds_today: number;
+}
+
+export interface ExtensionConnectionsResponse {
+  items: ExtensionConnectionDto[];
+  reads_limit: number;
+}
+
+export const linkedinExtensionApi = {
+  connect: (payload: { extension_id: string; extension_version: string | null }) =>
+    api.post<ExtensionConnectResponse>("/api/extension/connect", payload),
+  connections: () => api.get<ExtensionConnectionsResponse>("/api/extension/connections"),
+  revoke: (keyId: string) =>
+    api.post<void>(`/api/extension/connections/${encodeURIComponent(keyId)}/revoke`),
+};
+
 export const serviceAccountsApi = {
   list: () => api.get<ServiceAccountDto[]>(SERVICE_ACCOUNTS_URL),
   scopes: () => api.get<ScopeInfoDto[]>(`${SERVICE_ACCOUNTS_URL}/scopes`),

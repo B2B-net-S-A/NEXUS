@@ -1,0 +1,22 @@
+{
+  "url": "https://www.linkedin.com/in/ewa-przykladowa/",
+  "heading": { "text": "Ewa Przykładowa", "level": 2 },
+  "top": { "lines": [
+    "Enhance cover image", "Ewa Przykładowa",
+    "Analityczka biznesowa w Fikcyjnej Firmie",
+    "Wrocław, Dolnośląskie, Polska", "·", "Dane kontaktowe",
+    "Fikcyjna Firma", "Open to", "Add section", "Resources"
+  ] },
+  "sections": [
+    { "heading": "Doświadczenie", "itemsBy": null, "items": [], "lines": [
+      "Doświadczenie",
+      "Analityczka biznesowa", "Fikcyjna Firma · Pełny etat", "maj 2023 – obecnie · 3 lata 6 mies.", "Wrocław, Polska",
+      "Testowe Usługi", "Pełny etat · 5 lat", "Starsza analityczka", "sty 2020 – kwi 2023 · 3 lata 4 mies.", "Młodsza analityczka", "mar 2018 – gru 2019 · 1 rok 10 mies."
+    ] },
+    { "heading": "Umiejętności", "itemsBy": null, "items": [], "lines": [
+      "Umiejętności", "SQL", "Potwierdzone przez Jana Fikcyjnego", "Power BI", "Pokaż wszystkie umiejętności (12)"
+    ] }
+  ],
+  "listItems": [],
+  "links": []
+}

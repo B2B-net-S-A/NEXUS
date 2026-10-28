@@ -335,6 +335,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
     # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
+    # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -1167,6 +1169,16 @@ except Exception as _pair_owner_err:  # noqa: BLE001
     print(f"pair owner DDL unavailable: {_pair_owner_err!r}")
     _PAIR_OWNER_DDL = []
 
+# Połączenia wtyczki LinkedIn (migracja 0608) — JEDNO źródło z migracją
+# (`app/services/linkedin_extension_schema.py`).
+try:
+    from app.services import linkedin_extension_schema as _linkedin_extension_schema
+
+    _LINKEDIN_EXTENSION_DDL = list(_linkedin_extension_schema.TABLE_DDL)
+except Exception as _linkedin_extension_err:  # noqa: BLE001
+    print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
+    _LINKEDIN_EXTENSION_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1238,6 +1250,7 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_FEEDBACK_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
+    *_LINKEDIN_EXTENSION_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -7567,6 +7580,11 @@ _DATA_STATEMENTS = [
     "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
+    # 0608: seed klucza AI szkicu wiadomości z wtyczki LinkedIn.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'linkedin_message_draft')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

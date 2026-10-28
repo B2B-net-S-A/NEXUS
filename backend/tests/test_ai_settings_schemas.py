@@ -110,6 +110,7 @@ class TestFeatureKeyEnum:
             "client_form_fill",
             # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB.
             "consent_screenshot_check",
+            "linkedin_message_draft",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

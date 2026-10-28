@@ -162,6 +162,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.client_form_fill: ("F36", "claude-sonnet-5"),
     # F37 — 27.10.2026: zrzut zgody RODO pod CV, odczyt obrazu jak F33.
     AIFeatureKey.consent_screenshot_check: ("F37", "claude-sonnet-5"),
+    AIFeatureKey.linkedin_message_draft: ("F38", "claude-sonnet-5"),
 }
 
 

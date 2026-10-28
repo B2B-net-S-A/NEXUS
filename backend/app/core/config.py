@@ -924,6 +924,18 @@ class Settings(BaseSettings):
     # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
     SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
 
+    # ── Wtyczka LinkedIn (nagłówek X-Extension-Key, migracja 0608) ───────────
+    # Odcięcie wszystkich wtyczek naraz jednym env-em. Ważność połączenia:
+    # po tym czasie rekruter łączy wtyczkę ponownie jednym kliknięciem.
+    # Limit to odczyty stron LinkedIna na osobę dziennie (profil albo strona
+    # wyników = 1) — chroni konta Recruiter przed wyglądem automatu.
+    LINKEDIN_EXTENSION_ENABLED: bool = True
+    LINKEDIN_EXTENSION_TTL_DAYS: int = 180
+    LINKEDIN_EXTENSION_DAILY_READ_LIMIT: int = 150
+    # Id wtyczki z Chrome Web Store (niepubliczna) i id wersji deweloperskich,
+    # po przecinku. Strona „Połącz wtyczkę” przekazuje klucz tylko do nich.
+    LINKEDIN_EXTENSION_IDS: str = ""
+
     # API integracyjne v1 (`/api/integrations/v1`, 0443): limit per KONTO
     # serwisowe i trasę (nie per IP — automatyzacje z jednej chmury dzielą IP).
     # Odczyt ze stronicowaniem do 500 wierszy mieści się w 120/min z zapasem;

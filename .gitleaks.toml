@@ -70,6 +70,10 @@ regexes = [
   # zastąpiona wartością spoza reguły, ale skan zakresu PR-a widzi stary commit.
   # Dokładna wartość.
   '''nxs_v2_000000000000000000000009_PODGLAD-to-nie-jest-prawdziwy-klucz''',
+  # Atrapa klucza wtyczki LinkedIn z testu klienta API (PR #2758) — w kodzie
+  # zastąpiona składaniem z kawałków, ale skan zakresu PR-a widzi stary
+  # commit. Zakotwiczona, dokładna wartość (sam prefiks z cyframi 0–f po kolei).
+  '''^nxe_v1_0123456789abcdef01234567_$''',
   # Stały, publiczny nagłówek JWT — base64 z ``{"alg":"HS256","typ":"JWT"}``.
   # Nie niesie ŻADNEGO materiału klucza (podpis to trzeci segment, którego tu
   # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.
@@ -143,6 +147,14 @@ id = "nexus-service-account-key"
 description = "NEXUS service account API key (X-API-Key)"
 regex = '''nxs_v2_[0-9a-f]{24}_[A-Za-z0-9_-]{32,}'''
 tags = ["nexus", "api-key", "service-account"]
+
+# Klucz wtyczki LinkedIn (nagłówek X-Extension-Key, migracja 0607) — ten sam
+# kształt co klucz konta serwisowego, inny prefiks; należy do jednej osoby.
+[[rules]]
+id = "nexus-linkedin-extension-key"
+description = "NEXUS LinkedIn extension key (X-Extension-Key)"
+regex = '''nxe_v1_[0-9a-f]{24}_[A-Za-z0-9_-]{32,}'''
+tags = ["nexus", "api-key", "linkedin-extension"]
 
 [[rules]]
 id = "fireflies-api-key"

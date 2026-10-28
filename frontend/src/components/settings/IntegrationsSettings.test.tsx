@@ -34,14 +34,18 @@ function renderIt() {
 }
 
 describe("IntegrationsSettings", () => {
-  it("stan każdego połączenia w wierszu, szczegóły po rozwinięciu, klucze API jako link", async () => {
+  it("stan każdego połączenia w wierszu, szczegóły po rozwinięciu, klucze API i wtyczka LinkedIn jako linki", async () => {
     const user = userEvent.setup();
     renderIt();
 
     const list = screen.getByRole("region", { name: "Połączenia" });
     expect(await within(list).findByText("Działa")).toBeInTheDocument();
     expect(await within(list).findByText("Niepołączone")).toBeInTheDocument();
-    expect(within(list).getByRole("link", { name: "Zarządzaj" })).toHaveAttribute("href", "/settings/api-keys");
+    const manageLinks = within(list).getAllByRole("link", { name: "Zarządzaj" });
+    expect(manageLinks.map((link) => link.getAttribute("href"))).toEqual([
+      "/settings/linkedin-extension",
+      "/settings/api-keys",
+    ]);
 
     expect(screen.queryByText("karta portali")).toBeNull();
     const [, boards] = within(list).getAllByRole("button", { name: "Szczegóły" });
