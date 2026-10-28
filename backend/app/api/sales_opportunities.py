@@ -27,16 +27,18 @@ from app.models.sales import (
     SalesContact,
     SalesOpportunity,
     SalesOpportunityContact,
+    SalesOpportunityEvent,
     SalesPipeline,
     SalesPipelineStage,
 )
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import company_dates
+from app.services.sales import company_dates, history
 from app.services.sales.lifecycle import apply_stage, deal_value
 from app.services.sales.motion import build_atlas_motion
 from app.services.sales.summary import Period, build_summary
+from app.services.sales_schema import OpportunityEventKind
 
 pipelines_router = APIRouter()
 router = APIRouter()
@@ -514,6 +516,14 @@ async def create_opportunity(
     apply_stage(opp, stage, stages, now=now)
     db.add(opp)
     await db.flush()
+    history.record(
+        db,
+        opportunity_id=opp.id,
+        user_id=current_user.id,
+        kind=OpportunityEventKind.created,
+        field="stage_id",
+        new_value=str(stage.id),
+    )
     if opp.primary_contact_id is not None:
         db.add(
             SalesOpportunityContact(
@@ -555,7 +565,9 @@ async def update_opportunity(
     if fields.get("currency", "") is None:
         fields.pop("currency")
     await _check_links(db, fields)
+    before = history.snapshot(opp)
     _apply(opp, fields)
+    history.record_changes(db, opp, before, user_id=current_user.id)
     await db.commit()
     return await _detail(db, opportunity_id)
 
@@ -574,6 +586,7 @@ async def move_opportunity(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY, detail=STAGE_MISMATCH_DETAIL
         )
+    before = history.snapshot(opp)
     if stage.id != opp.stage_id:
         apply_stage(opp, stage, stages, now=datetime.now(timezone.utc))
     if stage.outcome == "lost":
@@ -582,6 +595,7 @@ async def move_opportunity(
             opp.lost_reason = reason
     else:
         opp.lost_reason = None
+    history.record_changes(db, opp, before, user_id=current_user.id)
     await db.commit()
     return await _detail(db, opportunity_id)
 
@@ -596,6 +610,12 @@ async def archive_opportunity(
     if opp.archived_at is None:
         opp.archived_at = datetime.now(timezone.utc)
         opp.archived_reason = "manual"
+        history.record(
+            db,
+            opportunity_id=opp.id,
+            user_id=current_user.id,
+            kind=OpportunityEventKind.archived,
+        )
         await db.commit()
     return await _detail(db, opportunity_id)
 
@@ -610,8 +630,108 @@ async def restore_opportunity(
     if opp.archived_at is not None:
         opp.archived_at = None
         opp.archived_reason = None
+        history.record(
+            db,
+            opportunity_id=opp.id,
+            user_id=current_user.id,
+            kind=OpportunityEventKind.restored,
+        )
         await db.commit()
     return await _detail(db, opportunity_id)
+
+
+class HistoryEventOut(BaseModel):
+    id: int
+    kind: str
+    field: Optional[str]
+    old_value: Optional[str]
+    new_value: Optional[str]
+    #: Nazwa etapu, opiekuna albo firmy dla pól z identyfikatorem.
+    old_label: Optional[str]
+    new_label: Optional[str]
+    user: Optional[Ref]
+    created_at: datetime
+
+
+#: Pole z identyfikatorem → (model, kolumna z nazwą) do podpisu w historii.
+_LABELLED = {
+    "stage_id": (SalesPipelineStage, SalesPipelineStage.name),
+    "owner_user_id": (User, User.name),
+    "company_id": (SalesCompany, SalesCompany.name),
+}
+
+
+@router.get("/{opportunity_id}/history", response_model=list[HistoryEventOut])
+async def opportunity_history(
+    opportunity_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(default=200, ge=1, le=500),
+) -> list[HistoryEventOut]:
+    """„Historia zmian” szansy — najnowsze na górze."""
+
+    await _get(db, opportunity_id)
+    events = list(
+        (
+            await db.execute(
+                select(SalesOpportunityEvent)
+                .where(SalesOpportunityEvent.opportunity_id == opportunity_id)
+                .order_by(
+                    SalesOpportunityEvent.created_at.desc(),
+                    SalesOpportunityEvent.id.desc(),
+                )
+                .limit(limit)
+            )
+        ).scalars()
+    )
+    labels: dict[str, dict[str, str]] = {}
+    for field, (model, name) in _LABELLED.items():
+        ids = {
+            int(value)
+            for event in events
+            if event.field == field
+            for value in (event.old_value, event.new_value)
+            if value is not None and value.isdigit()
+        }
+        if ids:
+            rows = await db.execute(select(model.id, name).where(model.id.in_(ids)))
+            labels[field] = {str(row_id): label for row_id, label in rows.all()}
+    user_ids = {event.user_id for event in events if event.user_id is not None}
+    users = (
+        dict(
+            (
+                await db.execute(
+                    select(User.id, User.name).where(User.id.in_(user_ids))
+                )
+            ).all()
+        )
+        if user_ids
+        else {}
+    )
+
+    def _label(field: Optional[str], value: Optional[str]) -> Optional[str]:
+        if field is None or value is None:
+            return None
+        return labels.get(field, {}).get(value)
+
+    return [
+        HistoryEventOut(
+            id=event.id,
+            kind=event.kind,
+            field=event.field,
+            old_value=event.old_value,
+            new_value=event.new_value,
+            old_label=_label(event.field, event.old_value),
+            new_label=_label(event.field, event.new_value),
+            user=(
+                Ref(id=event.user_id, name=users.get(event.user_id) or "")
+                if event.user_id is not None
+                else None
+            ),
+            created_at=event.created_at,
+        )
+        for event in events
+    ]
 
 
 @router.put("/{opportunity_id}/contacts/{contact_id}", response_model=OpportunityDetail)

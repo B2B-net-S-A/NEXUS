@@ -11,11 +11,14 @@ transakcja: wywołujący robi ``commit`` dopiero po całości.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.services.sales import history
+from app.services.sales_schema import OpportunityEventKind
 
 from app.models.sales import (
     SalesActivity,
@@ -56,7 +59,12 @@ def _union_tags(target: list[Any], source: list[Any]) -> list[Any]:
 
 
 async def merge_companies(
-    db: AsyncSession, *, target: SalesCompany, source: SalesCompany, now: datetime
+    db: AsyncSession,
+    *,
+    target: SalesCompany,
+    source: SalesCompany,
+    now: datetime,
+    user_id: Optional[int] = None,
 ) -> None:
     source_id, target_id = source.id, target.id
 
@@ -112,7 +120,26 @@ async def merge_companies(
             .values(is_primary=True)
         )
 
-    for model in (SalesOpportunity, SalesActivity, SalesFile, SalesLead):
+    moved_opportunities = (
+        await db.execute(
+            update(SalesOpportunity)
+            .where(SalesOpportunity.company_id == source_id)
+            .values(company_id=target_id)
+            .returning(SalesOpportunity.id)
+        )
+    ).scalars()
+    # Szansa zmieniła firmę — w jej historii widać, z której przyszła.
+    for opportunity_id in moved_opportunities:
+        history.record(
+            db,
+            opportunity_id=opportunity_id,
+            user_id=user_id,
+            kind=OpportunityEventKind.company_merged,
+            field="company_id",
+            old_value=str(source_id),
+            new_value=str(target_id),
+        )
+    for model in (SalesActivity, SalesFile, SalesLead):
         await db.execute(
             update(model)
             .where(model.company_id == source_id)
