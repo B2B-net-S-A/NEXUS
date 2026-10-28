@@ -329,6 +329,22 @@ export type NewJobLeadPendingReason = "assigning" | "passive" | "none" | "not_ha
 export type NewJobLeadSinceReason = "handoff" | "reopen" | "p1";
 
 /**
+ * „Nowe osoby do ustawienia” (0609, 28.10.2026): konto po pierwszym logowaniu
+ * przez Microsoft czeka na decyzję, kim jest, a rekruterowi brakuje kategorii
+ * albo przełożonego. Wiersze dostaje wyłącznie admin i Head of Recruitment.
+ */
+export interface NewPersonSetupRow {
+  user_id: number;
+  name: string;
+  email: string;
+  since: string;
+  /** Nikt jeszcze nie zdecydował, kim jest ta osoba. */
+  needs_decision: boolean;
+  /** Czego brakuje rekruterowi: `categories`, `manager`. */
+  missing: ("categories" | "manager")[];
+}
+
+/**
  * „Nowe rekrutacje — kto prowadzi”: rekrutacje świeżo przekazane do searchu
  * z rekruterem prowadzącym. Lista informacyjna — w trybie „auto” automat
  * przydziela od razu, a Head of Recruitment zmienia tylko to, z czym się nie
@@ -662,6 +678,9 @@ export interface BoardTasksResponse {
   /** „Nowe rekrutacje — kto prowadzi” — tylko admin i Head of Recruitment
    *  (reszta dostaje pustą listę); starszy backend pola nie oddaje. */
   new_job_leads?: NewJobLeadRow[];
+  /** „Nowe osoby do ustawienia” — admin i Head of Recruitment. `null` = serwer
+   *  nie policzył listy; starszy backend pola nie oddaje. */
+  new_people?: NewPersonSetupRow[] | null;
   /** „Twoje CV w drodze” — co dzieje się z CV po przekazaniu karty. `null`
    *  albo brak = osoba usunęła listę z pulpitu (albo serwer jej nie policzył). */
   cv_in_transit?: CvInTransit | null;

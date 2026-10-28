@@ -231,6 +231,16 @@ CATALOG = (
         "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
+    # 0609 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
+    dict(
+        id="new_person",
+        label="Nowa osoba w NEXUSIE",
+        module="System",
+        trigger="Ktoś zalogował się pierwszy raz przez Microsoft i dostał konto "
+        "„Konsultant/Kontraktor”. Zdecyduj, czy to rekruter (rola, kategorie "
+        "kompetencji, przełożony), czy zostaje konsultantem.",
+        recipient_rule="Aktywni administratorzy i Head of Recruitment.",
+    ),
     # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
     # `services/hr/hr_mail.py` (bez rodzaju nieobecności i bez kwot).
     dict(
@@ -518,6 +528,7 @@ def notification_kind(notification_type: Any) -> str | None:
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
+        "new_person_signed_in": "new_person",
         "client_job_opened": CLIENT_JOB_KIND,
         "job_ad_missing": JOB_AD_KIND,
         "job_ad_backlog": JOB_AD_KIND,
@@ -603,6 +614,7 @@ IMMEDIATE_KINDS = (
     "signature_request",
     "system_failure",
     "data_access_alert",
+    "new_person",
     HR_MAIL_KIND,
     HR_BONUS_KIND,
     CLIENT_JOB_KIND,

@@ -9,6 +9,10 @@
  *    admin ją akceptuje, zmienia albo odrzuca (`AllocationProposalsSection`).
  *    Pierwsza sekcja panelu; widzi ją wyłącznie osoba, która o propozycjach
  *    decyduje (`can_decide_proposals`),
+ *  - „Nowe osoby do ustawienia” (0609, 28.10.2026) — konto po pierwszym
+ *    logowaniu przez Microsoft czeka na decyzję, kim jest, a rekruterowi
+ *    brakuje kategorii albo przełożonego; okno „Ustaw” (`NewPeopleSection`).
+ *    Admin i Head of Recruitment; liczy się do tego, czy coś „czeka”.
  *  - „Nowe rekrutacje — kto prowadzi" — dla admina i Head of Recruitment:
  *    kto jest rekruterem prowadzącym świeżo przekazanych rekrutacji (automat
  *    albo osoba wskazana przez Delivery Leada) i „Zmień" tam, gdzie się nie
@@ -108,6 +112,7 @@ import { RateChangesSection, RateChangesWaitingSection } from "./RateChangesSect
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
+import { NewPeopleSection } from "./NewPeopleSection";
 import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
 import { PrepAttentionSection } from "./PrepAttentionSection";
 import { RequirementFixesSection } from "./RequirementFixesSection";
@@ -221,7 +226,11 @@ export function BoardTasksPanel({
   // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
   const proposals =
     data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
+  // „Nowe osoby do ustawienia” (0609) — zadanie admina i Head of Recruitment.
+  const newPeople = data.can_decide_proposals === true ? (data.new_people ?? []) : [];
+  const newPeopleFailed = data.can_decide_proposals === true && data.new_people === null;
   const total =
+    newPeople.length +
     proposals.length +
     data.cpro_to_send.length +
     data.cpro_sent.length +
@@ -423,6 +432,8 @@ export function BoardTasksPanel({
             </li>
           </Section>
         )}
+        <NewPeopleSection rows={newPeople} />
+        {newPeopleFailed ? <NewPeopleFailed /> : null}
         <AllocationProposalsSection
           rows={proposals}
           leaveKnown={data.allocation_leave_known !== false}
@@ -502,6 +513,19 @@ function RequirementFixesFailed() {
       className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground lg:col-span-3"
     >
       Nie udało się policzyć „Wymagań do poprawy” — odśwież pulpit.
+    </p>
+  );
+}
+
+/** Awaria liczenia „Nowych osób do ustawienia” (`new_people: null`). */
+function NewPeopleFailed() {
+  return (
+    <p
+      role="status"
+      data-testid="new-people-failed"
+      className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground lg:col-span-3"
+    >
+      Nie udało się policzyć „Nowych osób do ustawienia” — odśwież pulpit.
     </p>
   );
 }

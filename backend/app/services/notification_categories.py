@@ -291,6 +291,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.ai_spend_alert: _C.system,
     _T.automation_failing: _C.system,
     _T.candidate_data_access_alert: _C.system,
+    _T.new_person_signed_in: _C.system,
     _T.teams_prep_scope_missing: _C.system,
 }
 

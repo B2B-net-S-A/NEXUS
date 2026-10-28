@@ -335,11 +335,12 @@ export interface CompetenceTeam {
 
 export const COMPETENCE_TEAM_QUERY_KEY = ["competence-team"] as const
 
-export function useCompetenceTeam() {
+export function useCompetenceTeam({ enabled = true }: { enabled?: boolean } = {}) {
   return useQuery<CompetenceTeam>({
     queryKey: COMPETENCE_TEAM_QUERY_KEY,
     queryFn: async () => (await api.get<CompetenceTeam>("/api/competence-team")).data,
     staleTime: 15_000,
+    enabled,
   })
 }
 

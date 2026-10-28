@@ -329,6 +329,7 @@ from app.api import teams_channels as teams_channels_api
 from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
 from app.api import competence_team as competence_team_api
+from app.api import people_setup as people_setup_api
 from app.api import request_work_states as request_work_states_api
 from app.api import request_board as request_board_api
 
@@ -2188,6 +2189,12 @@ app.include_router(
     competence_team_api.router,
     prefix="/api/competence-team",
     tags=["competence-team"],
+)
+# 0609: okno „Ustaw nową osobę” (HoR i admin) — `api/people_setup.py`.
+app.include_router(
+    people_setup_api.router,
+    prefix="/api/people-setup",
+    tags=["people-setup"],
 )
 app.include_router(
     request_work_states_api.router,
