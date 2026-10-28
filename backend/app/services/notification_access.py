@@ -58,7 +58,11 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 # 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
 # główna albo dodatkowa), niezależnie od sekcji (decyzja Artura 22.10.2026).
 HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
-    {NotificationType.candidate_data_access_alert}
+    {
+        NotificationType.candidate_data_access_alert,
+        # 0612: nowa osoba po pierwszym logowaniu (decyzja Artura 28.10.2026).
+        NotificationType.new_person_signed_in,
+    }
 )
 
 # Context-sensitive types are handled separately below.  Every other enum

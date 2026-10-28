@@ -185,7 +185,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     address.search = "sub=permissions";
     renderTab();
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(15);
+    expect(await screen.findAllByRole("switch")).toHaveLength(16);
     expect(adminApi.listUsers).not.toHaveBeenCalled();
   });
 
@@ -482,7 +482,7 @@ describe("lista kont: domyślnie aktywni, liczniki, „Bez aktywności”, kolej
   ];
 
   it("liczy aktywnych, nieaktywnych i aktywnych bez żadnej aktywności", () => {
-    expect(adminUserCounts(list)).toEqual({ all: 4, active: 3, inactive: 1, idle: 1 });
+    expect(adminUserCounts(list)).toEqual({ all: 4, active: 3, inactive: 1, idle: 1, pending: 0 });
   });
 
   it("„Bez aktywności” zostawia tylko aktywne konta bez aktywności; nieaktywne nigdy", () => {

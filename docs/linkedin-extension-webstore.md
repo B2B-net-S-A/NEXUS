@@ -1,6 +1,6 @@
 # NEXUS — LinkedIn: materiały do Chrome Web Store
 
-Stan przygotowania: 28.10.2026. Materiały opisują wersję **1.0.1** w `extension/`.
+Stan przygotowania: 28.10.2026. Materiały opisują wersję **1.0.2** w `extension/`.
 Strukturę wyników i panelu profilu zmierzono na aktywnym Recruiterze. Nie jest to
 potwierdzenie publikacji wersji ani całej ścieżki zainstalowanej wtyczki z produkcją.
 
@@ -149,7 +149,7 @@ pole instrukcji recenzenta. Ten plik i repozytorium nie zawierają danych logowa
 cd extension
 npm ci --ignore-scripts
 npm run pack
-# dist/nexus-linkedin-1.0.1.zip i dist/nexus-linkedin-1.0.1.zip.sha256
+# dist/nexus-linkedin-1.0.2.zip i dist/nexus-linkedin-1.0.2.zip.sha256
 ```
 
 Pakowanie wymaga zielonych testów; bez zależności kończy się błędem. Archiwum

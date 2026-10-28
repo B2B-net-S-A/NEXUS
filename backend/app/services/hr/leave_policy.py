@@ -507,15 +507,22 @@ def own_cancel_refusal(
 ) -> Optional[str]:
     """Powód, dla którego osoba NIE może sama anulować wniosku (None = może).
 
-    Oczekujący — zawsze; zatwierdzony — tylko przed pierwszym dniem
-    (``today`` = ``business_today()``: Compass liczył „dziś” w UTC i wieczorem
-    pozwalał anulować urlop, który zaczął się o północy w Warszawie).
+    Oczekujący i zatwierdzony — tylko przed pierwszym dniem (``today`` =
+    ``business_today()``: Compass liczył „dziś” w UTC i wieczorem pozwalał
+    anulować urlop, który zaczął się o północy w Warszawie). Od pierwszego dnia
+    osoba faktycznie była nieobecna, więc cofa to przełożony albo Kadry — także
+    niezatwierdzony wniosek (decyzja Artura 28.10.2026).
     ``reported`` — zgłoszenie z B2B albo zlecenia (D5): trwające anulują Kadry,
     koordynator nie (anulowanie przez niego to odrzucenie pod inną nazwą).
     """
 
     if status == "pending":
-        return None
+        if start > today:
+            return None
+        return (
+            "Ten wniosek dotyczy terminu, który już trwa albo minął — anulować "
+            "albo odrzucić go może przełożony albo Kadry."
+        )
     if status == "approved":
         if start > today:
             return None
@@ -529,6 +536,38 @@ def team_cancel_refusal(*, status: str) -> Optional[str]:
     if status in ("pending", "approved"):
         return None
     return "Ten wniosek jest już zamknięty."
+
+
+CANCEL_REASON_MIN = 3
+CANCEL_REASON_MAX = 500
+# Powód w treści dymka osoby; mail ucina treść przed nim (``hr_mail``).
+CANCEL_REASON_LABEL = "Powód: "
+
+
+def approver_cancel_refusal(
+    *, start: date, today: date, reason: Optional[str]
+) -> Optional[str]:
+    """Powód cofnięcia przez przełożonego albo Kadry (None = w porządku).
+
+    Od pierwszego dnia (``start <= today``) powód jest wymagany: dni wracają
+    do raportu godzin i statów, a osoba dostaje go w powiadomieniu (decyzja
+    Artura 28.10.2026). Przed pierwszym dniem — opcjonalny. ``reason`` już
+    przycięty albo surowy; puste = brak.
+    """
+
+    text = (reason or "").strip()
+    if not text:
+        if start > today:
+            return None
+        return (
+            "Ten termin już trwa albo minął — podaj powód cofnięcia, osoba "
+            "zobaczy go w powiadomieniu."
+        )
+    if len(text) < CANCEL_REASON_MIN:
+        return f"Powód musi mieć co najmniej {CANCEL_REASON_MIN} znaki."
+    if len(text) > CANCEL_REASON_MAX:
+        return f"Powód może mieć najwyżej {CANCEL_REASON_MAX} znaków."
+    return None
 
 
 FORWARD_OUTSIDE_COMPANY = (

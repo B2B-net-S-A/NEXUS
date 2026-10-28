@@ -66,7 +66,6 @@
   "POST /api/candidates/cv/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/export": "PPPPPDDDPPPPPPDDDDDDDDDDDD",
   "POST /api/candidates/from-cv": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/candidates/from-linkedin": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/{candidate_id}/competence-categories": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/{candidate_id}/cv": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/{candidate_id}/cv/reparse": "PPPPPPDDPPPPPPPPPPPDDPPPPD",

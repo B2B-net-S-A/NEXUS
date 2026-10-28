@@ -109,7 +109,8 @@ export function readRecruiterProfile(doc, url) {
   const heading = firstHeading(container) || firstHeading(main);
   const fullName = firstText(container, RECRUITER.name) || heading?.text || "";
   const headline = firstText(container, RECRUITER.headline) || headlineHeuristic(container, fullName);
-  const location = firstText(container, RECRUITER.location);
+  // Recruiter prefixes the topcard location with a decorative middle dot/bullet.
+  const location = firstText(container, RECRUITER.location).replace(/^[·•]\s*/, "");
 
   let experience = readPositions(main);
   if (!experience.length) experience = parseExperienceSection(findSection(main, "experience"));

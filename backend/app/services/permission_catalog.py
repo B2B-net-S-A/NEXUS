@@ -1,4 +1,4 @@
-"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + cztery „Ludzie” + dwa „Sprzedaż”).
+"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”).
 
 Jedyne miejsce, w którym stoi: jak uprawnienie się nazywa, do której grupy
 należy, co za sobą pociąga i która rola ma je domyślnie. Moduł jest czysty —
@@ -41,6 +41,10 @@ CASES = "cases"
 # kontakty i leady. Bez domyślnych posiadaczy — admin nadaje je handlowcom.
 SALES_VIEW = "sales_view"
 SALES_EDIT = "sales_edit"
+# Raporty godzin (decyzja Artura 28.10.2026): akceptacja timesheetów całej
+# firmy bez reszty „Kadr” — dla back office, który rozlicza godziny i premie.
+# Grupa „Ludzie”, ale na KOŃCU katalogu (siatka przy starcie, jak wyżej).
+TIMESHEETS = "timesheets"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -225,6 +229,11 @@ PERMISSIONS: tuple[Permission, ...] = (
         "Sprzedaż: prowadzenie szans i kartoteki firm",
         "sales",
         requires=(SALES_VIEW,),
+    ),
+    Permission(
+        TIMESHEETS,
+        "Raporty godzin: akceptacja całej firmy",
+        "people",
     ),
 )
 

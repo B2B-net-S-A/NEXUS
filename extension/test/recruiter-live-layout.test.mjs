@@ -66,3 +66,26 @@ test("Recruiter: hidden stale profile root is excluded, unloaded profile never r
   doc.querySelector('.profile-slidein__container').remove();
   assert.equal(readPageDom(doc, PROFILE).profile.full_name, null);
 });
+
+// Recruiter topcard decorations are UI punctuation, not part of the city.
+for (const [label, displayed, expected] of [
+  ["middle-dot prefix", "· Poznań, Wielkopolskie, Poland", "Poznań, Wielkopolskie, Poland"],
+  ["NBSP after prefix", "·\u00a0Łódź, Łódzkie, Poland", "Łódź, Łódzkie, Poland"],
+  ["bullet prefix", "• Katowice, Poland", "Katowice, Poland"],
+  ["plain location", "Kraków, Poland", "Kraków, Poland"],
+  ["internal separator", "Bielsko-Biała · Polska", "Bielsko-Biała · Polska"],
+  ["leading dash", "– Polska", "– Polska"],
+  ["separator only", "·", null],
+]) {
+  test(`Recruiter location: ${label}`, () => {
+    const doc = load();
+    const location = doc.querySelector(".profile__topcard-wrapper [data-test-row-lockup-location]");
+    const value = doc.createElement("div");
+    value.textContent = displayed;
+    location.replaceChildren(value);
+    const p = readPageDom(doc, PROFILE).profile;
+    assert.equal(p.location, expected);
+    assert.equal(p.current_company, "Fikcyjna Software");
+    assert.equal(p.experience[0].start, "2023-05");
+  });
+}

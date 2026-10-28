@@ -172,3 +172,6 @@ Uprawnienia: `sidePanel` (panel), `storage` (klucz), `scripting` (odczyt karty
 LinkedIna na żądanie). Bez `tabs` — adres karty LinkedIna i tak jest widoczny
 dzięki `host_permissions`; bez `activeTab` — `host_permissions` na linkedin.com
 już pozwala odczytać kartę, więc to uprawnienie niczego by nie dodało.
+
+Wersja **1.0.2** usuwa dekoracyjny separator przed lokalizacją w topcardzie
+Recruitera, zachowując wewnętrzną interpunkcję nazw miejsc.

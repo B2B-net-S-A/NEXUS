@@ -3050,6 +3050,30 @@
    "v3_home": "okno „Kandydaci do dodania”"
   },
   {
+   "id": "board.sources-below-threshold",
+   "area": "pozyskiwanie",
+   "opis": "„Propozycje z bazy” kończą się separatorem „Poniżej 70% · N osób” z najlepszymi spod progu (nocny przegląd publikuje łącznie do 40); zakładka, kafel i dzwonek liczą tylko od progu (28.10.2026)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "proposals-below-threshold",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
+  },
+  {
+   "id": "board.sources-hidden-by-critical",
+   "area": "pozyskiwanie",
+   "opis": "Sekcja „Ukryci przez »musi mieć«, choć w CV jest coś bliskiego · N” pod propozycjami: cytat z CV, wynik „?”, Dodaj/Pomiń/podgląd, zwinięta do 3 (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-by-critical",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy → pod listą"
+  },
+  {
+   "id": "board.sources-critical-variant",
+   "area": "pozyskiwanie",
+   "opis": "Przycisk „„SailPoint” = SailPoint IIQ” w sekcji ukrytych — dopisuje wariant do wiersza krytycznej zapisem Championa (rekruter, DL), przegląd od następnej nocy (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-variant-add",
+   "v3_home": "okno „Kandydaci do dodania” → sekcja ukrytych → nagłówek"
+  },
+  {
    "id": "screening.use-all-answers",
    "area": "formularz screeningu",
    "opis": "„Użyj wszystkich odpowiedzi (N)” z poprzedniego screeningu tej osoby",

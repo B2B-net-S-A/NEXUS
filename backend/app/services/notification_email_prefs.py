@@ -195,6 +195,10 @@ def _data_access_alert(user: User, _: _Context) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
+def _new_person(user: User, _: _Context) -> bool:
+    return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+
+
 def _chat_unread(user: User, _: _Context) -> bool:
     # Lustro zapytania `chat_email_fallback`: rola z dostępem do kandydatów,
     # bez Finansów i roli podglądu wśród ról. Nadawca patrzy na rolę główną;
@@ -300,6 +304,7 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "signature_request": _signature_request,
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
+    "new_person": _new_person,
     "client_interview": _candidate_bell(NotificationType.interview_slot_confirmed),
     "prep_change": _candidate_bell(NotificationType.prep_changed_yours),
     "client_accepted": _candidate_bell(NotificationType.client_accepted),

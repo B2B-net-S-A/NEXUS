@@ -564,6 +564,12 @@ class Settings(BaseSettings):
     # kanonicznym fitem z profilem bez użytkownika); osobne pokrętła zostają,
     # bo nocny przegląd i nowe CV stroi się niezależnie.
     AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
+    # Najlepsze N zamiast sztywnego progu (decyzja Artura 28.10.2026): gdy od
+    # progu jest mniej osób, nocny przegląd dopełnia propozycje najlepszymi
+    # dopuszczonymi spod progu do łącznie tylu. Nikogo od progu nie obcina.
+    # Na 38 rekrutacjach 61% osób dodanych ręcznie miało 50–70%, a z 60–70%
+    # wyszło więcej wysłanych CV niż z ≥ 70%. 0 = sam próg (stan sprzed zmiany).
+    AUTO_FULL_REVIEW_MIN_COUNT: int = 40
     # Znani zespołowi wyżej w „Propozycjach z bazy” (badanie 06.10.2026,
     # decyzja Artura 07.10.2026; `services/known_people_signal.py`). Procent
     # dopasowania bez zmian — punkty historii wpływają WYŁĄCZNIE na kolejność.
