@@ -18,6 +18,11 @@ Szablony w ``app/templates/equipment`` są WYNIKIEM tego modułu (jak
 Zmiana treści = zmiana tutaj, ponowne uruchomienie i nowa
 ``TEMPLATE_VERSION`` (protokół zapisuje wersję wzoru, z której powstał).
 
+28.10.2026 (zgłoszenie recepcji): siatka tabeli niesie szerokości kolumn
+(LibreOffice robi z niej PDF), podpisy stoją w tabelce bez ramek z nazwiskami
+stron, a pod linią podpisu pola ``holder_signature`` / ``issuer_signature``
+— dopiski z NEXUSA po potwierdzeniu linkiem i zatwierdzeniu recepcji.
+
 Wzory wgrane przez recepcję (etap 3, O3)
 ----------------------------------------
 
@@ -52,7 +57,10 @@ from typing import Any, Iterable, Mapping, Optional
 import docx
 from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Emu, Pt, Twips
+from docx.table import Table
 from docxtpl import DocxTemplate
 from jinja2 import StrictUndefined, TemplateError, TemplateSyntaxError, nodes
 from jinja2.exceptions import SecurityError
@@ -77,7 +85,7 @@ from app.services.equipment.errors import (
 TEMPLATE_DIR = Path(__file__).resolve().parents[2] / "templates" / "equipment"
 ISSUE_TEMPLATE = "protokol_wydania.docx"
 RETURN_TEMPLATE = "protokol_zwrotu.docx"
-TEMPLATE_VERSION = "2026-10-16"
+TEMPLATE_VERSION = "2026-10-28"
 
 COMPANY_LINE = (
     "Spółka B2B.net SA, z siedzibą w Warszawie 02-486, Al. Jerozolimskie 180, "
@@ -150,7 +158,8 @@ _RETURN_COLUMNS = (
     "Stan przy zwrocie",
     "Uwagi",
 )
-_COLUMN_WIDTHS = (418, 2960, 2643, 992, 1843, 1275)  # twipy, jak we wzorze
+#: Twipy jak we wzorze, tylko „Lp.” szersze (418 łamało nagłówek w PDF).
+_COLUMN_WIDTHS = (567, 2811, 2643, 992, 1843, 1275)
 
 
 @dataclass(frozen=True)
@@ -230,6 +239,7 @@ def _table(
     # Komórki przez docx_cells (strażnik `test_docx_table_cells.py`); tabela
     # jest świeża, bez scaleń, więc to te same komórki co w `row.cells`.
     cells = [row_cells(row) for row in table.rows]
+    _fix_widths(table, _COLUMN_WIDTHS)
     for row in cells:
         for index, cell in enumerate(row):
             cell.width = Twips(_COLUMN_WIDTHS[index])
@@ -257,21 +267,45 @@ def _table(
             _cell(cells[4][5], value)
 
 
-def _signatures(document: docx.document.Document) -> None:
+def _fix_widths(table: Table, widths: tuple[int, ...]) -> None:
+    """Siatka tabeli = szerokości kolumn. LibreOffice (PDF) czyta ``gridCol``,
+    nie ``tcW`` komórek — bez tego kolumny wychodzą równe i IMEI łamie się
+    na trzy wiersze."""
+    table.autofit = False
+    grid = table._tbl.tblGrid
+    for col, width in zip(grid.findall(qn("w:gridCol")), widths):
+        col.set(qn("w:w"), str(width))
+    props = table._tbl.tblPr
+    layout = OxmlElement("w:tblLayout")
+    layout.set(qn("w:type"), "fixed")
+    props.append(layout)
+
+
+def _signatures(document: docx.document.Document, kind: str) -> None:
+    """Dwie kolumny bez ramek: strona, imię i nazwisko, linia podpisu
+    i — po potwierdzeniu w NEXUSIE — dopisek, kto i kiedy potwierdził."""
     _empty(document)
-    _empty(document, center=True)
-    _paragraph(
-        document,
-        Run("                  ", bold=True, size=11.0),
-        Run("Strona przekazująca", bold=True, size=11.0),
-        Run("\t\t\t\t\t\t    ", size=None),
-        Run("Strona przyjmująca", bold=True, size=11.0),
-    )
-    _paragraph(
-        document,
-        Run("(podpis)" + " " * 48 + "\t" + " " * 52 + "(podpis)", size=11.0),
-        center=True,
-    )
+    _empty(document)
+    left, right = ("issuer", "holder") if kind == "wydanie" else ("holder", "issuer")
+    table = document.add_table(rows=4, cols=2)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _fix_widths(table, (5233, 5233))
+    rows = [row_cells(row) for row in table.rows]
+    labels = ("Strona przekazująca", "Strona przyjmująca")
+    for index, side in enumerate((left, right)):
+        _cell(rows[0][index], Run(labels[index], bold=True, size=11.0), center=True)
+        _cell(
+            rows[1][index],
+            Run("{{ %s_name }}" % side, size=10.0, font=_DATA),
+            center=True,
+        )
+        _cell(rows[2][index], Run("." * 60, size=9.0), center=True)
+        _cell(rows[3][index], Run("(podpis)", size=9.0), center=True)
+        paragraph = rows[3][index].add_paragraph()
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        run = paragraph.add_run("{{ %s_signature }}" % side)
+        run.font.size = Pt(8)
+        run.font.name = _DATA
 
 
 def _header(document: docx.document.Document) -> None:
@@ -358,7 +392,7 @@ def build_issue_template() -> docx.document.Document:
     _paragraph(document, Run(CLAUSE_3))
     _empty(document)
     _paragraph(document, Run(COPIES))
-    _signatures(document)
+    _signatures(document, "wydanie")
     return document
 
 
@@ -388,7 +422,7 @@ def build_return_template() -> docx.document.Document:
     _paragraph(document, Run(RETURN_RECEIPT))
     _empty(document)
     _paragraph(document, Run(COPIES))
-    _signatures(document)
+    _signatures(document, "zwrot")
     return document
 
 
@@ -425,6 +459,8 @@ FIELDS: dict[str, str] = {
     "lines": "tabela pozycji: wiersz {%tr for line in lines %} … {%tr endfor %}",
     "total": "suma wartości (np. 3 903,73)",
     "total_words": "suma słownie",
+    "holder_signature": "dopisek pod podpisem osoby po potwierdzeniu linkiem (puste przed)",
+    "issuer_signature": "dopisek pod podpisem recepcji po potwierdzeniu w NEXUSIE (puste przed)",
 }
 #: Pola wiersza tabeli (``line.<pole>``).
 LINE_FIELDS: dict[str, str] = {

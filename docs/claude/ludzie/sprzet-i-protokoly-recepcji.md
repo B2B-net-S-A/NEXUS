@@ -50,6 +50,19 @@ osobie z kartoteki i uczestniku Akademii.
 - Podpis (D4): link dla osoby, papier albo profil zaufany (skan wgrywa recepcja).
   Stan „podpisany” potwierdza CZŁOWIEK — automatyczna weryfikacja podpisu
   zaufanego bywa „nieokreślona”.
+- Plik protokołu (PDF i Word) pokazuje podpis z NEXUSA (zgłoszenie recepcji
+  28.10.2026, decyzja Artura): pod linią podpisu osoby „Potwierdzono
+  elektronicznie linkiem z NEXUSA jako „…”, data, godz.” (tylko podpis linkiem),
+  pod linią recepcji „Zatwierdzono w NEXUSIE: osoba, data, godz.” (tylko
+  `potwierdzony`). Przed podpisem dopisków nie ma — plik do druku się nie
+  zmienia. Pola `holder_signature` / `issuer_signature` mają też wgrane wzory.
+  Podpis na papierze w pliku nie istnieje — dowodem jest wgrany skan.
+- PDF robi LibreOffice, a ten bierze szerokości kolumn z siatki tabeli
+  (`gridCol`), nie z komórek: nowa tabela we wzorze = `_fix_widths`. Wzór
+  używa Cambrii — w obrazie backendu stoi zgodna metrycznie Caladea
+  (`fonts-crosextra-caladea`), bez niej tekst się rozjeżdża. Podpisy to
+  tabelka bez ramek, nie spacje i tabulatory; strona `/protocol/<token>`
+  ukrywa ją po pierwszym wierszu („Strona przekazująca Strona przyjmująca”).
 - Link (D8): publiczna strona `/protocol/<token>`, trasa
   `/api/public/equipment-protocols/{token}` z limiterem (moduł bez
   `from __future__ import annotations`). Token tylko w adresie, w bazie SHA-256;
