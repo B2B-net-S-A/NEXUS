@@ -30,3 +30,25 @@ osoby także po 12 h).
   przypisanie prowadzącego zostaje u admina i HoR
   (`prowadzi-przypisanie-osoby.md`). Wariant „Biorę = Prowadzi na stałe” był
   na makietach i został odrzucony.
+
+## Ruch karty „System” do „Screeningu” = „Biorę” (28.10.2026)
+
+Zgłoszenie rekruterki z 28.10.2026: przeciągnęła osobę od „Nowi na 20”
+z „Nowych” do „Screeningu”, a karta dalej pokazywała „System” i nie było jej
+pod „Kto dodał → Ty”. Decyzja Artura z 28.10.2026 (wariant A z makiet
+https://claude.ai/artifact/7cvyoGQuvbJKv7f76bYtq2):
+
+- Ruch człowieka (nie integracji) z „Nowych” do „Screeningu” karty **bez
+  osoby** — od systemu albo bez osoby dodającej, bez „Prowadzi” i bez nikogo
+  w `claimed_by_user_id` — działa jak „Biorę”: przesuwający trafia do
+  `claimed_by_user_id`, rusza blokada 12 h, a karta, filtr i „kto ma ruch”
+  pokazują jego (`candidate_claim.take_unowned_on_screening`, wołane
+  z `/move` i `/bulk-move`).
+- Karta dodana przez człowieka zostaje u niego także po 12 h. Kto chce ją
+  wziąć, klika „Biorę”. Odrzucone: „każdy ruch przepisuje kartę” (DL/HoR
+  porządkujący Tablicę zabierałby ludzi rekruterom) i sam dopisek
+  „przeniosła” (filtr „Ty” dalej by jej nie pokazał).
+- Karty przeniesione przed zmianą: jednorazowo
+  `scripts/system_card_screening_backfill.py` (podgląd, `--apply`) daje im
+  autora ruchu do „Screeningu” z blokadą liczoną od tamtego ruchu, więc nikt
+  nie dostaje świeżej blokady.
