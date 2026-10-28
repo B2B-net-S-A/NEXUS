@@ -43,7 +43,7 @@ class AutofillFeedback(Base):
     rate_hourly: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2))
     note: Mapped[Optional[str]] = mapped_column(String(500))
     snapshot: Mapped[Optional[dict]] = mapped_column(JSONB)
-    # 0603: powód „klient” dotyczy wszystkich rekrutacji tego klienta.
+    # 0605: powód „klient” dotyczy wszystkich rekrutacji tego klienta.
     whole_client: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

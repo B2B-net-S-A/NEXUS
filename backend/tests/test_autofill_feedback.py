@@ -249,7 +249,7 @@ async def test_rejecting_a_system_person_needs_a_reason_and_stores_it(
     assert wrong.status_code == 422, wrong.text
 
 
-# ── Odrzucenie na cały klient (27.10.2026, 0603) ────────────────────────────
+# ── Odrzucenie na cały klient (27.10.2026, 0605) ────────────────────────────
 # Odrzucenie osoby od systemu na cały klient (decyzja Artura 27.10.2026) — Postgres.
 #
 # Analiza 133 odrzuceń: 13 z 20 „Inne” to klient, nie osoba („pracuje
