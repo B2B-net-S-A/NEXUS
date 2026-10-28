@@ -20,7 +20,13 @@ from fastapi import HTTPException
 from httpx import AsyncClient
 from pydantic import ValidationError
 
-from app.api.novelties import apply_event, next_morning, person_state, shape_for_user
+from app.api.novelties import (
+    apply_event,
+    next_morning,
+    person_state,
+    quiet_for_preview,
+    shape_for_user,
+)
 from app.data.novelties import Novelty, in_audience, load_novelties
 from app.models.novelty import NoveltyProgress
 from app.services.novelty_schema import TABLE_DDL
@@ -164,6 +170,14 @@ def test_postponed_until_next_morning_in_company_time() -> None:
     back = next_morning(NOW)
     local = back.astimezone(ZoneInfo("Europe/Warsaw"))
     assert (local.date(), local.hour, local.minute) == (date(2026, 10, 29), 8, 0)
+
+
+def test_preview_as_another_person_forces_nothing() -> None:
+    # Zapisy w podglądzie są zablokowane — okna zmiany procesu nie dałoby się zamknąć.
+    process = _novelty(tier="process", path_prefix="/contracts")
+    quiet = quiet_for_preview(shape_for_user(process, None, NOW))
+    assert quiet["required_now"] is False and quiet["show_card"] is False
+    assert quiet["can_postpone"] is False and quiet["done"] is False
 
 
 def test_person_state_in_the_panel() -> None:
@@ -315,3 +329,51 @@ async def test_recruiter_cannot_open_the_panel(
         "/api/novelties/test-wybieram/remind", json={}, headers=recruiter
     )
     assert resp.status_code == 403
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_two_tabs_sending_the_first_event_at_once_do_not_fail(
+    app_client: AsyncClient, frozen_registry
+) -> None:
+    import asyncio
+
+    _, recruiter = await _user("recruiter")
+    responses = await asyncio.gather(
+        *(
+            app_client.post(
+                "/api/novelties/test-wybieram/events",
+                json={"event": "seen"},
+                headers=recruiter,
+            )
+            for _ in range(4)
+        )
+    )
+    assert [r.status_code for r in responses] == [204] * 4
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_admin_preview_shows_no_required_window(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+) -> None:
+    from app.api import novelties as api
+
+    process = _novelty(
+        id="test-umowa",
+        tier="process",
+        path_prefix="/contracts",
+        shipped_on=datetime.now(ZoneInfo("Europe/Warsaw")).date().isoformat(),
+        audience={"roles": ["delivery_lead"]},
+    )
+    monkeypatch.setattr(api, "load_novelties", lambda: {process.id: process})
+    dl_id, dl = await _user("delivery_lead")
+    own = (await app_client.get("/api/novelties/mine", headers=dl)).json()
+    assert own[0]["required_now"] is True
+    preview = (
+        await app_client.get(
+            "/api/novelties/mine",
+            headers={**app_auth_headers, "X-Impersonate-User-Id": str(dl_id)},
+        )
+    ).json()
+    assert preview[0]["required_now"] is False and preview[0]["show_card"] is False

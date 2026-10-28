@@ -19,7 +19,8 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
@@ -133,8 +134,10 @@ async def _progress_rows(
 
 @router.get("/novelties/mine")
 async def my_novelties(
-    current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+    request: Request, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
 ) -> list[dict[str, Any]]:
+    """W podglądzie jako inna osoba bez karty i bez okna zmiany procesu:
+    zapisy są wtedy zablokowane (``deps.py``), więc okna nie dałoby się zamknąć."""
     today = business_today()
     mine = [
         n
@@ -143,7 +146,38 @@ async def my_novelties(
     ]
     progress = await _progress_rows(db, current_user.id, [n.id for n in mine])
     now = datetime.now(timezone.utc)
-    return [shape_for_user(n, progress.get(n.id), now) for n in mine]
+    shaped = [shape_for_user(n, progress.get(n.id), now) for n in mine]
+    if _impersonating(request):
+        return [quiet_for_preview(item) for item in shaped]
+    return shaped
+
+
+def quiet_for_preview(item: dict[str, Any]) -> dict[str, Any]:
+    """Podgląd admina pokazuje kropki, ale niczego nie wymusza."""
+    return {**item, "show_card": False, "required_now": False, "can_postpone": False}
+
+
+async def _locked_row(
+    db: AsyncSession, user_id: int, novelty_id: str
+) -> NoveltyProgress:
+    """Wiersz osoby przy nowości, założony bez wyścigu i zablokowany do końca
+    transakcji. Dwie karty przeglądarki wysyłają pierwsze ``seen`` naraz —
+    ``db.get`` + ``db.add`` dawało wtedy 500 na kluczu głównym."""
+    await db.execute(
+        pg_insert(NoveltyProgress)
+        .values(user_id=user_id, novelty_id=novelty_id, seen_count=0)
+        .on_conflict_do_nothing(index_elements=["user_id", "novelty_id"])
+    )
+    return (
+        await db.execute(
+            select(NoveltyProgress)
+            .where(
+                NoveltyProgress.user_id == user_id,
+                NoveltyProgress.novelty_id == novelty_id,
+            )
+            .with_for_update()
+        )
+    ).scalar_one()
 
 
 def apply_event(
@@ -191,20 +225,13 @@ async def record_novelty_event(
 ) -> None:
     """Kropka pokazana, karta odłożona, nowość przeklikana albo użyta.
 
-    W trybie podglądu jako inna osoba nic nie zapisujemy — to nie jej kliknięcia."""
+    Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów."""
     novelty = load_novelties().get(novelty_id)
     if novelty is None or not _audience_of(current_user, novelty):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nie ma takiej nowości."
         )
-    if _impersonating(request):
-        return
-    row = await db.get(NoveltyProgress, (current_user.id, novelty_id))
-    if row is None:
-        row = NoveltyProgress(
-            user_id=current_user.id, novelty_id=novelty_id, seen_count=0
-        )
-        db.add(row)
+    row = await _locked_row(db, current_user.id, novelty_id)
     apply_event(row, novelty, payload.event, datetime.now(timezone.utc))
     await db.commit()
 
@@ -219,11 +246,14 @@ def person_state(progress: Optional[NoveltyProgress]) -> str:
     return "seen"
 
 
-async def _audience_users(db: AsyncSession, novelty: Novelty) -> list[User]:
-    users = (
+async def _active_users(db: AsyncSession) -> list[User]:
+    return list(
         (await db.execute(select(User).where(User.is_active.is_(True)))).scalars().all()
     )
-    return [u for u in users if _audience_of(u, novelty)]
+
+
+async def _audience_users(db: AsyncSession, novelty: Novelty) -> list[User]:
+    return [u for u in await _active_users(db) if _audience_of(u, novelty)]
 
 
 @router.get("/novelties/adoption")
@@ -245,10 +275,11 @@ async def novelties_adoption(
         .all()
     )
     by_key = {(r.novelty_id, r.user_id): r for r in rows}
+    active = await _active_users(db)
     out = []
     for novelty in novelties:
         people = []
-        for user in await _audience_users(db, novelty):
+        for user in (u for u in active if _audience_of(u, novelty)):
             progress = by_key.get((novelty.id, user.id))
             people.append(
                 {
@@ -303,35 +334,29 @@ async def remind_novelty(
         )
     audience = {u.id for u in await _audience_users(db, novelty)}
     wanted = audience if payload.user_ids is None else audience & set(payload.user_ids)
-    existing = await _all_progress(db, novelty_id, wanted)
-    now = datetime.now(timezone.utc)
-    reminded = 0
-    for user_id in sorted(wanted):
-        row = existing.get(user_id)
-        if row is not None and row.completed_at is not None:
-            continue
-        if row is None:
-            row = NoveltyProgress(user_id=user_id, novelty_id=novelty_id, seen_count=0)
-            db.add(row)
-        row.reminded_at = now
-        row.reminded_by_user_id = current_user.id
-        row.updated_at = now
-        reminded += 1
-    await db.commit()
-    return {"reminded": reminded}
-
-
-async def _all_progress(
-    db: AsyncSession, novelty_id: str, user_ids: set[int]
-) -> dict[int, NoveltyProgress]:
-    if not user_ids:
-        return {}
-    rows = (
-        await db.execute(
-            select(NoveltyProgress).where(
-                NoveltyProgress.novelty_id == novelty_id,
-                NoveltyProgress.user_id.in_(sorted(user_ids)),
-            )
+    if not wanted:
+        return {"reminded": 0}
+    # Brakujące wiersze bez wyścigu z pierwszym kliknięciem tej osoby, potem
+    # jeden UPDATE tylko u tych, którzy jeszcze nie zaliczyli.
+    await db.execute(
+        pg_insert(NoveltyProgress)
+        .values(
+            [
+                {"user_id": uid, "novelty_id": novelty_id, "seen_count": 0}
+                for uid in sorted(wanted)
+            ]
         )
-    ).scalars()
-    return {row.user_id: row for row in rows}
+        .on_conflict_do_nothing(index_elements=["user_id", "novelty_id"])
+    )
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        update(NoveltyProgress)
+        .where(
+            NoveltyProgress.novelty_id == novelty_id,
+            NoveltyProgress.user_id.in_(sorted(wanted)),
+            NoveltyProgress.completed_at.is_(None),
+        )
+        .values(reminded_at=now, reminded_by_user_id=current_user.id, updated_at=now)
+    )
+    await db.commit()
+    return {"reminded": int(result.rowcount or 0)}

@@ -452,8 +452,12 @@ export function NoveltyLayer() {
     }
   }, [boxes, dots, sendEvent]);
 
+  // Podwójny klik w ostatni krok nie wysyła „toured” dwa razy.
+  const finishing = useRef<string | null>(null);
   const finishTour = useCallback(
     (novelty: Novelty) => {
+      if (finishing.current === novelty.id) return;
+      finishing.current = novelty.id;
       writeTour(null);
       setTour(null);
       setFinished(novelty);
@@ -486,6 +490,7 @@ export function NoveltyLayer() {
 
   const startTour = (novelty: Novelty) => {
     const state = { noveltyId: novelty.id, step: 0 };
+    finishing.current = null;
     writeTour(state);
     setTour(state);
     setOpenCard(null);
