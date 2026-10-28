@@ -278,7 +278,7 @@
       },
       {
         "q": "Jak wrócić do poprzedniego wyszukiwania albo przejrzanych CV?",
-        "a": "Lista sama wraca do ostatniego wyszukiwania, strony i miejsca na liście; starsze są pod „Ostatnie wyszukiwania”. W oknie CV „Poprzednia” i „Następna” (Shift + ←/→) przechodzą po osobach z listy, a „Przypisz do rekrutacji” przypisuje oglądaną osobę. Obejrzane CV ma ✓ przy „CV”, ostatnio oglądana osoba — pasek z lewej.",
+        "a": "Lista wraca do ostatniego wyszukiwania i strony; starsze są pod „Ostatnie wyszukiwania”. Z profilu wrócisz przez „Wróć do wyników wyszukiwania”, a ostatnio oglądana osoba ma pasek z lewej. W oknie CV „Poprzednia” i „Następna” (Shift + ←/→) przechodzą po liście, „Przypisz do rekrutacji” przypisuje oglądaną osobę; obejrzane CV ma ✓.",
         "anchor": "candidates.list.saved"
       },
       {
@@ -371,7 +371,7 @@
     ],
     "pitfalls": [
       "Stawka z notatek w innej jednostce niż zł/h jest pokazana z przeliczeniem (MD ÷ 8) — sprawdź ją przed zapisem. Ramka „Pracuje u nas” na górze „Do propozycji” pokazuje klienta, koniec zamówienia i Delivery Leada; „Zaczyna u nas” to podpisana umowa ze startem w przyszłości, „Kończy u nas” — zamówienie bez kontynuacji w ciągu 30 dni. Linia „zadeklarowana od” pod „Stawką u nas” to niższa stawka podana w ostatnich 18 miesiącach.",
-      "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie.",
+      "Przy zmianie stawki okno pokazuje trwające procesy od „Zweryfikowany” — zaznaczone dostają wpis o zmianie stawki, a Delivery Lead i Head of Recruitment powiadomienie. Profil otwarty z wyników (lista albo „Szukaj ręcznie” w rekrutacji) ma nad sobą „Wróć do wyników wyszukiwania” — wraca tam, gdzie skończyłeś — i „Poprzedni”/„Następny” (K/J). Przy „Szukaj ręcznie” „Wybieram” zaznacza osobę: po powrocie wybrani czekają zaznaczeni na „Dodaj do Nowych”.",
       "„Przegląd” pokazuje, co jest do zrobienia po naszej stronie: zaległy telefon po ciszy klienta i procesy, w których ruch ma rekruter albo Delivery. Wszystkie procesy są w „Rekrutacje”: w toku jako tabela (klik w wiersz rozwija stawki, CV i ocenę dopasowania), zakończone pod spodem. „Pasujące rekrutacje” liczą się dopiero po „Pokaż”. „Podobni” to osoby z podobnym CV i umiejętnościami — kolejność nie zależy od rekrutacji; „Sprawdź pod rekrutację” pokazuje, kto spełnia jej umiejętności krytyczne, a dodanie osoby bez krytycznej wymaga zdania „dlaczego mimo to”, które trafia na kartę jako notatka. Przy drugim profilu tej samej osoby (to samo imię i nazwisko, telefon, LinkedIn albo plik CV) stoi „Możliwy duplikat” — „Scal…” (admin, Head of Recruitment) otwiera okno scalania.",
       "W „Notatkach” widać 10 najnowszych, starsze są pod „Pokaż starsze”. Ważną notatkę przypnij pinezką — zobaczy ją cały zespół, także w karcie kandydata w rekrutacji. Imię i nazwisko zapisuj bez dopisków w nawiasie: „Szuka aktywnie” ustawisz w Dostępności, czarną listę w menu „⋯” → „Czarna lista…” (u nas albo u klienta, z powodem — potem widać ją w ramce pod paskiem osoby), a zatrudnienie widać samo z umowy w Kontraktach."
     ],
