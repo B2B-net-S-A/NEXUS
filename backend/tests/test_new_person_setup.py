@@ -303,9 +303,7 @@ async def test_recruiter_without_category_is_listed_with_what_is_missing(
     assert resp.status_code == 200, resp.text
     assert resp.json()["role_granted"] is False
     board = (await app_client.get("/api/board-tasks", headers=hor)).json()
-    row = next(
-        (r for r in board["new_people"] if r["user_id"] == recruiter_id), None
-    )
+    row = next((r for r in board["new_people"] if r["user_id"] == recruiter_id), None)
     assert row is None or "categories" not in row["missing"]
 
 
@@ -326,3 +324,72 @@ async def test_role_change_in_people_and_roles_clears_the_marker(
     assert resp.status_code == 200, resp.text
     async with AsyncSessionLocal() as db:
         assert (await db.get(User, newcomer_id)).setup_pending_since is None
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_cannot_promote_a_consultant_who_is_not_waiting(
+    app_client: AsyncClient,
+) -> None:
+    """Przegląd kodu 28.10: HoR decyduje tylko o NOWYM koncie — konsultant
+    zostawiony świadomie (bez znacznika) nie staje się rekruterem."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.user import User
+
+    _, hor = await _user("head_of_recruitment")
+    consultant_id, _ = await _user("employee")
+    for decision in ("recruiter", "employee"):
+        resp = await app_client.post(
+            f"/api/people-setup/{consultant_id}",
+            json={"decision": decision},
+            headers=hor,
+        )
+        assert resp.status_code == 422, resp.text
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(User, consultant_id)).roles == ["employee"]
+
+
+@_DB
+@pytest.mark.asyncio
+async def test_hor_cannot_take_over_someone_elses_manager_slot(
+    app_client: AsyncClient,
+) -> None:
+    """Przegląd kodu 28.10: przełożonego HoR ustawia tylko osobie, która go
+    nie ma — nie przejmuje cudzego zespołu ani konta admina/HoR."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.hr_profile import EmployeeProfile
+    from app.models.user import User
+    from app.services.hr import account_profiles
+    from app.services.hr import structure as hr_structure
+
+    other_hor_id, _ = await _user("head_of_recruitment")
+    hor_id, hor = await _user("head_of_recruitment")
+    recruiter_id, _ = await _user("recruiter")
+    leader_id, _ = await _user(
+        "admin", roles=["admin", "head_of_recruitment", "recruiter"]
+    )
+    async with AsyncSessionLocal() as db:
+        actor = await db.get(User, other_hor_id)
+        for uid in (recruiter_id, leader_id):
+            await account_profiles.ensure_profile(
+                db, await db.get(User, uid), actor_id=None, source="test"
+            )
+        await hr_structure.reassign(
+            db, user_ids=[recruiter_id], manager_user_id=other_hor_id, actor=actor
+        )
+        await db.commit()
+
+    for target in (recruiter_id, leader_id):
+        resp = await app_client.post(
+            f"/api/people-setup/{target}",
+            json={"decision": "recruiter", "manager_user_id": hor_id},
+            headers=hor,
+        )
+        assert resp.status_code in (403, 422), resp.text
+    async with AsyncSessionLocal() as db:
+        manager = await db.scalar(
+            select(EmployeeProfile.manager_user_id).where(
+                EmployeeProfile.user_id == recruiter_id
+            )
+        )
+    assert manager == other_hor_id

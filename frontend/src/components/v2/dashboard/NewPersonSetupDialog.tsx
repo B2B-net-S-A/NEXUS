@@ -74,13 +74,17 @@ export function NewPersonSetupDialog({ person, presetKeep = false, isAdmin, onCl
   const [managerId, setManagerId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Reset tylko przy zmianie osoby — rodzic („Osoby i role”) składa obiekt
+  // `person` na nowo przy każdym renderze (przegląd kodu 28.10.2026).
+  const personId = person?.user_id ?? null;
+  const needsDecision = person?.needs_decision ?? false;
   useEffect(() => {
-    if (!person) return;
-    setDecision(person.needs_decision ? (presetKeep ? "employee" : null) : "recruiter");
+    if (personId === null) return;
+    setDecision(needsDecision ? (presetKeep ? "employee" : null) : "recruiter");
     setFirst(null);
     setSecond([]);
     setManagerId(me?.id ?? null);
-  }, [person, presetKeep, me?.id]);
+  }, [personId, needsDecision, presetKeep, me?.id]);
 
   if (!person) return null;
 

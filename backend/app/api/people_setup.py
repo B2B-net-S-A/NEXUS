@@ -28,6 +28,7 @@ from app.api.deps import HeadOfRecruitmentPlus
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.activity import Activity
+from app.models.hr_profile import EmployeeProfile
 from app.models.user import User, UserRole
 from app.services.hr import account_profiles, people
 from app.services.hr import structure as hr_structure
@@ -36,6 +37,7 @@ from app.services.hr.program import program_enabled
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
 _SET_BY_ADMIN = "Tę osobę ustawia admin w „Osoby i role”."
+_LEADER_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
 
 
 class ManagerOption(BaseModel):
@@ -99,9 +101,26 @@ async def _set_manager(
                 status.HTTP_403_FORBIDDEN,
                 "Jako przełożonego wskaż siebie albo innego kierownika rekrutacji.",
             )
-    await account_profiles.ensure_profile(
+    profile = await account_profiles.ensure_profile(
         db, target, actor_id=actor.id, source="people_setup"
     )
+    if profile is None:
+        profile = await db.scalar(
+            select(EmployeeProfile).where(EmployeeProfile.user_id == target.id)
+        )
+    # Przegląd kodu 28.10.2026: HoR ustawia przełożonego tylko osobie, która
+    # go nie ma (albo nowej) — przejęcie cudzego zespołu dawałoby wgląd
+    # w godziny i premie (`hr/payroll_access.py`); przepięcia robi Kadry/admin.
+    if (
+        not actor.has_role(UserRole.admin)
+        and target.setup_pending_since is None
+        and profile is not None
+        and profile.manager_user_id is not None
+    ):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Ta osoba ma już przełożonego — zmienia go Kadry albo admin w „Strukturze”.",
+        )
     try:
         await hr_structure.reassign(
             db, user_ids=[target.id], manager_user_id=manager_user_id, actor=actor
@@ -130,6 +149,14 @@ async def apply_setup(
     if target is None or not target.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej aktywnej osoby.")
     employee_only = [str(r) for r in (target.roles or [])] == [UserRole.employee.value]
+    if not current_user.has_role(UserRole.admin):
+        # Przegląd kodu 28.10.2026: HoR decyduje o NOWYM koncie i uzupełnia
+        # rekrutera — nie promuje konsultanta, którego ktoś świadomie zostawił,
+        # i nie rusza kont adminów ani innych kierowników.
+        if target.has_any_role(*_LEADER_ROLES):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, _SET_BY_ADMIN)
+        if employee_only and target.setup_pending_since is None:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, _SET_BY_ADMIN)
 
     if payload.decision == "employee":
         if not employee_only:

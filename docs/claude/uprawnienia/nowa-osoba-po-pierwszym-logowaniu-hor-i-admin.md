@@ -47,6 +47,13 @@ https://claude.ai/artifact/1JHbBUC392K7peJotFXNgs.
     HoR (403 dla kogoś innego), admin dowolną osobę. Bez programu „Ludzie”
     kroku nie ma.
   - „Zostaw jako Konsultanta” zdejmuje sam znacznik.
+  - Granice HoR (przegląd kodu 28.10.2026), których pilnuje serwer, nie
+    sam ekran:
+    - HoR decyduje tylko o koncie ze znacznikiem. Konsultanta bez znacznika
+      nie promuje.
+    - Kont z rolą admina albo HoR nie rusza.
+    - Przełożonego ustawia tylko osobie nowej albo takiej, która go nie ma.
+      Przepięcie cudzego zespołu dawałoby wgląd w godziny i premie.
 
   Każda decyzja zostawia wpis `new_person_setup_decided`.
 - **„Osoby i role”**: przycisk „Do decyzji · N” i plakietka „Nowa · zdecyduj”
