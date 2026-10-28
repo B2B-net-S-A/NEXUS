@@ -1,4 +1,5 @@
-"""Haki urlopów: akceptacja wniosku czyści godziny z pełnych dni urlopu.
+"""Haki urlopów: akceptacja wniosku czyści godziny z pełnych dni urlopu
+i skraca do 4 h ręczne godziny dni z połową urlopu.
 
 Test integracyjny z modułem „leave”: wnioski zakładane surowym SQL-em na
 kolumnach z kontraktu (``leave_requests``, ``leave_request_days``); po
@@ -9,6 +10,7 @@ wtedy ten sam scenariusz warto powtórzyć przez jego API.
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import select, text
@@ -16,7 +18,7 @@ from sqlalchemy import select, text
 from app.core.database import AsyncSessionLocal
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_time import Timesheet, TimesheetEntry
-from app.services.hr.time_entries import entries_of, hash_of
+from app.services.hr.time_entries import entries_of, hash_of, plan_half_day_trim
 from app.services.hr.time_hooks import on_leave_approved, on_leave_cancelled
 from tests.test_hr_time_support import (  # noqa: F401 — fikstury
     add_leave,
@@ -65,13 +67,17 @@ async def test_approved_leave_removes_hours_from_approved_timesheet_and_rehashes
         result = await on_leave_approved(db, worker.id, [date(Y, M, 6), date(Y, M, 7)])
         await db.commit()
     assert result["removed_entries"] == 1
+    assert result["trimmed_entries"] == 1
     assert result["timesheets_touched"] == 1
+    assert result["sent_changed"] == ["2031-05"]
 
     async with AsyncSessionLocal() as db:
         timesheet = await db.get(Timesheet, ts_id)
         entries = await entries_of(db, ts_id)
-        days = sorted(entry.work_date.day for entry in entries)
-        assert days == [5, 7]  # połówki nie ruszamy
+        hours = sorted((entry.work_date.day, float(entry.hours)) for entry in entries)
+        # Pół dnia: drugą połowę wolno przepracować, ale najwyżej 4 h
+        # (decyzja Artura 28.10.2026 — akceptujący widział 8 h + pół dnia).
+        assert hours == [(5, 8.0), (7, 4.0)]
         assert timesheet.status == "approved"
         assert timesheet.pdf_hash != old_hash
         assert timesheet.pdf_hash == hash_of(entries)
@@ -84,6 +90,7 @@ async def test_approved_leave_removes_hours_from_approved_timesheet_and_rehashes
             )
         )
     assert "leave_hours_removed" in actions
+    assert "leave_hours_trimmed" in actions
     # PDF dalej się pobiera — legalna zmiana przeliczyła sumę.
     pdf = await app_client.get(f"{BASE}/pdf", headers=headers(worker))
     assert pdf.status_code == 200
@@ -210,3 +217,152 @@ async def test_auto_entry_change_marks_the_draft_as_changed_in_nexus(
     assert after_approve > before
     assert auto == []
     assert after_cancel > reset
+
+
+async def _draft_with(app_client, *, employment_type: str, entries: list[float]):
+    """Szkic z ręcznymi wpisami jednego dnia (5.05) w kolejności dodania."""
+
+    async with AsyncSessionLocal() as db:
+        worker = await make_user(db, "employee", employment_type=employment_type)
+        await db.commit()
+    ts_id = None
+    for hours in entries:
+        response = await app_client.post(
+            f"{BASE}/entries",
+            json={"work_date": f"{Y}-05-05", "hours": hours, "description": "Praca"},
+            headers=headers(worker),
+        )
+        assert response.status_code == 201, response.text
+        async with AsyncSessionLocal() as db:
+            ts_id = (await db.get(TimesheetEntry, response.json()["id"])).timesheet_id
+    return worker, ts_id
+
+
+async def _day_rows(ts_id: int) -> list[tuple[str, float]]:
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(TimesheetEntry)
+            .where(
+                TimesheetEntry.timesheet_id == ts_id,
+                TimesheetEntry.work_date == date(Y, M, 5),
+            )
+            .order_by(TimesheetEntry.id)
+        )
+        return [(row.source, float(row.hours)) for row in rows]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_half_day_trims_latest_entries_first(app_client) -> None:
+    worker, ts_id = await _draft_with(app_client, employment_type="uop", entries=[5, 3])
+    async with AsyncSessionLocal() as db:
+        await add_leave(db, worker.id, [date(Y, M, 5)], fraction=0.5)
+        result = await on_leave_approved(db, worker.id, [date(Y, M, 5)])
+        await db.commit()
+    # Najpóźniej dodany wpis (3 h) schodzi do zera i znika, 5 h → 4 h.
+    assert await _day_rows(ts_id) == [("manual", 4.0)]
+    assert result["trimmed_entries"] == 2
+    assert result["sent_changed"] == []  # szkic — bez dzwonka koordynatora
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(HrAuditEvent.details).where(
+                HrAuditEvent.entity_type == "timesheet",
+                HrAuditEvent.entity_id == str(ts_id),
+                HrAuditEvent.action == "leave_hours_trimmed",
+            )
+        )
+    assert details["days"] == [
+        {"day": f"{Y}-05-05", "hours_before": "8", "hours_after": "4"}
+    ]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_half_day_is_idempotent_on_repeat(app_client) -> None:
+    # Edycja wniosku (leave_edit) woła hak ponownie na tych samych dniach.
+    worker, ts_id = await _draft_with(app_client, employment_type="uop", entries=[8])
+    async with AsyncSessionLocal() as db:
+        await add_leave(db, worker.id, [date(Y, M, 5)], fraction=0.5)
+        await on_leave_approved(db, worker.id, [date(Y, M, 5)])
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        again = await on_leave_approved(db, worker.id, [date(Y, M, 5)])
+        await db.commit()
+    assert again["trimmed_entries"] == 0
+    assert again["timesheets_touched"] == 0
+    assert await _day_rows(ts_id) == [("manual", 4.0)]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_b2b_paid_half_day_keeps_four_manual_hours_plus_auto_entry(
+    app_client,
+) -> None:
+    worker, ts_id = await _draft_with(app_client, employment_type="b2b", entries=[8])
+    async with AsyncSessionLocal() as db:
+        await add_leave(db, worker.id, [date(Y, M, 5)], fraction=0.5)
+        await on_leave_approved(db, worker.id, [date(Y, M, 5)])
+        await db.commit()
+    # Pula B2B: 4 h ręcznie + auto-wpis 4 h („Praca standardowa”) = 8 h.
+    assert sorted(await _day_rows(ts_id)) == [("leave_paid", 4.0), ("manual", 4.0)]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_payroll_locked_half_day_is_reported_not_trimmed(app_client) -> None:
+    worker, ts_id = await _draft_with(app_client, employment_type="uop", entries=[8])
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE timesheets SET payroll_locked = true WHERE id = :id"),
+            {"id": ts_id},
+        )
+        await add_leave(db, worker.id, [date(Y, M, 5)], fraction=0.5)
+        result = await on_leave_approved(db, worker.id, [date(Y, M, 5)])
+        await db.commit()
+    assert result["locked_conflicts"] == ["2031-05"]
+    assert result["trimmed_entries"] == 0
+    assert await _day_rows(ts_id) == [("manual", 8.0)]
+
+
+# ── Plan skrócenia (bez bazy) ─────────────────────────────────────────────────
+
+
+def _entry(entry_id: int, hours: str, **values) -> TimesheetEntry:
+    return TimesheetEntry(
+        id=entry_id,
+        work_date=values.pop("work_date", date(Y, M, 5)),
+        hours=Decimal(hours),
+        description="Praca",
+        source=values.pop("source", "manual"),
+        is_overtime=values.pop("is_overtime", False),
+        **values,
+    )
+
+
+def test_trim_plan_cuts_from_the_latest_entry() -> None:
+    plan = plan_half_day_trim(
+        [_entry(1, "5"), _entry(2, "3")], {date(Y, M, 5): Decimal("4")}
+    )
+    assert plan == {2: Decimal("0"), 1: Decimal("4")}
+
+
+def test_trim_plan_leaves_days_within_the_limit() -> None:
+    plan = plan_half_day_trim(
+        [_entry(1, "3.5"), _entry(2, "8", work_date=date(Y, M, 6))],
+        {date(Y, M, 5): Decimal("4")},
+    )
+    assert plan == {}
+
+
+def test_trim_plan_skips_auto_entries_and_overtime() -> None:
+    # Auto-wpis puli B2B liczy się sam; nadgodzina (z uzasadnieniem, ponad
+    # 8 h sumy dnia) zostaje — limit dnia dotyczy zwykłych godzin.
+    plan = plan_half_day_trim(
+        [
+            _entry(1, "4", source="leave_paid"),
+            _entry(2, "8"),
+            _entry(3, "2", is_overtime=True, overtime_reason="Wdrożenie"),
+        ],
+        {date(Y, M, 5): Decimal("4")},
+    )
+    assert plan == {2: Decimal("4")}
