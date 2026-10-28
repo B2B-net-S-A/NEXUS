@@ -439,6 +439,39 @@ export function editChanges(
   return Object.keys(changes).length > 0 ? changes : null;
 }
 
+/**
+ * Cofnięcie przez przełożonego albo Kadry od pierwszego dnia wymaga powodu
+ * (decyzja Artura 28.10.2026; backend: `leave_policy.approver_cancel_refusal`).
+ * `today` = `warsawToday()`.
+ */
+export function cancelNeedsReason(row: Pick<LeaveRequestRow, "start_date">, today: string): boolean {
+  return row.start_date <= today;
+}
+
+/** Tytuł i zdanie okna cofnięcia terminu, który już trwa albo minął (słowa formy osoby). */
+export function pastCancelText(
+  row: Pick<LeaveRequestRow, "status" | "start_date" | "end_date" | "employment_type">,
+  today: string,
+): { title: string; text: string } {
+  const range = formatRange(row.start_date, row.end_date);
+  const notice = "Osoba dostanie powiadomienie z powodem.";
+  if (row.status === "pending") {
+    return {
+      title: `Anulować wniosek ${range}?`,
+      text: `Wniosek nie ma decyzji, a jego termin już się zaczął. ${notice}`,
+    };
+  }
+  const timesheet = employmentTerms(row.employment_type).timesheet_genitive;
+  const back = `do ${timesheet} jako dni robocze do uzupełnienia i do statów.`;
+  return {
+    title: `Cofnąć nieobecność ${range}?`,
+    text:
+      row.end_date < today
+        ? `Te dni już minęły. Po cofnięciu wrócą ${back} ${notice}`
+        : `Ten termin już trwa. Po cofnięciu minione dni wrócą ${back} ${notice}`,
+  };
+}
+
 /** Czy patrzący może zmienić wiersz (zgłoszenie z B2B/zlecenia — tylko Kadry, D5). */
 export function canEditRow(row: LeaveRequestRow, viewerIsHr: boolean): boolean {
   if (row.status !== "pending" && row.status !== "approved") return false;

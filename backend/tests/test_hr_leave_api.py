@@ -20,7 +20,8 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.core.security import create_access_token
 from app.models.app_setting import AppSetting
-from app.models.hr_leave import HrM365Operation, LeaveRequestDay
+from app.models.hr_leave import HrM365Operation, LeaveRequest, LeaveRequestDay
+from app.models.hr_ops import HrAuditEvent
 from app.models.hr_profile import EmployeeProfile, LeaveEntitlement
 from app.models.notification import Notification, NotificationType
 from app.models.section_permission import UserActionOverride
@@ -606,11 +607,131 @@ async def test_started_leave_is_cancelled_by_manager_not_by_owner(
     )
     assert refused.status_code == 422
     assert "przełożony albo Kadry" in refused.json()["detail"]
+    # Termin się zaczął: bez powodu przełożony też nie cofnie (28.10.2026).
+    for body in (None, {}, {"reason": "  "}, {"reason": "ab"}):
+        missing = await app_client.post(
+            f"{BASE}/approvals/{request_id}/cancel",
+            json=body,
+            headers=_headers(boss),
+        )
+        assert missing.status_code == 422, (body, missing.text)
+        assert "powód" in missing.json()["detail"].lower()
+    reason = "Była w pracy u klienta, wpis pomyłkowy"
+    done = await app_client.post(
+        f"{BASE}/approvals/{request_id}/cancel",
+        json={"reason": f"  {reason} "},
+        headers=_headers(boss),
+    )
+    assert done.status_code == 200, done.text
+    assert done.json()["status"] == "cancelled"
+
+    # Powód: w śladzie i w dymku osoby; przełożony (autor) nie dostaje dymka.
+    async with AsyncSessionLocal() as db:
+        trail = list(
+            await db.scalars(
+                select(HrAuditEvent).where(
+                    HrAuditEvent.entity_id == request_id,
+                    HrAuditEvent.action == "leave_cancelled",
+                )
+            )
+        )
+    assert len(trail) == 1
+    assert trail[0].details["reason"] == reason
+    assert trail[0].sensitivity == "health"
+    bells = await _bell(worker.id, NotificationType.hr_leave_cancelled)
+    assert len(bells) == 1 and bells[0].message.endswith(f"Powód: {reason}")
+    assert "urlop" not in bells[0].message.lower()
+
+
+@pytest.mark.asyncio
+async def test_approver_cancels_a_future_leave_without_a_reason(
+    app_client, modules_on
+) -> None:
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "delivery_lead", profile=True)
+        worker = await _user(
+            db, "employee", profile=True, manager_user_id=boss.id, employment_type="uop"
+        )
+        await db.commit()
+    request_id = (
+        await app_client.post(
+            BASE + "/approvals/on-behalf",
+            json={**_body("vacation"), "user_id": worker.id},
+            headers=_headers(boss),
+        )
+    ).json()["id"]
     done = await app_client.post(
         f"{BASE}/approvals/{request_id}/cancel", headers=_headers(boss)
     )
-    assert done.status_code == 200
-    assert done.json()["status"] == "cancelled"
+    assert done.status_code == 200, done.text
+    async with AsyncSessionLocal() as db:
+        trail = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_id == request_id,
+                HrAuditEvent.action == "leave_cancelled",
+            )
+        )
+    assert trail is not None and "reason" not in trail.details
+    bells = await _bell(worker.id, NotificationType.hr_leave_cancelled)
+    assert len(bells) == 1 and "Powód" not in bells[0].message
+
+
+@pytest.mark.asyncio
+async def test_started_pending_request_is_not_cancelled_by_owner(
+    app_client, modules_on
+) -> None:
+    """Oczekujący wniosek po pierwszym dniu: osoba była nieobecna — anuluje albo
+    odrzuca go przełożony albo Kadry (decyzja Artura 28.10.2026)."""
+
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        boss = await _user(db, "delivery_lead", profile=True)
+        worker = await _user(
+            db, "employee", profile=True, manager_user_id=boss.id, employment_type="uop"
+        )
+        started = LeaveRequest(
+            user_id=worker.id,
+            leave_type="vacation",
+            status="pending",
+            start_date=today - timedelta(days=3),
+            end_date=today - timedelta(days=1),
+        )
+        future = LeaveRequest(
+            user_id=worker.id,
+            leave_type="vacation",
+            status="pending",
+            start_date=today + timedelta(days=30),
+            end_date=today + timedelta(days=31),
+        )
+        db.add_all([started, future])
+        await db.commit()
+        started_id, future_id = str(started.id), str(future.id)
+
+    mine = (
+        await app_client.get(BASE + "/my-requests", headers=_headers(worker))
+    ).json()["items"]
+    by_id = {item["id"]: item for item in mine}
+    assert by_id[started_id]["can_cancel"] is False
+    assert by_id[future_id]["can_cancel"] is True
+
+    refused = await app_client.post(
+        f"{BASE}/requests/{started_id}/cancel", headers=_headers(worker)
+    )
+    assert refused.status_code == 422
+    assert "przełożony albo Kadry" in refused.json()["detail"]
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(LeaveRequest, uuid.UUID(started_id))).status == "pending"
+
+    own = await app_client.post(
+        f"{BASE}/requests/{future_id}/cancel", headers=_headers(worker)
+    )
+    assert own.status_code == 200 and own.json()["status"] == "cancelled"
+    by_boss = await app_client.post(
+        f"{BASE}/approvals/{started_id}/cancel",
+        json={"reason": "Nieobecność wpisana pomyłkowo"},
+        headers=_headers(boss),
+    )
+    assert by_boss.status_code == 200, by_boss.text
 
 
 @pytest.mark.asyncio

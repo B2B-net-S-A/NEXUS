@@ -14,8 +14,8 @@ nieobecności (D6), akceptujący pisze uwagi wolnym tekstem, tytuł sprawy
 administracja@ przychodzi z cudzej poczty. Dlatego tytuł i treść przechodzą do
 maila tylko wtedy, gdy nie ma w nich rodzaju nieobecności ani kwot — w innym
 razie mail niesie stałe zdanie typu, a szczegóły są w NEXUSIE pod linkiem.
-Wolnego tekstu (uwagi przy zwrocie timesheetu, tytuł sprawy) mail nie niesie
-nigdy.
+Wolnego tekstu (uwagi przy zwrocie timesheetu, tytuł sprawy, powód cofnięcia
+nieobecności) mail nie niesie nigdy.
 
 Premia (`hr_bonus_assigned`, mail obowiązkowy „Masz nową premię” od 26.10.2026)
 ma własny mail: `bonus_mail` składa go ze stałych słów formy i z wiersza
@@ -39,7 +39,7 @@ from app.services.hr.employment_terms import (
     returned_titles,
     terms,
 )
-from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
+from app.services.hr.leave_policy import CANCEL_REASON_LABEL, LEAVE_TYPE_LABELS
 from app.services.hr.payroll_periods import label as period_label
 
 # Tytuły zwrotu raportu godzin (`time_flow.return_for_fix`, słowa według formy
@@ -206,6 +206,9 @@ def mail_text(
     title = (title or "").strip()
     message = (message or "").strip()
     out_title = title if title and mail_safe(title) else fallback_title
+    if value == "hr_leave_cancelled":
+        # Powód cofnięcia minionych dni to wolny tekst — zostaje w dymku.
+        message = message.partition(CANCEL_REASON_LABEL)[0].strip()
     if value in _FREE_TEXT_TYPES:
         body = fallback_body
     elif value == "hr_timesheet_decided" and title in RETURNED_TIMESHEET_TITLES:

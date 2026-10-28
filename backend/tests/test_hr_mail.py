@@ -240,6 +240,20 @@ def test_conflict_note_never_goes_by_mail():
     assert "wdrożenie" not in body and "„Moim czasie”" in body
 
 
+def test_cancel_reason_never_goes_by_mail():
+    """Powód cofnięcia minionych dni (28.10.2026) to wolny tekst — tylko dymek."""
+
+    title, body = hr_mail.mail_text(
+        NotificationType.hr_leave_cancelled,
+        "Nieobecność anulowana",
+        "Jan Przykładowy: 01–07.10.2026 — anulowanie: Anna Przykładowa. "
+        "Powód: był w pracy u klienta",
+    )
+    assert title == "Nieobecność anulowana"
+    assert "klienta" not in body and "Powód" not in body
+    assert body == "Jan Przykładowy: 01–07.10.2026 — anulowanie: Anna Przykładowa."
+
+
 def test_fallback_texts_are_themselves_mail_safe():
     for title, body in hr_mail.FALLBACK.values():
         assert hr_mail.mail_safe(title) and hr_mail.mail_safe(body)

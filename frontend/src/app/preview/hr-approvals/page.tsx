@@ -27,7 +27,9 @@
  * - `?state=covering` — Ola w zastępstwie za Kamila: decyduje o urlopie jego
  *   osoby, L4 widzi jako „Nieobecność” tylko do wiadomości (D6).
  * Filtry historii (status × osoba), oba miesiące timesheetów i podgląd każdej
- * osoby są zasiane — klik nie wysyła zapytania.
+ * osoby są zasiane — klik nie wysyła zapytania. „Anuluj” przy urlopie Kamila
+ * (trwa) i L4 Ewy (minęło) otwiera okno cofnięcia z wymaganym powodem
+ * (28.10.2026); przyszły termin — zwykłe potwierdzenie.
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";

@@ -644,8 +644,13 @@ export function useCancelTeamLeave() {
   const invalidate = useInvalidateLeave();
   return useMutation({
     mutationKey: [...HR_COUNTS_MUTATION_KEY, "leave-cancel"],
-    mutationFn: async (id: string) =>
-      (await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/cancel`)).data,
+    // Powód wymagany od pierwszego dnia wniosku (28.10.2026), przed nim — opcjonalny.
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) =>
+      (
+        await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/cancel`, {
+          reason: reason ?? null,
+        })
+      ).data,
     onSuccess: invalidate,
   });
 }
