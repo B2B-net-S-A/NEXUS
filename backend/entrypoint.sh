@@ -1209,7 +1209,7 @@ try:
         *_sales_schema.INDEX_DDL,
         # 0602: skrzynka leadów (po szansach, na które wskazuje).
         *_sales_schema.LEADS_DDL,
-        # 0611: luki importu Atlasa (opiekun z Atlasa, Outlook, kontakt w wielu firmach).
+        # 0612: luki importu Atlasa (opiekun z Atlasa, Outlook, kontakt w wielu firmach).
         *_sales_schema.GAPS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)

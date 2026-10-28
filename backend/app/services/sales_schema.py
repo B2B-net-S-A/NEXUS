@@ -441,7 +441,7 @@ DOWNGRADE_DDL: tuple[str, ...] = tuple(
 )
 
 
-# ── 0611: luki importu Atlasa (audyt 28.10.2026) ───────────────────────────
+# ── 0612: luki importu Atlasa (audyt 28.10.2026) ───────────────────────────
 # * ``owner_label`` — opiekun z Atlasa, który nie ma konta w NEXUSIE (Atlas
 #   trzymał go jako sam tekst). Admin przypisuje etykietę do konta na ekranie
 #   „Opiekunowie z Atlasa”; nazwisk nie ma w kodzie ani w logach (repo jest

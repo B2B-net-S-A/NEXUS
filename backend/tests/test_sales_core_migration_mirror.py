@@ -42,7 +42,7 @@ MODELS = {
 
 
 def _added_columns(table: str) -> set[str]:
-    """Kolumny dołożone przez ``ALTER TABLE … ADD COLUMN`` (0611)."""
+    """Kolumny dołożone przez ``ALTER TABLE … ADD COLUMN`` (0612)."""
     return {
         match.group(1)
         for statement in schema.GAPS_DDL
@@ -65,7 +65,7 @@ def test_migration_reads_the_shared_module() -> None:
     assert "for stmt in schema.ALL_DDL:" in source
     leads = (ROOT / "alembic/versions/0602_sales_leads.py").read_text(encoding="utf-8")
     assert "for stmt in schema.LEADS_DDL:" in leads
-    gaps = (ROOT / "alembic/versions/0611_sales_atlas_gaps.py").read_text(encoding="utf-8")
+    gaps = (ROOT / "alembic/versions/0612_sales_atlas_gaps.py").read_text(encoding="utf-8")
     assert "for stmt in schema.GAPS_DDL:" in gaps
     entry = (ROOT / "entrypoint.sh").read_text(encoding="utf-8")
     assert "*_sales_schema.LEADS_DDL," in entry
