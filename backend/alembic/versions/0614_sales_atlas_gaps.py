@@ -1,7 +1,7 @@
 """Sprzedaż: luki importu Atlasa (opiekun z Atlasa, pola Outlooka, kontakt w wielu firmach).
 
-Revision ID: 0613_sales_atlas_gaps
-Revises: 0612_new_person_setup
+Revision ID: 0614_sales_atlas_gaps
+Revises: 0613_timesheets_permission
 
 SQL i powody: ``app/services/sales_schema.py`` (``GAPS_DDL``; to samo
 źródło czyta ``entrypoint.sh``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0613_sales_atlas_gaps"
-down_revision = "0612_new_person_setup"
+revision = "0614_sales_atlas_gaps"
+down_revision = "0613_timesheets_permission"
 branch_labels = None
 depends_on = None
 
