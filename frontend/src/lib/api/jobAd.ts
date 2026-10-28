@@ -33,6 +33,8 @@ export interface AdContent {
   duration: string;
   /** Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia. */
   language: string;
+  /** Miasto w ogłoszeniu; puste = miasto z rekrutacji (bez adresu). */
+  city: string;
   responsibilities: string[];
   requirements: string[];
   nice_to_have: string[];
@@ -40,7 +42,14 @@ export interface AdContent {
 }
 
 export type AdListKey = "responsibilities" | "requirements" | "nice_to_have" | "offer";
-export type AdTextKey = "title" | "lead" | "about" | "start" | "duration" | "language";
+export type AdTextKey =
+  | "title"
+  | "lead"
+  | "about"
+  | "start"
+  | "duration"
+  | "language"
+  | "city";
 
 export interface AdTechItem {
   name: string;

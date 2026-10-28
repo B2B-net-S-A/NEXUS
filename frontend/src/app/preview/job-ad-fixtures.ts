@@ -49,6 +49,7 @@ export const CONTENT: AdContent = {
   start: "listopad 2026",
   duration: "",
   language: "polski, angielski B2",
+  city: "",
   responsibilities: [
     "projektowanie i rozwój mikroserwisów w Javie 21 i Spring Boot",
     "przenoszenie modułu autoryzacji płatności na komunikację przez Kafkę",

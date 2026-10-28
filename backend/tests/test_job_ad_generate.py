@@ -138,8 +138,24 @@ def test_material_hash_covers_an_explicit_versioned_field_list():
     import dataclasses
 
     fields = {f.name for f in dataclasses.fields(material.AdMaterial)}
-    assert set(material._HASH_FIELDS) == fields
+    # `location` wchodzi do odcisku pod kluczem `city` (niżej).
+    assert set(material._HASH_FIELDS) | {"location"} == fields
     assert material._HASH_VERSION == "v1"
+
+
+def test_cutting_the_street_from_the_city_does_not_mark_ads_as_outdated():
+    """28.10.2026 miasto ogłoszenia traci adres biura. Odcisk liczy się dalej
+    z lokalizacji wpisanej w rekrutacji — inaczej każde ogłoszenie z adresem
+    dostałoby „Rekrutacja zmieniła się… Przygotuj ponownie”, a to nadpisuje
+    ręczne poprawki."""
+    import dataclasses
+
+    job = _job()
+    job.location = "Warszawa, ul. Chmielna 89"
+    mat = _material(job)
+    assert mat.city == "Warszawa"
+    before = dataclasses.replace(mat, city="Warszawa, ul. Chmielna 89", location=None)
+    assert material.material_hash(mat) == material.material_hash(before)
 
 
 # ── Prompt ──────────────────────────────────────────────────────────────────
@@ -190,6 +206,16 @@ def test_saved_content_drops_invisible_characters_but_keeps_emoji():
     assert content["title"] == "DevOps"
     assert content["about"] == "Platforma płatności."
     assert content["requirements"] == ["Java 17", "zespół \U0001f469\u200d\U0001f4bb"]
+
+
+def test_city_is_saved_only_when_typed():
+    """Odcisk treści liczy się z całego słownika — pusty klucz w każdej
+    zapisanej treści zapaliłby „Do aktualizacji” przy oznaczonych ogłoszeniach."""
+    assert "city" not in generate.clean_content({"city": "  "}, title="Dev")
+    assert (
+        generate.clean_content({"city": " Warszawa  lub Lublin"}, title="Dev")["city"]
+        == "Warszawa lub Lublin"
+    )
 
 
 def test_parser_reads_fenced_json_and_cleans_bullets():

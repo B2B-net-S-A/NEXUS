@@ -107,7 +107,7 @@ def terms_from(material: AdMaterial, content: dict[str, Any]) -> Terms:
         remote_policy=material.remote_policy,
         onsite_days_per_week=material.onsite_days_per_week,
         onsite_days_per_month=material.onsite_days_per_month,
-        city=material.city,
+        city=_clean(content.get("city")) or material.city,
         start=_clean(content.get("start")) or None,
         duration=_clean(content.get("duration")) or None,
         language=_clean(content.get("language")) or None,
