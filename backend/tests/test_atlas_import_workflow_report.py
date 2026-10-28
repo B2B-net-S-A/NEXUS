@@ -172,6 +172,19 @@ class AtlasImportWorkflowReportTests(unittest.TestCase):
             6029,
         )
 
+    def test_file_counters_must_match_dry_run_or_apply(self):
+        cases = [
+            ("files-dry-run", {"applied": False, "files_copied": 1}),
+            ("files-dry-run", {"applied": False, "files_missing_in_storage": 1}),
+            ("files-apply", {"applied": True, "files_would_copy": 1}),
+        ]
+        for mode, payload in cases:
+            with (
+                self.subTest(mode=mode, payload=payload),
+                self.assertRaises(reporter.ReportValidationError),
+            ):
+                self.validate(payload, mode)
+
     def test_verify_requires_exact_six_tables_and_counts_only_mode(self):
         base = {"applied": False, "mode": "counts-only", "counts": COUNTS}
         for missing in COUNTS:

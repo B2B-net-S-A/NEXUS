@@ -44,12 +44,13 @@ IMPORT_COUNTS = IMPORT_COUNTS_REQUIRED | {
     "leads_skipped_closed",
     "leads_skipped_existing_client",
 }
-FILE_COUNTS = {
+FILE_COUNTS_COMMON = {
     "files_already_copied",
     "files_skipped_owner_not_imported",
-    "files_would_copy",
-    "files_missing_in_storage",
-    "files_copied",
+}
+FILE_COUNTS_BY_MODE = {
+    "files-dry-run": FILE_COUNTS_COMMON | {"files_would_copy"},
+    "files-apply": FILE_COUNTS_COMMON | {"files_missing_in_storage", "files_copied"},
 }
 
 
@@ -115,7 +116,7 @@ def validate_report(message: str, mode: str) -> dict[str, Any]:
     if not _numeric_counts(counts):
         raise ReportValidationError
     if mode.startswith("files-"):
-        if not set(counts) <= FILE_COUNTS:
+        if not set(counts) <= FILE_COUNTS_BY_MODE[mode]:
             raise ReportValidationError
     elif not IMPORT_COUNTS_REQUIRED <= set(counts) <= IMPORT_COUNTS:
         raise ReportValidationError
