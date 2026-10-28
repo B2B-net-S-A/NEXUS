@@ -168,12 +168,16 @@ async def list_connections(
 ) -> ConnectionsAdminResponse:
     """Ustawienia → Wtyczka LinkedIn: aktywne połączenia zespołu."""
     rows = (
-        await db.execute(
-            select(LinkedinExtensionConnection)
-            .where(LinkedinExtensionConnection.revoked_at.is_(None))
-            .order_by(LinkedinExtensionConnection.last_used_at.desc().nulls_last())
+        (
+            await db.execute(
+                select(LinkedinExtensionConnection)
+                .where(LinkedinExtensionConnection.revoked_at.is_(None))
+                .order_by(LinkedinExtensionConnection.last_used_at.desc().nulls_last())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     items: list[ConnectionAdminOut] = []
     for row in rows:
         usage = usage_out(row)
@@ -342,7 +346,9 @@ async def extension_add_candidate(
 
             await schedule_or_embed_candidate(candidate.id, db)
         except Exception as exc:  # noqa: BLE001 — indeks to best-effort
-            logger.warning("linkedin_extension.index_failed id=%s (%s)", candidate.id, exc)
+            logger.warning(
+                "linkedin_extension.index_failed id=%s (%s)", candidate.id, exc
+            )
     body = AddCandidateResponse(
         candidate_id=candidate.id,
         url=lookup_service.candidate_url(candidate.id),
@@ -351,7 +357,9 @@ async def extension_add_candidate(
         skipped=outcome.skipped,
     )
     if not created:
-        return JSONResponse(status_code=status.HTTP_200_OK, content=body.model_dump(mode="json"))
+        return JSONResponse(
+            status_code=status.HTTP_200_OK, content=body.model_dump(mode="json")
+        )
     return body
 
 
@@ -367,7 +375,9 @@ async def extension_assign_jobs(
         db, principal.user, candidate_id, data.job_ids, data.off_limits_how
     )
     await db.commit()
-    return AssignJobsResponse(assigned_job_ids=outcome.assigned, skipped=outcome.skipped)
+    return AssignJobsResponse(
+        assigned_job_ids=outcome.assigned, skipped=outcome.skipped
+    )
 
 
 @router.post("/candidates/{candidate_id}/refresh", response_model=RefreshResponse)
@@ -417,7 +427,9 @@ async def extension_note(
     return IdResponse(id=created.note.id)
 
 
-@router.post("/candidates/{candidate_id}/profile-pdf", response_model=ProfilePdfResponse)
+@router.post(
+    "/candidates/{candidate_id}/profile-pdf", response_model=ProfilePdfResponse
+)
 async def extension_profile_pdf(
     candidate_id: int,
     principal: ExtensionWriter,
@@ -440,7 +452,9 @@ async def extension_profile_pdf(
             status_code=400, detail="Wgraj plik PDF z „Zapisz jako PDF” na LinkedInie."
         )
     content = await _read_upload_bounded(file, label="PDF profilu")
-    safe_filename = _sanitize_upload_filename(file.filename, fallback="linkedin-profil.pdf")
+    safe_filename = _sanitize_upload_filename(
+        file.filename, fallback="linkedin-profil.pdf"
+    )
     replaced = await _primary_cv_before_change(db, candidate.id)
     document = await _ingest_candidate_cv_file(
         db,
@@ -471,7 +485,11 @@ async def extension_draft_message(
 ) -> DraftResponse:
     """Szkic wiadomości pod rekrutację (makieta 4). Wtyczka niczego nie wysyła."""
     result = await draft_message(
-        db, user=principal.user, job_id=data.job_id, kind=data.kind, profile=data.profile
+        db,
+        user=principal.user,
+        job_id=data.job_id,
+        kind=data.kind,
+        profile=data.profile,
     )
     if result is None:
         raise HTTPException(status_code=404, detail="Nie ma takiej rekrutacji.")

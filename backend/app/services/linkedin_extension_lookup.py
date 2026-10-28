@@ -70,7 +70,9 @@ CHANNEL_LABELS: dict[str, str] = {
     "phone": "telefon",
 }
 
-_TERMINAL_STAGES = frozenset({PipelineStage.rejected, PipelineStage.withdrawn, PipelineStage.hired})
+_TERMINAL_STAGES = frozenset(
+    {PipelineStage.rejected, PipelineStage.withdrawn, PipelineStage.hired}
+)
 _MATCH_MIN_SCORE = 50
 _MATCH_LIMIT = 3
 _CONTACT_LIMIT = 4
@@ -92,7 +94,10 @@ def split_full_name(full_name: str) -> tuple[str, str]:
 
 def profile_link(profile: ProfileRead | BatchPerson) -> Optional[str]:
     """Kanoniczny link ``linkedin.com/in/<slug>`` albo None (Recruiter bez linku)."""
-    for raw in (getattr(profile, "public_url", None), getattr(profile, "page_url", None)):
+    for raw in (
+        getattr(profile, "public_url", None),
+        getattr(profile, "page_url", None),
+    ):
         if raw and "/in/" in raw:
             normalized = normalize_linkedin_url(raw)
             if normalized:
@@ -117,7 +122,10 @@ def nexus_current_company(candidate: Any) -> Optional[str]:
 
 
 def _candidate_companies(candidate: Any) -> list[str]:
-    out = [c for c, _ in client_off_limits.current_companies(candidate, undated_counts=True)]
+    out = [
+        c
+        for c, _ in client_off_limits.current_companies(candidate, undated_counts=True)
+    ]
     experience = candidate.experience if isinstance(candidate.experience, list) else []
     out.extend(
         e["company"]
@@ -140,12 +148,16 @@ async def _by_link(db: AsyncSession, links: Iterable[str]) -> dict[str, Candidat
     if not slugs:
         return {}
     rows = (
-        await db.execute(
-            select(Candidate)
-            .where(Candidate.linkedin_slug.in_(slugs))
-            .order_by(Candidate.id.asc())
+        (
+            await db.execute(
+                select(Candidate)
+                .where(Candidate.linkedin_slug.in_(slugs))
+                .order_by(Candidate.id.asc())
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: dict[str, Candidate] = {}
     for row in rows:
         out.setdefault(row.linkedin_slug, row)
@@ -159,23 +171,32 @@ async def _by_names(
     if not keys:
         return {}
     rows = (
-        await db.execute(
-            select(Candidate)
-            .where(
-                or_(
-                    *(
-                        and_(func.lower(Candidate.name) == n, func.lower(Candidate.lastname) == ln)
-                        for n, ln in keys
+        (
+            await db.execute(
+                select(Candidate)
+                .where(
+                    or_(
+                        *(
+                            and_(
+                                func.lower(Candidate.name) == n,
+                                func.lower(Candidate.lastname) == ln,
+                            )
+                            for n, ln in keys
+                        )
                     )
                 )
+                .order_by(Candidate.id.desc())
+                .limit(200)
             )
-            .order_by(Candidate.id.desc())
-            .limit(200)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     out: dict[tuple[str, str], list[Candidate]] = {}
     for row in rows:
-        out.setdefault(((row.name or "").lower(), (row.lastname or "").lower()), []).append(row)
+        out.setdefault(
+            ((row.name or "").lower(), (row.lastname or "").lower()), []
+        ).append(row)
     return out
 
 
@@ -195,7 +216,9 @@ def _resolve(
     if not same_name:
         return PersonMatch("not_found", None, None, [])
     with_company = [
-        c for c in same_name if any(_same_company(company, x) for x in _candidate_companies(c))
+        c
+        for c in same_name
+        if any(_same_company(company, x) for x in _candidate_companies(c))
     ]
     if len(with_company) == 1:
         return PersonMatch("found", "name_company", with_company[0], [])
@@ -245,7 +268,10 @@ async def load_processes(
             .join(Job, Job.id == CandidateStage.job_id)
             .outerjoin(Client, Client.id == Job.client_id)
             .outerjoin(User, User.id == Job.recruiter_id)
-            .outerjoin(RejectionReason, RejectionReason.id == CandidateStage.rejection_reason_id)
+            .outerjoin(
+                RejectionReason,
+                RejectionReason.id == CandidateStage.rejection_reason_id,
+            )
             .where(
                 CandidateStage.candidate_id == candidate_id,
                 job_read_scope_clause(user, CandidateStage.job_id),
@@ -268,7 +294,9 @@ async def load_processes(
         close_label = None
         if stage in (PipelineStage.rejected, PipelineStage.withdrawn):
             reason_label = rejection_reason_label(reason)
-            close_label = STAGE_LABELS[stage] + (f" · {reason_label}" if reason_label else "")
+            close_label = STAGE_LABELS[stage] + (
+                f" · {reason_label}" if reason_label else ""
+            )
         elif not is_open and not terminal:
             close_label = "Rekrutacja zamknięta"
         if not closed:
@@ -288,7 +316,9 @@ async def load_processes(
     return out, open_pairs
 
 
-async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list[ContactOut]:
+async def load_contacts(
+    db: AsyncSession, user: User, candidate_id: int
+) -> list[ContactOut]:
     """Ostatnie kontakty zespołu. Treść notatki przechodzi przez te same
     bramki co ``/api/notes``: notatka ze stawką do klienta (``dl_rate``,
     notatka z wysyłki) jest dla roli bez tej stawki zakryta."""
@@ -311,7 +341,9 @@ async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list
                 Note.candidate_id == candidate_id,
                 or_(
                     Note.kind == CONTACT_ATTEMPT,
-                    Note.note_type.in_([NoteType.call, NoteType.email, NoteType.meeting]),
+                    Note.note_type.in_(
+                        [NoteType.call, NoteType.email, NoteType.meeting]
+                    ),
                 ),
             )
             .order_by(Note.created_at.desc())
@@ -320,7 +352,11 @@ async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list
     ).all()
     call_rows = (
         await db.execute(
-            select(func.coalesce(Call.started_at, Call.created_at), User.name, Call.contact_outcome)
+            select(
+                func.coalesce(Call.started_at, Call.created_at),
+                User.name,
+                Call.contact_outcome,
+            )
             .outerjoin(User, User.id == Call.user_id)
             .where(Call.candidate_id == candidate_id)
             .order_by(func.coalesce(Call.started_at, Call.created_at).desc())
@@ -329,13 +365,24 @@ async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list
     ).all()
     hidden_send = await hidden_send_note_ids(db, user, [r[5] for r in note_rows])
     items: list[ContactOut] = []
-    for at, author, note_type, source_ref, content, note_id, kind, author_id in note_rows:
+    for (
+        at,
+        author,
+        note_type,
+        source_ref,
+        content,
+        note_id,
+        kind,
+        author_id,
+    ) in note_rows:
         if note_content_hidden(
             user, kind=kind, author_id=author_id, send_note=note_id in hidden_send
         ):
             content = None
         if source_ref and source_ref.startswith(CONTACT_SOURCE_PREFIX):
-            label = CHANNEL_LABELS.get(source_ref[len(CONTACT_SOURCE_PREFIX):], "kontakt")
+            label = CHANNEL_LABELS.get(
+                source_ref[len(CONTACT_SOURCE_PREFIX) :], "kontakt"
+            )
         else:
             label = {
                 NoteType.call: "telefon",
@@ -343,7 +390,9 @@ async def load_contacts(db: AsyncSession, user: User, candidate_id: int) -> list
                 NoteType.meeting: "spotkanie",
             }.get(note_type, "próba kontaktu")
         items.append(
-            ContactOut(at=at, user_name=author, channel_label=label, note=_short(content))
+            ContactOut(
+                at=at, user_name=author, channel_label=label, note=_short(content)
+            )
         )
     for at, author, outcome in call_rows:
         if at is None:
@@ -368,7 +417,10 @@ def _short(text: Optional[str], limit: int = 140) -> Optional[str]:
 
 
 async def load_owner(
-    db: AsyncSession, user: User, open_pairs: list[tuple[int, int]], contacts: list[ContactOut]
+    db: AsyncSession,
+    user: User,
+    open_pairs: list[tuple[int, int]],
+    contacts: list[ContactOut],
 ) -> Optional[OwnerOut]:
     """Kto prowadzi osobę: „Prowadzi” z najnowszego otwartego procesu."""
     if not open_pairs:
@@ -399,7 +451,9 @@ def rate_out(candidate: Candidate) -> Optional[RateOut]:
     amount, currency = effective_rate(candidate)
     if amount is None:
         return None
-    symbol = {"PLN": "zł", "EUR": "€", "USD": "$"}.get((currency or "PLN").upper(), currency or "zł")
+    symbol = {"PLN": "zł", "EUR": "€", "USD": "$"}.get(
+        (currency or "PLN").upper(), currency or "zł"
+    )
     as_of = getattr(candidate, "rate_from_at", None)
     if isinstance(as_of, datetime):
         as_of = as_of.date()
@@ -417,7 +471,9 @@ async def rodo_out(db: AsyncSession, candidate_id: int) -> RodoOut:
     return RodoOut(status="valid", label=f"zgoda z {given.strftime('%d.%m.%Y')}")
 
 
-async def contractor_out(db: AsyncSession, candidate_id: int) -> Optional[ContractorOut]:
+async def contractor_out(
+    db: AsyncSession, candidate_id: int
+) -> Optional[ContractorOut]:
     from app.services.employment_marker import load_employment_markers
 
     markers = await load_employment_markers(db, [candidate_id], today=business_today())
@@ -442,7 +498,11 @@ async def off_limits_out(
     person: Any
     if profile_company:
         person = SimpleNamespace(
-            id=0, name=None, lastname=None, linkedin_current_company=profile_company, experience=None
+            id=0,
+            name=None,
+            lastname=None,
+            linkedin_current_company=profile_company,
+            experience=None,
         )
     elif candidate is not None:
         person = candidate
@@ -454,7 +514,9 @@ async def off_limits_out(
     return OffLimitsOut(client_name=hit.client_name, company=hit.company)
 
 
-def job_change_out(profile: ProfileRead, candidate: Candidate) -> Optional[JobChangeOut]:
+def job_change_out(
+    profile: ProfileRead, candidate: Candidate
+) -> Optional[JobChangeOut]:
     page = (profile.current_company or "").strip()
     if not page:
         return None
@@ -532,7 +594,9 @@ async def job_matches(
         from app.services.embedding_service import search_jobs_semantic
         from app.services.scoring_service import rank_jobs_for_candidate
 
-        hits = await search_jobs_semantic(text, top_k=30, statuses=[JobStatus.published.value])
+        hits = await search_jobs_semantic(
+            text, top_k=30, statuses=[JobStatus.published.value]
+        )
         similarity = {h["job_id"]: h["score"] for h in hits}
         excluded = set(exclude_job_ids)
         ids = [jid for jid in similarity if jid not in excluded]
@@ -542,12 +606,18 @@ async def job_matches(
         if not ids:
             return []
         jobs = (
-            await db.execute(
-                select(Job).where(
-                    Job.id.in_(ids), Job.is_open.is_(True), Job.status == JobStatus.published
+            (
+                await db.execute(
+                    select(Job).where(
+                        Job.id.in_(ids),
+                        Job.is_open.is_(True),
+                        Job.status == JobStatus.published,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not jobs:
             return []
         breakdowns = await rank_jobs_for_candidate(
@@ -581,7 +651,9 @@ async def job_matches(
     return out
 
 
-async def _job_labels(db: AsyncSession, job_ids: list[int]) -> dict[int, tuple[Optional[str], Optional[str]]]:
+async def _job_labels(
+    db: AsyncSession, job_ids: list[int]
+) -> dict[int, tuple[Optional[str], Optional[str]]]:
     if not job_ids:
         return {}
     rows = (
@@ -726,11 +798,17 @@ async def batch_lookup(
             seen.add((cid, job_id))
             if stage in _TERMINAL_STAGES:
                 continue
-            active.setdefault(cid, (STAGE_LABELS.get(stage, str(stage)), client_name, recruiter))
+            active.setdefault(
+                cid, (STAGE_LABELS.get(stage, str(stage)), client_name, recruiter)
+            )
 
     from app.services.employment_marker import load_employment_markers
 
-    markers = await load_employment_markers(db, found_ids, today=business_today()) if found_ids else {}
+    markers = (
+        await load_employment_markers(db, found_ids, today=business_today())
+        if found_ids
+        else {}
+    )
     labels = await client_off_limits.off_limits_labels(db)
 
     items: list[BatchItem] = []
@@ -739,8 +817,11 @@ async def batch_lookup(
         hit = (
             client_off_limits.find_hit(
                 SimpleNamespace(
-                    id=0, name=None, lastname=None,
-                    linkedin_current_company=person.current_company, experience=None,
+                    id=0,
+                    name=None,
+                    lastname=None,
+                    linkedin_current_company=person.current_company,
+                    experience=None,
                 ),
                 labels,
             )
@@ -750,18 +831,43 @@ async def batch_lookup(
         marker = markers.get(cid) if cid else None
         if marker is not None and marker.clients:
             first = marker.clients[0]
-            items.append(BatchItem(index=index, status="contractor", candidate_id=cid,
-                                   label=f"Nasz kontraktor · {first.client_name or ''}".strip(" ·")))
+            items.append(
+                BatchItem(
+                    index=index,
+                    status="contractor",
+                    candidate_id=cid,
+                    label=f"Nasz kontraktor · {first.client_name or ''}".strip(" ·"),
+                )
+            )
         elif hit is not None:
-            items.append(BatchItem(index=index, status="off_limits", candidate_id=cid,
-                                   label=f"Off-limits · {hit.client_name}"))
+            items.append(
+                BatchItem(
+                    index=index,
+                    status="off_limits",
+                    candidate_id=cid,
+                    label=f"Off-limits · {hit.client_name}",
+                )
+            )
         elif cid is not None and cid in active:
             stage_label, client_name, recruiter = active[cid]
             label = " · ".join(p for p in (stage_label, client_name, recruiter) if p)
-            items.append(BatchItem(index=index, status="in_process", candidate_id=cid, label=label))
+            items.append(
+                BatchItem(
+                    index=index, status="in_process", candidate_id=cid, label=label
+                )
+            )
         elif cid is not None:
-            items.append(BatchItem(index=index, status="in_base", candidate_id=cid, label="W bazie NEXUSA"))
+            items.append(
+                BatchItem(
+                    index=index,
+                    status="in_base",
+                    candidate_id=cid,
+                    label="W bazie NEXUSA",
+                )
+            )
         else:
-            items.append(BatchItem(index=index, status="new", candidate_id=None, label=None))
+            items.append(
+                BatchItem(index=index, status="new", candidate_id=None, label=None)
+            )
 
     return items

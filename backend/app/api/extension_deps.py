@@ -87,13 +87,17 @@ async def get_extension_principal(
     ensure_not_trainee(user)
     await resolve_effective_access(db, [user])
     if not user.has_role(UserRole.admin) and not user.has_any_role(*EXTENSION_ROLES):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_DENIED_DETAIL)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=ROLE_DENIED_DETAIL
+        )
     stamp_last_used(connection)
     request.state.extension_key_id = connection.key_id
     return ExtensionPrincipal(user=user, connection=connection)
 
 
-def _require_sourcing(principal: ExtensionPrincipal, required: SectionAccess) -> ExtensionPrincipal:
+def _require_sourcing(
+    principal: ExtensionPrincipal, required: SectionAccess
+) -> ExtensionPrincipal:
     """Sufit sekcji Sourcing — ten sam, który stoi przed ``/api/candidates``.
     Zależność ``require_section_access`` czyta JWT, więc tu liczymy go sami."""
     if section_access_for_user(principal.user, ProductSection.sourcing) < required:

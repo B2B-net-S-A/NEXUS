@@ -92,7 +92,10 @@ def _profile_block(profile: ProfileRead) -> str:
         lines.append(f"Nagłówek: {profile.headline}")
     if profile.current_title or profile.current_company:
         lines.append(
-            "Teraz: " + " w ".join(p for p in (profile.current_title, profile.current_company) if p)
+            "Teraz: "
+            + " w ".join(
+                p for p in (profile.current_title, profile.current_company) if p
+            )
         )
     for entry in profile.experience[:4]:
         line = " · ".join(p for p in (entry.title, entry.company) if p)

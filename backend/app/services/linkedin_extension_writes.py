@@ -73,7 +73,9 @@ def _summary_note(profile: ProfileRead) -> Optional[str]:
     if profile.headline:
         lines.append(f"Nagłówek: {profile.headline}")
     for entry in profile.experience[:6]:
-        dates = " – ".join(p for p in (entry.start, "obecnie" if entry.current else entry.end) if p)
+        dates = " – ".join(
+            p for p in (entry.start, "obecnie" if entry.current else entry.end) if p
+        )
         line = " · ".join(p for p in (entry.title, entry.company, dates) if p)
         if line:
             lines.append(f"• {line}")
@@ -113,7 +115,9 @@ async def create_candidate(
     )
     candidate = await apply_candidate_create(db, data, author=WriteAuthor.person(user))
     candidate.linkedin_current_company = (profile.current_company or "")[:255] or None
-    candidate.linkedin_current_title = (profile.current_title or profile.headline or "")[:255] or None
+    candidate.linkedin_current_title = (
+        profile.current_title or profile.headline or ""
+    )[:255] or None
     await db.flush()
     summary = _summary_note(profile)
     if summary:
@@ -157,11 +161,15 @@ async def assign_jobs(
     )
     for job_id in dict.fromkeys(job_ids):
         if job_id in existing:
-            outcome.skipped.append(SkippedJob(job_id=job_id, reason="Już jest w tej rekrutacji."))
+            outcome.skipped.append(
+                SkippedJob(job_id=job_id, reason="Już jest w tej rekrutacji.")
+            )
             continue
         job = await db.get(Job, job_id)
         if job is None or not job.is_open:
-            outcome.skipped.append(SkippedJob(job_id=job_id, reason="Rekrutacja jest zamknięta."))
+            outcome.skipped.append(
+                SkippedJob(job_id=job_id, reason="Rekrutacja jest zamknięta.")
+            )
             continue
         try:
             await _assign_candidate_to_job(

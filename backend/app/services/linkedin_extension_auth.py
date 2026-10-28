@@ -161,7 +161,9 @@ async def authenticate_extension_key(
     return connection
 
 
-async def count_page_read(db: AsyncSession, connection: LinkedinExtensionConnection) -> None:
+async def count_page_read(
+    db: AsyncSession, connection: LinkedinExtensionConnection
+) -> None:
     """Jeden odczyt strony LinkedIna (profil albo strona wyników).
 
     Jeden atomowy UPDATE z warunkiem limitu: równoległe żądania nie przeskoczą
@@ -183,8 +185,12 @@ async def count_page_read(db: AsyncSession, connection: LinkedinExtensionConnect
                 | (LinkedinExtensionConnection.reads_today < limit),
             )
             .values(
-                reads_today=case((same_day, LinkedinExtensionConnection.reads_today + 1), else_=1),
-                adds_today=case((same_day, LinkedinExtensionConnection.adds_today), else_=0),
+                reads_today=case(
+                    (same_day, LinkedinExtensionConnection.reads_today + 1), else_=1
+                ),
+                adds_today=case(
+                    (same_day, LinkedinExtensionConnection.adds_today), else_=0
+                ),
                 usage_day=today,
             )
             .returning(
@@ -207,8 +213,12 @@ async def count_add(db: AsyncSession, connection: LinkedinExtensionConnection) -
             update(LinkedinExtensionConnection)
             .where(LinkedinExtensionConnection.key_id == connection.key_id)
             .values(
-                adds_today=case((same_day, LinkedinExtensionConnection.adds_today + 1), else_=1),
-                reads_today=case((same_day, LinkedinExtensionConnection.reads_today), else_=0),
+                adds_today=case(
+                    (same_day, LinkedinExtensionConnection.adds_today + 1), else_=1
+                ),
+                reads_today=case(
+                    (same_day, LinkedinExtensionConnection.reads_today), else_=0
+                ),
                 usage_day=today,
             )
             .returning(
@@ -222,7 +232,9 @@ async def count_add(db: AsyncSession, connection: LinkedinExtensionConnection) -
         _sync_counters(connection, today, row[0], row[1])
 
 
-def _sync_counters(connection: LinkedinExtensionConnection, day, reads: int, adds: int) -> None:
+def _sync_counters(
+    connection: LinkedinExtensionConnection, day, reads: int, adds: int
+) -> None:
     """Wartości z bazy do obiektu bez oznaczania go jako zmienionego — flush
     nie może nadpisać licznika starszą wartością z pamięci."""
     from sqlalchemy.orm.attributes import set_committed_value

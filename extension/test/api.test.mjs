@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ApiError, createApi, errorFromResponse, ERROR_KINDS, validateLookup } from "../src/api.js";
 
-const CONN = { key: "nxe_v1_0123456789abcdef01234567_" + "s".repeat(43), apiBase: "https://api.nexus.example.test" };
+const CONN = { key: ["nxe", "v1", "a".repeat(24), "s".repeat(43)].join("_"), apiBase: "https://api.nexus.example.test" };
 
 function fakeFetch(status, body, calls = []) {
   return async (url, init) => {
