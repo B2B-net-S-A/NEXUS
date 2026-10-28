@@ -110,10 +110,11 @@ NEXUSA.
 - **Aktualizacje:** ZIP się nie aktualizuje — panel pokazuje „Jest nowa wersja”
   (`latest_version` z `/me`). Wydanie: podbij wersję w 4 miejscach i `pack.sh`
   (`extension/README.md` → „Wydanie nowej wersji”); testy pilnują zgodności.
-- **Opcja na później:** laptopy firmowe przez politykę Chrome
-  (`ExtensionInstallForcelist`, własny `update.xml` + `.crx` podpisany kluczem
-  z `key`) — bez trybu dewelopera i z automatycznymi aktualizacjami. Wymaga
-  decyzji Artura i zarządzania Chrome przez Intune.
+- **Laptopy firmowe przez Intune** (decyzja Artura 29.10): polityka Chrome
+  `ExtensionInstallForcelist` z `update.xml` i `.crx` z `frontend/public/wtyczka/`,
+  podpisanym kluczem z `key` tylko na laptopie Artura. Bez trybu dewelopera,
+  aktualizacje same. Plan, warunki Chrome i kroki w Intune:
+  `wtyczka-linkedin-intune.md`.
 
 ## Gdy LinkedIn zmieni stronę
 

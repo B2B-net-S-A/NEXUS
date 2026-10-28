@@ -177,12 +177,14 @@ function versionParts(v) {
 /**
  * Baner „Jest nowa wersja” — wtyczka z ZIP-a nie aktualizuje się sama.
  * `me.latest_version` z NEXUSA, `current` z manifestu. Link na stronę pobrania
- * NEXUSA z połączenia (frontUrl sprawdzony przy łączeniu).
+ * NEXUSA z połączenia (frontUrl sprawdzony przy łączeniu). `updateUrl` =
+ * `update_url` manifestu: ma go wersja ze sklepu i .crx z polityki Intune —
+ * te Chrome aktualizuje sam, więc baner z linkiem do ZIP-a tylko by mylił.
  */
-export function updateNotice(me, current, connection) {
+export function updateNotice(me, current, connection, updateUrl) {
   const latest = versionParts(me?.latest_version);
   const mine = versionParts(current);
-  if (!latest || !mine || !connection?.frontUrl) return null;
+  if (updateUrl || !latest || !mine || !connection?.frontUrl) return null;
   for (let i = 0; i < Math.max(latest.length, mine.length); i += 1) {
     const d = (latest[i] || 0) - (mine[i] || 0);
     if (d < 0) return null;

@@ -159,14 +159,21 @@ Skrypt (po zielonych testach) robi dwie paczki z tych samych plików:
   gdy ZIP nie zgadza się z `extension/` (zapomniane `pack.sh`).
 - `extension/dist/nexus-linkedin-<wersja>-webstore.zip` — **Chrome Web Store**,
   bez `key` (sklep nadaje własne id). Nie commitujemy.
+- `frontend/public/wtyczka/nexus-linkedin.crx` + `update.xml` — **polityka
+  Chrome z Intune**, `.crx` z `update_url`, podpisany kluczem z pola `key`.
+  Powstaje tylko na laptopie z kluczem (`NEXUS_EXTENSION_PEM`, domyślnie
+  `~/.config/nexus/linkedin-extension-team.pem`) i z Chrome (`CHROME_BIN`).
+  Bez klucza skrypt go pomija, a test `team-crx.test.mjs` pada, gdy `.crx`
+  albo `update.xml` nie zgadza się z `extension/`. Plan:
+  `docs/claude/integracje/wtyczka-linkedin-intune.md`.
 
 Wersję pilnują testy: manifest = stała backendu (`test_linkedin_extension_unit.py`)
 = stała strony `/wtyczka` (`ExtensionInstallView.test.tsx`). Testy wtyczki biegną
 w CI (krok „Wtyczka LinkedIn — testy” w `ci.yml`).
 
 Klucz prywatny do pola `key` (`~/.config/nexus/linkedin-extension-team.pem`
-na laptopie Artura) nie jest potrzebny do ZIP-a — tylko do podpisanego `.crx`,
-gdyby wtyczka miała iść przez politykę Chrome (Intune). Nie commitujemy go.
+na laptopie Artura) nie jest potrzebny do ZIP-a — tylko do podpisanego `.crx`
+dla polityki Chrome (Intune). Nie commitujemy go i nie dajemy do Actions.
 
 ## Budowa
 
