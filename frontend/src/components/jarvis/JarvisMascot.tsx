@@ -22,6 +22,8 @@ interface Props {
   onToggle: () => void;
   onBubbleClick?: () => void;
   onDismissBubble?: () => void;
+  /** „Schowaj” — małe × na robocie (po najechaniu albo fokusie). */
+  onHide?: () => void;
   /** Harness `/preview/jarvis`: maskotka w przepływie strony zamiast `fixed`. */
   inline?: boolean;
 }
@@ -38,6 +40,7 @@ export function JarvisMascot({
   onToggle,
   onBubbleClick,
   onDismissBubble,
+  onHide,
   inline = false,
 }: Props) {
   const size = minimized ? 40 : 64;
@@ -70,27 +73,44 @@ export function JarvisMascot({
           )}
         </div>
       )}
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-label={open ? `Zamknij ${name}` : `Otwórz asystenta ${name} (⌘J)`}
-        aria-expanded={open}
-        title={open ? `Zamknij ${name}` : `${name} — asystent (⌘J)`}
-        className="pointer-events-auto relative rounded-full outline-hidden transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring"
-        data-testid="jarvis-mascot"
-      >
-        {/* Na telefonie postać 40 px — 64 px leżało na treści <main>. */}
-        <JarvisCharacter
-          id={character}
-          accent={accent}
-          mood={mood}
-          size={size}
-          className={inline ? undefined : "max-md:[&>svg]:size-10"}
-        />
-        {attention && !open && (
-          <span className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-card bg-destructive" aria-hidden />
+      <div className="group/mascot pointer-events-auto relative">
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-label={open ? `Zamknij ${name}` : `Otwórz asystenta ${name} (⌘J)`}
+          aria-expanded={open}
+          title={open ? `Zamknij ${name}` : `${name} — asystent (⌘J)`}
+          className="pointer-events-auto relative rounded-full outline-hidden transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="jarvis-mascot"
+        >
+          {/* Na telefonie postać 40 px — 64 px leżało na treści <main>. */}
+          <JarvisCharacter
+            id={character}
+            accent={accent}
+            mood={mood}
+            size={size}
+            className={inline ? undefined : "max-md:[&>svg]:size-10"}
+          />
+          {attention && !open && (
+            <span
+              className="absolute right-0 top-0 h-3 w-3 rounded-full border-2 border-card bg-destructive"
+              aria-hidden
+            />
+          )}
+        </button>
+        {onHide && !open && (
+          <button
+            type="button"
+            onClick={onHide}
+            aria-label={`Schowaj ${name}`}
+            title={`Schowaj ${name}`}
+            className="absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/mascot:opacity-100 max-md:opacity-100"
+            data-testid="jarvis-mascot-hide"
+          >
+            <X className="h-3 w-3" aria-hidden />
+          </button>
         )}
-      </button>
+      </div>
     </div>
   );
 }
