@@ -229,6 +229,12 @@ class DayLeave:
     def paid_hours(self) -> Decimal:
         return STANDARD * self.leave.fraction if self.paid_work else Decimal("0")
 
+    @property
+    def manual_cap(self) -> Decimal:
+        """Najwięcej zwykłych ręcznych godzin dnia (pół dnia urlopu → 4 h)."""
+
+        return max(STANDARD - self.occupied_hours - self.paid_hours, Decimal("0"))
+
 
 def employed_on(subject: EmployeeProfile, day: date) -> bool:
     """Dzień mieści się w zatrudnieniu z kartoteki (brak daty = bez granicy)."""
@@ -709,6 +715,72 @@ async def remove_hours_on_full_leave_days(
         )
         timesheet.updated_at = func.now()  # jak ``delete_entry``
     return rows
+
+
+def plan_half_day_trim(
+    entries: Iterable[TimesheetEntry], caps: dict[date, Decimal]
+) -> dict[int, Decimal]:
+    """Wpis → nowe godziny (0 = usunąć), żeby zwykłe ręczne godziny dnia
+    zmieściły się w limicie ``caps`` (pół dnia urlopu → 4 h).
+
+    Skracamy od najpóźniej dodanego wpisu. Auto-wpis ``leave_paid`` liczy się
+    w limicie sam, a nadgodzina (wpis ponad 8 h sumy dnia z uzasadnieniem)
+    zostaje — limit dnia dotyczy zwykłych godzin.
+    """
+
+    by_day: dict[date, list[TimesheetEntry]] = defaultdict(list)
+    for entry in entries:
+        if (
+            entry.work_date in caps
+            and entry.source != "leave_paid"
+            and not entry.is_overtime
+        ):
+            by_day[entry.work_date].append(entry)
+    plan: dict[int, Decimal] = {}
+    for day, rows in by_day.items():
+        excess = sum((Decimal(row.hours) for row in rows), Decimal("0")) - caps[day]
+        for row in sorted(rows, key=lambda item: item.id, reverse=True):
+            if excess <= 0:
+                break
+            cut = min(excess, Decimal(row.hours))
+            plan[row.id] = Decimal(row.hours) - cut
+            excess -= cut
+    return plan
+
+
+async def trim_hours_on_half_leave_days(
+    db: AsyncSession, *, timesheet: Timesheet, caps: dict[date, Decimal]
+) -> list[tuple[TimesheetEntry, Decimal, Decimal]]:
+    """Skraca ręczne godziny dni z połową urlopu (zatwierdzenie wniosku).
+
+    Zwraca (wpis, godziny przed, godziny po); wpis skrócony do zera znika.
+    """
+
+    if not caps:
+        return []
+    rows = list(
+        await db.scalars(
+            select(TimesheetEntry).where(
+                TimesheetEntry.timesheet_id == timesheet.id,
+                TimesheetEntry.work_date.in_(sorted(caps)),
+            )
+        )
+    )
+    plan = plan_half_day_trim(rows, caps)
+    changed: list[tuple[TimesheetEntry, Decimal, Decimal]] = []
+    for row in rows:
+        if row.id not in plan:
+            continue
+        before, after = Decimal(row.hours), plan[row.id]
+        if after > 0:
+            row.hours = after
+        else:
+            await db.delete(row)
+        changed.append((row, before, after))
+    if changed:
+        timesheet.updated_at = func.now()  # jak ``delete_entry``
+        await db.flush()
+    return changed
 
 
 def entry_payload(entry: TimesheetEntry) -> dict[str, Any]:
