@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
 
-from fastapi.concurrency import run_in_threadpool
+import anyio
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -95,6 +95,19 @@ NOTES_CHAR_LIMIT = 8_000
 NOTE_CHAR_LIMIT = 3_000
 REASON_LIMIT = 2
 MODEL_TOTAL_TIMEOUT_SECONDS = 45.0
+# Wątki na wywołania modelu dla CAŁEGO serwera — własny limiter zamiast
+# wspólnej puli (40 wątków): kilka osób klikających naraz zajęłoby ją na
+# 45 s i zatrzymało inne trasy z `run_in_threadpool`.
+MODEL_THREADS = 8
+_limiter: Optional[anyio.CapacityLimiter] = None
+
+
+def _model_limiter() -> anyio.CapacityLimiter:
+    global _limiter
+    if _limiter is None:
+        _limiter = anyio.CapacityLimiter(MODEL_THREADS)
+    return _limiter
+
 
 SOURCE_CV = "cv"
 SOURCE_NOTE = "note"
@@ -203,6 +216,7 @@ def notes_block(note_texts: Sequence[str]) -> str:
 @dataclass
 class Person:
     candidate: Any
+    candidate_id: int
     selection_index: int
     cv_text: str = ""
     notes_text: str = ""
@@ -278,6 +292,7 @@ def prepare(job: Any, candidate: Any, index: int, notes: Sequence[str]) -> Perso
     found, total = must_facts(job, candidate, cv, [notes_text] if notes_text else ())
     return Person(
         candidate=candidate,
+        candidate_id=candidate.id,
         selection_index=index,
         cv_text=cv,
         notes_text=notes_text,
@@ -313,7 +328,7 @@ def _call_model(prompt: str) -> str:
 def outcome_from(person: Person, raw: Any) -> Outcome:
     """Odpowiedź modelu (albo wyjątek) → wynik osoby. Nigdy nie rzuca."""
     base = Outcome(
-        candidate_id=person.candidate.id,
+        candidate_id=person.candidate_id,
         selection_index=person.selection_index,
         must_found=person.must_found,
         must_total=person.must_total,
@@ -406,6 +421,9 @@ async def assess(
     Rzuca ``DailyLimitExceeded``, gdy osób do oceny modelem jest więcej, niż
     zostało z dziennego limitu — wtedy nic nie jest wywoływane ani zapisane.
     """
+    # Same id, nie obiekty ORM: `rollback()` po awarii wygasza wszystko, co sesja
+    # wczytała, a leniwe odświeżenie w AsyncSession kończy się MissingGreenlet.
+    job_id, user_id = job.id, user.id
     ids = list(dict.fromkeys(int(i) for i in candidate_ids))
     candidates = {
         c.id: c
@@ -418,7 +436,7 @@ async def assess(
         {}
         if refresh
         else await recent_by_candidate(
-            db, job_id=job.id, user_id=user.id, candidate_ids=ids
+            db, job_id=job_id, user_id=user_id, candidate_ids=ids
         )
     )
     notes = await load_note_texts(db, user, [i for i in ids if i not in reused])
@@ -458,16 +476,21 @@ async def assess(
         to_call.append(person)
 
     if to_call:
-        remaining = DAILY_PEOPLE_LIMIT - await used_today(db, user.id)
+        remaining = DAILY_PEOPLE_LIMIT - await used_today(db, user_id)
         if len(to_call) > remaining:
             raise DailyLimitExceeded(max(0, remaining))
         job_block = job_prompt_block(job, with_critical=True)
         prompts = [prompt_for(job_block, p) for p in to_call]
         try:
-            async with ai_feature(db, FEATURE, user_id=user.id, units=len(to_call)):
+            async with ai_feature(db, FEATURE, user_id=user_id, units=len(to_call)):
                 await db.commit()  # zwolnij połączenie na czas modelu
                 answers = await asyncio.gather(
-                    *(run_in_threadpool(_call_model, p) for p in prompts),
+                    *(
+                        anyio.to_thread.run_sync(
+                            _call_model, p, limiter=_model_limiter()
+                        )
+                        for p in prompts
+                    ),
                     return_exceptions=True,
                 )
         except Exception as exc:  # noqa: BLE001 — AI układa kolejność, nie blokuje
@@ -490,9 +513,9 @@ async def assess(
     rows = [
         CandidateAiAssessment(
             batch_id=batch_id,
-            job_id=job.id,
+            job_id=job_id,
             candidate_id=o.candidate_id,
-            assessed_by=user.id,
+            assessed_by=user_id,
             selection_index=o.selection_index,
             verdict=o.verdict,
             strength=o.strength,
@@ -511,9 +534,9 @@ async def assess(
     db.add(
         Activity(
             entity_type="job",
-            entity_id=job.id,
+            entity_id=job_id,
             action=AUDIT_ACTION,
-            user_id=user.id,
+            user_id=user_id,
             # Same id i liczby — bez nazwisk, cytatów i treści CV.
             details={
                 "batch_id": batch_id,

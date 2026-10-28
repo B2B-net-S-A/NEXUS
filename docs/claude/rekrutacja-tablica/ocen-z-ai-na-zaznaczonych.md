@@ -60,3 +60,10 @@ Decyzja Artura: wariant C z makiet https://claude.ai/artifact/TBHtexa3vvyK76HW2v
 - **Paczki:** przeglądarka wysyła po 6 osób (`MAX_PER_REQUEST`), dwie paczki
   naraz, jeden `batch_id`; serwer woła model dla paczki równolegle. Żadne
   żądanie nie czeka dłużej niż jedna runda modelu, panel pokazuje postęp.
+  Wywołania modelu idą przez własny limiter wątków (`MODEL_THREADS = 8` na
+  cały serwer), nie przez wspólną pulę `run_in_threadpool` — kilka osób
+  klikających naraz zajęłoby ją na 45 s. Front czeka `SLOW_ENDPOINT_TIMEOUT_MS`
+  (domyślne 30 s zrywało paczkę, choć serwer zapisywał wynik i liczył limit).
+  Po 429 reszta zaznaczenia zostaje w panelu jako „AI nie oceniło — dzienny
+  limit”. Awaria przed modelem kończy się `rollback()`, który wygasza obiekty
+  sesji — serwis i trasa trzymają same id, nie obiekty ORM.

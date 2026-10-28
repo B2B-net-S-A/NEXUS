@@ -60,6 +60,7 @@ const VERDICT_CLASS: Record<AiVerdict, string> = {
 function failedRows(
   people: readonly AiAssessmentPerson[],
   firstIndex: number,
+  kind: "model" | "limit" = "model",
 ): AiAssessmentRow[] {
   return people.map((p, i) => ({
     candidate_id: p.candidateId,
@@ -70,7 +71,7 @@ function failedRows(
     must_found: 0,
     must_total: 0,
     reasons: [],
-    error_kind: "model",
+    error_kind: kind,
     reused: false,
   }));
 }
@@ -102,8 +103,14 @@ function useAssessment(jobId: number, people: readonly AiAssessmentPerson[] | nu
       let next = 0;
       let stopped = false;
       const worker = async () => {
-        while (!stopped && next < chunks.length) {
+        while (next < chunks.length) {
           const chunk = chunks[next++];
+          if (stopped) {
+            // Po wyczerpaniu limitu reszta zaznaczenia zostaje na liście bez werdyktu.
+            setRows((prev) => mergeRows(prev, failedRows(chunk.people, chunk.first, "limit")));
+            setDone((d) => d + chunk.people.length);
+            continue;
+          }
           try {
             const batch = await aiAssessmentApi.assess(jobId, {
               batch_id: batchId,
@@ -122,7 +129,9 @@ function useAssessment(jobId: number, people: readonly AiAssessmentPerson[] | nu
             const status = (err as { response?: { status?: number } })?.response?.status;
             if (status === 429) stopped = true;
             setError(apiErrorMessage(err, "Nie udało się ocenić części osób."));
-            setRows((prev) => mergeRows(prev, failedRows(chunk.people, chunk.first)));
+            setRows((prev) =>
+              mergeRows(prev, failedRows(chunk.people, chunk.first, status === 429 ? "limit" : "model")),
+            );
           } finally {
             if (runId.current === id) setDone((d) => d + chunk.people.length);
           }

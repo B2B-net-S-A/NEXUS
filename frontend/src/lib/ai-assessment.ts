@@ -10,6 +10,7 @@
  */
 
 import { api } from "@/lib/api";
+import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 export type AiVerdict = "call" | "maybe" | "no_fit";
 
@@ -28,8 +29,11 @@ export interface AiAssessmentRow {
   must_found: number;
   must_total: number;
   reasons: AiAssessmentReason[];
-  /** Dlaczego AI nie oceniło: brak CV albo awaria modelu. */
-  error_kind: "no_cv" | "model" | null;
+  /**
+   * Dlaczego AI nie oceniło: brak CV, awaria modelu albo (tylko w panelu)
+   * dzienny limit, który zatrzymał resztę paczek.
+   */
+  error_kind: "no_cv" | "model" | "limit" | null;
   reused: boolean;
 }
 
@@ -64,9 +68,9 @@ export const SOURCE_LABEL: Record<AiAssessmentReason["source"], string> = {
 };
 
 export function notAssessedLabel(row: AiAssessmentRow): string {
-  return row.error_kind === "no_cv"
-    ? "AI nie oceniło — brak CV w NEXUSIE"
-    : "AI nie oceniło — spróbuj ponownie później";
+  if (row.error_kind === "no_cv") return "AI nie oceniło — brak CV w NEXUSIE";
+  if (row.error_kind === "limit") return "AI nie oceniło — dzienny limit oceny wyczerpany";
+  return "AI nie oceniło — spróbuj ponownie później";
 }
 
 /** Kolejność dzwonienia: werdykt, siła, must-have, miejsce w zaznaczeniu. */
@@ -119,7 +123,13 @@ export const aiAssessmentApi = {
     jobId: number,
     body: { batch_id: string; candidate_ids: number[]; first_index: number; refresh?: boolean },
   ): Promise<AiAssessmentBatch> =>
-    api.post<AiAssessmentBatch>(`/api/jobs/${jobId}/ai-assessments`, body).then((r) => r.data),
+    // Paczka to jedna runda modelu (do 45 s na serwerze, z zapasem) — domyślne
+    // 30 s zrywało żądanie, a serwer i tak zapisywał wynik i liczył limit.
+    api
+      .post<AiAssessmentBatch>(`/api/jobs/${jobId}/ai-assessments`, body, {
+        timeout: SLOW_ENDPOINT_TIMEOUT_MS,
+      })
+      .then((r) => r.data),
   latest: (jobId: number): Promise<AiAssessmentBatch> =>
     api.get<AiAssessmentBatch>(`/api/jobs/${jobId}/ai-assessments/latest`).then((r) => r.data),
 };

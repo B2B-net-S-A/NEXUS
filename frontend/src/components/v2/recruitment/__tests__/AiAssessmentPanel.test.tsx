@@ -130,6 +130,30 @@ describe("AiAssessmentPanel", () => {
     expect(screen.getByTestId("ai-assessment-add-calls")).toBeDisabled();
   });
 
+  it("po dziennym limicie reszta zaznaczenia zostaje na liście bez werdyktu", async () => {
+    const people = Array.from({ length: 20 }, (_, i) => ({ candidateId: i + 1, fullName: `P${i}` }));
+    let call = 0;
+    mocks.assess.mockImplementation((_job: number, body: { candidate_ids: number[] }) => {
+      call += 1;
+      if (call === 1) {
+        return Promise.resolve(
+          batch(body.candidate_ids.map((id) => row({ candidate_id: id, verdict: "maybe" }))),
+        );
+      }
+      return Promise.reject({
+        response: {
+          status: 429,
+          data: { detail: { code: "ai_assessment_daily_limit", message: "Dzienny limit oceny AI to 150 osób. Dziś zostało 0." } },
+        },
+      });
+    });
+    render(<AiAssessmentPanel jobId={7} people={people} onAdd={vi.fn()} onClose={vi.fn()} />);
+    await waitFor(() => expect(rows()).toHaveLength(20));
+    expect(rows().filter((r) => r.dataset.verdict === "maybe")).toHaveLength(6);
+    expect(screen.getAllByText("AI nie oceniło — dzienny limit oceny wyczerpany")).toHaveLength(14);
+    expect(screen.queryByTestId("ai-assessment-progress")).not.toBeInTheDocument();
+  });
+
   it("dodaje tylko „Dzwoń” w kolejności i oznacza dodanych", async () => {
     mocks.assess.mockResolvedValue(RESULT);
     const onAdd = vi.fn().mockResolvedValue([1]);

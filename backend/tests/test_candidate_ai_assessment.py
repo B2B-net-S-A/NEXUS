@@ -75,6 +75,7 @@ def _person(cv: str = FIT_CV, notes: str = "") -> svc.Person:
 
     return svc.Person(
         candidate=SimpleNamespace(id=7),
+        candidate_id=7,
         selection_index=3,
         cv_text=cv,
         notes_text=notes,
@@ -352,6 +353,31 @@ async def test_model_failure_leaves_people_without_verdict(app_client, monkeypat
     assert {r["error_kind"] for r in rows} == {"model"}
     # Kolejność zaznaczenia zostaje, gdy AI nic nie powiedziało.
     assert [r["candidate_id"] for r in rows] == [fit, other]
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_failure_before_the_model_still_answers_without_verdict(
+    app_client, monkeypatch
+):
+    """Awaria w `ai_feature()` (zapis zużycia) = rollback sesji; wynik bez werdyktu, nie 500."""
+    from app.services import ai_quota
+
+    uid, job_id, (fit, _other, _no_cv) = await _setup()
+
+    async def broken(*args, **kwargs):
+        raise RuntimeError("metering down")
+
+    monkeypatch.setattr(ai_quota, "check_and_increment", broken)
+    calls: list = []
+    _stub_model(monkeypatch, calls)
+    resp = await app_client.post(
+        f"/api/jobs/{job_id}/ai-assessments", json=_body([fit]), headers=_headers(uid)
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["rows"][0]["verdict"] is None
+    assert resp.json()["rows"][0]["error_kind"] == "model"
+    assert calls == []
 
 
 @needs_db

@@ -124,11 +124,14 @@ async def assess_candidates(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     job = await _job(db, current_user, job_id)
+    # Id z góry: awaria przed modelem kończy się w serwisie `rollback()`, który
+    # wygasza obiekty sesji (także konto), a leniwe odświeżenie = MissingGreenlet.
+    user_id = current_user.id
     already = int(
         await db.scalar(
             select(func.count(CandidateAiAssessment.id)).where(
                 CandidateAiAssessment.batch_id == body.batch_id,
-                CandidateAiAssessment.assessed_by == current_user.id,
+                CandidateAiAssessment.assessed_by == user_id,
             )
         )
         or 0
@@ -164,9 +167,9 @@ async def assess_candidates(
             },
         ) from exc
     rows = await svc.batch_rows(
-        db, job_id=job_id, user_id=current_user.id, batch_id=body.batch_id
+        db, job_id=job_id, user_id=user_id, batch_id=body.batch_id
     )
-    return await _payload(db, rows, current_user.id)
+    return await _payload(db, rows, user_id)
 
 
 @router.get(
