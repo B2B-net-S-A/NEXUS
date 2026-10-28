@@ -86,6 +86,13 @@
    "b_home": "Pod paskiem filtrów"
   },
   {
+   "id": "k.agreement-not-terminated-filter",
+   "opis": "Filtr „Umowa nierozwiązana”: zakończone i kończące się kontrakty B2B bez rozwiązania umowy",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "Umowa nierozwiązana",
+   "b_home": "Pasek filtrów"
+  },
+  {
    "id": "k.columns",
    "opis": "Kolumny z sortowaniem",
    "file": "components/v2/pages/ContractsListV2.tsx",
