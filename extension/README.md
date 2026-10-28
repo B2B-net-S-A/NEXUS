@@ -1,134 +1,130 @@
-# NEXUS — wtyczka Chrome "Dodaj z LinkedIn" (v0.2.0)
+# NEXUS — LinkedIn (wtyczka Chrome)
 
-Manifest V3, vanilla JS, brak buildu. Działa load-unpacked, do Chrome Web Store
-dystrybucja TODO.
+Panel boczny Chrome dla rekruterów: na profilu LinkedIna albo w Recruiterze
+pokazuje, czy osoba jest w NEXUSIE, kto ją prowadzi, w jakich jest
+rekrutacjach i czy wolno do niej pisać. Dodaje osobę do bazy i do rekrutacji,
+pisze szkic wiadomości i zapisuje kontakt.
 
-## Co robi
+Czego wtyczka nie robi (decyzje właściciela z 28.10.2026):
 
-Na **trzech surface'ach LinkedIn**:
-- Publiczny profil — `https://www.linkedin.com/in/<slug>`
-- **Sales Navigator** — `https://www.linkedin.com/sales/lead/...`, `/sales/people/...`
-- **LinkedIn Recruiter** — `https://www.linkedin.com/talent/profile/...`, `/talent/people/...`
+- nic nie dokleja do strony LinkedIna — wszystko jest w panelu bocznym,
+- czyta stronę tylko przy otwarciu panelu, po przejściu na inną stronę w tej
+  karcie albo po kliknięciu „Sprawdź tę stronę”; zawsze jedną stronę naraz,
+  nic w tle,
+- nie woła wewnętrznego API LinkedIna i nie czyta jego danych z `<code>` w stronie,
+- niczego nie wysyła na LinkedInie — tekst wiadomości kopiujesz i wysyłasz sam.
 
-…wyświetla pływający przycisk **+ NEXUS**. Klik → otwiera się modal w-stronie (Shadow DOM) z:
+Kontrakt z backendem: [`API.md`](API.md) (trasy `/api/extension/*`, klucz w nagłówku
+`X-Extension-Key`).
 
-- preview kandydata (imię, headline, lokalizacja, firma — wyciągnięte z DOM),
-- search-as-you-type rekrutacji z NEXUS (dropdown z aktywnymi job postings),
-- wybór etapu startowego (new / prep_call / screening / interview),
-- pole tagów + notatka,
-- przycisk **Dodaj do NEXUS**.
+## Instalacja
 
-Backend wzywa `POST /api/candidates/from-linkedin`:
-- jeśli profil już jest w bazie → modal pokaże "Już w bazie" + button **Odśwież z LinkedIn** (uderza `POST /api/candidates/{id}/sync-linkedin`),
-- jeśli nowy → tworzy stub kandydata + odpala Proxycurl enrichment w tle (w
-  ciągu ~30s pole `linkedin_sync_status` przejdzie na `ok` i UI pokaże pełne
-  dane).
+**Zespół:** wtyczka jest w Chrome Web Store jako niepubliczna — link dostajesz od
+administratora NEXUSA. „Dodaj do Chrome”, potem przypnij ikonę NEXUSA na pasku.
 
-## Instalacja (load-unpacked)
+**Wersja deweloperska („Wczytaj rozpakowane”):**
 
-1. Otwórz `chrome://extensions`
-2. Włącz **Tryb dewelopera** (toggle w prawym górnym rogu)
-3. Kliknij **Wczytaj rozpakowane** (Load unpacked)
-4. Wybierz katalog `extension/` z tego repo
-5. Kliknij ikonę NEXUS w toolbarze → otworzy się strona Ustawienia
-6. Zaloguj się swoim emailem + hasłem NEXUS
-7. (Opcjonalnie) zmień Backend URL na `http://localhost:8000` jeśli testujesz
-   przeciw lokalnemu `docker compose up`
+1. `chrome://extensions` → włącz „Tryb dewelopera” (prawy górny róg).
+2. „Wczytaj rozpakowane” → wskaż katalog `extension/` z repo.
+3. Skopiuj identyfikator wtyczki z karty (32 litery). Backend przekaże klucz
+   tylko wtyczce z listy `LINKEDIN_EXTENSION_IDS` — dopisz tam ten identyfikator
+   (na produkcji przez workflow „Coolify set env”, lokalnie w `.env` stagingu).
+4. Po zmianie plików: ikona odświeżenia na karcie wtyczki w `chrome://extensions`.
+   Panel zamknij i otwórz ponownie.
 
-## Architektura
+Wymaga Chrome 116 lub nowszego (panel boczny).
 
+## Połączenie z NEXUSEM
+
+1. Otwórz LinkedIna i kliknij ikonę NEXUSA — otworzy się panel.
+2. „Zaloguj przez NEXUS” otwiera kartę `<NEXUS>/extension/connect`. Jeśli nie
+   jesteś zalogowany w NEXUSIE, zaloguj się tam jak zwykle.
+3. Strona NEXUSA przekazuje klucz wtyczce, pokazuje „Połączono” i zamyka się po
+   chwili. Panel odświeża się sam.
+
+Klucz leży w `chrome.storage.local` tej przeglądarki. „Odłącz” w menu pod
+imieniem usuwa go lokalnie; połączenia unieważnia się też w NEXUSIE
+(Ustawienia → Wtyczka LinkedIn). Zmiana roli albo hasła w NEXUSIE odłącza
+wtyczkę — panel wraca wtedy do ekranu „Połącz wtyczkę z NEXUSEM”.
+
+Limit odczytów stron LinkedIna na osobę dziennie (licznik w menu) chroni konta
+Recruiter przed wyglądem automatu. Profil albo strona wyników = 1 odczyt;
+powrót na już sprawdzony profil w ciągu 10 minut nie zużywa odczytu.
+
+## Staging na laptopie
+
+Panel → „Serwer” (link na ekranie połączenia albo w menu) → „Staging na
+laptopie”: front `http://localhost:3100`, API `http://localhost:8100`
+(`docker-compose.staging.yml`, opis w `docs/claude/podstawy/staging-na-laptopie.md`).
+Zmiana serwera odłącza wtyczkę — połącz ją ponownie. Front z gałęzi na porcie
+3101 też może przekazać klucz.
+
+## Testy
+
+```sh
+cd extension && npm install   # jedna zależność deweloperska: linkedom (DOM w node)
+cd .. && node --test extension/test
 ```
-extension/
-├── manifest.json
-├── icons/
-│   └── icon-{16,32,48,128}.png
-└── src/
-    ├── background/
-    │   └── service-worker.js     # JWT, refresh, central fetch
-    ├── content/
-    │   ├── content-script.js     # FAB injection + MutationObserver
-    │   ├── modal-host.js         # Shadow DOM modal
-    │   ├── linkedin-scraper.js   # DOM extraction with fallbacks
-    │   └── modal.css             # Linear theme (violet + zinc)
-    ├── options/
-    │   ├── options.html          # login + backend URL
-    │   ├── options.js
-    │   └── options.css
-    └── shared/
-        ├── messages.js           # MSG_TYPE constants
-        ├── storage.js            # chrome.storage.local wrappers
-        └── api-client.js         # fetch + 401 refresh
+
+Testy czytników działają na syntetycznych stronach w `test/fixtures/` —
+wymyślone osoby i firmy, bo repo jest publiczne. **Nie wklejaj tam zapisanych
+stron prawdziwych osób z LinkedIna.**
+
+## Gdy LinkedIn zmieni stronę
+
+Objaw: w panelu przy polu, które na stronie widać, stoi „nie odczytano — wpisz”,
+albo lista wyników jest pusta.
+
+1. Na tej stronie LinkedIna: prawy klik na brakującym polu → „Zbadaj”. Zapisz
+   tag, klasy i atrybuty `data-*` elementu i jego najbliższego kontenera.
+2. Otwórz `src/readers/selectors.js` — wszystkie selektory są tylko tam.
+   Dopisz nowy selektor **na początek** listy danego pola; starych nie usuwaj
+   (LinkedIn testuje układy A/B, różne osoby widzą różne wersje).
+   - profil publiczny: `PROFILE`, sekcje doświadczenia/umiejętności: `SECTIONS`
+     i `LIST_ITEMS`,
+   - Recruiter: `RECRUITER` (w tym `publicLinkLabels` — teksty linku do profilu
+     publicznego),
+   - listy wyników i projekt: `RESULTS`,
+   - daty i formy zatrudnienia: `MONTHS`, `PRESENT_WORDS`, `EMPLOYMENT_TYPES`.
+3. Dodaj fixture w `test/fixtures/` z **samą strukturą** nowego DOM-u i wymyśloną
+   treścią oraz test w `test/readers.test.mjs`.
+4. `node --test extension/test`, przeładuj wtyczkę w `chrome://extensions`,
+   sprawdź na żywej stronie.
+
+Gdy żaden selektor nie trafi, czytnik próbuje heurystyk (imię = pierwszy `h1`
+w głównej treści, nagłówek = linia pod imieniem, miasto = linia przed „Dane
+kontaktowe”, doświadczenie = lista pod nagłówkiem „Doświadczenie”/„Experience”).
+Link do profilu publicznego w Recruiterze bierzemy tylko z karty osoby albo z linku
+„Profil publiczny” — nigdy pierwszy lepszy `/in/` ze strony, a slug sprzeczny
+z nazwiskiem jest odrzucany.
+
+## Paczka do Web Store
+
+```sh
+sh extension/scripts/pack.sh   # → extension/dist/nexus-linkedin-<wersja>.zip
 ```
 
-Komunikacja: content-script ↔ background service worker przez
-`chrome.runtime.sendMessage`. Background SW jest jedynym kontekstem który robi
-`fetch()` do NEXUS API — JWT nigdy nie wycieka do content scripta. Token w
-`chrome.storage.local`.
+ZIP zawiera tylko `manifest.json`, `icons/` i `src/`. Przed wysłaniem podbij
+`version` w `manifest.json`.
 
-## Smoke-test checklist (12 punktów)
+## Budowa
 
-Po `Wczytaj rozpakowane`:
+Bez bundlera: moduły ES, HTML i CSS.
 
-1. **Options page** otwiera się po kliknięciu ikony w toolbarze, formularz login zsumitowany jednorazowo
-2. **FAB** pojawia się prawym-dolnym rogu na `linkedin.com/in/<dowolny>`
-3. **SPA navigation** — klikam inny profil bez full reload, FAB re-appears
-4. **Preview** — modal pokazuje wyciągnięte imię, headline, lokalizację
-5. **Job search** — wpisuję "Senior", po 300ms widzę dropdown z rekrutacjami
-6. **Stage select** — disabled dopóki nie wybiorę rekrutacji, potem aktywuje się
-7. **Submit (new)** — toast "Dodano X" + link do `/candidates/{id}`
-8. **Submit (existing)** — drugi raz ten sam profil → "Już w bazie" + button "Odśwież z LinkedIn"
-9. **Re-sync** — klik "Odśwież" wywołuje `/sync-linkedin`, button zmienia się na "Zsynchronizowano ✓"
-10. **401 refresh** — ręcznie skoruptuj `access_token` w `chrome.storage`, submit działa silent refresh
-11. **No-auth** — wipe storage, modal pokazuje "Zaloguj się"
-12. **Network down** — stop backend, submit → "Błąd: Network error"
+- `src/background.js` — service worker: klik ikony otwiera panel; przyjmuje klucz
+  ze strony połączenia (`onMessageExternal`, sprawdza nadawcę, kształt klucza
+  i host API).
+- `src/panel/` — panel boczny (ekrany w `screen-*.js`).
+- `src/page.js` — odczyt aktywnej karty: `chrome.scripting.executeScript`
+  oddaje kopię DOM-u (bez skryptów, obrazków i `<code>`), czytniki parsują ją
+  w panelu.
+- `src/readers/` — czytniki (`profile`, `recruiter-profile`, `search-results`),
+  selektory w `selectors.js`.
+- `src/api.js` — klient API i mapowanie błędów (401 → połącz ponownie,
+  403 → zdanie z NEXUSA, 409 off-limits → pytanie, 429 → limit dzienny).
+- `src/view/logic.js` — czysta logika ekranów (testowana w node).
 
-## Co nowego w v0.2.0
-
-- **Sales Navigator support** — wtyczka działa na `linkedin.com/sales/lead/<id>` i `linkedin.com/sales/people/<id>`. Scraper czyta dane z DOM Sales Nav (selektory `data-anonymize`) i wyciąga canonical `/in/<slug>` URL z elementu "Public profile" w panelu profilu.
-- **LinkedIn Recruiter support** — analogicznie dla `linkedin.com/talent/profile/<id>` i `/talent/people/<id>`. ⚠ **Risk Recruiter ToS:** używaj manualnie, nie batch; LinkedIn monitoruje konta Recruiter agresywniej niż zwykłe.
-- **Sentry integration** — minimal client (zero deps, MV3 CSP-safe, bez CDN load). Wklej DSN w options page → błędy wtyczki trafią do Sentry projektu `nexus-extension`. Domyślnie disabled.
-- **Pre-fill jobs z otwartych kart NEXUS** — jeśli masz otwarte `nexus.dynaminds.pl/jobs/<id>` w innej karcie, modal pokazuje chips "Otwarte rekrutacje" nad job-search inputem. Jedno kliknięcie pre-filluje dropdown bez wpisywania.
-- **Backend dedup performance** — migracja Alembic 0106 dodaje `linkedin_slug` GENERATED column + index. Dedup query z `LIKE '%slug%'` na full-table-scan → exact match na indexed column (O(log n)).
-
-## Risk Recruiter ToS — przeczytaj
-
-LinkedIn Recruiter to płatny enterprise tier (~150 USD/seat/mc). LinkedIn
-**aktywnie monitoruje** konta Recruiter pod kątem automation / scraping i
-agresywnie banuje konta. Nasza wtyczka **nie wykonuje żadnych masowych akcji**,
-nie scrolluje listy, nie wysyła InMail, nie wykonuje akcji w Twoim imieniu —
-tylko czyta DOM aktualnie otwartego profilu który Ty kliknąłeś. To bardzo
-niski risk, ale risk niezerowy.
-
-**Best practices:**
-- Używaj manualnie, jeden profil naraz (NIE batch loop).
-- Nie zostawiaj wtyczki uruchomionej kiedy nie jesteś przy klawiaturze.
-- Po dodaniu kandydata zamknij modal i poczekaj kilka sekund zanim klikniesz "+" na następnym profilu.
-- Jeśli LinkedIn pokaże CAPTCHA lub komunikat o nietypowej aktywności — natychmiast przestań i zaczekaj 24h.
-
-Oficjalna integracja byłaby przez LinkedIn Talent Solutions Partner Program
-(Recruiter System Connect / RSC) — ~6-12 miesięcy procesu certyfikacji, revenue
-share, minimum customer base. Nie dla solo-ATS.
-
-## Limitacje (znane)
-
-- **Ikony** są minimalne (solid violet + literka N) — wystarczające dla MVP, do
-  Chrome Web Store potrzebny normalny brand asset.
-- **Brak quick-add** (silent batch) — świadoma decyzja, mniej śmieci w bazie.
-- **Selektory LinkedIn DOM** rotują — gdy preview puste, server (Proxycurl)
-  i tak pociągnie pełne dane. Selektory są w `src/content/linkedin-scraper.js`.
-- **JWT NIE szyfrowany** w `chrome.storage.local` (acceptable dla internal tool).
-- **Race condition na dedup** — dwa równoczesne kliknięcia w tym samym czasie =
-  2 duplikaty (theoretical for solo-recruiter). Phase 3 follow-up: candidate
-  merge UI + partial unique index.
-
-## Dystrybucja
-
-MVP: load-unpacked dla Artura (+ ew. zespołu).
-
-Chrome Web Store TODO:
-- ✏️ Privacy policy URL (`nexus.dynaminds.pl/legal/extension-privacy`)
-- ✏️ Justification dla każdego `host_permission`
-- ✏️ Screenshoty (1280×800)
-- ✏️ Promo tile (440×280)
-- ✏️ Płatność $5 jednorazowa za konto deweloperskie
-- ⏱ Review ~3 dni roboczych
+Uprawnienia: `sidePanel` (panel), `storage` (klucz), `scripting` (odczyt karty
+LinkedIna na żądanie). Bez `tabs` — adres karty LinkedIna i tak jest widoczny
+dzięki `host_permissions`; bez `activeTab` — `host_permissions` na linkedin.com
+już pozwala odczytać kartę, więc to uprawnienie niczego by nie dodało.
