@@ -42,11 +42,20 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   bierze indeks `ix_candidates_email_lower_btrim`
   (`test_candidate_email_lower_index.py`).
 - `find_candidate_duplicates` to lista podpowiedzi dla człowieka: okno scalania
-  (`candidateMerge.ts`), `/check-duplicates`, wtyczka `/from-linkedin`. Niczego
-  nie blokuje. LinkedIn pasuje tylko po identyfikatorze z adresu
+  (`candidateMerge.ts`) i `/check-duplicates`. Niczego nie blokuje.
+  LinkedIn pasuje tylko po identyfikatorze z adresu
   `…linkedin.com/in/<slug>` (`normalize_linkedin_url`), równością na kolumnie
   `linkedin_slug`; zapasowego `ILIKE` nie ma, bo dla krótkiej końcówki ładował
   pół bazy razem z tekstem CV przy każdym sprawdzeniu.
+- **Panel boczny wtyczki ma osobne rozpoznanie profilu**:
+  `linkedin_extension_lookup.find_person`, wywoływane przez
+  `/api/extension/lookup` i przy zapisie `/api/extension/candidates`.
+  Najpierw szuka po publicznym linku LinkedIna, potem po imieniu i nazwisku
+  ze zgodną firmą; niepewny wynik pokazuje jako `ambiguous`. Sam adres
+  `/talent/…` bez linku publicznego nie jest identyfikatorem profilu.
+  Zapis zwraca istniejącą osobę (`created: false`) tylko przy zgodnym linku
+  publicznym. Ta ścieżka nie korzysta z `find_candidate_duplicates` i nie
+  zmienia zasad rozpoznawania właściciela wgrywanego CV.
 - `/from-cv` robi jedno sprawdzenie e-maila: bez `force` odmowa 409 niesie
   `existing_candidate_id` (czytają go okna i klient JustJoin, który podpina
   wtedy CV do tego profilu), z `force` zostaje zdanie „Kandydat z tym adresem

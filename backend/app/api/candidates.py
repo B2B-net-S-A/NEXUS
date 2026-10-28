@@ -4410,15 +4410,15 @@ async def _assign_candidate_to_job(
     # zapisujące `CandidateStage` (`/api/pipeline/move`, rekomendacje, bulk).
     # Blokuje twardo globalną czarną listę; konflikty z klientem (czarna lista
     # klienta / NDA / konkurent) są od 17.09.2026 ostrzeżeniem i tu nie
-    # blokują — dokładnie jak w kanbanie. `enforce_manager_verdict=False`, bo
-    # weto hiring managera rozstrzyga wywołujący (degraduje je do
-    # `assignment_skipped_reason` zamiast 409).
+    # blokują — dokładnie jak w kanbanie. Weto hiring managera sprawdza ta
+    # wspólna bramka; wtyczka zamienia odmowę 409 na powód pominięcia
+    # rekrutacji zamiast otwierać proces z pominięciem weta.
     await assert_candidate_move_eligible(
         db,
         candidate_id=candidate_id,
         job=job,
         now=datetime.now(timezone.utc),
-        enforce_manager_verdict=False,
+        enforce_manager_verdict=True,
     )
 
     stage_row = await open_process(
