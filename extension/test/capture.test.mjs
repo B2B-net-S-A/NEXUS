@@ -6,6 +6,7 @@
 import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { parseHTML } from "linkedom";
+import { readFileSync } from "node:fs";
 
 let capturePage, captureConfig, readPage;
 
@@ -134,4 +135,72 @@ test("captureConfig: przewijanie tylko na profilach, imię z h2 na profilu publi
   assert.equal(captureConfig("https://www.linkedin.com/talent/profile/AEMA1").scroll, true);
   assert.equal(captureConfig("https://www.linkedin.com/search/results/people/?k=1").scroll, false);
   assert.ok(captureConfig(PROFILE_URL).scrollBudgetMs <= 4000);
+});
+
+const RECRUITER_PROFILE_URL = "https://www.linkedin.com/talent/hire/555/discover/recruiterSearch/profile/AEMAFAKE3";
+const RECRUITER_SLIDEIN = readFileSync(new URL("./fixtures/recruiter-slidein.html", import.meta.url), "utf8");
+
+test("Recruiter capture: active slide-in and its bound portal, without background candidate data", async () => {
+  load(RECRUITER_SLIDEIN, RECRUITER_PROFILE_URL);
+  const snap = await capturePage({ ...captureConfig(RECRUITER_PROFILE_URL), scroll: false });
+  assert.equal(snap.profileScopeInvalid, false);
+  assert.equal(snap.heading.text, "Zofia Testowa");
+  assert.ok(snap.top.lines.includes("Zofia Testowa"));
+  assert.equal(snap.links.length, 1);
+  assert.equal(snap.links[0].href, "https://www.linkedin.com/in/zofia-testowa-synthetic/");
+  assert.doesNotMatch(snap.html, /Marta Fikcyjna|Tomasz Testowy|Projekt Fikcyjny|zofia-testowa-other|rekruter-fikcyjny/);
+  const doc = parseHTML(snap.html).document;
+  const result = readPage({ url: snap.url, snapshot: snap, doc });
+  assert.equal(result.profile.full_name, "Zofia Testowa");
+  assert.equal(result.profile.public_url, "https://www.linkedin.com/in/zofia-testowa-synthetic");
+  assert.equal(result.profile.current_company, "Fikcyjna Software");
+  assert.equal(result.profile.experience.length, 3);
+  assert.equal(readPage({ url: snap.url, snapshot: snap }).profile.full_name, "Zofia Testowa");
+});
+
+test("Recruiter capture: conflicting bound portals never choose the first URL", async () => {
+  load(RECRUITER_SLIDEIN, RECRUITER_PROFILE_URL);
+  document.querySelector('.profile__topcard-wrapper button').setAttribute('aria-describedby', 'unrelated-public-profile');
+  const snap = await capturePage({ ...captureConfig(RECRUITER_PROFILE_URL), scroll: false });
+  assert.equal(snap.links.length, 2);
+  assert.equal(readPage({ url: snap.url, snapshot: snap }).profile.public_url, null);
+});
+
+test("Recruiter capture: multiple active roots fail closed and do not clone background data", async () => {
+  load(RECRUITER_SLIDEIN, RECRUITER_PROFILE_URL);
+  document.body.appendChild(document.querySelector('.profile__container').cloneNode(true));
+  const snap = await capturePage({ ...captureConfig(RECRUITER_PROFILE_URL), scroll: false });
+  assert.equal(snap.profileScopeInvalid, true);
+  assert.equal(snap.heading, null);
+  assert.deepEqual(snap.links, []);
+  assert.doesNotMatch(snap.html, /Zofia Testowa|Marta Fikcyjna|Tomasz Testowy|Projekt Fikcyjny/);
+  assert.equal(readPage({ url: snap.url, snapshot: snap }).profile.full_name, null);
+});
+
+test("Recruiter capture: pending profile never captures the background search result", async () => {
+  load(RECRUITER_SLIDEIN, RECRUITER_PROFILE_URL);
+  document.querySelector('.profile-slidein__container').remove();
+  const snap = await capturePage({ ...captureConfig(RECRUITER_PROFILE_URL), scroll: false });
+  assert.equal(snap.profileScopeInvalid, true);
+  assert.equal(readPage({ url: snap.url, snapshot: snap }).profile.full_name, null);
+  assert.doesNotMatch(snap.html, /Marta Fikcyjna/);
+});
+
+test("Recruiter capture: navigation during lazy-section scrolling cannot mix identities", async () => {
+  load(RECRUITER_SLIDEIN, RECRUITER_PROFILE_URL);
+  const root = document.querySelector('.profile__container');
+  Object.defineProperties(root, {
+    scrollHeight: { value: 600 },
+    clientHeight: { value: 100 },
+    scrollTop: { get: () => 0, set: () => { location.href = RECRUITER_PROFILE_URL.replace('AEMAFAKE3', 'AEMAFAKE4'); } },
+  });
+  globalThis.getComputedStyle = (el) => ({ overflowY: el === root ? 'auto' : 'visible' });
+  try {
+    const snap = await capturePage({ ...captureConfig(RECRUITER_PROFILE_URL), scrollBudgetMs: 50, scrollPauseMs: 1 });
+    assert.equal(snap.profileScopeInvalid, true);
+    assert.equal(readPage({ url: snap.url, snapshot: snap }).profile.full_name, null);
+    assert.doesNotMatch(snap.html, /Zofia Testowa|Marta Fikcyjna/);
+  } finally {
+    delete globalThis.getComputedStyle;
+  }
 });

@@ -102,6 +102,8 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
         ("candidate_claim_taken", "Przejęta", "recruitment_process", "team_task"),
         # 27.10.2026: P0 na rekrutacji — mail obowiązkowy do zespołu.
         ("job_p0_set", "P0: ultrapilne do 28.10 10:09", "job", "job_p0"),
+        # 28.10.2026: Delivery Lead prosi o P0 — mail do Head of Recruitment.
+        ("job_p0_requested", "Marcin K. prosi o P0", "job", "job_p0"),
         # 28.10.2026: zamknięta rekrutacja z Twoimi osobami od „CV wysłane”.
         (
             "job_closed_people_waiting",

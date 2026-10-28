@@ -219,8 +219,11 @@ export function publicUrlFromLinks(links, fullName) {
   };
   const labels = PUBLIC_LINK_LABELS.map((l) => l.toLowerCase());
   const all = (links || []).filter((l) => slugFromHref(l.href));
-  const labelled = all.find((l) => labels.some((x) => `${l.text} ${l.label}`.toLowerCase().includes(x)));
-  if (labelled) return accept(labelled.href);
+  const labelled = all.filter((l) => labels.some((x) => `${l.text} ${l.label}`.toLowerCase().includes(x)));
+  if (labelled.length) {
+    const urls = [...new Set(labelled.map((l) => accept(l.href)).filter(Boolean))];
+    return urls.length === 1 ? urls[0] : null;
+  }
   const uniq = (list) => [...new Set(list.map((l) => slugFromHref(l.href)))];
   const inTop = uniq(all.filter((l) => l.inTop && !l.foreign));
   if (inTop.length === 1) return accept(`/in/${inTop[0]}`);

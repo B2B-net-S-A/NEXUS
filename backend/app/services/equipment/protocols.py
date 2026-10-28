@@ -211,6 +211,23 @@ async def get_protocol(db: AsyncSession, protocol_id: int) -> EquipmentProtocol:
     return protocol
 
 
+async def lock(db: AsyncSession, protocol: EquipmentProtocol) -> None:
+    """Zamek na zmianę stanu: najpierw linki protokołu, potem sam protokół.
+
+    Ta sama kolejność co podpis linkiem (``load_link`` blokuje link, potem
+    zapisuje protokół), więc równoległe zmiany czekają na siebie zamiast się
+    zakleszczać. Protokół jest czytany na nowo — zmiana z innej transakcji
+    (anulowanie, podpis, potwierdzenie) nie zostaje nadpisana starą kopią.
+    """
+    await db.execute(
+        select(EquipmentProtocolLink.id)
+        .where(EquipmentProtocolLink.protocol_id == protocol.id)
+        .order_by(EquipmentProtocolLink.id)
+        .with_for_update()
+    )
+    await db.refresh(protocol, with_for_update=True)
+
+
 async def render(
     db: AsyncSession, protocol: EquipmentProtocol
 ) -> protocol_document.ProtocolView:
@@ -324,6 +341,10 @@ def protocol_payload(
         "confirmed_at": (
             protocol.confirmed_at.isoformat() if protocol.confirmed_at else None
         ),
+        "cancelled_at": (
+            protocol.cancelled_at.isoformat() if protocol.cancelled_at else None
+        ),
+        "cancel_reason": protocol.cancel_reason,
         "template_version": protocol.template_version,
         "template_id": protocol.template_id,
         "created_at": protocol.created_at.isoformat() if protocol.created_at else None,
@@ -405,6 +426,7 @@ async def create_link(
     db: AsyncSession, protocol: EquipmentProtocol, *, actor: User
 ) -> tuple[EquipmentProtocolLink, str]:
     """Nowy link (poprzednie niezużyte przestają działać). Zwraca surowy token."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     if protocol.status == "podpisany":
         raise EquipmentConflict("Protokół jest już podpisany — czeka na potwierdzenie.")
@@ -517,6 +539,7 @@ async def save_signed_file(
     actor: User,
 ) -> EquipmentProtocol:
     """Skan albo PDF z podpisem zaufanym, wgrany przez recepcję."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     if method not in ("papier", "profil_zaufany"):
         raise EquipmentError("Wybierz: podpis na papierze albo profilem zaufanym.")
@@ -571,6 +594,7 @@ async def confirm(
     actor: User,
 ) -> EquipmentProtocol:
     """Człowiek potwierdza podpis (link, papier, profil zaufany)."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     now = datetime.now(timezone.utc)
     if protocol.status == "oczekuje":

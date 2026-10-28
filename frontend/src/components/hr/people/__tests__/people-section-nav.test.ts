@@ -48,6 +48,17 @@ describe("zakładki obszaru „Ludzie”", () => {
     expect(values(config({ is_manager: true, direct_reports: 2 }))).toContain("approvals");
   });
 
+  it("„Raporty godzin” + Płace (back office, 28.10.2026): akceptacje i płace bez zespołu", () => {
+    expect(values(config({ timesheets: true, payroll: true }))).toEqual([
+      "directory",
+      "calendar",
+      "approvals",
+      "payroll",
+    ]);
+    // Samo „Płace” nie akceptuje raportów godzin — zakładki „Akceptacje” nie ma.
+    expect(values(config({ payroll: true }))).not.toContain("approvals");
+  });
+
   it("Płace tylko z uprawnieniem", () => {
     expect(values(config({ cases: true }))).not.toContain("payroll");
     expect(values(config({ payroll: true }))).toContain("payroll");

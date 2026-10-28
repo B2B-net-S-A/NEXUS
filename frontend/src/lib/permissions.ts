@@ -31,7 +31,9 @@ export type Permission =
   | "cases"
   // Sprzedaż (Atlas → NEXUS, 26.10.2026).
   | "sales_view"
-  | "sales_edit";
+  | "sales_edit"
+  // Raporty godzin (28.10.2026): akceptacja timesheetów całej firmy bez Kadr.
+  | "timesheets";
 
 export type PermissionGroupKey =
   | "clients_contracts"

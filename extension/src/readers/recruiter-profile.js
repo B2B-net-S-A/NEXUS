@@ -15,12 +15,33 @@ import {
   safeQueryAll,
   slugContradictsName,
   slugFromHref,
+  visibleText,
 } from "./dom.js";
+import { profileScopes, recruiterRoot } from "./recruiter-root.js";
 import { parseDateRange } from "./dates.js";
 import { currentPosition, parseExperienceSection } from "./experience.js";
 import { firstHeading, headlineHeuristic, missingFields, readAbout, readSkills, splitTitleCompany } from "./profile.js";
 
 function readPositions(root) {
+  // Measured Recruiter layout: singles and grouped roles both expose a title
+  // link inside a definition list. DT labels and aria-hidden separators are
+  // not values; dates come from DDs and the employer from this same LI.
+  const linked = safeQueryAll(root, RECRUITER.position.titleLink).map((link) => {
+    const dl = link.closest?.("dl");
+    const item = link.closest?.("li");
+    if (!dl || !item) return null;
+    const grouped = item.querySelector?.(RECRUITER.position.groupedCompany);
+    const companyNode = grouped || RECRUITER.position.company.flatMap((sel) => safeQueryAll(dl, sel))[0];
+    const range = safeQueryAll(dl, "dd").map((dd) => parseDateRange(clean(dd.textContent))).find(Boolean);
+    return {
+      title: visibleText(link) || null,
+      company: clean(companyNode?.textContent).split(" · ")[0] || null,
+      start: range?.start ?? null,
+      end: range?.end ?? null,
+      current: range?.current ?? false,
+    };
+  }).filter(Boolean);
+  if (linked.length) return linked;
   for (const sel of RECRUITER.position.item) {
     const items = safeQueryAll(root, sel);
     if (!items.length) continue;
@@ -51,20 +72,20 @@ function slugsFrom(anchors, { skipForeign }) {
 }
 
 /** Link do profilu publicznego; null, gdy nie ma pewności. */
-export function findPublicUrl(doc, container, fullName) {
+export function findPublicUrl(doc, container, fullName, root = mainRoot(doc)) {
   const accept = (slug) => (slug && !slugContradictsName(slug, fullName) ? publicUrlFromSlug(slug) : null);
-
-  for (const sel of RECRUITER.publicLinkSelectors) {
-    const hit = accept(slugsFrom(safeQueryAll(doc, sel), { skipForeign: false })[0]);
-    if (hit) return hit;
-  }
   const labels = RECRUITER.publicLinkLabels.map((l) => l.toLowerCase());
-  const labelled = safeQueryAll(doc, "a[href*='/in/']").filter((a) => {
+  const scoped = profileScopes(doc, root);
+  const explicit = scoped.flatMap((scope) => RECRUITER.publicLinkSelectors.flatMap((sel) => safeQueryAll(scope, sel)));
+  const labelled = scoped.flatMap((scope) => safeQueryAll(scope, "a[href*='/in/']")).filter((a) => {
     const t = `${clean(a.textContent)} ${clean(a.getAttribute?.("aria-label"))} ${clean(a.getAttribute?.("title"))}`.toLowerCase();
     return labels.some((l) => t.includes(l));
   });
-  const fromLabel = accept(slugsFrom(labelled, { skipForeign: false })[0]);
-  if (fromLabel) return fromLabel;
+  const named = [...new Set(explicit.concat(labelled))];
+  if (named.length) {
+    const urls = [...new Set(slugsFrom(named, { skipForeign: false }).map(accept).filter(Boolean))];
+    return urls.length === 1 ? urls[0] : null;
+  }
 
   if (container) {
     const inCard = slugsFrom(safeQueryAll(container, "a[href*='/in/']"), { skipForeign: false });
@@ -74,27 +95,32 @@ export function findPublicUrl(doc, container, fullName) {
     }
   }
   // Szeroko tylko wtedy, gdy w treści jest dokładnie jeden kandydat na link.
-  const wide = slugsFrom(safeQueryAll(mainRoot(doc), "a[href*='/in/']"), { skipForeign: true });
+  const wide = slugsFrom(safeQueryAll(root, "a[href*='/in/']"), { skipForeign: true });
   return wide.length === 1 ? accept(wide[0]) : null;
 }
 
 export function readRecruiterProfile(doc, url) {
-  const main = mainRoot(doc);
+  const main = recruiterRoot(doc);
+  if (!main) {
+    const profile = { page_kind: "recruiter_profile", page_url: url, full_name: null, public_url: null };
+    return { profile, missing: missingFields(profile) };
+  }
   const container = firstElement(main, RECRUITER.container) || main;
   const heading = firstHeading(container) || firstHeading(main);
   const fullName = firstText(container, RECRUITER.name) || heading?.text || "";
   const headline = firstText(container, RECRUITER.headline) || headlineHeuristic(container, fullName);
-  const location = firstText(container, RECRUITER.location);
+  // Recruiter prefixes the topcard location with a decorative middle dot/bullet.
+  const location = firstText(container, RECRUITER.location).replace(/^[·•]\s*/, "");
 
   let experience = readPositions(main);
-  if (!experience.length) experience = parseExperienceSection(findSection(doc, "experience"));
+  if (!experience.length) experience = parseExperienceSection(findSection(main, "experience"));
   const current = currentPosition(experience);
   const fromHeadline = splitTitleCompany(headline);
 
   const profile = {
     page_kind: "recruiter_profile",
     page_url: url,
-    public_url: findPublicUrl(doc, container, fullName),
+    public_url: findPublicUrl(doc, container, fullName, main),
     full_name: fullName || null,
     headline: headline || null,
     location: location || null,
@@ -102,7 +128,7 @@ export function readRecruiterProfile(doc, url) {
     current_title: current?.title || fromHeadline.title || null,
     experience,
     skills: readSkills(main, RECRUITER.skill),
-    about: readAbout(doc) || null,
+    about: readAbout(main) || null,
   };
   return { profile, missing: missingFields(profile) };
 }

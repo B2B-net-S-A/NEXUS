@@ -70,7 +70,6 @@ from app.services.hr.leave_context import candidate_payload, substitute_candidat
 from app.services.hr.leave_policy import LeavePolicyError
 from app.services.hr.leave_queries import history_counts, mask_for_viewer
 from app.services.hr.modules import HrModule, load_modules, module_open_for
-from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
 from app.services.permission_denial import ensure_any_permission
 
@@ -93,16 +92,7 @@ def require_hr_leave_approver():
         db: AsyncSession = Depends(get_db),
     ) -> User:
         await ensure_module(db, current_user, MODULE)
-        if service.actor_of(current_user).sees_everyone:
-            return current_user
-        if await people.direct_report_ids(db, current_user.id):
-            return current_user
-        if await leave_substitute.covered_reports(
-            db, current_user.id, business_today()
-        ):
-            return current_user
-        # Head pionu prowadzi osoby swojego pionu bez żywego przełożonego.
-        if await division_charges(db, current_user.id):
+        if await service.is_leave_approver(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
@@ -187,6 +177,13 @@ class DecisionIn(BaseModel):
 
 class RejectIn(BaseModel):
     note: str = Field(min_length=1, max_length=2000)
+
+
+class LeaveCancelIn(BaseModel):
+    """Powód cofnięcia — wymagany od pierwszego dnia (3–500 znaków, polskie
+    komunikaty z ``leave_policy.approver_cancel_refusal``)."""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ConsentIn(BaseModel):
@@ -680,11 +677,16 @@ async def reject_request(
 async def cancel_team_request(
     request_id: uuid.UUID,
     current_user: LeaveApprover,
+    payload: Optional[LeaveCancelIn] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         outcome = await service.cancel_as_approver(
-            db, actor=current_user, request_id=request_id, today=business_today()
+            db,
+            actor=current_user,
+            request_id=request_id,
+            today=business_today(),
+            reason=payload.reason if payload else None,
         )
     except _HANDLED as exc:
         await db.rollback()

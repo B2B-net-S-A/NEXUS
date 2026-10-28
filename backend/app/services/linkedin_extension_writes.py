@@ -28,6 +28,7 @@ from app.schemas.candidate import CandidateCreate
 from app.schemas.linkedin_extension import ContactRequest, ProfileRead, SkippedJob
 from app.schemas.note import NoteCreate
 from app.services import client_off_limits
+from app.services.candidate_name_rules import strip_name_markers
 from app.services.linkedin_extension_lookup import (
     CHANNEL_LABELS,
     CONTACT_SOURCE_PREFIX,
@@ -97,7 +98,8 @@ async def create_candidate(
     if match.status == "found" and match.matched_by == "linkedin" and match.candidate:
         return match.candidate, False
 
-    name, lastname = split_full_name(profile.full_name)
+    full_name, _markers = strip_name_markers(profile.full_name)
+    name, lastname = split_full_name(full_name)
     if not name or not lastname:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

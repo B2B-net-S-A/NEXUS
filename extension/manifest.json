@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "NEXUS — LinkedIn",
   "short_name": "NEXUS",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Panel boczny NEXUSA na LinkedInie: sprawdź osobę w bazie, dodaj ją do rekrutacji i zapisz kontakt.",
   "minimum_chrome_version": "116",
   "action": {

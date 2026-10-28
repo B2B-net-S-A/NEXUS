@@ -249,6 +249,8 @@ async def test_edit_after_parallel_cancel_is_a_conflict(app_client, modules_on) 
                 actor=other_actor,
                 request_id=uuid.UUID(request_id),
                 today=MON,
+                # Pierwszy dzień urlopu — od 28.10.2026 cofnięcie wymaga powodu.
+                reason="Wpis pomyłkowy",
             )
             await other.commit()
         try:

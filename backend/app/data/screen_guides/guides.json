@@ -828,7 +828,7 @@
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W „Raportach godzin” (chip albo pod listą) wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła osobie przypomnienie (raz dziennie). Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”.",
+        "a": "W „Raportach godzin” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”. Całą firmę przyjmują Kadry i „Raporty godzin”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
@@ -862,7 +862,7 @@
       {
         "id": "hr.approvals.history",
         "label": "Zdecydowane",
-        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja i anulowanie, oraz rozpatrzone zgody."
+        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
       },
       {
         "id": "hr.approvals.on_behalf",

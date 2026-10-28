@@ -57,6 +57,7 @@ from app.services.action_permissions import ProductAction, has_permission
 from app.services.equipment import (
     importer,
     issuing,
+    protocol_changes,
     protocol_document,
     protocol_template,
     protocols,
@@ -268,6 +269,26 @@ class ReturnIn(BaseModel):
 class ConfirmIn(BaseModel):
     method: Optional[Literal["papier", "profil_zaufany"]] = None
     signer_name: Optional[str] = Field(default=None, max_length=200)
+
+
+class ProtocolLineFix(BaseModel):
+    position: int = Field(ge=1)
+    unit_value: Optional[Decimal] = Field(default=None, ge=0, le=Decimal("9999999"))
+    accessories: Optional[str] = Field(default=None, max_length=200)
+    condition: Optional[Condition] = None
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+class ProtocolFix(BaseModel):
+    """Poprawka przed podpisem — przysłane pola zmieniają, brak pola = bez zmiany."""
+
+    protocol_date: Optional[date] = None
+    holder_name: Optional[str] = Field(default=None, max_length=200)
+    lines: list[ProtocolLineFix] = Field(default_factory=list, max_length=40)
+
+
+class ProtocolCancelIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class TaskPatch(BaseModel):
@@ -580,10 +601,60 @@ async def _protocol(db: AsyncSession, protocol_id: int):
 async def get_protocol(
     protocol_id: int, _: User = Depends(_manager), db: AsyncSession = Depends(get_db)
 ) -> dict:
-    protocol = await _protocol(db, protocol_id)
+    return await _protocol_detail(db, await _protocol(db, protocol_id))
+
+
+async def _protocol_detail(db: AsyncSession, protocol) -> dict:
+    """Protokół z pozycjami i linkiem; pozycje wydania niosą podstawę nazwy
+    i dodatki do okna „Popraw protokół”."""
     lines = await protocols.protocol_lines(db, protocol.id)
     link = await protocols.latest_link(db, protocol.id)
-    return protocols.protocol_payload(protocol, lines, link=link)
+    payload = protocols.protocol_payload(protocol, lines, link=link)
+    editable = await protocol_changes.editable_lines(db, protocol, lines)
+    for line in payload["lines"]:
+        line.update(editable.get(line["position"], {}))
+    return payload
+
+
+@router.patch("/protocols/{protocol_id}")
+async def correct_protocol(
+    protocol_id: int,
+    payload: ProtocolFix,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Poprawka protokołu przed podpisem (decyzja Artura 28.10.2026)."""
+    fields = payload.model_dump(
+        include={"protocol_date", "holder_name"}, exclude_unset=True
+    )
+    try:
+        protocol, link_revoked = await protocol_changes.correct(
+            db,
+            protocol_id,
+            fields=fields,
+            lines=[line.model_dump(exclude_unset=True) for line in payload.lines],
+            actor=current_user,
+        )
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return {**await _protocol_detail(db, protocol), "link_revoked": link_revoked}
+
+
+@router.post("/protocols/{protocol_id}/cancel")
+async def cancel_protocol(
+    protocol_id: int,
+    payload: ProtocolCancelIn,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Anulowanie niepotwierdzonego protokołu z powodem (decyzja Artura 28.10.2026)."""
+    try:
+        protocol = await protocol_changes.cancel(
+            db, protocol_id, reason=payload.reason, actor=current_user
+        )
+    except EquipmentError as exc:
+        raise _http(exc) from exc
+    return await _protocol_detail(db, protocol)
 
 
 @router.get("/protocols/{protocol_id}/document.docx")

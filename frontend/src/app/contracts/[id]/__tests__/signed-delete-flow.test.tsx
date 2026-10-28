@@ -662,6 +662,9 @@ describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () =
     expect(params.get("contract")).toBe("563");
     expect(params.get("v_termination_date")).toBe("2026-10-19");
     expect(params.get("v_last_service_date")).toBe("2026-10-19");
+    expect(
+      within(reminder).getByRole("link", { name: "Wszystkie nierozwiązane umowy" }),
+    ).toHaveAttribute("href", "/contracts?status=all&agreement=not_terminated");
   });
 
   it("umowa rozwiązana albo zlecenie — bez przypomnienia", async () => {

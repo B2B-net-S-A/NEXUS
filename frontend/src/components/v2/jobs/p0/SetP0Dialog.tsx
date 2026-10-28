@@ -17,10 +17,11 @@ import {
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
-import { invalidateP0, setJobP0 } from "@/lib/api/jobP0";
+import { invalidateP0, requestJobP0, setJobP0 } from "@/lib/api/jobP0";
 import {
   P0_DURATION_OPTIONS,
   P0_HINT,
+  P0_REQUEST_HINT,
   P0_REASON_MAX,
   validateP0Reason,
   type P0Duration,
@@ -33,11 +34,17 @@ export interface SetP0DialogProps {
   onOpenChange: (open: boolean) => void;
   /** Obecny powód, gdy P0 już trwa — ponowne ustawienie go nadpisuje. */
   initialReason?: string | null;
+  /**
+   * `request` — Delivery Lead rekrutacji prosi o P0 (28.10.2026), Head of
+   * Recruitment zatwierdza. `set` — HoR i administrator ustawiają od razu.
+   */
+  mode?: "set" | "request";
 }
 
 /**
  * Okno „Ustaw P0” (27.10.2026) — z menu priorytetu w nagłówku i z przycisku
- * „P0 na 24 h” w Daily. Powód obowiązkowy, bo widzą go wszyscy.
+ * „P0 na 24 h” w Daily. Powód obowiązkowy, bo widzą go wszyscy. W trybie
+ * `request` to samo okno wysyła prośbę Delivery Leada (28.10.2026).
  */
 export function SetP0Dialog({
   jobId,
@@ -45,7 +52,9 @@ export function SetP0Dialog({
   open,
   onOpenChange,
   initialReason,
+  mode = "set",
 }: SetP0DialogProps) {
+  const asking = mode === "request";
   const queryClient = useQueryClient();
   const toast = useToast();
   const [reason, setReason] = useState(initialReason ?? "");
@@ -59,16 +68,24 @@ export function SetP0Dialog({
     if (error) return;
     setSaving(true);
     try {
-      const state = await setJobP0(jobId, { reason: clean, duration });
-      invalidateP0(queryClient, jobId);
-      toast.showSuccess(
-        state.notified > 0
-          ? `P0 ustawione. Zespół rekrutacji dostał powiadomienie i mail (${state.notified}).`
-          : "P0 ustawione.",
-      );
+      if (asking) {
+        await requestJobP0(jobId, { reason: clean, duration });
+        invalidateP0(queryClient, jobId);
+        toast.showSuccess("Prośba o P0 wysłana do Head of Recruitment.");
+      } else {
+        const state = await setJobP0(jobId, { reason: clean, duration });
+        invalidateP0(queryClient, jobId);
+        toast.showSuccess(
+          state.notified > 0
+            ? `P0 ustawione. Zespół rekrutacji dostał powiadomienie i mail (${state.notified}).`
+            : "P0 ustawione.",
+        );
+      }
       onOpenChange(false);
     } catch (err) {
-      toast.showError(apiErrorMessage(err, "Nie udało się ustawić P0."));
+      toast.showError(
+        apiErrorMessage(err, asking ? "Nie udało się wysłać prośby o P0." : "Nie udało się ustawić P0."),
+      );
     } finally {
       setSaving(false);
     }
@@ -88,10 +105,10 @@ export function SetP0Dialog({
     >
       <DialogContent size="sm" aria-describedby="set-p0-desc" data-testid="set-p0-dialog">
         <DialogHeader>
-          <DialogTitle>Ustaw P0 — ultrapilne</DialogTitle>
+          <DialogTitle>{asking ? "Poproś o P0 — ultrapilne" : "Ustaw P0 — ultrapilne"}</DialogTitle>
           <DialogDescription id="set-p0-desc">
             {jobTitle ? `${jobTitle}. ` : ""}
-            {P0_HINT}
+            {asking ? P0_REQUEST_HINT : P0_HINT}
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-4">
@@ -134,7 +151,7 @@ export function SetP0Dialog({
             Anuluj
           </Button>
           <Button variant="destructive" onClick={() => void submit()} loading={saving}>
-            Ustaw P0
+            {asking ? "Wyślij prośbę" : "Ustaw P0"}
           </Button>
         </DialogFooter>
       </DialogContent>

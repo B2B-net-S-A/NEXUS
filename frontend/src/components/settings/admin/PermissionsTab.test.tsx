@@ -45,7 +45,7 @@ function permissionSwitch(name: string) {
   return screen.getByRole("switch", { name });
 }
 
-describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
+describe("PermissionsTab — jedna rola, szesnaście przełączników", () => {
   beforeEach(() => {
     hrProgram.on = true;
     vi.clearAllMocks();
@@ -109,7 +109,7 @@ describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
     ).toBeNull();
   });
 
-  it("rysuje pięć grup i piętnaście przełączników ze stanem roli", async () => {
+  it("rysuje pięć grup i szesnaście przełączników ze stanem roli", async () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
@@ -117,7 +117,7 @@ describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
       ["Klienci i kontrakty", 5],
       ["Rekrutacje", 1],
       ["Pieniądze", 3],
-      ["Ludzie", 4],
+      ["Ludzie", 5],
       ["Sprzedaż", 2],
     ] as const) {
       expect(
@@ -127,7 +127,7 @@ describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie", "Sprzedaż"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(15);
+    expect(screen.getAllByRole("switch")).toHaveLength(16);
     expect(
       permissionSwitch("Finanse: Kontrakty i zamówienia: tworzenie i edycja"),
     ).toBeChecked();
@@ -480,7 +480,7 @@ describe("PermissionsTab — jedna rola, piętnaście przełączników", () => {
 
     await user.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(15);
+    expect(await screen.findAllByRole("switch")).toHaveLength(16);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

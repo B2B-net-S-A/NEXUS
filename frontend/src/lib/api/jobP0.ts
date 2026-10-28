@@ -22,10 +22,32 @@ export interface P0Job {
   recruiters: string[]
 }
 
+/** Prośba Delivery Leada o P0 (28.10.2026) — czeka na Head of Recruitment. */
+export interface P0Request {
+  job_id: number
+  title: string
+  client_name: string | null
+  reason: string
+  duration: P0Duration
+  requested_at: string
+  requested_by_name: string | null
+}
+
 export interface P0JobsList {
+  /** P0 zespołów patrzącego; Head of Recruitment i administrator — wszystkie. */
   items: P0Job[]
   /** Czy patrzący ustawia P0 (Head of Recruitment, administrator). */
   can_set: boolean
+  /** Oczekujące prośby DL: HoR i administrator — wszystkie, DL — swoje. */
+  requests?: P0Request[]
+}
+
+export interface P0RequestState {
+  job_id: number
+  p0_requested: boolean
+  p0_request_reason: string | null
+  p0_request_duration: P0Duration | null
+  notified?: number
 }
 
 export interface P0State {
@@ -68,6 +90,24 @@ export async function extendJobP0(jobId: number): Promise<P0State> {
 
 export async function clearJobP0(jobId: number): Promise<P0State> {
   return (await api.delete<P0State>(`/api/jobs/${jobId}/p0`)).data
+}
+
+/** Delivery Lead rekrutacji prosi o P0 — Head of Recruitment dostaje dzwonek i mail. */
+export async function requestJobP0(
+  jobId: number,
+  body: { reason: string; duration: P0Duration },
+): Promise<P0RequestState> {
+  return (await api.post<P0RequestState>(`/api/jobs/${jobId}/p0/request`, body)).data
+}
+
+/** „Zatwierdź” prośbę — P0 z powodem i czasem z prośby. */
+export async function approveJobP0Request(jobId: number): Promise<P0State> {
+  return (await api.post<P0State>(`/api/jobs/${jobId}/p0/request/approve`)).data
+}
+
+/** „Odrzuć” (HoR, admin) albo „Wycofaj” (DL, który prosił). */
+export async function rejectJobP0Request(jobId: number): Promise<P0RequestState> {
+  return (await api.delete<P0RequestState>(`/api/jobs/${jobId}/p0/request`)).data
 }
 
 /** Po zmianie P0: rekrutacja, listy, Daily, pasek i pulpit. */

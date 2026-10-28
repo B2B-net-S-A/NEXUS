@@ -157,6 +157,10 @@ class NotificationType(str, enum.Enum):
     # alarm bez blokady do adminów i Head of Recruitment, mail od razu
     # (`services/candidate_data_access_alerts.py`).
     candidate_data_access_alert = "candidate_data_access_alert"
+    # 0612 (28.10.2026): ktoś zalogował się pierwszy raz przez Microsoft —
+    # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
+    # mail od razu (`services/new_person_setup.py`).
+    new_person_signed_in = "new_person_signed_in"
     # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
     # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
     # dzienna lista do dopisania, tylko admini, mail od razu
@@ -278,6 +282,10 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
+    # 0610 (28.10.2026): Delivery Lead prosi o P0 dla swojej rekrutacji —
+    # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
+    # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
+    job_p0_requested = "job_p0_requested"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"

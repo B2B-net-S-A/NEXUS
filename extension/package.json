@@ -1,6 +1,6 @@
 {
   "name": "nexus-linkedin-extension",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "description": "Wtyczka Chrome NEXUS — LinkedIn (panel boczny). Bez bundlera; npm tylko do testów.",
   "type": "module",

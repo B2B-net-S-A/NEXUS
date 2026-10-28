@@ -78,7 +78,9 @@ typu dokumentu.
 - **Przypomnienie na zakończonym kontrakcie B2B bez rozwiązania**
   (`data-testid="agreement-not-terminated"` na karcie „Zakończenie
   współpracy”) z linkiem „Przygotuj porozumienie” i datą końca projektu —
-  dla zaległych umów sprzed zmiany.
+  dla zaległych umów sprzed zmiany. Drugi link, „Wszystkie nierozwiązane
+  umowy”, prowadzi do filtra rejestru (`filtr-umowa-nierozwiazana-w-rejestrze.md`),
+  bo zespół domyka zaległe umowy z tej jednej listy (decyzja Artura 28.10.2026).
 - Testy: `ContractTerminationDialog.test.tsx` („przygotuj porozumienie”),
   `contract-termination.test.ts`, `b2b-documents.test.ts` („adres kreatora”),
   `app/contracts/[id]/__tests__/signed-delete-flow.test.tsx`.
