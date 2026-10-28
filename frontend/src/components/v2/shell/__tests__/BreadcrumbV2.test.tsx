@@ -147,3 +147,47 @@ describe("BreadcrumbV2 — polskie nazwy segmentów (UAT M01-B09, M03-B09, M11-B
     expect(await screen.findByText("Tester")).toBeInTheDocument();
   });
 });
+
+describe("BreadcrumbV2 — ciasny pasek przy 1280 px (28.10.2026)", () => {
+  // Rekruter z P0, Ligą i licznikiem celów miał na okruszki 93 px, a stałe
+  // „Dashboard › Kandydaci” (178 px) wychodziło pod wyszukiwarkę. jsdom nie
+  // liczy układu, więc test pilnuje mechanizmu; pomiar robi e2e
+  // „górny pasek — licznik celów” na `/preview/kpi-topbar`.
+  async function navAt(pathname: string) {
+    mocks.get.mockResolvedValueOnce({ data: { name: "Adam", lastname: "Przykładowy" } });
+    renderAt(pathname);
+    await screen.findByText("Adam Przykładowy");
+    return screen.getByRole("navigation", { name: "Ścieżka" });
+  }
+
+  it("ścieżka ma jeden wiersz, a nadmiar spada do ukrytego, zamiast wystawać", async () => {
+    const nav = await navAt("/candidates/171672");
+    expect(nav).toHaveClass("flex-wrap", "h-5", "overflow-hidden");
+  });
+
+  it("ustępują całe okruszki od początku, nazwa zostaje — DOM bez zmian", async () => {
+    const nav = await navAt("/candidates/171672");
+    const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];
+    // Czytnik ekranu czyta po kolei: Dashboard → Kandydaci → osoba.
+    expect(items.map((item) => item.textContent)).toEqual(["Dashboard", "Kandydaci", "Adam Przykładowy"]);
+    // Wiersz wypełnia się od nazwy (order 1) wstecz, więc pierwszy do ukrytego
+    // wiersza spada „Dashboard”; `flex-row-reverse` przywraca kolejność na ekranie.
+    expect(nav).toHaveClass("flex-row-reverse");
+    expect(items.map((item) => Number(item.style.order))).toEqual([3, 2, 1]);
+  });
+
+  it("nazwa ma sufit szerokości, żeby długa nie zrzucała sekcji przy szerokim oknie", async () => {
+    const nav = await navAt("/candidates/171672");
+    const last = nav.querySelector<HTMLElement>("[data-crumb]:last-child");
+    expect(last).toHaveClass("min-w-0", "max-w-44");
+    expect(screen.getByText("Kandydaci").closest("[data-crumb]")).toHaveClass("shrink-0");
+  });
+
+  it("strzałka stoi za okruszkiem, więc po ukryciu początku ścieżka nie zaczyna się od „›”", async () => {
+    const nav = await navAt("/candidates/171672");
+    const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];
+    expect(items[1].firstElementChild?.tagName).not.toBe("svg");
+    expect(items[1].lastElementChild?.tagName).toBe("svg");
+    expect(items[2].querySelector("svg")).toBeNull();
+  });
+});
