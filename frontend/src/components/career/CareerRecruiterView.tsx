@@ -9,7 +9,6 @@ import { Cmd, TwoToneTitle } from "./CareerHero";
 import { CareerMotion } from "./CareerMotion";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { TerminalChrome } from "./TerminalChrome";
-import { CAREER_THEMES, isCareerThemeId } from "./themes";
 
 /**
  * Stały link rekrutera (`/<slug>`, etap 6 — makieta 6d): inicjał zamiast
@@ -95,21 +94,12 @@ export function CareerRecruiterView({
               <ul className="kr-rec-jobs">
                 {jobs.map((job) => {
                   const where = jobLocationLabel(job);
-                  const scene = isCareerThemeId(job.theme)
-                    ? CAREER_THEMES[job.theme].label.toLocaleLowerCase("pl-PL")
-                    : null;
                   return (
                     <li key={job.slug}>
                       <a
                         className="kr-rec-job"
                         href={careerHref(base, { to: "job", slug: job.slug })}
                       >
-                        {scene ? (
-                          <span className="kr-rec-scene">
-                            <span className="kr-sr">scena: </span>
-                            {scene}
-                          </span>
-                        ) : null}
                         <span className="kr-rec-job-text">
                           <span className="kr-rec-job-title">{job.title}</span>
                           {where ? (

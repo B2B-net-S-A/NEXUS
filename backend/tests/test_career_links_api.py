@@ -556,12 +556,12 @@ async def test_theme_change_keeps_the_approved_page(api):
     assert before["theme"] is None
     assert before["theme_default"] == "terminal"
 
-    resp = await api.put(url, json={"theme": "radar"}, headers=headers)
+    resp = await api.put(url, json={"theme": "jasny"}, headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "approved"
-    assert resp.json()["theme"] == "radar"
+    assert resp.json()["theme"] == "jasny"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
-    assert page.json()["theme"] == "radar"
+    assert page.json()["theme"] == "jasny"
 
     reset = await api.put(url, json={"theme": None}, headers=headers)
     assert reset.json()["theme"] is None and reset.json()["status"] == "approved"
@@ -570,6 +570,9 @@ async def test_theme_change_keeps_the_approved_page(api):
 
     bad = await api.put(url, json={"theme": "nie-ma-takiego"}, headers=headers)
     assert bad.status_code == 422
+    # Sceny ról wycofane 28.10.2026 — nowego wyboru sceny nie da się zapisać.
+    legacy = await api.put(url, json={"theme": "radar"}, headers=headers)
+    assert legacy.status_code == 422
 
 
 async def test_default_theme_follows_the_role_in_the_title(api):
@@ -581,9 +584,9 @@ async def test_default_theme_follows_the_role_in_the_title(api):
     profile = (
         await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
     ).json()
-    assert profile["theme_default"] == "sekwencja"
+    assert profile["theme_default"] == "jasny"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
-    assert page.json()["theme"] == "sekwencja"
+    assert page.json()["theme"] == "jasny"
 
 
 async def test_poster_needs_a_live_page_and_returns_a_pdf(api):
