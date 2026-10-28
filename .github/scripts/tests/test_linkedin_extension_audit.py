@@ -113,6 +113,16 @@ invalid log "POST /api/candidates/from-linkedin HTTP/1.1" secret data""")
         line = 'INFO: "POST /api/extension/' + "a" * 161 + ' HTTP/1.1" 200 OK'
         self.assertEqual(audit.project_logs(line)["extension_status_counts"], {})
 
+    def test_percent_encoded_key_revocation_paths_are_counted_without_ids(self):
+        message = '"POST /api/extension/connections/v1%24abcdef123456/revoke HTTP/1.1" 204 No Content'
+        production = json.dumps({"name": "uvicorn.access", "message": message})
+        result = audit.project_logs(message + "\n" + production)
+        self.assertEqual(result["extension_status_counts"], {"204": 2})
+        self.assertNotIn("abcdef", json.dumps(result))
+        self.assertNotIn("%24", json.dumps(result))
+        invalid = message.replace("%24", "%GG")
+        self.assertEqual(audit.project_logs(invalid)["extension_status_counts"], {})
+
     def test_invalid_api_shapes_fail_closed(self):
         for bad in ({}, ["bad"]):
             with self.assertRaises(audit.ops.OpsError):
@@ -138,7 +148,11 @@ invalid log "POST /api/candidates/from-linkedin HTTP/1.1" secret data""")
             requests,
             [
                 ("GET", "/api/v1/applications/application/envs"),
-                ("GET", "/api/v1/applications/application/logs?lines=10000"),
+                (
+                    "GET",
+                    "/api/v1/applications/application/logs?lines=10000"
+                    "&service_name=backend&show_timestamps=true",
+                ),
             ],
         )
 

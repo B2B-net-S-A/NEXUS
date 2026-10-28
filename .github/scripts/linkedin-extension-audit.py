@@ -34,7 +34,8 @@ _TIME = re.compile(
 )
 _ACCESS = re.compile(
     r'"(?P<method>GET|POST|DELETE|PUT|PATCH|OPTIONS|HEAD) '
-    r"(?P<path>/api/(?:candidates/from-linkedin|extension/[a-z0-9_$/-]{1,160}))"
+    r"(?P<path>/api/(?:candidates/from-linkedin|"
+    r"extension/(?:[a-z0-9_$/-]|%[0-9A-Fa-f]{2}){1,160}))"
     r'(?:\?[^\s"]*)? HTTP/[0-9.]+" (?P<status>[1-5][0-9]{2})(?:\s|$)'
 )
 
@@ -170,7 +171,11 @@ def main():
     api = ops.Api(os.environ)
     app = ops.checked(os.environ.get("APP_UUID"), r"[A-Za-z0-9-]{1,80}")
     envs = api.request("GET", f"/api/v1/applications/{app}/envs")
-    response = api.request("GET", f"/api/v1/applications/{app}/logs?lines={LOG_LIMIT}")
+    response = api.request(
+        "GET",
+        f"/api/v1/applications/{app}/logs?lines={LOG_LIMIT}"
+        "&service_name=backend&show_timestamps=true",
+    )
     if not isinstance(response, dict):
         raise ops.OpsError("invalid_log_response")
     print(
