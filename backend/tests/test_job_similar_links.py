@@ -515,11 +515,23 @@ def test_entrypoint_mirrors_0341():
         for s in statements
         if s.startswith("CREATE TABLE IF NOT EXISTS job_similar_links (")
     )
+    # 0614 (bliźniaki) dokłada kolumny i CHECK osobnymi poleceniami.
+    added = " ".join(
+        s
+        for s in statements
+        if s.startswith(("ALTER TABLE job_similar_links", "DO $$"))
+    )
     for column in table.columns:
-        assert f" {column.name} " in create or f"({column.name} " in create, column.name
+        assert (
+            f" {column.name} " in create
+            or f"({column.name} " in create
+            or f"ADD COLUMN IF NOT EXISTS {column.name} " in added
+        ), column.name
     for constraint in table.constraints:
         if constraint.name and constraint.name.startswith(("uq_", "ck_")):
-            assert str(constraint.name) in create, constraint.name
+            assert str(constraint.name) in create or str(constraint.name) in added, (
+                constraint.name
+            )
     for index in table.indexes:
         assert any(
             s.startswith(f"CREATE INDEX IF NOT EXISTS {index.name} ")

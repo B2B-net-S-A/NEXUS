@@ -1830,6 +1830,32 @@ async def apply_move(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
+    # Bliźniaki (0614, 28.10.2026): „Zweryfikowany” po screeningu pod każdy
+    # bliźniak albo z jawnym pominięciem (powód zostaje w Historii zdarzeń).
+    from app.services import job_twins  # noqa: PLC0415
+
+    twin_skipped = await job_twins.assert_twin_screening(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=policy.viewer,
+        target_column=target_column,
+        skips=data.twin_skips,
+    )
+    for skip in twin_skipped:
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=data.candidate_id,
+                action="job_twin_skipped",
+                user_id=policy.actor_id,
+                details={
+                    "job_id": data.job_id,
+                    "twin_job_id": skip["job_id"],
+                    "reason": skip["reason"],
+                },
+            )
+        )
     skipped_requirements = debrief_skipped + verified_skipped
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
@@ -5358,6 +5384,18 @@ async def bulk_move_candidates(
             # Ruch zbiorczy nie zapisuje śladu `requirements_skipped` — bramka
             # pól obowiązuje tu także Delivery Leada (22.10.2026).
             allow_skip=False,
+        )
+    # Bliźniaki (0614): ruch zbiorczy nie zna powodów pominięcia — każdy
+    # bliźniak wymaga screeningu pary.
+    from app.services import job_twins  # noqa: PLC0415
+
+    for cid in unique_ids:
+        await job_twins.assert_twin_screening(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
         )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
