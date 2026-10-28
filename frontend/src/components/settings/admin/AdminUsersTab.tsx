@@ -459,7 +459,7 @@ export function AdminUsersTab({
               </button>
             ) : null}
             {counts.pending > 0 || pendingOnly ? (
-              // 0610: konta po pierwszym logowaniu, o których nikt nie zdecydował.
+              // 0612: konta po pierwszym logowaniu, o których nikt nie zdecydował.
               <button
                 type="button"
                 onClick={() => withFirstPage(setPendingOnly)(!pendingOnly)}
@@ -779,7 +779,7 @@ export function filterAdminUsers(
     role: string;
     search: string;
     idle?: boolean;
-    /** Tylko konta czekające na decyzję po pierwszym logowaniu (0610). */
+    /** Tylko konta czekające na decyzję po pierwszym logowaniu (0612). */
     pending?: boolean;
     sort?: AdminUserSort;
   },

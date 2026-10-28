@@ -329,7 +329,7 @@ export type NewJobLeadPendingReason = "assigning" | "passive" | "none" | "not_ha
 export type NewJobLeadSinceReason = "handoff" | "reopen" | "p1";
 
 /**
- * „Nowe osoby do ustawienia” (0610, 28.10.2026): konto po pierwszym logowaniu
+ * „Nowe osoby do ustawienia” (0612, 28.10.2026): konto po pierwszym logowaniu
  * przez Microsoft czeka na decyzję, kim jest, a rekruterowi brakuje kategorii
  * albo przełożonego. Wiersze dostaje wyłącznie admin i Head of Recruitment.
  */

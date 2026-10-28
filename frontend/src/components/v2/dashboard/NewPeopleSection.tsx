@@ -1,6 +1,6 @@
 "use client";
 
-// „Nowe osoby do ustawienia” w „Czeka na Ciebie” (0610, decyzje Artura
+// „Nowe osoby do ustawienia” w „Czeka na Ciebie” (0612, decyzje Artura
 // 28.10.2026) — admin i Head of Recruitment. Konto po pierwszym logowaniu
 // przez Microsoft ma „Zdecyduj”, rekruter bez kategorii albo przełożonego —
 // „Uzupełnij”. Link z dzwonka i maila (`?nowa-osoba=<id>`, przy „Zostaw jako

@@ -9,7 +9,7 @@
  *    admin ją akceptuje, zmienia albo odrzuca (`AllocationProposalsSection`).
  *    Pierwsza sekcja panelu; widzi ją wyłącznie osoba, która o propozycjach
  *    decyduje (`can_decide_proposals`),
- *  - „Nowe osoby do ustawienia” (0610, 28.10.2026) — konto po pierwszym
+ *  - „Nowe osoby do ustawienia” (0612, 28.10.2026) — konto po pierwszym
  *    logowaniu przez Microsoft czeka na decyzję, kim jest, a rekruterowi
  *    brakuje kategorii albo przełożonego; okno „Ustaw” (`NewPeopleSection`).
  *    Admin i Head of Recruitment; liczy się do tego, czy coś „czeka”.
@@ -226,7 +226,7 @@ export function BoardTasksPanel({
   // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
   const proposals =
     data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
-  // „Nowe osoby do ustawienia” (0610) — zadanie admina i Head of Recruitment.
+  // „Nowe osoby do ustawienia” (0612) — zadanie admina i Head of Recruitment.
   const newPeople = data.can_decide_proposals === true ? (data.new_people ?? []) : [];
   const newPeopleFailed = data.can_decide_proposals === true && data.new_people === null;
   const total =

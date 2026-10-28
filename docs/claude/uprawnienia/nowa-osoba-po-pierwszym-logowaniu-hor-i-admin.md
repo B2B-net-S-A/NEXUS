@@ -1,4 +1,4 @@
-# Nowa osoba po pierwszym logowaniu: decyzja HoR albo admina (0610, 28.10.2026)
+# Nowa osoba po pierwszym logowaniu: decyzja HoR albo admina (0612, 28.10.2026)
 <!-- indeks: setup_pending_since, new_person_signed_in, /api/people-setup, „Nowe osoby do ustawienia”, HoR nadaje tylko Rekrutera -->
 
 Prośba Artura z 28.10.2026: kiedy ktoś loguje się pierwszy raz przez
@@ -11,7 +11,7 @@ https://claude.ai/artifact/1JHbBUC392K7peJotFXNgs.
 
 ## Jak działa
 
-- **Znacznik:** `users.setup_pending_since` (0610, DDL w
+- **Znacznik:** `users.setup_pending_since` (0612, DDL w
   `services/new_person_setup_schema.py`, lustro w `entrypoint.sh`). Ustawia go
   `new_person_setup.mark_and_notify` po pierwszym logowaniu SSO, ale tylko
   wtedy, gdy konto zostało samym `employee`. Konto, któremu mapowanie grup AAD

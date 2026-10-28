@@ -1,7 +1,7 @@
 """Nowa osoba w NEXUSIE: znacznik „czeka na decyzję” i dzwonek dla HoR i adminów.
 
-Revision ID: 0610_new_person_setup
-Revises: 0609_skill_catalog_identityiq
+Revision ID: 0612_new_person_setup
+Revises: 0611_equipment_protocol_cancel
 
 Decyzja Artura z 28.10.2026: po pierwszym logowaniu przez Microsoft Head of
 Recruitment i admini dostają dzwonek i mail ``new_person_signed_in``, a osoba
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services.new_person_setup_schema import BACKFILL_SQL, COLUMN_DDL, ENUM_DDL
 
-revision = "0610_new_person_setup"
-down_revision = "0609_skill_catalog_identityiq"
+revision = "0612_new_person_setup"
+down_revision = "0611_equipment_protocol_cancel"
 branch_labels = None
 depends_on = None
 
@@ -26,7 +26,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'new_person_signed_in'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0610 odmawia: notifications ma powiadomienia o nowych osobach, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0612 odmawia: notifications ma powiadomienia o nowych osobach, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

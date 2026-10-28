@@ -1,4 +1,4 @@
-// Okno „Ustaw nową osobę” (0610, decyzje Artura 28.10.2026) — lustro
+// Okno „Ustaw nową osobę” (0612, decyzje Artura 28.10.2026) — lustro
 // `backend/app/api/people_setup.py`. Lista osób przychodzi w `/api/board-tasks`
 // (`new_people`).
 

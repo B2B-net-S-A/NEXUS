@@ -222,7 +222,7 @@ class User(Base, TimestampMixin):
         Boolean, default=False, server_default="false", nullable=False
     )
 
-    # 0610 (28.10.2026): konto po pierwszym logowaniu przez Microsoft czeka na
+    # 0612 (28.10.2026): konto po pierwszym logowaniu przez Microsoft czeka na
     # decyzję Head of Recruitment albo admina, kim jest ta osoba („Nowe osoby
     # do ustawienia” w „Czeka na Ciebie”). NULL = nic nie czeka.
     setup_pending_since: Mapped[Optional[datetime]] = mapped_column(

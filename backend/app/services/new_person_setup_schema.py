@@ -1,4 +1,4 @@
-"""DDL „Nowej osoby w NEXUSIE” (0610) — jedno źródło dla migracji i entrypointu.
+"""DDL „Nowej osoby w NEXUSIE” (0612) — jedno źródło dla migracji i entrypointu.
 
 Decyzja Artura z 28.10.2026: pierwsze logowanie przez Microsoft zakłada konto
 „Konsultant/Kontraktor” (``employee``) i nikt się o tym nie dowiadywał. Konto

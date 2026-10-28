@@ -49,7 +49,7 @@ describe("filterAdminUsers", () => {
     ).toEqual([1]);
   });
 
-  it("„Do decyzji” zostawia tylko konta czekające po pierwszym logowaniu (0610)", () => {
+  it("„Do decyzji” zostawia tylko konta czekające po pierwszym logowaniu (0612)", () => {
     const withPending = [
       ...users,
       user({ id: 4, name: "Nowa Osoba", role: "employee", roles: ["employee"], setup_pending_since: "2026-10-28T08:00:00Z" }),

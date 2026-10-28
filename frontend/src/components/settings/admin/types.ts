@@ -15,7 +15,7 @@ export interface AdminUser {
   activity_count: number;
   last_activity: string | null;
   created_at: string;
-  /** 0610: konto po pierwszym logowaniu czeka na decyzję, kim jest
+  /** 0612: konto po pierwszym logowaniu czeka na decyzję, kim jest
    *  (filtr „Do decyzji”, plakietka „Nowa · zdecyduj”). */
   setup_pending_since?: string | null;
 }
