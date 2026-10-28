@@ -1,10 +1,17 @@
 "use client";
 
 import { useDeferredValue, useState } from "react";
-import { Search } from "lucide-react";
+import { MoreHorizontal, Search } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -26,6 +33,7 @@ import {
   formatPln,
 } from "./equipment-format";
 import { FilterSelect } from "./FilterSelect";
+import { useProtocolQuickActions } from "./useProtocolQuickActions";
 
 type StatusFilter = "waiting" | "potwierdzony" | "anulowany";
 
@@ -35,8 +43,18 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "anulowany", label: "Anulowane" },
 ];
 
-/** Protokoły wydań i zwrotów; klik otwiera podpis, skan i pobranie. */
-export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) => void }) {
+/**
+ * Protokoły wydań i zwrotów; klik otwiera podpis, skan i pobranie. W ⋯ wiersza
+ * „Popraw…” (przed podpisem) i „Anuluj protokół…” (przed potwierdzeniem).
+ */
+export function ProtocolsTab({
+  onOpenProtocol,
+  onCorrectProtocol,
+}: {
+  onOpenProtocol: (id: number) => void;
+  onCorrectProtocol: (id: number) => void;
+}) {
+  const quick = useProtocolQuickActions();
   const [status, setStatus] = useState<StatusFilter | "">("waiting");
   const [kind, setKind] = useState<ProtocolKind | "">("");
   const [query, setQuery] = useState("");
@@ -94,7 +112,7 @@ export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) 
           {status === "waiting" ? "Żaden protokół nie czeka na podpis." : "Brak protokołów."}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
           <Table density="compact" className="min-w-[820px]">
             <TableHeader>
               <TableRow>
@@ -104,6 +122,9 @@ export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) 
                 <TableHead className={CALM_HEAD}>Stan</TableHead>
                 <TableHead className={CALM_HEAD}>Podpis</TableHead>
                 <TableHead className={`${CALM_HEAD} text-right`}>Wartość</TableHead>
+                <TableHead className="w-12">
+                  <span className="sr-only">Akcje</span>
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -148,12 +169,41 @@ export function ProtocolsTab({ onOpenProtocol }: { onOpenProtocol: (id: number) 
                   <TableCell className={CALM_AMOUNT}>
                     {protocol.kind === "wydanie" ? formatPln(protocol.total_value) : "—"}
                   </TableCell>
+                  <TableCell className="text-right" onClick={(event) => event.stopPropagation()}>
+                    {protocol.status === "oczekuje" || protocol.status === "podpisany" ? (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon-sm"
+                            variant="ghost"
+                            aria-label={`Więcej akcji: ${protocol.number}`}
+                          >
+                            <MoreHorizontal className="h-4 w-4" aria-hidden />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {protocol.status === "oczekuje" ? (
+                            <DropdownMenuItem onSelect={() => onCorrectProtocol(protocol.id)}>
+                              Popraw…
+                            </DropdownMenuItem>
+                          ) : null}
+                          <DropdownMenuItem
+                            className="text-destructive"
+                            onSelect={() => void quick.cancelProtocol(protocol)}
+                          >
+                            Anuluj protokół…
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    ) : null}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         </div>
       )}
+      {quick.dialogs}
     </div>
   );
 }

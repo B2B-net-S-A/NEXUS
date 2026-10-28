@@ -7,7 +7,13 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useConfirmProtocol, useCreateProtocolLink } from "@/lib/api/equipment";
+import {
+  useCancelProtocol,
+  useConfirmProtocol,
+  useCreateProtocolLink,
+  type EquipmentHolderKind,
+  type ProtocolKind,
+} from "@/lib/api/equipment";
 
 import { ProtocolLinkBox } from "./ProtocolLinkBox";
 
@@ -16,21 +22,40 @@ export interface QuickProtocol {
   number: string;
 }
 
+export interface CancellableProtocol extends QuickProtocol {
+  kind: ProtocolKind;
+  holder: { kind: EquipmentHolderKind | null };
+}
+
+/** Co się stanie po anulowaniu — zdanie w oknie z powodem. */
+export function cancelEffect(protocol: CancellableProtocol): string {
+  const tail = "Link do podpisu przestanie działać. Numer zostaje w rejestrze jako anulowany.";
+  if (protocol.kind === "zwrot") {
+    return `Sprzęt wróci do osoby jako wydany, jakby zwrotu nie było. ${tail}`;
+  }
+  return protocol.holder.kind === "contract"
+    ? `Sprzęt z protokołu wróci na stan, a pozycje znikną z zakładki „Sprzęt” kontraktu. ${tail}`
+    : `Sprzęt z protokołu wróci na stan. ${tail}`;
+}
+
 /**
  * Akcje protokołu prosto z wiersza („Wyślij link”, „Potwierdź”) — te same
  * trasy co okno protokołu. Nowy link unieważnia poprzedni (D8), więc pytamy;
  * potwierdzenie podpisu to decyzja człowieka (D4), więc też pytamy.
+ * Anulowanie (decyzja 28.10.2026) pyta o powód — trafia do audytu.
  */
 export function useProtocolQuickActions(): {
   sendLink: (protocol: QuickProtocol) => Promise<void>;
   confirmSigned: (protocol: QuickProtocol) => Promise<void>;
+  cancelProtocol: (protocol: CancellableProtocol, onDone?: () => void) => Promise<void>;
   busy: boolean;
   dialogs: ReactNode;
 } {
   const { showToast } = useToast();
-  const { askConfirm, confirmDialog } = useConfirmV2();
+  const { askConfirm, askReason, confirmDialog } = useConfirmV2();
   const link = useCreateProtocolLink();
   const confirm = useConfirmProtocol();
+  const cancel = useCancelProtocol();
   const [created, setCreated] = useState<{
     number: string;
     url: string;
@@ -70,6 +95,34 @@ export function useProtocolQuickActions(): {
     );
   };
 
+  const cancelProtocol = async (protocol: CancellableProtocol, onDone?: () => void) => {
+    const reason = await askReason({
+      title: `Anulować protokół ${protocol.number}?`,
+      description: cancelEffect(protocol),
+      confirmLabel: "Anuluj protokół",
+      cancelLabel: "Wróć",
+      variant: "destructive",
+      field: {
+        label: "Powód anulowania",
+        placeholder: "Np. pomyłka w osobie, ćwiczenie, sprzęt nie został wydany",
+        minLength: 3,
+        maxLength: 500,
+      },
+    });
+    if (reason === null) return;
+    cancel.mutate(
+      { protocolId: protocol.id, reason },
+      {
+        onSuccess: () => {
+          showToast(`Protokół ${protocol.number} anulowany`, "success");
+          onDone?.();
+        },
+        onError: (err) =>
+          showToast(apiErrorMessage(err, "Nie udało się anulować protokołu."), "error"),
+      },
+    );
+  };
+
   const dialogs = (
     <>
       {confirmDialog}
@@ -88,5 +141,11 @@ export function useProtocolQuickActions(): {
     </>
   );
 
-  return { sendLink, confirmSigned, busy: link.isPending || confirm.isPending, dialogs };
+  return {
+    sendLink,
+    confirmSigned,
+    cancelProtocol,
+    busy: link.isPending || confirm.isPending || cancel.isPending,
+    dialogs,
+  };
 }

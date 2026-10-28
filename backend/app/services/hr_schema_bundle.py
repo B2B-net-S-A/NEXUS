@@ -22,6 +22,7 @@ from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_structure_schema as client_structure
 from app.services import contract_care_schema as contract_care
 from app.services import equipment_extras_schema as equipment_extras
+from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -63,6 +64,8 @@ MODULES = (
     approval_basis,
     # 0509: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
     care_board,
+    # 0611: poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    equipment_cancel,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
