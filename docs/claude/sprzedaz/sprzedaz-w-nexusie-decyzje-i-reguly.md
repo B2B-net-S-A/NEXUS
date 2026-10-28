@@ -49,6 +49,15 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   ustawia się raz** (cofnięcie jej nie czyści), wartość = MRR + jednorazowa
   (jak w Atlasie — nie mnożymy przez miesiące bez decyzji).
 - Ruch po etapach wyłącznie przez `POST /api/sales/opportunities/{id}/move`.
+- **Historia zmian** (jak w Atlasie): `sales_opportunity_events` (0615), jeden
+  wiersz na zmienione pole — kto, kiedy, stara i nowa wartość jako tekst (id
+  etapu/opiekuna/firmy; nazwy dokłada odczyt `GET …/{id}/history`). Każda nowa
+  ścieżka, która zmienia szansę, woła `services/sales/history.py`
+  (`record_created`, `snapshot` + `record_changes`, `record`); dziś: założenie,
+  zamiana leada, `/move`, PATCH, archiwum, przywrócenie, scalenie firm.
+  **Import z Atlasa nie zapisuje zdarzeń** — historia zaczyna się od pracy
+  w NEXUSIE. Wejście na etap to `field = 'stage_id'` (także `kind='created'`);
+  z tego samego źródła liczy się KPI ofert — nie zakładaj drugiej tabeli etapów.
 
 ## Wygrana → Delivery (decyzja 27.10.2026)
 
