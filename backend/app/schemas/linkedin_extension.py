@@ -50,6 +50,9 @@ class MeResponse(BaseModel):
     user: ExtensionUserBrief
     usage: UsageOut
     frontend_url: str
+    # Najnowsza wersja wtyczki — panel pokazuje „Jest nowa wersja” z linkiem do
+    # <frontend>/wtyczka, gdy jego wersja jest starsza (ZIP nie aktualizuje się sam).
+    latest_version: str
 
 
 class ExperienceItem(BaseModel):

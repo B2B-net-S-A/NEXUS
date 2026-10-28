@@ -170,6 +170,27 @@ export function usageLabel(usage) {
   return `Dziś: ${usage.reads_today ?? 0} / ${usage.reads_limit} odczytów`;
 }
 
+function versionParts(v) {
+  return typeof v === "string" && /^\d+(\.\d+){0,3}$/.test(v) ? v.split(".").map(Number) : null;
+}
+
+/**
+ * Baner „Jest nowa wersja” — wtyczka z ZIP-a nie aktualizuje się sama.
+ * `me.latest_version` z NEXUSA, `current` z manifestu. Link na stronę pobrania
+ * NEXUSA z połączenia (frontUrl sprawdzony przy łączeniu).
+ */
+export function updateNotice(me, current, connection) {
+  const latest = versionParts(me?.latest_version);
+  const mine = versionParts(current);
+  if (!latest || !mine || !connection?.frontUrl) return null;
+  for (let i = 0; i < Math.max(latest.length, mine.length); i += 1) {
+    const d = (latest[i] || 0) - (mine[i] || 0);
+    if (d < 0) return null;
+    if (d > 0) return { version: me.latest_version, url: `${connection.frontUrl}/wtyczka` };
+  }
+  return null;
+}
+
 /** Pill etapu w rekrutacji. Zamknięte: „Odrzucona · powód”. */
 export function processPill(process) {
   if (process.closed) {
