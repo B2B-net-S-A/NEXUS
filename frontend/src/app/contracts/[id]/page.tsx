@@ -100,6 +100,8 @@ import { contractAccess } from "@/lib/contract-access";
 import { permissionLabel } from "@/lib/permissions";
 import {
   buildContractDetailHref,
+  buildContractsListUrl,
+  parseContractsListState,
   parseContractsReturnContext,
   type ContractsReturnContext,
 } from "@/lib/contracts-list-navigation";
@@ -265,6 +267,14 @@ function statusStyle(status: string): string {
 // Statusy do wyboru w formularzu edycji — te same co na liście statusu
 // w nagłówku (`ContractStatusControl`).
 const SELECTABLE_STATUSES = SELECTABLE_CONTRACT_STATUSES;
+
+// Decyzja Artura 28.10.2026: zaległe umowy zespół domyka z jednej listy
+// w rejestrze, więc przypomnienie na karcie prowadzi też do niej.
+const NOT_TERMINATED_AGREEMENTS_HREF = buildContractsListUrl({
+  ...parseContractsListState("").state,
+  statusFilter: [],
+  agreementNotTerminated: true,
+});
 
 const TYPE_LABELS: Record<string, string> = {
   b2b: "B2B",
@@ -1544,6 +1554,12 @@ export default function ContractDetailPage() {
                       className="font-medium text-primary underline-offset-4 hover:underline"
                     >
                       Przygotuj porozumienie
+                    </Link>
+                    <Link
+                      href={NOT_TERMINATED_AGREEMENTS_HREF}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Wszystkie nierozwiązane umowy
                     </Link>
                   </div>
                 )}
