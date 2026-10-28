@@ -4,6 +4,10 @@
  * Jedna krótka plakietka, bo nagłówek przy 1280 px ucinał pełną etykietę
  * i chował drugą („Poza hit ratio”) pod zakładkami; grupa w dymku razem
  * z pełnym powodem i uzasadnieniem.
+ *
+ * Gdy obok stoi już status requestu „Zamknięta” (`statusShown`), plakietka
+ * mówi sam powód — „Zamknięta” dwa razy zostawiało tytułowi 6rem przy
+ * 1280 px (28.10.2026).
  */
 
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +36,18 @@ const SHORT: Partial<Record<JobCloseReason, string>> = {
 export function JobCloseReasonBadge({
   reason,
   notes,
+  statusShown = false,
 }: {
   reason: JobCloseReason | null | undefined;
   notes?: string | null;
+  /** Obok widać status „Zamknięta” — bez powtórzenia go w plakietce. */
+  statusShown?: boolean;
 }) {
   const group = closeReasonGroup(reason);
   const short = (reason && SHORT[reason]) || "powód do przejrzenia";
+  const text = statusShown
+    ? short.charAt(0).toUpperCase() + short.slice(1)
+    : `Zamknięta · ${short}`;
   const title = [
     closeReasonLabel(reason),
     group ? GROUP_NOTE[group] : "Liczy się jak przegrana, dopóki ktoś nie wybierze powodu.",
@@ -54,7 +64,7 @@ export function JobCloseReasonBadge({
       className="max-w-full whitespace-nowrap"
       data-testid="job-close-reason-badge"
     >
-      <span className="min-w-0 truncate">Zamknięta · {short}</span>
+      <span className="min-w-0 truncate">{text}</span>
     </Badge>
   );
 }

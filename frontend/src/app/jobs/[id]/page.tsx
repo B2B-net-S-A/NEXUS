@@ -877,7 +877,8 @@ export default function JobDetailPage() {
                 onOpenPerson={openPersonPanel}
               />
             ) : job.status === "closed" ? null : (
-              // Zamknięta: plakietka z powodem niżej (`JobCloseReasonBadge`).
+              // Zamknięta bez statusu requestu: „Zamknięta · powód” niżej
+              // (`JobCloseReasonBadge`); ze statusem plakietka mówi sam powód.
               <Badge
                 variant={
                   job.status === "published"
@@ -895,7 +896,11 @@ export default function JobDetailPage() {
               </Badge>
             )}
             {job.status === "closed" ? (
-              <JobCloseReasonBadge reason={job.close_reason} notes={job.close_notes} />
+              <JobCloseReasonBadge
+                reason={job.close_reason}
+                notes={job.close_notes}
+                statusShown={championsStatusShown}
+              />
             ) : null}
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
