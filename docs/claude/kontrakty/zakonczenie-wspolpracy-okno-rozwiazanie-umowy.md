@@ -45,3 +45,40 @@ zakończone”), logika `lib/contract-termination.ts`.
 - Historia umowy: `b2b_generated_contract_status_events.details` (źródło,
   kontrakt, daty, tryb, strona); „Zakończone umowy” mają kolumny „Data
   zakończenia zamówienia”, „Tryb” i filtr `?termination_mode=`.
+
+## „Co z umową B2B?” — porozumienie z okna (propozycja zespołu, decyzja Artura 28.10.2026)
+
+Zespół prosił o porozumienie z zachowaniem i ze zdjęciem zakazu konkurencji
+oraz „Przygotuj porozumienie” w oknie. Oba dokumenty istniały od 23.09
+(`termination_agreement`, przełącznik `release_non_compete`), a okno miało
+link pod polem wniosków. Mimo to na kopii z 22.10 18 z 22 zakończeń B2B od
+23.09 zostawiło umowę bez rozwiązania, a generator nie wydał ani jednego
+porozumienia. Problemem była ścieżka, nie brak wzoru — nie dokładaj drugiego
+typu dokumentu.
+
+- **Przy jednej umowie odpowiedź jest obowiązkowa** (`agreementPlan`
+  w `lib/contract-termination.ts`): „Przygotuj porozumienie” (zalecane),
+  „Umowa jest już rozwiązana albo wypowiedziana” (dotychczasowe pola trybu,
+  strony, dat i skanu), „Umowa zostaje” (umowa idzie do „Umów bez
+  projektu”). Bez odpowiedzi „Zakończ” jest nieaktywne — decyzja o umowie
+  zawsze pada. Zbiorcze „Oznacz zakończone” zostaje przy polu „Rozwiązanie
+  umowy”: przy wielu umowach nie ma jednej umowy do porozumienia.
+- **„Zakończ i przygotuj porozumienie”** zapisuje koniec projektu BEZ danych
+  rozwiązania (jak „Umowa zostaje”), potem otwiera generator
+  (`documentsHref` z `values`). Rozwiązanie dopisuje podpis porozumienia
+  (`effects.apply`: projekt już zakończony = kontrakt bez zmian, umowa
+  w rejestrze „Zakończona” z dniem rozwiązania). Odmowa serwera zostaje
+  w oknie i nie otwiera generatora.
+- **Zakaz konkurencji wybierany w oknie:** domyślnie „zostaje”, przy powodzie
+  „Przejście do klienta” — „zdejmujemy” z `client_name` kontraktu. Ręczny
+  wybór nie jest nadpisywany zmianą powodu.
+- **Wartości startowe kreatora z adresu:** `v_<klucz>` (`1`/`0` = bool,
+  wartość ≤ 255 znaków, klucz `[a-z_]`), zdejmowane z adresu po otwarciu jak
+  `new`/`parent`/`contract`; wygrywają z podpowiedzią serwera.
+- **Przypomnienie na zakończonym kontrakcie B2B bez rozwiązania**
+  (`data-testid="agreement-not-terminated"` na karcie „Zakończenie
+  współpracy”) z linkiem „Przygotuj porozumienie” i datą końca projektu —
+  dla zaległych umów sprzed zmiany.
+- Testy: `ContractTerminationDialog.test.tsx` („przygotuj porozumienie”),
+  `contract-termination.test.ts`, `b2b-documents.test.ts` („adres kreatora”),
+  `app/contracts/[id]/__tests__/signed-delete-flow.test.tsx`.

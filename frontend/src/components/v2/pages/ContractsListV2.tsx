@@ -12,6 +12,7 @@ import {
  ChevronsUpDown,
  Download,
  FileText,
+ FileWarning,
  Plus,
  Search,
  TrendingUp,
@@ -629,6 +630,11 @@ export function ContractsListV2({
  // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
  // so it always matches the date-based /api/contracts/expiring banner.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
+ // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
+ const [agreementNotTerminated, setAgreementNotTerminated] = useState(
+ initialListState.state.agreementNotTerminated,
+ );
  const [dateRange, setDateRange] = useState<ContractsDateRange>(() => ({
  startFrom: initialListState.state.startFrom,
  startTo: initialListState.state.startTo,
@@ -661,13 +667,24 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ agreementNotTerminated,
  ...dateRange,
  sortBy: sort.by,
  sortDir: sort.dir,
  page,
  selected: openContractId ?? undefined,
  }),
- [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page, openContractId],
+ [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ dateRange,
+ sort,
+ page,
+ openContractId,
+ ],
  );
 
  // Keep the current list entry self-contained. `replaceState` deliberately
@@ -698,6 +715,7 @@ export function ContractsListV2({
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
  startTo: next.startTo,
@@ -747,7 +765,16 @@ export function ContractsListV2({
  // when nothing is selected.)
  useEffect(() => {
  setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
- }, [search, statusFilter, typeFilter, endingSoon, appliedDates, sort, page]);
+ }, [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ appliedDates,
+ sort,
+ page,
+ ]);
 
  const flashToast = (msg: string) => {
  setToast(msg);
@@ -768,6 +795,7 @@ export function ContractsListV2({
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
+ if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
  if (appliedDates.orderEndFrom) {
@@ -883,6 +911,7 @@ export function ContractsListV2({
  appliedDates,
  sort,
  page,
+ agreementNotTerminated,
  ],
  queryFn: () =>
  api
@@ -892,6 +921,7 @@ export function ContractsListV2({
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
+ agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
  order_end_from: appliedDates.orderEndFrom || undefined,
@@ -1032,6 +1062,7 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ agreementNotTerminated,
  appliedDates,
  ]);
  const previousFilters = useRef(filtersSignature);
@@ -1224,6 +1255,37 @@ export function ContractsListV2({
  </Button>
  </PopoverContent>
  </Popover>
+ {/* „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zaległe rozwiązania
+ umów B2B po zakończeniu projektu. Filtr idzie na wszystkie statusy
+ (zbiór to Zakończony + Kończący się); wyłączenie wraca do domyślnych. */}
+ <Button
+ size="sm"
+ variant="outline"
+ aria-pressed={agreementNotTerminated}
+ className={cn(
+ "gap-1.5",
+ agreementNotTerminated &&
+ "border-warning/40 bg-warning-muted text-warning-muted-foreground hover:bg-warning-muted",
+ )}
+ title="Kontrakty B2B zakończone albo kończące się, w których nie zapisano rozwiązania umowy"
+ onClick={() => {
+ if (agreementNotTerminated) {
+ setAgreementNotTerminated(false);
+ if (statusFilter.length === 0) {
+ setStatusFilter([...DEFAULT_CONTRACT_STATUS_FILTER]);
+ }
+ } else {
+ setAgreementNotTerminated(true);
+ setStatusFilter([]);
+ setEndingSoon(false);
+ }
+ setPage(1);
+ }}
+ >
+ <FileWarning className="h-4 w-4" aria-hidden="true" />
+ Umowa nierozwiązana
+ {agreementNotTerminated && <X className="h-3.5 w-3.5" aria-hidden="true" />}
+ </Button>
  {dateChip && (
  <Button
  size="sm"

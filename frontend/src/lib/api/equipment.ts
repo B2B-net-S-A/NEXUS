@@ -544,6 +544,28 @@ export function useCreateExternalPerson() {
   });
 }
 
+export interface MoveToUserResult {
+  holder: EquipmentHolder;
+  assignments: number;
+  protocols: number;
+  confirmed_protocols: number;
+  tasks: number;
+}
+
+/** „Przepisz na konto”: niezwrócony sprzęt osoby spoza NEXUSA na jej konto. */
+export function useMoveExternalToUser() {
+  const invalidate = useInvalidateEquipment();
+  return useMutation({
+    mutationFn: async ({ personId, userId }: { personId: number; userId: number }) =>
+      (
+        await api.post<MoveToUserResult>(`${BASE}/external-people/${personId}/move-to-user`, {
+          user_id: userId,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useReturnEquipment() {
   const invalidate = useInvalidateEquipment();
   return useMutation({

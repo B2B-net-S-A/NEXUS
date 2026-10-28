@@ -71,6 +71,8 @@ interface ItemsTabProps {
   /** „Wydaj” z wiersza — kreator z tą sztuką (osobę wybiera recepcja). */
   onIssue: (items: EquipmentItem[]) => void;
   onReturn: (holder: EquipmentHolder) => void;
+  /** „Przepisz na konto” — sprzęt osoby spoza NEXUSA na jej nowe konto. */
+  onMoveToAccount: (person: EquipmentHolder) => void;
   /** Widok na wejściu (`?view=modele` w adresie). */
   initialView?: ItemsView;
 }
@@ -147,6 +149,7 @@ export function ItemsTab({
   onOpenProtocol,
   onIssue,
   onReturn,
+  onMoveToAccount,
   initialView = "sztuki",
 }: ItemsTabProps) {
   const [query, setQuery] = useState("");
@@ -174,6 +177,7 @@ export function ItemsTab({
     onOpenProtocol,
     onIssue: (item) => onIssue([item]),
     onReturn,
+    onMoveToAccount,
     sendLink: quick.sendLink,
     confirmSigned: quick.confirmSigned,
     busy: quick.busy,
@@ -278,6 +282,7 @@ interface RowActions {
   onOpenProtocol: (protocolId: number) => void;
   onIssue: (item: EquipmentItem) => void;
   onReturn: (holder: EquipmentHolder) => void;
+  onMoveToAccount: (person: EquipmentHolder) => void;
   sendLink: (protocol: { id: number; number: string }) => Promise<void>;
   confirmSigned: (protocol: { id: number; number: string }) => Promise<void>;
   busy: boolean;
@@ -435,6 +440,11 @@ function ItemActions({ item, actions }: { item: EquipmentItem; actions: RowActio
           holder &&
           (protocol?.status === "oczekuje" || protocol?.status === "podpisany") ? (
             <DropdownMenuItem onSelect={() => actions.onReturn(holder)}>Przyjmij zwrot</DropdownMenuItem>
+          ) : null}
+          {item.status === "wydany" && holder?.kind === "external" ? (
+            <DropdownMenuItem onSelect={() => actions.onMoveToAccount(holder)}>
+              Przepisz na konto…
+            </DropdownMenuItem>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>

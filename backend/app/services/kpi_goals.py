@@ -41,8 +41,10 @@ from app.services.kpi_catalog import KPI_CATALOG, KpiMetric, KpiPeriod, kpi_avai
 from app.services.kpi_engine import (
     WARSAW,
     KpiState,
+    absence_for_periods,
     derive_state,
     expected_progress_ratio,
+    target_on_workdays,
 )
 from app.services.kpi_targets import resolve_kpi_targets_bulk, resolve_org_target
 
@@ -265,6 +267,10 @@ async def _team_goals(
     ]
     targets = await resolve_kpi_targets_bulk(db, members, [k.kpi_id for k in kpis])
     member_ids = {m.id for m in members}
+    # Cel zespołu to suma celów osób przeliczonych na ich dni pracy — urlop
+    # osoby zmniejsza cel, a nie robi „poniżej tempa” całemu zespołowi
+    # (decyzja Artura 28.10.2026).
+    absence = await absence_for_periods(db, sorted(member_ids), now)
 
     panels = {}
     for period in {k.period for k in kpis if k.metric is not KpiMetric.precision}:
@@ -280,7 +286,12 @@ async def _team_goals(
         with_goal = [uid for uid in member_ids if targets[uid][kpi.kpi_id] > 0]
         if not with_goal:
             continue
-        target = sum(targets[uid][kpi.kpi_id] for uid in with_goal)
+        target = sum(
+            target_on_workdays(
+                targets[uid][kpi.kpi_id], kpi.period, now, absence.get(uid, {})
+            )
+            for uid in with_goal
+        )
         current = sum(
             int(getattr(rows[uid], field)) for uid in with_goal if uid in rows
         )

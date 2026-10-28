@@ -114,6 +114,54 @@ def period_bounds(period: KpiPeriod, now: datetime) -> tuple[datetime, datetime]
     return start, now_w
 
 
+def period_dates(period: KpiPeriod, now: datetime) -> tuple[date, date]:
+    """Cały okres KPI jako dni kalendarza (domknięte) — do skali celu.
+
+    W odróżnieniu od ``period_bounds`` koniec to ostatni dzień okresu, nie
+    „teraz”: cel tygodnia i miesiąca przelicza się na dni pracy CAŁEGO okresu,
+    także na zaplanowaną nieobecność.
+    """
+    today = _as_warsaw(now).date()
+    if period == KpiPeriod.day:
+        return today, today
+    if period == KpiPeriod.week:
+        monday = today - timedelta(days=today.weekday())
+        return monday, monday + timedelta(days=6)
+    if period == KpiPeriod.month:
+        first = today.replace(day=1)
+        return first, first.replace(day=calendar.monthrange(first.year, first.month)[1])
+    raise ValueError(f"Unknown period: {period}")  # pragma: no cover
+
+
+async def absence_for_periods(
+    db: AsyncSession, user_ids: list[int], now: datetime
+) -> dict[int, dict[date, float]]:
+    """Zatwierdzona nieobecność osób w bieżącym tygodniu i miesiącu."""
+    from app.services.person_workdays import absence_by_user
+
+    windows = [period_dates(p, now) for p in (KpiPeriod.week, KpiPeriod.month)]
+    return await absence_by_user(
+        db,
+        user_ids,
+        min(start for start, _ in windows),
+        max(end for _, end in windows),
+    )
+
+
+def target_on_workdays(
+    target: int, period: KpiPeriod, now: datetime, absence: dict[date, float]
+) -> int:
+    """Cel KPI w proporcji do dni pracy okresu (decyzja Artura 28.10.2026).
+
+    Dzień nieobecności = cel dnia 0; tydzień z dwoma dniami nieobecności =
+    3/5 celu, w górę do pełnej sztuki.
+    """
+    from app.services.person_workdays import target_for_window
+
+    start, end = period_dates(period, now)
+    return target_for_window(target, start, end, absence)
+
+
 def period_bucket_label(period: KpiPeriod, now: datetime) -> str:
     """Deduplikacyjny klucz okresu.
 
@@ -506,6 +554,7 @@ async def evaluate_user_kpis(
     # licznik narastający w okresie — widget i nudge'e jej nie pokazują.
     coach_kpis = [k for k in KPI_CATALOG if k.in_coach and kpi_available(k)]
     days_off = await personal_days_off(db, user.id, now)
+    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
     targets = (
         await resolve_kpi_targets_bulk(db, [user], [k.kpi_id for k in coach_kpis])
     )[user.id]
@@ -521,7 +570,9 @@ async def evaluate_user_kpis(
 
     results: list[KpiResult] = []
     for kpi_def in coach_kpis:
-        target = targets[kpi_def.kpi_id]
+        target = target_on_workdays(
+            targets[kpi_def.kpi_id], kpi_def.period, now, absence
+        )
         start, end = period_bounds(kpi_def.period, now)
         if kpi_def.metric in _MILESTONE_STAGE:
             current = milestones.get(
@@ -568,6 +619,8 @@ __all__ = [
     "evaluate_user_kpis",
     "expected_progress_ratio",
     "period_bounds",
+    "period_dates",
+    "target_on_workdays",
     "period_bucket_label",
     "resolve_target",
 ]

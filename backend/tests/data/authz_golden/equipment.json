@@ -60,6 +60,7 @@
   "PATCH /api/equipment/tasks/{task_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/contracts/{contract_id}/return-task": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/external-people": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/external-people/{person_id}/move-to-user": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/imports": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/imports/{batch_id}/apply": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/equipment/issue": "BBBBBBBDBBBBBBBBBBBBBBBBBB",

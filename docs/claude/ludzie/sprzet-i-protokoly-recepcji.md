@@ -34,6 +34,19 @@ osobie z kartoteki i uczestniku Akademii.
 - Cennik per model (D5); wartość pozycji pochodzi z cennika, zmiana przy wydaniu
   dotyczy tylko tego protokołu. Karta SIM i karta dostępu są w protokole bez
   wartości (D6). Własność (`nasz` / `klienta`) przechodzi do zakładki kontraktu.
+- **Nowa osoba bez konta** (decyzja Artura 28.10.2026, wariant B): „Wydaj
+  sprzęt” krok 1 szuka tylko aktywnych kont, kontraktów od szkicu do
+  zakończenia (`ISSUABLE_CONTRACT_STATUSES`) i osób spoza NEXUSA — kandydatki
+  bez konta, kontraktu i szkicu wejścia tam nie ma (moduł „Wejście” na
+  produkcji wyłączony i ma tak zostać). Pusty wynik mówi, gdzie szukał, i kieruje
+  do „Osoba spoza NEXUSA”. Gdy konto powstanie, recepcja klika w menu ⋯ wiersza
+  wydanego egzemplarza „Przepisz na konto…” (`POST /external-people/{id}/move-to-user`,
+  uprawnienie „Sprzęt”). W jednej transakcji przechodzą na konto: aktywne
+  wydania, otwarte zadania i protokoły `oczekuje`/`podpisany`. Protokół
+  potwierdzony zostaje przy osobie spoza z migawką (`holder_name`) i dostaje
+  wpis w `hr_audit_events` (`equipment_holder_moved_to_user`); zwrócone wydania
+  zostają historią osoby spoza. Konto nieaktywne i osoba bez niezwróconych
+  rzeczy = 409.
 - Twarde skasowanie kontraktu kasuje kaskadą jego wydania — wyzwalacz zwraca
   egzemplarz na stan. Zakładka „Sprzęt” kontraktu (`contract_equipment`) wskazuje
   egzemplarz z rejestru (`item_id`, `assignment_id`).
@@ -50,6 +63,19 @@ osobie z kartoteki i uczestniku Akademii.
 - Podpis (D4): link dla osoby, papier albo profil zaufany (skan wgrywa recepcja).
   Stan „podpisany” potwierdza CZŁOWIEK — automatyczna weryfikacja podpisu
   zaufanego bywa „nieokreślona”.
+- Plik protokołu (PDF i Word) pokazuje podpis z NEXUSA (zgłoszenie recepcji
+  28.10.2026, decyzja Artura): pod linią podpisu osoby „Potwierdzono
+  elektronicznie linkiem z NEXUSA jako „…”, data, godz.” (tylko podpis linkiem),
+  pod linią recepcji „Zatwierdzono w NEXUSIE: osoba, data, godz.” (tylko
+  `potwierdzony`). Przed podpisem dopisków nie ma — plik do druku się nie
+  zmienia. Pola `holder_signature` / `issuer_signature` mają też wgrane wzory.
+  Podpis na papierze w pliku nie istnieje — dowodem jest wgrany skan.
+- PDF robi LibreOffice, a ten bierze szerokości kolumn z siatki tabeli
+  (`gridCol`), nie z komórek: nowa tabela we wzorze = `_fix_widths`. Wzór
+  używa Cambrii — w obrazie backendu stoi zgodna metrycznie Caladea
+  (`fonts-crosextra-caladea`), bez niej tekst się rozjeżdża. Podpisy to
+  tabelka bez ramek, nie spacje i tabulatory; strona `/protocol/<token>`
+  ukrywa ją po pierwszym wierszu („Strona przekazująca Strona przyjmująca”).
 - Link (D8): publiczna strona `/protocol/<token>`, trasa
   `/api/public/equipment-protocols/{token}` z limiterem (moduł bez
   `from __future__ import annotations`). Token tylko w adresie, w bazie SHA-256;

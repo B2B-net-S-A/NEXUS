@@ -32,6 +32,14 @@ test("odrzuca obcego nadawcę, zły klucz i apiBase spoza listy hostów", () => 
   assert.equal(validateKeyMessage(null, PROD).reason, "wrong_type");
 });
 
+test("API dopuszcza wyłącznie jawne hosty NEXUSA, nie inne subdomeny organizacji", () => {
+  assert.equal(isAllowedApiBase("https://nexus.b2bnetwork.pl"), true);
+  assert.equal(isAllowedApiBase("https://api.nexus.b2bnetwork.pl"), true);
+  assert.equal(isAllowedApiBase("https://api.nexus.dynaminds.pl"), true);
+  assert.equal(isAllowedApiBase("https://b2bnetwork.pl"), false);
+  assert.equal(isAllowedApiBase("https://mail.b2bnetwork.pl"), false);
+});
+
 test("frontUrl spoza listy → origin nadawcy", () => {
   assert.equal(validateKeyMessage(msg({ frontUrl: "https://evil.example" }), PROD).connection.frontUrl, "https://nexus.b2bnetwork.pl");
 });

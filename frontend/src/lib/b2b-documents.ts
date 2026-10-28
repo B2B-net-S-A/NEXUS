@@ -440,7 +440,13 @@ export interface DocumentsUrlIntent {
   parentId: number | null;
   /** Kontrakt z modułu Kontrakty — umowę bazową kreator szuka po nim. */
   contractId: number | null;
+  /** Wartości startowe pól (`v_<klucz>` w adresie) — np. daty z okna
+   *  „Zakończ współpracę”. Wygrywają z podpowiedzią serwera. */
+  values: Record<string, string | boolean>;
 }
+
+const VALUE_PREFIX = "v_";
+const VALUE_KEY_RE = /^[a-z_]{1,40}$/;
 
 function positiveInt(value: string | null | undefined): number | null {
   if (!value || !/^\d+$/.test(value.trim())) return null;
@@ -458,7 +464,30 @@ export function parseDocumentsIntent(params: {
     newType: TYPE_KEY_RE.test(raw) ? raw : raw === "1" ? "" : null,
     parentId: positiveInt(params?.get("parent")),
     contractId: positiveInt(params?.get("contract")),
+    values: parseIntentValues(params),
   };
+}
+
+function parseIntentValues(
+  params: { get(name: string): string | null; forEach?: (cb: (value: string, key: string) => void) => void } | null | undefined,
+): Record<string, string | boolean> {
+  const values: Record<string, string | boolean> = {};
+  params?.forEach?.((value, key) => {
+    if (!key.startsWith(VALUE_PREFIX)) return;
+    const field = key.slice(VALUE_PREFIX.length);
+    if (!VALUE_KEY_RE.test(field)) return;
+    values[field] = value === "1" ? true : value === "0" ? false : value.slice(0, 255);
+  });
+  return values;
+}
+
+/** Klucze wartości startowych do zdjęcia z adresu po otwarciu kreatora. */
+export function intentValueKeys(params: { forEach(cb: (value: string, key: string) => void): void }): string[] {
+  const keys: string[] = [];
+  params.forEach((_value, key) => {
+    if (key.startsWith(VALUE_PREFIX)) keys.push(key);
+  });
+  return keys;
 }
 
 /** Czy adres prosi o otwarcie kreatora. */
@@ -470,6 +499,7 @@ export function documentsHref(intent: {
   newType?: string | null;
   parentId?: number | null;
   contractId?: number | null;
+  values?: Record<string, string | boolean>;
 }): string {
   // Aneksy powstają wyłącznie w „Generatorze aneksów” — link do typu aneksu
   // (z wiersza rejestru, z zakładki „Aneksy” kontraktu) prowadzi tam.
@@ -478,6 +508,10 @@ export function documentsHref(intent: {
   params.set("new", intent.newType || "1");
   if (intent.parentId) params.set("parent", String(intent.parentId));
   if (intent.contractId) params.set("contract", String(intent.contractId));
+  for (const [key, value] of Object.entries(intent.values ?? {})) {
+    if (value === "" || !VALUE_KEY_RE.test(key)) continue;
+    params.set(`${VALUE_PREFIX}${key}`, value === true ? "1" : value === false ? "0" : value);
+  }
   return `/contracts/b2b-generator?${params.toString()}`;
 }
 

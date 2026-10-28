@@ -48,6 +48,7 @@ import {
   type AgreementTerminationParty,
   type ContractTerminationReason,
 } from "@/lib/api";
+import { documentsHref } from "@/lib/b2b-documents";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
@@ -1520,6 +1521,32 @@ export default function ContractDetailPage() {
                   </p>
                 )}
                 <ContractTerminationSummary contract={contract} />
+                {/* Propozycja zespołu 28.10.2026: zakończony projekt z umową
+                    B2B bez rozwiązania przypomina o porozumieniu. */}
+                {contract.contract_type === "b2b" && !contract.agreement_termination_mode && (
+                  <div
+                    className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+                    data-testid="agreement-not-terminated"
+                  >
+                    <span>
+                      <span className="font-medium">Umowa B2B nie jest rozwiązana.</span>{" "}
+                      Zostaw ją tylko, jeśli osoba wraca na inny projekt.
+                    </span>
+                    <Link
+                      href={documentsHref({
+                        newType: "termination_agreement",
+                        contractId: contract.id,
+                        values: {
+                          termination_date: contract.terminated_at ?? contract.end_date ?? "",
+                          last_service_date: contract.terminated_at ?? contract.end_date ?? "",
+                        },
+                      })}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Przygotuj porozumienie
+                    </Link>
+                  </div>
+                )}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
                     <span className="text-muted-foreground block">

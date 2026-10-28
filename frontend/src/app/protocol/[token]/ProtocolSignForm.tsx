@@ -34,7 +34,8 @@ const SIGNATURE_LINE = /^(Strona przekazująca Strona przyjmująca|\(podpis\) \(
 
 export function visibleBlocks(blocks: PublicProtocolBlock[]): PublicProtocolBlock[] {
   return blocks.filter((block) => {
-    if (block.type === "table") return true;
+    // Wzór standardowy (28.10.2026) ma podpisy w tabelce bez ramek.
+    if (block.type === "table") return !SIGNATURE_LINE.test((block.rows?.[0] ?? []).join(" "));
     const text = (block.text ?? "").replace(/\s+/g, " ").trim();
     return text !== "" && !SIGNATURE_LINE.test(text);
   });

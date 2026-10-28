@@ -17,6 +17,10 @@
   422 przy wniosku albo zgodzie, wykonawca M365 odmawia (`substitute_outside_company`).
 - Akceptacja urlopu usuwa godziny z dni urlopu w „Moim miesiącu” i przelicza
   sumę kontrolną (`time_hooks.on_leave_approved` / `on_leave_cancelled`).
+  Pół dnia nie kasuje godzin, tylko skraca zwykłe ręczne wpisy dnia do 4 h
+  (od najpóźniej dodanego, nadgodzin i auto-wpisu `leave_paid` nie rusza;
+  ślad `leave_hours_trimmed`) — decyzja Artura z 28.10.2026, bo wpis 8 h
+  sprzed wniosku dawał akceptującemu 12 h.
 - Powiadomienia (dymek) i mail zastępcy nie zdradzają rodzaju ani notatki (D6);
   mail „Czas i ludzie” nie niesie rodzaju nikomu, także przełożonemu i Kadrom
   (`services/hr/hr_mail.py`, reguła w `modul-ludzie-dostep-schemat-i-przelaczenie.md`).

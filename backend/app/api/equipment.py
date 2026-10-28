@@ -236,6 +236,10 @@ class ExternalPersonIn(BaseModel):
     note: Optional[str] = Field(default=None, max_length=200)
 
 
+class MoveToUserIn(BaseModel):
+    user_id: int
+
+
 class IssueLineIn(BaseModel):
     item_id: int
     unit_value: Optional[Decimal] = Field(default=None, ge=0, le=Decimal("9999999"))
@@ -464,6 +468,22 @@ async def create_external_person(
     except EquipmentError as exc:
         raise _http(exc) from exc
     return registry.external_payload(person)
+
+
+@router.post("/external-people/{person_id}/move-to-user")
+async def move_external_person_to_user(
+    person_id: int,
+    payload: MoveToUserIn,
+    current_user: User = Depends(_manager),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """„Przepisz na konto”: niezwrócony sprzęt osoby spoza NEXUSA na jej nowe konto."""
+    try:
+        return await registry.move_external_to_user(
+            db, person_id, payload.user_id, actor=current_user
+        )
+    except EquipmentError as exc:
+        raise _http(exc) from exc
 
 
 # ── Wydanie i zwrot ───────────────────────────────────────────────────────────
