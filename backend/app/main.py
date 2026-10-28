@@ -3787,7 +3787,7 @@ async def api_health_deep_check():
         ("care_board_states", CARE_BOARD_STATES),
         # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
         ("candidate_job_owners", CandidateJobOwner),
-        # 0614: nowości do przeklikania — kropki i lista „Nowości” czytają ją
+        # 0615: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
     ]

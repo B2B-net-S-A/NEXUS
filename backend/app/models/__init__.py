@@ -892,5 +892,5 @@ from app.models import academy_logistics as _academy_logistics_models  # noqa: F
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
 from app.models import sales as _sales_models  # noqa: F401,E402
 
-# 0614: Nowości do przeklikania — postęp osoby przy nowości.
+# 0615: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402
