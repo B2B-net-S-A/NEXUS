@@ -257,7 +257,7 @@ async def test_contractor_paid_leave_becomes_standard_work_entry(app_client) -> 
     by_day = {d["date"]: d for d in month["days"]}
     auto = by_day["2031-03-17"]["entries"]
     assert [(e["hours"], e["source"], e["description"]) for e in auto] == [
-        (8.0, "leave_paid", "Praca standardowa")
+        (8.0, "leave_paid", "Realizacja usług zgodnie z umową")
     ]
     assert by_day["2031-03-19"]["entries"][0]["hours"] == 4.0
     assert by_day["2031-03-20"]["entries"] == []  # bezpłatny dzień blokuje

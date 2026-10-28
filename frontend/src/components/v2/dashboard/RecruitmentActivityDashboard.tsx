@@ -38,6 +38,7 @@ import { DASHBOARD_SECTION_POLL_MS } from "@/lib/polling"
 import { hasSectionAccess } from "@/lib/section-access"
 import { useAuthStore } from "@/store/auth"
 import { MyNextStepsSection } from "./MyNextStepsSection"
+import { TeamDayTable } from "./TeamDayTable"
 
 const TEAM_SCOPE = "team"
 const DETAIL_PAGE_SIZE = 25
@@ -598,6 +599,16 @@ export function RecruitmentActivityDashboard({
               />
             ) : null}
           </Card>
+
+          {/* Tabela osób tylko dla ról z wglądem w zespół; rekruter widzi siebie. */}
+          {query.data.scope === "team" && query.data.can_view_team_details ? (
+            <TeamDayTable
+              day={day}
+              month={month}
+              metrics={query.data.metrics}
+              compact={!embedded}
+            />
+          ) : null}
 
           <div className="grid gap-3 @2xl:grid-cols-2">
             {query.data.comparisons.map((comparison) => (

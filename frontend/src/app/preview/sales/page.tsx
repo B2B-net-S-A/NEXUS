@@ -90,10 +90,22 @@ const ITEMS: Opportunity[] = [
 function prepare() {
   const client = harnessQueryClient();
   client.setQueryData(salesKeys.pipelines, [PIPELINE]);
-  client.setQueryData(salesKeys.opportunities({ pipeline_id: 1, owner_id: null, q: "" }), {
-    items: ITEMS,
-    total: ITEMS.length,
+  client.setQueryData(
+    salesKeys.opportunities({ pipeline_id: 1, owner_id: null, q: "", sort: "updated", archived: false }),
+    { items: ITEMS, total: ITEMS.length },
+  );
+  // Filtr opiekuna czyta osoby z podsumowania lejka i etykiety z Atlasa — bez żądań.
+  client.setQueryData(salesKeys.summary(null, "all"), {
+    pipeline: { id: 1, name: "Sprzedaż" },
+    open_count: 0,
+    value: "0",
+    weighted: "0",
+    mrr: "0",
+    stale_count: 0,
+    by_owner: [],
+    by_stage: [],
   });
+  client.setQueryData(salesKeys.ownerLabels, []);
   return {
     user: {
       id: 7,

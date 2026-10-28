@@ -1,7 +1,7 @@
 """Sprzedaż → Lejki i szanse (Atlas → NEXUS).
 
-Prefiksy ``/api/sales/pipelines`` i ``/api/sales/opportunities`` (wpięte
-w ``app/main.py``). Odczyt: „Sprzedaż: podgląd”, zapis: „Sprzedaż: edycja”;
+Prefiksy ``/api/sales/pipelines``, ``/api/sales/opportunities`` i
+``/api/sales/summary`` (wpięte w ``app/main.py``). Odczyt: „Sprzedaż: podgląd”, zapis: „Sprzedaż: edycja”;
 zmianę opiekuna robi obecny opiekun albo admin. Ruch szansy po etapach idzie
 wyłącznie przez ``POST /{id}/move`` — reguły cyklu życia są w
 ``services/sales/lifecycle.py``.
@@ -21,6 +21,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
 from app.core.database import get_db
+from app.core.scheduling import business_today
 from app.models.sales import (
     SalesCompany,
     SalesContact,
@@ -34,9 +35,12 @@ from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
 from app.services.sales import company_dates
 from app.services.sales.lifecycle import apply_stage, deal_value
+from app.services.sales.motion import build_atlas_motion
+from app.services.sales.summary import Period, build_summary
 
 pipelines_router = APIRouter()
 router = APIRouter()
+summary_router = APIRouter()
 
 NOT_FOUND_DETAIL = "Nie ma takiej szansy."
 COMPANY_MISSING_DETAIL = "Wybierz firmę z kartoteki sprzedaży."
@@ -225,8 +229,18 @@ class OpportunityOut(BaseModel):
     updated_at: datetime
 
 
+class AtlasMotion(BaseModel):
+    """„Sales Motion” z Atlasa (Fabryki IT, MEDDIC, produkty) — tylko do odczytu."""
+
+    it_factory: Optional[dict[str, Any]]
+    meddic: Optional[dict[str, Any]]
+    products: list[str]
+    subscription_items: list[dict[str, Any]]
+
+
 class OpportunityDetail(OpportunityOut):
     contacts: list[OpportunityContactOut]
+    atlas_motion: Optional[AtlasMotion] = None
 
 
 class OpportunityList(BaseModel):
@@ -322,8 +336,13 @@ async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
             .order_by(SalesContact.full_name)
         )
     ).all()
+    opp: SalesOpportunity = row.SalesOpportunity
+    motion = await build_atlas_motion(
+        db, company_id=opp.company_id, custom_fields=opp.custom_fields
+    )
     return OpportunityDetail(
         **_out(row).model_dump(),
+        atlas_motion=AtlasMotion(**motion) if motion is not None else None,
         contacts=[
             OpportunityContactOut(
                 id=contact.id,
@@ -389,6 +408,15 @@ def _apply(opp: SalesOpportunity, fields: dict[str, Any]) -> None:
         opp.value = deal_value(opp.mrr_value, opp.one_off_value, None)
 
 
+_SORTS = {
+    "updated": (SalesOpportunity.updated_at.desc(),),
+    "value": (SalesOpportunity.value.desc().nulls_last(),),
+    "close": (SalesOpportunity.expected_close_date.asc().nulls_last(),),
+    "activity": (SalesOpportunity.last_activity_at.desc().nulls_last(),),
+    "created": (SalesOpportunity.created_at.desc(),),
+}
+
+
 @router.get("", response_model=OpportunityList)
 async def list_opportunities(
     current_user: SalesViewUser,
@@ -399,6 +427,7 @@ async def list_opportunities(
     opportunity_status: Optional[StatusValue] = Query(default=None, alias="status"),
     q: Optional[str] = Query(default=None, max_length=200),
     archived: bool = False,
+    sort: Literal["updated", "value", "close", "activity", "created"] = "updated",
     # Atlas ma ~1,5 tys. szans — tablica wczytuje cały lejek naraz.
     limit: int = Query(default=200, ge=1, le=2000),
     offset: int = Query(default=0, ge=0),
@@ -427,9 +456,7 @@ async def list_opportunities(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await db.execute(
-            query.order_by(
-                SalesOpportunity.updated_at.desc(), SalesOpportunity.id.desc()
-            )
+            query.order_by(*_SORTS[sort], SalesOpportunity.id.desc())
             .limit(limit)
             .offset(offset)
         )
@@ -630,3 +657,97 @@ async def unlink_contact(
             opp.primary_contact_id = None
         await db.commit()
     return await _detail(db, opportunity_id)
+
+
+# ── Podsumowanie lejka ───────────────────────────────────────────────────
+
+
+class SummaryStageRef(BaseModel):
+    id: int
+    name: str
+    position: int
+
+
+class SummaryOwnerOut(BaseModel):
+    owner: Optional[Ref]
+    open: int
+    value: Decimal
+    weighted: Decimal
+    mrr: Decimal
+    stale: int
+    no_close: int
+
+
+class SummaryStageOut(BaseModel):
+    stage: SummaryStageRef
+    count: int
+    value: Decimal
+
+
+class SummaryOut(BaseModel):
+    pipeline: Ref
+    open_count: int
+    value: Decimal
+    weighted: Decimal
+    mrr: Decimal
+    stale_count: int
+    by_owner: list[SummaryOwnerOut]
+    by_stage: list[SummaryStageOut]
+
+
+@summary_router.get("", response_model=SummaryOut)
+async def sales_summary(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    pipeline_id: Optional[int] = None,
+    period: Period = "all",
+) -> SummaryOut:
+    """Otwarte szanse lejka w okresie zamknięcia: liczby per opiekun i etap."""
+
+    if pipeline_id is not None:
+        pipeline = await db.get(SalesPipeline, pipeline_id)
+        if pipeline is None:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, detail="Nie ma takiego lejka."
+            )
+    else:
+        pipeline = await _default_pipeline(db)
+    summary = await build_summary(
+        db,
+        pipeline,
+        period=period,
+        today=business_today(),
+        now=datetime.now(timezone.utc),
+    )
+    return SummaryOut(
+        pipeline=Ref(id=summary.pipeline_id, name=summary.pipeline_name),
+        open_count=summary.open_count,
+        value=summary.value,
+        weighted=summary.weighted,
+        mrr=summary.mrr,
+        stale_count=summary.stale_count,
+        by_owner=[
+            SummaryOwnerOut(
+                owner=(
+                    Ref(id=o.owner_id, name=o.owner_name or "")
+                    if o.owner_id is not None
+                    else None
+                ),
+                open=o.open,
+                value=o.value,
+                weighted=o.weighted,
+                mrr=o.mrr,
+                stale=o.stale,
+                no_close=o.no_close,
+            )
+            for o in summary.by_owner
+        ],
+        by_stage=[
+            SummaryStageOut(
+                stage=SummaryStageRef(id=s.stage_id, name=s.name, position=s.position),
+                count=s.count,
+                value=s.value,
+            )
+            for s in summary.by_stage
+        ],
+    )

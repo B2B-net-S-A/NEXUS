@@ -48,8 +48,9 @@ class LeaveDay:
         """Dzień płatnej puli B2B = auto-wpis godzin.
 
         Decyzja Compassa z 29.05.2026: kontraktor z pulą rozlicza dzień puli
-        jak dzień pracy („Praca standardowa”), etat (UoP) i dni bezpłatne
-        blokują timesheet. Wniosek oczekujący blokuje zawsze. Na zleceniu puli
+        jak dzień pracy (od 28.10.2026 „Realizacja usług zgodnie z umową”),
+        etat (UoP) i dni bezpłatne blokują timesheet. Wniosek oczekujący
+        blokuje zawsze. Na zleceniu puli
         nie ma (D6, ``pool_applies``): dzień z flagą ``paid`` z czasu innej
         formy blokuje dzień jak bezpłatny — bez auto-wpisu 8 h.
         """

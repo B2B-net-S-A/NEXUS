@@ -5,6 +5,11 @@ Prefiks ``/api/sales/companies`` (wpięty w ``app/main.py``). Odczyt wymaga
 produktu, jak moduł „Ludzie” (decyzja Artura 26.10.2026: uprawnienia zamiast
 roli „Handlowiec”). Edycja jest otwarta dla każdego z uprawnieniem, jak
 w Atlasie; właściciel firmy to opiekun, nie blokada.
+
+Po imporcie z Atlasa: opiekun bez konta w NEXUSIE zostaje etykietą
+(``owner_label``), którą admin przypisuje do konta (``/owner-labels/assign``);
+duplikaty (ten sam NIP albo nazwa kanoniczna) scala ``/{id}/merge`` — źródłowa
+firma trafia do archiwum, nigdy nie jest kasowana.
 """
 
 from __future__ import annotations
@@ -12,23 +17,30 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
+from app.api.sales_gates import (
+    SalesEditUser,
+    SalesViewUser,
+    ensure_owner_or_admin,
+    is_admin,
+)
 from app.core.database import get_db
 from app.models.client import Client
-from app.models.sales import SalesCompany
+from app.models.sales import SalesCompany, SalesOpportunity
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.company_names import normalize_company_name
 from app.services.sales import companies as service
+from app.services.sales.atlas_import import ATLAS_REVIEW_TAG
+from app.services.sales.merge import merge_companies
 
 router = APIRouter()
 
@@ -122,6 +134,10 @@ class CompanyOut(BaseModel):
     parent: Optional[CompanyRef]
     client: Optional[CompanyRef]
     owner: Optional[PersonRef]
+    #: Opiekun z Atlasa bez konta w NEXUSIE — do przypisania na konto.
+    owner_label: Optional[str]
+    #: Tag „atlas: do przejrzenia” — firma przeszła import warunkowo.
+    needs_review: bool
     open_opportunities: int
     open_value: Decimal
     archived_at: Optional[datetime]
@@ -138,6 +154,38 @@ class DuplicateOut(BaseModel):
     id: int
     name: str
     nip: Optional[str]
+
+
+class DuplicateGroupCompany(BaseModel):
+    id: int
+    name: str
+    nip: Optional[str]
+    open_opportunities: int
+
+
+class DuplicateGroupOut(BaseModel):
+    key: str
+    reason: Literal["nip", "name"]
+    companies: list[DuplicateGroupCompany]
+
+
+class OwnerLabelOut(BaseModel):
+    label: str
+    companies: int
+
+
+class OwnerLabelAssign(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    owner_user_id: int
+
+
+class OwnerLabelAssigned(BaseModel):
+    companies: int
+    opportunities: int
+
+
+class MergeRequest(BaseModel):
+    source_id: int
 
 
 def _ref(id_: Optional[int], name: Optional[str]) -> Optional[CompanyRef]:
@@ -173,6 +221,8 @@ def _out(row: Any) -> CompanyOut:
         parent=_ref(company.parent_company_id, row.parent_name),
         client=_ref(company.client_id, row.client_name),
         owner=_person(company.owner_user_id, row.owner_name),
+        owner_label=company.owner_label,
+        needs_review=ATLAS_REVIEW_TAG in (company.tags or []),
         open_opportunities=int(row.open_count or 0),
         open_value=Decimal(row.open_value or 0),
         archived_at=company.archived_at,
@@ -242,6 +292,9 @@ def _apply(company: SalesCompany, fields: dict[str, Any]) -> None:
         elif isinstance(value, str):
             value = value.strip() or None
         setattr(company, key, value)
+    if fields.get("owner_user_id") is not None:
+        # Opiekun z konta zastępuje etykietę opiekuna z Atlasa.
+        company.owner_label = None
     if "name" in fields:
         company.normalized_name = normalize_company_name(company.name) or company.name
 
@@ -254,6 +307,9 @@ async def list_companies(
     lifecycle: Optional[Lifecycle] = None,
     company_status: Optional[CompanyStatusValue] = Query(default=None, alias="status"),
     owner_id: Optional[int] = None,
+    owner_label: Optional[str] = Query(default=None, max_length=120),
+    review: bool = False,
+    tag: Optional[str] = Query(default=None, max_length=120),
     archived: bool = False,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -270,6 +326,12 @@ async def list_companies(
         query = query.where(SalesCompany.status == company_status)
     if owner_id is not None:
         query = query.where(SalesCompany.owner_user_id == owner_id)
+    if owner_label:
+        query = query.where(SalesCompany.owner_label == owner_label)
+    if review:
+        query = query.where(SalesCompany.tags.contains([ATLAS_REVIEW_TAG]))
+    if tag:
+        query = query.where(SalesCompany.tags.contains([tag]))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await db.execute(
@@ -332,18 +394,155 @@ async def registry_lookup(
     )
 
 
-@router.get("/duplicates", response_model=list[DuplicateOut])
+@router.get(
+    "/duplicates",
+    response_model=Union[list[DuplicateOut], list[DuplicateGroupOut]],
+)
 async def company_duplicates(
     current_user: SalesViewUser,
-    name: str = Query(min_length=1, max_length=500),
+    name: Optional[str] = Query(default=None, min_length=1, max_length=500),
     nip: Optional[str] = Query(default=None, max_length=20),
     exclude_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
-) -> list[DuplicateOut]:
-    """Podpowiedź w formularzu: czy taka firma już jest (przed zapisem)."""
+) -> Union[list[DuplicateOut], list[DuplicateGroupOut]]:
+    """Z ``name``: podpowiedź w formularzu, czy taka firma już jest (przed zapisem).
 
-    found = await service.find_duplicates(db, name=name, nip=nip, exclude_id=exclude_id)
-    return [DuplicateOut(id=c.id, name=c.name, nip=c.nip) for c in found]
+    Bez ``name``: grupy niezarchiwizowanych firm o tym samym NIP-ie albo nazwie
+    kanonicznej — lista do scalania po imporcie z Atlasa (do 100 grup).
+    """
+
+    if name is not None:
+        found = await service.find_duplicates(
+            db, name=name, nip=nip, exclude_id=exclude_id
+        )
+        return [DuplicateOut(id=c.id, name=c.name, nip=c.nip) for c in found]
+    return await _duplicate_groups(db)
+
+
+async def _duplicate_groups(db: AsyncSession) -> list[DuplicateGroupOut]:
+    pipeline = service.open_pipeline_subquery()
+    active = SalesCompany.archived_at.is_(None)
+    groups: list[DuplicateGroupOut] = []
+    seen: set[frozenset[int]] = set()
+    for reason, column in (
+        ("nip", SalesCompany.nip),
+        ("name", SalesCompany.normalized_name),
+    ):
+        keys = (
+            select(column)
+            .where(active, column.is_not(None), column != "")
+            .group_by(column)
+            .having(func.count() > 1)
+            .order_by(column)
+            .limit(100)
+        )
+        rows = (
+            await db.execute(
+                select(
+                    column.label("key"),
+                    SalesCompany.id,
+                    SalesCompany.name,
+                    SalesCompany.nip,
+                    pipeline.c.open_count,
+                )
+                .outerjoin(pipeline, pipeline.c.company_id == SalesCompany.id)
+                .where(active, column.in_(keys))
+                .order_by(column, SalesCompany.id)
+            )
+        ).all()
+        by_key: dict[str, list[DuplicateGroupCompany]] = {}
+        for row in rows:
+            by_key.setdefault(row.key, []).append(
+                DuplicateGroupCompany(
+                    id=row.id,
+                    name=row.name,
+                    nip=row.nip,
+                    open_opportunities=int(row.open_count or 0),
+                )
+            )
+        for key, companies in by_key.items():
+            ids = frozenset(c.id for c in companies)
+            if ids in seen:
+                # Ten sam NIP i ta sama nazwa — jedna grupa wystarczy.
+                continue
+            seen.add(ids)
+            groups.append(
+                DuplicateGroupOut(key=key, reason=reason, companies=companies)
+            )
+    return groups[:100]
+
+
+@router.get("/owner-labels", response_model=list[OwnerLabelOut])
+async def owner_labels(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> list[OwnerLabelOut]:
+    """Opiekunowie z Atlasa bez konta w NEXUSIE i liczba ich firm bez opiekuna."""
+
+    count = func.count(SalesCompany.id)
+    rows = (
+        await db.execute(
+            select(SalesCompany.owner_label, count)
+            .where(
+                SalesCompany.owner_user_id.is_(None),
+                SalesCompany.owner_label.is_not(None),
+            )
+            .group_by(SalesCompany.owner_label)
+            .order_by(count.desc(), SalesCompany.owner_label)
+        )
+    ).all()
+    return [OwnerLabelOut(label=label, companies=int(n)) for label, n in rows]
+
+
+@router.post("/owner-labels/assign", response_model=OwnerLabelAssigned)
+async def assign_owner_label(
+    payload: OwnerLabelAssign,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OwnerLabelAssigned:
+    """Admin przypisuje opiekuna z Atlasa do konta: jego firmy i ich szanse bez opiekuna."""
+
+    if not is_admin(current_user):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Opiekunów z Atlasa przypisuje do kont administrator.",
+        )
+    owner = await db.get(User, payload.owner_user_id)
+    if owner is None or not owner.is_active:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Opiekun musi być aktywnym kontem w NEXUSIE.",
+        )
+    company_ids = list(
+        (
+            await db.execute(
+                update(SalesCompany)
+                .where(
+                    SalesCompany.owner_label == payload.label,
+                    SalesCompany.owner_user_id.is_(None),
+                )
+                .values(owner_user_id=owner.id, owner_label=None)
+                .returning(SalesCompany.id)
+            )
+        ).scalars()
+    )
+    opportunities = 0
+    if company_ids:
+        opportunities = len(
+            (
+                await db.execute(
+                    update(SalesOpportunity)
+                    .where(
+                        SalesOpportunity.company_id.in_(company_ids),
+                        SalesOpportunity.owner_user_id.is_(None),
+                    )
+                    .values(owner_user_id=owner.id)
+                    .returning(SalesOpportunity.id)
+                )
+            ).all()
+        )
+    await db.commit()
+    return OwnerLabelAssigned(companies=len(company_ids), opportunities=opportunities)
 
 
 @router.post("", response_model=CompanyOut, status_code=status.HTTP_201_CREATED)
@@ -442,4 +641,37 @@ async def restore_company(
     if company.archived_at is not None:
         company.archived_at = None
         await db.commit()
+    return await _load(db, company_id)
+
+
+@router.post("/{company_id}/merge", response_model=CompanyOut)
+async def merge_company(
+    company_id: int,
+    payload: MergeRequest,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> CompanyOut:
+    """Scal duplikat (``source_id``) w tę firmę; źródłowa trafia do archiwum."""
+
+    if payload.source_id == company_id:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Wybierz inną firmę do scalenia.",
+        )
+    target = await db.get(SalesCompany, company_id)
+    source = await db.get(SalesCompany, payload.source_id)
+    if target is None or source is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    if target.archived_at is not None or source.archived_at is not None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Scalać można tylko firmy, które nie są w archiwum.",
+        )
+    # Scalenie zmienia opiekuna rekordów źródłowej — jak zmiana opiekuna.
+    ensure_owner_or_admin(current_user, target.owner_user_id)
+    ensure_owner_or_admin(current_user, source.owner_user_id)
+    await merge_companies(
+        db, target=target, source=source, now=datetime.now(timezone.utc)
+    )
+    await db.commit()
     return await _load(db, company_id)
