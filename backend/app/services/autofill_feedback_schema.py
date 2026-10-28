@@ -31,6 +31,10 @@ REASONS: tuple[str, ...] = (
     # w Nordei przez inną firmę” albo „nie chce do Nordei”.
     "client_employed",
     "client_refused",
+    # Runda 3 (0614, 28.10.2026): 6 z 10 „Inne” to te trzy sprawy.
+    "overqualified",
+    "wrong_phone",
+    "client_other_vendor",
     "other",
 )
 LEARNED_FROM: tuple[str, ...] = ("profile", "call")
@@ -41,15 +45,20 @@ def _in(values: tuple[str, ...]) -> str:
     return ", ".join(f"'{v}'" for v in values)
 
 
-# 0606 (27.10.2026): powody „klient” i odrzucenie na cały klient. Więz powodów
-# ma JEDNĄ definicję — tu; entrypoint wykonuje cały ``TABLE_DDL`` przy każdym
-# starcie, więc DROP + ADD zawsze kończy się pełną listą.
-WHOLE_CLIENT_DDL: list[str] = [
-    "ALTER TABLE autofill_feedback "
-    "ADD COLUMN IF NOT EXISTS whole_client BOOLEAN NOT NULL DEFAULT false",
+# Więz powodów ma JEDNĄ definicję — tu; entrypoint wykonuje cały
+# ``TABLE_DDL`` przy każdym starcie, więc DROP + ADD zawsze kończy się pełną
+# listą (0606, 0614).
+REASON_CHECK_DDL: list[str] = [
     "ALTER TABLE autofill_feedback DROP CONSTRAINT IF EXISTS ck_autofill_feedback_reason",
     f"ALTER TABLE autofill_feedback ADD CONSTRAINT ck_autofill_feedback_reason "
     f"CHECK (reason IN ({_in(REASONS)}))",
+]
+
+# 0606 (27.10.2026): powody „klient” i odrzucenie na cały klient.
+WHOLE_CLIENT_DDL: list[str] = [
+    "ALTER TABLE autofill_feedback "
+    "ADD COLUMN IF NOT EXISTS whole_client BOOLEAN NOT NULL DEFAULT false",
+    *REASON_CHECK_DDL,
 ]
 
 TABLE_DDL: list[str] = [

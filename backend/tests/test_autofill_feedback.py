@@ -15,7 +15,7 @@ Kontrakty:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -29,7 +29,8 @@ import app.models  # noqa: F401
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.autofill_feedback import AutofillFeedback
-from app.models.candidate import Candidate
+from app.models.activity import Activity
+from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.client import Client
 from app.models.job import Job, JobStatus
@@ -38,7 +39,9 @@ from app.models.pipeline_template import RejectionReason
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
 from app.models.user import User, UserRole
+from app.core.scheduling import business_today
 from app.services import autofill_feedback as feedback
+from app.services import candidate_audit
 from app.services import autofill_withdraw
 from app.services import new_column_autofill as autofill
 from app.services.autofill_feedback_schema import REASONS
@@ -330,7 +333,7 @@ def test_client_reasons_land_in_their_buckets():
     assert bucket("client_employed", snapshot=None, budget_hourly=None) == "data"
     assert bucket("client_refused", snapshot=None, budget_hourly=None) == "person"
     assert feedback.CLIENT_WIDE_REASONS == frozenset(
-        {"client_employed", "client_refused"}
+        {"client_employed", "client_refused", "client_other_vendor"}
     )
 
 
@@ -461,3 +464,202 @@ async def test_move_with_whole_client_withdraws_the_other_card(api_client, monke
         True,
     )
     assert second_id not in await _open_system_jobs(world["system"])
+
+
+# ── Runda 3 (28.10.2026, 0614): nowe powody i „Nie szuka pracy” z datą ──────
+# Analiza 44 odrzuceń: 9 to „Nie szuka pracy”, a żadna z 12 takich osób nie
+# miała tego w profilu i 5 z nich czekało w 9 „Nowych” innych rekrutacji;
+# 6 z 10 „Inne” to overqualified, błędny numer, zgłoszenie przez inną firmę.
+# Kontrakty:
+#
+# - nowe powody mają kosze: overqualified = wyszukiwanie, błędny numer
+#   i zgłoszenie przez inną firmę = dane; zgłoszenie przez inną firmę może
+#   dotyczyć całego klienta;
+# - data „Nie szuka do” tylko przy „Nie szuka pracy”, w przyszłości, do 2 lat;
+# - odrzucenie z datą: profil „Nie szuka” + „Dostępny od”, audyt, nietknięte
+#   karty od systemu w innych rekrutacjach (u każdego klienta) znikają;
+# - silnik pomija osobę „Nie szuka” z datą w przyszłości albo bez daty,
+#   a po dacie podsuwa ją znowu.
+
+
+@pytest.mark.parametrize(
+    ("reason", "bucket"),
+    [
+        ("overqualified", "search"),
+        ("wrong_phone", "data"),
+        ("client_other_vendor", "data"),
+    ],
+)
+def test_round3_reasons_land_in_their_buckets(reason, bucket):
+    assert feedback.bucket_for(reason, snapshot=None, budget_hourly=None) == bucket
+
+
+def test_not_looking_until_only_with_that_reason_and_a_sane_date():
+    process = SimpleNamespace(entry_source="system")
+    today = business_today()
+
+    def check(reason: str, until: date) -> None:
+        feedback.validate(
+            process=process,
+            reason=reason,
+            learned_from="call",
+            note=None,
+            not_looking_until=until,
+        )
+
+    check("not_looking", today + timedelta(days=90))
+    for reason, until in (
+        ("missing_skill", today + timedelta(days=90)),
+        ("not_looking", today),
+        ("not_looking", today - timedelta(days=1)),
+        ("not_looking", today + timedelta(days=feedback.NOT_LOOKING_MAX_DAYS + 1)),
+    ):
+        with pytest.raises(HTTPException) as bad:
+            check(reason, until)
+        assert bad.value.status_code == 422
+
+
+async def _availability(cid: int, status: AvailabilityStatus, until) -> None:
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, cid)
+        person.availability_status = status
+        person.availability_date = until
+        await db.commit()
+
+
+async def test_engine_skips_not_looking_people_until_their_date(monkeypatch):
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    _client, (job_id,) = await _client_with_jobs(1)
+    later, no_date, past, ok = await _people(4)
+    today = business_today()
+    await _availability(
+        later, AvailabilityStatus.not_looking, today + timedelta(days=30)
+    )
+    await _availability(no_date, AvailabilityStatus.not_looking, None)
+    await _availability(past, AvailabilityStatus.not_looking, today - timedelta(days=1))
+    await _pool(job_id, {later: 90, no_date: 85, past: 80, ok: 70})
+
+    assert await _fill(job_id) == [past, ok]
+
+
+async def test_withdraw_elsewhere_takes_untouched_cards_at_every_client(monkeypatch):
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    _a, (here, same_client) = await _client_with_jobs(2)
+    _b, (other_client, touched) = await _client_with_jobs(2)
+    person, colleague = await _people(2)
+    for job_id in (here, same_client, other_client, touched):
+        await _pool(job_id, {person: 90, colleague: 80})
+        await _fill(job_id)
+    recruiter = await _user()
+    async with AsyncSessionLocal() as db:
+        db.add(
+            CandidateStage(
+                candidate_id=person,
+                job_id=touched,
+                stage=PipelineStage.screening,
+                moved_by=recruiter,
+            )
+        )
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        done = await autofill_withdraw.withdraw_elsewhere(
+            db, candidate_id=person, except_job_id=here
+        )
+        await db.commit()
+
+    assert sorted(done) == sorted([(person, same_client), (person, other_client)])
+    assert await _open_system_jobs(person) == {here, touched}
+    assert await _open_system_jobs(colleague) == {
+        here,
+        same_client,
+        other_client,
+        touched,
+    }
+    async with AsyncSessionLocal() as db:
+        reasons = set(
+            (
+                await db.scalars(
+                    select(CandidateStageRemoval.reason).where(
+                        CandidateStageRemoval.candidate_id == person
+                    )
+                )
+            ).all()
+        )
+        why = (
+            await db.scalars(
+                select(Activity.details["why"].astext).where(
+                    Activity.entity_type == autofill_withdraw.ACTIVITY_ENTITY,
+                    Activity.entity_id == same_client,
+                    Activity.action == autofill_withdraw.ACTION,
+                )
+            )
+        ).all()
+    assert reasons == {autofill_withdraw.NOT_LOOKING_REMOVAL_REASON}
+    assert why == ["not_looking"]
+
+
+async def test_move_with_not_looking_until_updates_profile_and_other_cards(
+    api_client, monkeypatch
+):
+    monkeypatch.setattr(autofill, "TARGET", 1)
+    world = await _world()
+    _other, (elsewhere,) = await _client_with_jobs(1)
+    await _pool(elsewhere, {world["system"]: 70})
+    async with AsyncSessionLocal() as db:
+        now = datetime.now(timezone.utc)
+        assert await autofill.fill_job(db, world["job_id"], now=now) == [
+            world["system"]
+        ]
+        assert await autofill.fill_job(db, elsewhere, now=now) == [world["system"]]
+        await db.commit()
+    login = await api_client.post(
+        "/api/auth/login",
+        json={"email": world["email"], "password": world["password"]},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    async with AsyncSessionLocal() as db:
+        reason_id = await db.scalar(
+            select(RejectionReason.id).where(
+                RejectionReason.category == "rejected",
+                RejectionReason.template_id.is_(None),
+            )
+        )
+    until = business_today() + timedelta(days=91)
+    base = {
+        "candidate_id": world["system"],
+        "job_id": world["job_id"],
+        "stage": "rejected",
+        "rejection_reason_id": reason_id,
+        "rejection_reason": None if reason_id else "nie szuka",
+        "notes": "Ma projekt na rok.",
+        "autofill_learned_from": "call",
+        "autofill_not_looking_until": until.isoformat(),
+    }
+
+    wrong = await api_client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={**base, "autofill_reason": "missing_skill"},
+    )
+    assert wrong.status_code == 422, wrong.text
+
+    moved = await api_client.post(
+        "/api/pipeline/move",
+        headers=headers,
+        json={**base, "autofill_reason": "not_looking"},
+    )
+    assert moved.status_code == 200, moved.text
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, world["system"])
+        audit = await db.scalar(
+            select(Activity).where(
+                Activity.action == candidate_audit.AVAILABILITY_CHANGED,
+                Activity.entity_id == world["system"],
+            )
+        )
+    assert person.availability_status == AvailabilityStatus.not_looking
+    assert person.availability_date == until
+    assert audit is not None and audit.user_id == world["user_id"]
+    assert audit.details["after"]["availability_date"] == until.isoformat()
+    assert elsewhere not in await _open_system_jobs(world["system"])

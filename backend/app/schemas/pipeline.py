@@ -94,6 +94,9 @@ class StageMove(BaseModel):
             "in_other_process",
             "client_employed",
             "client_refused",
+            "overqualified",
+            "wrong_phone",
+            "client_other_vendor",
             "other",
         ]
     ] = None
@@ -103,6 +106,10 @@ class StageMove(BaseModel):
     # klient — zdejmuje nietknięte karty tej osoby od systemu z innych
     # rekrutacji klienta, a silnik więcej jej temu klientowi nie podsuwa.
     autofill_whole_client: bool = False
+    # 28.10.2026: „Nie szuka pracy” — do kiedy. Profil dostaje „Nie szuka”
+    # i „Dostępny od” = ta data, system zdejmuje nietknięte karty osoby od
+    # systemu z innych rekrutacji i nie podsuwa jej do tej daty.
+    autofill_not_looking_until: Optional[date] = None
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad

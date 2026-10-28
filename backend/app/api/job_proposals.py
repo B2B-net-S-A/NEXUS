@@ -851,6 +851,7 @@ _DETAIL_KEYS = (
     "trigger",
     "reason",
     "message",
+    "why",
 )
 
 
