@@ -517,7 +517,10 @@ GAPS_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE sales_activities DROP COLUMN IF EXISTS direction",
     "ALTER TABLE sales_activities DROP COLUMN IF EXISTS web_link",
     "ALTER TABLE sales_activities DROP COLUMN IF EXISTS external_id",
-    *(f"ALTER TABLE {table} DROP COLUMN IF EXISTS synced_at" for table in SYNCED_TABLES),
+    *(
+        f"ALTER TABLE {table} DROP COLUMN IF EXISTS synced_at"
+        for table in SYNCED_TABLES
+    ),
     "DROP INDEX IF EXISTS ix_sales_companies_owner_label",
     "ALTER TABLE sales_companies DROP COLUMN IF EXISTS owner_label",
 )
