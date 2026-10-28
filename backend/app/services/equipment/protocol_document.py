@@ -61,6 +61,9 @@ class ProtocolView:
     holder_name: str
     issuer_name: str
     lines: tuple[LineView, ...]
+    #: Dopiski pod podpisami po potwierdzeniu w NEXUSIE (puste przed).
+    holder_signature: str = ""
+    issuer_signature: str = ""
 
 
 def _cents(value: Decimal) -> Decimal:
@@ -124,6 +127,8 @@ def context_for(view: ProtocolView) -> dict:
         "lines": lines,
         "total": total_amount(total),
         "total_words": pln_words_with_fraction(float(total)),
+        "holder_signature": view.holder_signature,
+        "issuer_signature": view.issuer_signature,
     }
 
 
