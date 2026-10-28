@@ -85,11 +85,11 @@ describe("HolderPicker", () => {
     expect(screen.getByText(/Uczestnik Akademii · Akademia Rekrutera/)).toBeInTheDocument();
   });
 
-  it("labels the register mode for employees, consultants and people outside", () => {
+  it("labels the register mode with the three sources, without employment-contract words", () => {
     wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
-    expect(
-      screen.getByRole("button", { name: "Pracownik, konsultant, osoba spoza" }),
-    ).toBeInTheDocument();
+    // Bez „pracownik” na ekranie wielu osób (słowa zgodne z PIP, 21.10.2026).
+    expect(screen.getByRole("button", { name: "Zespół, kontrakty, osoby spoza" })).toBeInTheDocument();
+    expect(screen.queryByText(/[Pp]racownik/)).toBeNull();
     expect(screen.getByPlaceholderText("Imię i nazwisko albo e-mail…")).toBeInTheDocument();
   });
 

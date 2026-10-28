@@ -114,7 +114,7 @@ export function HolderPicker({
         <div role="group" aria-label="Kogo szukasz" className="flex gap-1">
           {(
             [
-              ["registry", "Pracownik, konsultant, osoba spoza"],
+              ["registry", "Zespół, kontrakty, osoby spoza"],
               ["academy", "Uczestnik Akademii"],
             ] as const
           ).map(([key, label]) => (
