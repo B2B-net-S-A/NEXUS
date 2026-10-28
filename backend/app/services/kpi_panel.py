@@ -31,7 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User, UserRole
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_catalog import KpiPeriod
-from app.services.kpi_engine import WARSAW, period_bounds
+from app.services.kpi_engine import (
+    WARSAW,
+    absence_for_periods,
+    period_bounds,
+    target_on_workdays,
+)
 from app.services.kpi_targets import KPI_BEARING_ROLES, resolve_kpi_targets_bulk
 
 # Minimalna liczba weryfikacji w oknie, by pokazać precision (mniej = szum).
@@ -651,8 +656,15 @@ async def compute_my_panel(
         cv_row = (await db.execute(_CV_SQL, cv_params)).mappings().one()
         cv_to_base = _funnel_counts(dict(cv_row))
 
-    verifications_target = targets["daily_first_verifications"]
-    placements_target = targets["monthly_placements"]
+    # Cele w proporcji do dni pracy — te same co w „/me/today” i w Zespole
+    # (decyzja Artura 28.10.2026, `person_workdays`).
+    absence = (await absence_for_periods(db, [user.id], now)).get(user.id, {})
+    verifications_target = target_on_workdays(
+        targets["daily_first_verifications"], KpiPeriod.day, now, absence
+    )
+    placements_target = target_on_workdays(
+        targets["monthly_placements"], KpiPeriod.month, now, absence
+    )
 
     total_activity = (
         weryfikacje.month + rekomendacje.month + interview_month + placementy_month
