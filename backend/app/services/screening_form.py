@@ -769,6 +769,16 @@ async def load_state(
     fields = {
         key: dict(value) for key, value in current.fields.items() if key != "rate"
     }
+    # Powrót w ciągu 30 dni (28.10.2026): pola z poprzedniej próby liczą się,
+    # ale widok mówi, z której rozmowy są.
+    opened = (
+        state.process.opened_at
+        if state.process is not None and (state.process.attempt_no or 1) > 1
+        else None
+    )
+    for value in fields.values():
+        if opened is not None and not cards.is_current(value, opened):
+            value["previous_attempt"] = True
     previous = {
         key: dict(value) for key, value in current.previous.items() if key != "rate"
     }

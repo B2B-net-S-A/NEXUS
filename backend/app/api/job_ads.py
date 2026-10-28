@@ -355,7 +355,21 @@ async def put_portal_ad(
             "wersję — Twój tekst został w polu, zapisz go jeszcze raz."
         )
     mat = await _material(db, job)
-    ad.content = generate.clean_content(data.content.model_dump(), title=mat.title)
+    raw = data.content.model_dump()
+    blocks = (await fixed_blocks.load_blocks(db)).for_lang(ad.lang)
+    raw["offer"] = render.own_offer(
+        raw, render.terms_from(mat, raw), blocks, lang=ad.lang
+    )
+    limit = generate.LIST_LIMITS["offer"]
+    if len(raw["offer"]) > limit:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"W „To oferujemy” możesz dopisać najwyżej {limit} własnych "
+                f"punktów — jest {len(raw['offer'])}. Usuń albo połącz część z nich."
+            ),
+        )
+    ad.content = generate.clean_content(raw, title=mat.title)
     ad.tech = render.clean_tech([item.model_dump() for item in data.tech])
     ad.updated_by = current_user.id
     ad.updated_at = _now()

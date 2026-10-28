@@ -221,6 +221,8 @@ def test_entrypoint_mirrors_the_signing_table():
     assert "'signature_renewal_requested'" in entrypoint
     # 0604: osoby w DW przy wysyłce (27.10.2026).
     assert "ADD COLUMN IF NOT EXISTS cc_user_ids" in entrypoint
+    # 0605: kto obsługuje wysyłkę (zastępstwo, 27.10.2026).
+    assert "ADD COLUMN IF NOT EXISTS handled_by" in entrypoint
     migration = (root / "alembic/versions/0499_b2b_signing_requests.py").read_text()
     assert re.search(r'down_revision = "0496_b2b_generated_signed_file"', migration)
 
@@ -2024,8 +2026,18 @@ def test_watchers_are_the_sender_and_cc_without_repeats():
 
     from app.services.b2b_esign.service import watchers
 
-    assert watchers(SimpleNamespace(sent_by=7, cc_user_ids=[9, 7, 9, 11])) == [7, 9, 11]
-    assert watchers(SimpleNamespace(sent_by=None, cc_user_ids=[])) == []
+    assert watchers(
+        SimpleNamespace(sent_by=7, handled_by=None, cc_user_ids=[9, 7, 9, 11])
+    ) == [7, 9, 11]
+    assert (
+        watchers(SimpleNamespace(sent_by=None, handled_by=None, cc_user_ids=[])) == []
+    )
+    # Po „Przejmij obsługę” obsługujący pierwszy, nadawca dalej wie (0605).
+    assert watchers(SimpleNamespace(sent_by=7, handled_by=12, cc_user_ids=[9])) == [
+        12,
+        7,
+        9,
+    ]
 
 
 @pytest.mark.asyncio
@@ -2088,3 +2100,186 @@ async def test_cc_who_left_the_team_gets_no_new_link_or_copy(
     )
     assert relinked.status_code == 200, relinked.text
     assert mails[-1]["cc"] == [], "kto wypadł z zespołu, nie dostaje nowego linku"
+
+
+# ── obsługujący i zastępstwo (decyzja Artura 27.10.2026) ─────────────────────
+
+
+async def _connect_mailbox(user_id: int) -> None:
+    """Połączona skrzynka M365 (bez prawdziwych tokenów — Graph nie jest wołany)."""
+    import uuid
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.m365 import M365Connection
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            M365Connection(
+                user_id=user_id,
+                tenant_id="t",
+                mailbox_upn=f"esign-{uuid.uuid4().hex[:6]}@example.com",
+                access_token_ct="a",
+                refresh_token_ct="r",
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                is_active=True,
+            )
+        )
+        await db.commit()
+
+
+async def _team_recruiter(app_client, job_id: int) -> tuple[int, dict[str, str]]:
+    """Rekruter prowadzący rekrutację umowy — może ją wysłać i przejąć."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job
+    from app.models.user import UserRole
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    headers = await _headers_for_role(app_client, UserRole.recruiter)
+    user_id = int(headers["X-Test-User-Id"])
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        assert job is not None
+        job.recruiter_id = user_id
+        await db.commit()
+    return user_id, headers
+
+
+@pytest.mark.asyncio
+async def test_take_over_moves_the_reminders_to_the_new_handlers_mailbox(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env, monkeypatch
+):
+    """Zespół chciał „wysyłki w zastępstwie”: bez nowego uprawnienia przejmuje
+    ten, kto mógłby wysłać umowę; kolejne maile idą z jego skrzynki."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.user import UserRole
+    from app.services.b2b_esign import mail as esign_mail
+    from app.tasks import b2b_esign_sweeper
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    recruiter_id, recruiter_headers = await _team_recruiter(
+        app_client, scenario["job_id"]
+    )
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    assert sent.json()["request"]["handled_by_id"] == esign_env["admin_id"]
+
+    own = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=app_auth_headers
+    )
+    assert own.status_code == 409, own.text
+    outsider = await _headers_for_role(app_client, UserRole.recruiter)
+    refused = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=outsider
+    )
+    assert refused.status_code == 403, refused.text
+
+    listed = await _register_item(
+        app_client, recruiter_headers, scenario["generated_id"]
+    )
+    assert listed["can_take_over_esign"] is True
+    # Bez połączonej skrzynki dalsze maile przepadłyby po cichu (przegląd kodu).
+    no_mailbox = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
+    )
+    assert no_mailbox.status_code == 409, no_mailbox.text
+    assert "skrzynkę Microsoft 365" in no_mailbox.json()["detail"]
+    await _connect_mailbox(recruiter_id)
+    taken = await app_client.post(
+        f"/api/b2b-generator/esign/{request_id}/take-over", headers=recruiter_headers
+    )
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["handled_by_id"] == recruiter_id
+    assert any(
+        "obsługuje teraz umowę" in t
+        for t in await _notices(esign_env["admin_id"], request_id)
+    )
+
+    mails: list[dict] = []
+
+    async def _capture(db, **kwargs):
+        mails.append(kwargs)
+        return True, None
+
+    monkeypatch.setattr(esign_mail, "send_from", _capture)
+    now = datetime.now(timezone.utc)
+    assert (
+        await b2b_esign_sweeper._handle(request_id, now + timedelta(days=2, minutes=1))
+        == "reminded"
+    )
+    assert mails and mails[0]["user_id"] == recruiter_id
+    assert await _notices(recruiter_id, request_id)
+
+    history = await app_client.get(
+        f"/api/b2b-generator/generated/{scenario['generated_id']}/status-history",
+        headers=app_auth_headers,
+    )
+    labels = [e["label"] for e in history.json() if e.get("kind") == "esign"]
+    assert any(label.startswith("Obsługa wysyłki przejęta") for label in labels)
+
+
+@pytest.mark.asyncio
+async def test_handler_on_leave_brings_the_leave_substitute_into_the_bells(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], esign_env
+):
+    """Obsługujący na urlopie z wpisanym zastępcą (moduł „Urlopy”): zastępca
+    dostaje dzwonek o wygaśnięciu, a rejestr mówi, do kiedy trwa urlop."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.scheduling import business_today
+    from app.models.hr_leave import LeaveRequest
+    from app.models.user import UserRole
+    from tests.test_b2b_signature_automation import _headers_for_role
+
+    scenario = await _seed_in_progress(created_by=esign_env["admin_id"])
+    substitute_id = int(
+        (await _headers_for_role(app_client, UserRole.recruiter))["X-Test-User-Id"]
+    )
+    sent = await _send(
+        app_client,
+        app_auth_headers,
+        scenario["generated_id"],
+        esign_env["signer_id"],
+        days=3,
+    )
+    request_id = sent.json()["request"]["id"]
+    today = business_today()
+    async with AsyncSessionLocal() as db:
+        leave = LeaveRequest(
+            user_id=esign_env["admin_id"],
+            leave_type="vacation",
+            status="approved",
+            start_date=today - timedelta(days=1),
+            end_date=today + timedelta(days=5),
+            substitute_user_id=substitute_id,
+        )
+        db.add(leave)
+        await db.commit()
+        leave_id = leave.id
+    try:
+        listed = await _register_item(
+            app_client, app_auth_headers, scenario["generated_id"]
+        )
+        assert (
+            listed["esign"]["handler_absent_until"]
+            == (today + timedelta(days=5)).isoformat()
+        )
+        assert listed["esign"]["handler_substitute_name"] == "Signature recruiter"
+
+        await _expire(
+            request_id, datetime.now(timezone.utc) + timedelta(days=3, minutes=1)
+        )
+        assert any("wygasł" in t for t in await _notices(substitute_id, request_id))
+    finally:
+        async with AsyncSessionLocal() as db:
+            await db.delete(await db.get(LeaveRequest, leave_id))
+            await db.commit()

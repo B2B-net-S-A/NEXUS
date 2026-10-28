@@ -5351,6 +5351,9 @@ END $$""",
     # 0604: osoby z NEXUSA w DW przy wysyłce do podpisu (27.10.2026).
     "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS cc_user_ids "
     "JSONB NOT NULL DEFAULT '[]'::jsonb",
+    # 0605: kto obsługuje wysyłkę po „Przejmij obsługę” (zastępstwo, 27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS handled_by "
+    "INTEGER REFERENCES users (id) ON DELETE SET NULL",
     # 0506: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
     # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
     # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.

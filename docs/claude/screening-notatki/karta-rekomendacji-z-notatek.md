@@ -117,6 +117,20 @@ miękkie. Ekrany dochodzą w kolejnych etapach.
 - **Ponowne dodanie osoby do rekrutacji:** wartości z datą sprzed początku
   bieżącej próby procesu (`attempt_no > 1`) są podpowiedzią (`previous`),
   kompletność liczy się od nowa. Rozstrzyga data pola — osobnego licznika nie ma.
+  **Wyjątek od 28.10.2026 (decyzja Artura, wariant A):** powrót nie później niż
+  30 dni po zamknięciu poprzedniej próby (`SCREENING_REOPEN_GRACE`, to samo okno
+  co arkusz w `screening_window`) to ta sama rozmowa — `attempt_started` liczy
+  wtedy od początku poprzedniej próby (dla próby 1 — wszystko), więc warunki
+  i ocena przechodzą z osobą jak odpowiedzi. Dane poprzedniej próby
+  (`previous_closed_at`, `previous_opened_at`) to kolumny wyliczane modelu
+  `RecruitmentProcess` po `previous_process_id`, bez migracji; świeżo dodany,
+  niewczytany proces wraca do starej reguły. Pole z poprzedniej próby ma
+  w `GET /api/screening-form` `previous_attempt: true`, a widok „Screening”
+  dopisuje „· z poprzedniej próby 26.10.2026” i jedno zdanie nad warunkami.
+  Powód: kandydat odrzucony „za drogo” i dodany ponownie 17 h później poszedł do
+  Cpro z „Brakuje pól: 9”, choć odpowiedzi przeszły, a formularz pokazywał stare
+  wartości jako szary tekst „ostatnio: …”, który wyglądał jak wpis. Łańcuch
+  szybkich powrotów liczy się tylko o jedną próbę wstecz.
 - **Kompletność liczy JEDNA funkcja** (`recommendation_card_rules.completeness`,
   10 pól wzoru działu); front ma ją tylko pokazywać.
 - **Ekrany rekrutacji (03.10.2026):** karta tablicy niesie `card`

@@ -672,6 +672,10 @@ class B2BGeneratedEsign(BaseModel):
     renewal_requested_at: Optional[datetime] = None
     # Osoby z NEXUSA w DW wysyłki (27.10.2026).
     cc_names: list[str] = Field(default_factory=list)
+    # Kto obsługuje wysyłkę i czy jest dziś na urlopie (moduł „Urlopy”).
+    handled_by_name: Optional[str] = None
+    handler_absent_until: Optional[date] = None
+    handler_substitute_name: Optional[str] = None
 
 
 class B2BGeneratedContractItem(BaseModel):
@@ -780,6 +784,8 @@ class B2BGeneratedContractItem(BaseModel):
     # sam PDF, umowa bez poprawek) — 27.10.2026.
     can_extend_esign: bool = False
     can_relink_esign: bool = False
+    # „Przejmij obsługę” — wysyłka w toku albo po terminie, obsługuje ktoś inny.
+    can_take_over_esign: bool = False
     # Plik podpisany przez obie strony (``GET /esign/{id}/signed-pdf``) — dla
     # nadawcy i reprezentanta, gdy automatyka nie założyła kontraktu.
     can_download_signed_esign: bool = False

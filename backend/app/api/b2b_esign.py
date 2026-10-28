@@ -55,6 +55,7 @@ from app.core.config import settings as app_config
 from app.core.database import get_db
 from app.core.rate_limit import limiter
 from app.core.scheduling import business_date
+from app.core.scheduling import business_today
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import B2BSigningRequest
 from app.models.candidate import Candidate
@@ -87,6 +88,11 @@ MSG_MANDATE = (
     "NEXUSEM i oznacz ją jako podpisaną w rejestrze."
 )
 MSG_SIGNER = "Wybierz osobę, która podpisze za B2B Network, z listy w ustawieniach."
+MSG_TAKE_OVER_MAILBOX = (
+    "Połącz swoją skrzynkę Microsoft 365 z NEXUSEM, zanim przejmiesz obsługę: "
+    "przypomnienia, mail do podpisu za B2B Network i kopia umowy idą ze skrzynki "
+    "osoby, która obsługuje wysyłkę."
+)
 MSG_CC = (
     "Do wiadomości dodasz tylko osoby z zespołu tej rekrutacji albo autora "
     "umowy, które same widzą tę umowę ze stawkami."
@@ -178,6 +184,9 @@ class EsignRequestOut(BaseModel):
     closed_at: Optional[datetime]
     close_reason: Optional[str]
     cc: list[EsignPerson] = Field(default_factory=list)
+    # Kto obsługuje wysyłkę (po „Przejmij obsługę” — zastępca, 27.10.2026).
+    handled_by_id: Optional[int] = None
+    handled_by_name: Optional[str] = None
     # Tylko w liście „Czeka na mój podpis” (pulpit i rejestr) — reszta zna wiersz.
     contract_number: Optional[str] = None
     client_name: Optional[str] = None
@@ -237,9 +246,14 @@ async def _out(
     db: AsyncSession, request: B2BSigningRequest, *, with_contact: bool = True
 ) -> EsignRequestOut:
     cc_ids = list(request.cc_user_ids or [])
+    handler = service.handler_id(request)
     names = await _names(
         db,
-        [*([request.company_signer_id] if request.company_signer_id else []), *cc_ids],
+        [
+            *([request.company_signer_id] if request.company_signer_id else []),
+            *([handler] if handler else []),
+            *cc_ids,
+        ],
     )
     return EsignRequestOut(
         id=request.id,
@@ -258,6 +272,8 @@ async def _out(
         closed_at=request.closed_at,
         close_reason=request.close_reason,
         cc=[EsignPerson(id=uid, name=names[uid]) for uid in cc_ids if uid in names],
+        handled_by_id=handler,
+        handled_by_name=names.get(handler or -1),
     )
 
 
@@ -663,6 +679,40 @@ async def relink_esign(
     )
 
 
+@router.post("/esign/{request_id}/take-over", response_model=EsignRequestOut)
+async def take_over_esign(
+    request_id: int,
+    current_user: B2BGeneratorAccess,
+    db: AsyncSession = Depends(get_db),
+) -> EsignRequestOut:
+    """„Przejmij obsługę” (zastępstwo, 27.10.2026). Bez nowego uprawnienia:
+    przejmuje ten, kto mógłby wysłać tę umowę (``_assert_row_sender``)."""
+    row = await _row_of(db, request_id)
+    await _assert_row_sender(db, current_user, row)
+    # Bez skrzynki dalsze maile obiegu przepadłyby bez śladu (przegląd kodu
+    # 27.10.2026): przypomnienia, mail do reprezentanta i kopia kontraktora.
+    if not await esign_mail.mailbox_connected(db, current_user.id):
+        raise HTTPException(status_code=409, detail=MSG_TAKE_OVER_MAILBOX)
+    updated, previous = await service.take_over(
+        db, request_id=request_id, actor_id=current_user.id, now=_now()
+    )
+    await db.commit()
+    out = await _out(db, updated)
+    if previous and previous != current_user.id:
+        await _notify(
+            db,
+            user_id=previous,
+            title=f"{current_user.name} obsługuje teraz umowę {row.contract_number}",
+            message=(
+                "Przypomnienia, mail do podpisu za B2B Network i kopia umowy pójdą "
+                "z tamtej skrzynki, a dzwonki o tej wysyłce do tej osoby."
+            ),
+            ntype=NotificationType.signature_sent,
+            request_id=request_id,
+        )
+    return out
+
+
 # ── Podpis za B2B Network ───────────────────────────────────────────────────
 
 
@@ -883,7 +933,8 @@ async def _after_contractor_signed(db: AsyncSession, request_id: int) -> None:
         )
         await esign_mail.send_from(
             db,
-            user_id=request.sent_by,
+            # Ze skrzynki obsługującego (po „Przejmij obsługę” — zastępcy).
+            user_id=service.handler_id(request),
             to=company_signer.email,
             subject=subject,
             body_html=body,
@@ -914,7 +965,7 @@ async def _send_contractor_copy(db: AsyncSession, request_id: int) -> None:
     subject, body = esign_mail.contractor_copy_message(number=number)
     await esign_mail.send_from(
         db,
-        user_id=request.sent_by,
+        user_id=service.handler_id(request),
         to=request.contractor_email,
         subject=subject,
         body_html=body,
@@ -955,7 +1006,7 @@ async def _after_both_signed(db: AsyncSession, request_id: int, signer: User) ->
         return
     row_id = request.generated_contract_id
     # Dzwonek o podpisie obu stron: nadawca i osoby w DW (27.10.2026).
-    watcher_ids = service.watchers(request)
+    watcher_ids = await service.bell_recipients(db, request, business_today())
     final_path = request.final_pdf_path
     row = await db.get(B2BGeneratedContract, row_id)
     number = row.contract_number if row else ""
@@ -1175,7 +1226,7 @@ async def public_request_renewal(
         number = row.contract_number if row else ""
         await _notify_many(
             db,
-            user_ids=service.watchers(signing),
+            user_ids=await service.bell_recipients(db, signing, business_today()),
             title=f"Kontraktor prosi o nowy link do umowy {number}",
             message=(
                 f"{signing.contractor_name}: link wygasł. „Wyślij nowy link” "

@@ -31,6 +31,7 @@ import {
   isAdChangedError,
   jobAdApi,
   jobAdQueryKey,
+  linesToItems,
   type AdContent,
   type AdFinding,
   type AdLang,
@@ -51,6 +52,7 @@ import {
   withoutExcerpt,
   type AdDrafts,
   type AdEditKey,
+  type AdFieldKey,
 } from "./job-ad-edit";
 
 export type JobAdTab = "pracuj" | "jjit";
@@ -220,10 +222,18 @@ export function JobAdWindow({
     }
   };
 
-  const saveField = async (key: AdEditKey, text: string): Promise<boolean> => {
+  const saveField = async (key: AdFieldKey, text: string): Promise<boolean> => {
     if (!ad) return false;
-    const saved = await saveAd(withEdited(ad.content, key, text), ad.tech);
-    if (saved) setDraft(key, null);
+    const edited = withEdited(ad.content, key, text);
+    // Ukrycia punktów „To oferujemy” zapisują się razem z polem.
+    const hidden = key === "offer" ? drafts.offer_hidden : undefined;
+    const content =
+      hidden === undefined ? edited : { ...edited, offer_hidden: linesToItems(hidden) };
+    const saved = await saveAd(content, ad.tech);
+    if (saved) {
+      setDraft(key, null);
+      if (hidden !== undefined) setDraft("offer_hidden", null);
+    }
     return saved;
   };
 

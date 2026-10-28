@@ -4122,6 +4122,10 @@ export interface B2BGeneratedContractRow {
     renewal_requested_at?: string | null;
     /** Osoby z NEXUSA w DW wysyłki (27.10.2026). */
     cc_names?: string[];
+    /** Kto obsługuje wysyłkę; urlop dziś (moduł „Urlopy”) i zastępca. */
+    handled_by_name?: string | null;
+    handler_absent_until?: string | null;
+    handler_substitute_name?: string | null;
   } | null;
   can_send_esign?: boolean;
   can_withdraw_esign?: boolean;
@@ -4129,6 +4133,8 @@ export interface B2BGeneratedContractRow {
   can_extend_esign?: boolean;
   /** „Wyślij nowy link” — po terminie, ten sam PDF, umowa bez poprawek. */
   can_relink_esign?: boolean;
+  /** „Przejmij obsługę” — obsługuje ktoś inny (zastępstwo, 27.10.2026). */
+  can_take_over_esign?: boolean;
   /** Czy to konto pobierze plik podpisany przez obie strony w NEXUSIE. */
   can_download_signed_esign?: boolean;
   can_delete: boolean;

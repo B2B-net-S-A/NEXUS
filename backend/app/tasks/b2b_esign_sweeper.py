@@ -31,7 +31,11 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import or_, select, update
 
 from app.core.database import AsyncSessionLocal
-from app.core.scheduling import is_business_day, is_within_local_hours
+from app.core.scheduling import (
+    business_today,
+    is_business_day,
+    is_within_local_hours,
+)
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
 from app.models.notification import NotificationType
@@ -41,8 +45,9 @@ from app.services.b2b_esign import mail as esign_mail
 from app.services.b2b_esign.service import (
     EXPIRED_LINK_DAYS,
     SIGNED_COPY_DAYS,
+    bell_recipients,
+    handler_id,
     link_sent_at,
-    watchers,
 )
 from app.services.notification_triggers import emit as emit_notification
 
@@ -136,7 +141,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                 {"kind": "expired", "at": request.expires_at.isoformat()},
             ]
             # Nadawca i osoby w DW (27.10.2026) — ktoś musi wysłać nowy link.
-            for watcher_id in watchers(request):
+            for watcher_id in await bell_recipients(db, request, business_today()):
                 await _notify(
                     db,
                     user_id=watcher_id,
@@ -179,7 +184,7 @@ async def _handle(request_id: int, now: datetime) -> str | None:
                 )
                 await esign_mail.send_from(
                     db,
-                    user_id=request.sent_by,
+                    user_id=handler_id(request),
                     to=signer.email,
                     subject=subject,
                     body_html=body,
@@ -199,7 +204,8 @@ async def _handle(request_id: int, now: datetime) -> str | None:
         ):
             return None
         request.last_reminder_at = now
-        sender_id = request.sent_by
+        # Obsługujący (po „Przejmij obsługę” zastępca) — jego skrzynka i dzwonek.
+        sender_id = handler_id(request)
         contractor_email = request.contractor_email
         contractor_name = request.contractor_name
         candidate_id = row.candidate_id if row else None
