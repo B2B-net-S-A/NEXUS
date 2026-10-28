@@ -42,6 +42,8 @@ export interface WorkRhythmDay {
   date: string;
   /** Dzień przed założeniem konta — nie liczy się do wskaźnika. */
   before_start: boolean;
+  /** Dzisiejszy, jeszcze trwający dzień — widać go, ale nie liczy się do okresu. */
+  in_progress: boolean;
   /** Część dnia na urlopie: 0, 0,5 albo 1. */
   leave: number;
   points: number[];

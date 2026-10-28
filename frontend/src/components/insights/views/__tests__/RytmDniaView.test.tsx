@@ -40,6 +40,7 @@ function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
   return {
     date,
     before_start: false,
+    in_progress: false,
     leave: 0,
     points: Array(13).fill(5),
     levels: Array(13).fill(2),

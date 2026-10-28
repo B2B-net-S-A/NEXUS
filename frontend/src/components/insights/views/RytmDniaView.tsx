@@ -249,7 +249,7 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
         <div className="min-w-0 space-y-1.5 text-xs text-muted-foreground">
           <p className="text-sm font-medium text-foreground">3. Okres, urlop, poziomy</p>
           <p>
-            <b className="text-foreground">Okres</b> = średnia z dni pracy. Dzień urlopu z kartoteki i dni przed założeniem konta nie liczą się; pół dnia urlopu obniża obie normy o połowę.
+            <b className="text-foreground">Okres</b> = średnia z zakończonych dni pracy (dzisiejszy dzień się nie liczy). Dzień urlopu z kartoteki i dni przed założeniem konta nie liczą się; pół dnia urlopu obniża obie normy o połowę.
           </p>
           <p>
             <b className="text-foreground">Poziom:</b> wysoka ≥ {rules.level_high}, średnia {rules.level_mid}–{rules.level_high - 1}, niska &lt; {rules.level_mid}.
@@ -325,6 +325,7 @@ function DayTable({ data, date }: { data: WorkRhythmResponse; date: string }) {
                 <span className="flex items-center gap-2">
                   <IntensityMeter value={d.index} rules={data.rules} compact />
                   {d.leave > 0 && d.leave < 1 ? <span className="text-[11px] text-info-muted-foreground">½ urlopu</span> : null}
+                  {d.in_progress ? <span className="text-[11px] text-muted-foreground">dzień trwa</span> : null}
                 </span>
               </div>
             );
@@ -369,7 +370,9 @@ function PersonPeriod({ p, rules }: { p: WorkRhythmPerson; rules: WorkRhythmRule
           <React.Fragment key={d.date}>
             <span className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtDay(d.date)}</span>
             {isOff(d) ? <OffBand day={d} compact /> : <HourCells day={d} compact />}
-            <span className="text-right text-[11px] tabular-nums text-muted-foreground">{d.index ?? ""}</span>
+            <span className="text-right text-[11px] tabular-nums text-muted-foreground" title={d.in_progress ? "Dzień trwa — nie liczy się do wskaźnika okresu" : undefined}>
+              {d.in_progress ? "trwa" : d.index ?? ""}
+            </span>
           </React.Fragment>
         ))}
       </div>

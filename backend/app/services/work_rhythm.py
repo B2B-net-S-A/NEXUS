@@ -503,6 +503,37 @@ async def _cv_sent(
     return {int(r.uid): int(r.n) for r in rows}
 
 
+def summarize_days(person_days: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+    """Liczby okresu osoby z jej dni.
+
+    Liczą się tylko dni zakończone i od założenia konta: dzisiejszy dzień
+    (``in_progress``) i dni przed kontem (``before_start``) zostają na ekranie,
+    ale nie wchodzą do średniej, dni pracy, urlopu ani median.
+    """
+    counted = [
+        d for d in person_days if not d["before_start"] and not d.get("in_progress")
+    ]
+    worked = [d for d in counted if d["index"] is not None]
+    worked_days = round(sum(1.0 - d["leave"] for d in counted), 1)
+    index = period_index(d["index"] for d in worked)
+    return {
+        "index": index,
+        "worked_days": worked_days,
+        "leave_days": round(len(counted) - worked_days, 1),
+        "days_before_start": sum(1 for d in person_days if d["before_start"]),
+        "avg_work_hours": (
+            round(statistics.mean(d["work_hours"] for d in worked), 1)
+            if worked
+            else None
+        ),
+        "median_points": (
+            round(statistics.median(d["day_points"] for d in worked))
+            if worked
+            else None
+        ),
+    }
+
+
 def clamp_window(
     date_from: date | None, date_to: date | None, today: date
 ) -> tuple[date, date]:
@@ -523,7 +554,10 @@ async def build_rhythm(
     start: date,
     end: date,
     with_results: bool,
+    today: date | None = None,
 ) -> dict[str, Any]:
+    """``today`` = dzień, który jeszcze trwa: widać go w „Dzień”, ale nie liczy
+    się do okresu ani do CV na dzień (rano zaniżałby wynik całego zespołu)."""
     rules = await load_rules(db)
     people = await rhythm_people(db)
     ids = [u.id for u in people]
@@ -541,7 +575,12 @@ async def build_rhythm(
     cells = await _events(db, ids, start, end)
     meetings = await _meetings(db, ids, start, end)
     absence = await absence_by_user(db, ids, start, end)
-    cv_sent = await _cv_sent(db, ids, start, end) if with_results else {}
+    cv_end = end - timedelta(days=1) if today is not None and end >= today else end
+    cv_sent = (
+        await _cv_sent(db, ids, start, cv_end)
+        if with_results and cv_end >= start
+        else {}
+    )
 
     out_people: list[dict[str, Any]] = []
     for user in people:
@@ -560,6 +599,7 @@ async def build_rhythm(
                 {
                     "date": day,
                     "before_start": before_start,
+                    "in_progress": day == today,
                     "leave": 0.0 if before_start else round(1.0 - available, 2),
                     "points": [round(points[h], 1) for h in HOURS],
                     "levels": [hour_level(points[h], rules) for h in HOURS],
@@ -574,33 +614,17 @@ async def build_rhythm(
                     "index": day_index(points, met, rules, available=available),
                 }
             )
-        worked = [d for d in person_days if d["index"] is not None]
-        index = period_index(d["index"] for d in worked)
-        counted = [d for d in person_days if not d["before_start"]]
-        worked_days = round(sum(1.0 - d["leave"] for d in counted), 1)
         entry: dict[str, Any] = {
             "user_id": user.id,
             "name": user.name,
             "days": person_days,
-            "index": index,
-            "level": intensity_level(index, rules),
-            "worked_days": worked_days,
-            "leave_days": round(len(counted) - worked_days, 1),
-            "days_before_start": len(person_days) - len(counted),
-            "avg_work_hours": (
-                round(statistics.mean(d["work_hours"] for d in worked), 1)
-                if worked
-                else None
-            ),
-            "median_points": (
-                round(statistics.median(d["day_points"] for d in worked))
-                if worked
-                else None
-            ),
+            **summarize_days(person_days),
         }
+        entry["level"] = intensity_level(entry["index"], rules)
         if with_results:
             n = cv_sent.get(user.id, 0)
             entry["cv_sent"] = n
+            worked_days = entry["worked_days"]
             entry["cv_per_day"] = round(n / worked_days, 2) if worked_days else None
         out_people.append(entry)
 

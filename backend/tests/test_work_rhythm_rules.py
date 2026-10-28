@@ -218,3 +218,24 @@ def test_days_before_account_creation_are_not_counted():
     # 18.10 23:30 UTC = 19.10 01:30 w Warszawie.
     user.created_at = datetime(2026, 10, 18, 23, 30, tzinfo=timezone.utc)
     assert account_start(user) == date(2026, 10, 19)
+
+
+def test_unfinished_today_does_not_enter_period_numbers():
+    """Rano dzisiejszy dzień ma pół akcji — nie może zaniżać okresu (przegląd 29.10)."""
+    from app.services.work_rhythm import summarize_days
+
+    def d(index, *, in_progress=False):
+        return {
+            "before_start": False,
+            "in_progress": in_progress,
+            "leave": 0.0,
+            "index": index,
+            "work_hours": 5,
+            "day_points": 80.0,
+        }
+
+    days = [d(64) for _ in range(9)] + [d(10, in_progress=True)]
+    summary = summarize_days(days)
+    assert summary["index"] == 64
+    assert summary["worked_days"] == 9
+    assert summary["leave_days"] == 0

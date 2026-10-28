@@ -82,16 +82,19 @@ async def insights_work_rhythm(
 ):
     """Rytm dnia rekruterów: punkty pracy godzina po godzinie, urlopy, spotkania,
     intensywność, CV do klienta i podpowiedź dla lidera."""
-    start, end = clamp_window(date_from, date_to, business_today())
+    today = business_today()
+    start, end = clamp_window(date_from, date_to, today)
     rules = await load_rules(db)
     rules_hash = hashlib.sha1(
         json.dumps(rules.as_json(), sort_keys=True).encode()
     ).hexdigest()[:10]
-    cache_key = f"insights:work-rhythm:v1:{start}:{end}:{rules_hash}"
+    cache_key = f"insights:work-rhythm:v2:{start}:{end}:{today}:{rules_hash}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is None:
-            cached = await build_rhythm(db, start=start, end=end, with_results=True)
+            cached = await build_rhythm(
+                db, start=start, end=end, with_results=True, today=today
+            )
             await cache_set(cache_key, cached, ttl_seconds=CACHE_TTL_SECONDS)
     return {
         **cached,
