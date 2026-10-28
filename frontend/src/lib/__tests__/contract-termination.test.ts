@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agreementTerminationPayload,
+  defaultNonCompetePlan,
   emptyTerminationForm,
   missingTerminationFields,
   statusEventDetailsText,
@@ -38,6 +39,18 @@ describe("walidacja i ostrzeżenia", () => {
   it("samo zakończenie projektu jest kompletne z powodem i datą", () => {
     expect(missingTerminationFields(base)).toEqual([]);
     expect(agreementTerminationPayload(base)).toBeNull();
+  });
+
+  it("przy jednej umowie brakuje odpowiedzi „Co z umową B2B?”, zbiorczo nie", () => {
+    expect(missingTerminationFields(base, { requirePlan: true })).toEqual(["Co z umową B2B"]);
+    expect(missingTerminationFields({ ...base, agreementPlan: "keep" }, { requirePlan: true })).toEqual([]);
+    expect(missingTerminationFields(base)).toEqual([]);
+  });
+
+  it("zakaz konkurencji domyślnie zostaje, przy przejściu do klienta — zdjęty", () => {
+    expect(defaultNonCompetePlan("poached_by_client")).toBe("release");
+    expect(defaultNonCompetePlan("project_ended")).toBe("keep");
+    expect(defaultNonCompetePlan("")).toBe("keep");
   });
 
   it("rozwiązanie umowy wymaga trybu, strony i obu dat", () => {

@@ -854,6 +854,20 @@
    "file": "components/contracts/documents/UploadDocumentDialog.tsx",
    "marker": "Aktualna umowa (bez folderu)",
    "b_home": "Strona kontraktu: zakładka „Dokumenty”, przycisk „Dodaj plik”"
+  },
+  {
+   "id": "k.termination-agreement-plan",
+   "opis": "Zakończenie współpracy: obowiązkowe „Co z umową B2B?”, zakaz konkurencji i przejście do generatora porozumienia z datami",
+   "file": "components/contracts/ContractTerminationDialog.tsx",
+   "marker": "Co z umową B2B?",
+   "b_home": "Okno „Zakończ współpracę”"
+  },
+  {
+   "id": "k.termination-agreement-reminder",
+   "opis": "Zakończony kontrakt z nierozwiązaną umową B2B: ostrzeżenie i „Przygotuj porozumienie”",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "agreement-not-terminated",
+   "b_home": "Strona kontraktu: karta „Zakończenie współpracy”"
   }
  ]
 }
