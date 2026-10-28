@@ -95,6 +95,7 @@ import {
   type ChipTone,
   type InboxItem,
 } from "./approvals-inbox";
+import { CancelLeaveDialog } from "./CancelLeaveDialog";
 import { EditLeaveDialog } from "./EditLeaveDialog";
 import { ForwardOffDialog } from "./ForwardOffDialog";
 import { LeaveRequestDialog } from "./LeaveRequestDialog";
@@ -106,6 +107,7 @@ import {
   LEAVE_STATUS_LABELS,
   LEAVE_STATUS_TONE,
   canEditRow,
+  cancelNeedsReason,
   daysLabel,
   formatRange,
   historyCapNote,
@@ -541,6 +543,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [editing, setEditing] = useState<LeaveRequestRow | null>(null);
   const [forwardOff, setForwardOff] = useState<LeaveRequestRow | null>(null);
+  const [cancelling, setCancelling] = useState<LeaveRequestRow | null>(null);
   const rows = history.data?.items ?? [];
   const counts = history.data?.counts;
   const state = resolveViewState({
@@ -552,6 +555,11 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
   });
 
   const cancelRow = async (row: LeaveRequestRow) => {
+    // Termin trwa albo minął: cofnięcie z powodem dla osoby (28.10.2026).
+    if (cancelNeedsReason(row, warsawToday())) {
+      setCancelling(row);
+      return;
+    }
     const ok = await askConfirm({
       title: "Anulować nieobecność?",
       description: `${row.user_name ?? "Osoba"} · ${formatRange(row.start_date, row.end_date)}. Osoba i zastępca dostaną powiadomienie, a autoodpowiedź zostanie zdjęta.`,
@@ -560,7 +568,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
       variant: "destructive",
     });
     if (!ok) return;
-    cancel.mutate(row.id, {
+    cancel.mutate({ id: row.id }, {
       onSuccess: (saved) => showToast(...leaveToast("Nieobecność anulowana", saved)),
       onError: (err) => showToast(apiErrorMessage(err, "Nie udało się anulować."), "error"),
     });
@@ -693,6 +701,14 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
         onClose={(saved) => {
           setEditing(null);
           if (saved) showToast(...leaveToast("Wniosek zmieniony", saved));
+        }}
+      />
+      <CancelLeaveDialog
+        request={cancelling}
+        today={warsawToday()}
+        onClose={(saved) => {
+          setCancelling(null);
+          if (saved) showToast(...leaveToast("Nieobecność cofnięta", saved));
         }}
       />
       <ForwardOffDialog

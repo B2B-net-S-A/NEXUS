@@ -30,7 +30,11 @@ from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit
 from app.services.hr.employment_terms import form_of, terms
-from app.services.hr.leave_policy import HEALTH_TYPES, substitute_sees_type
+from app.services.hr.leave_policy import (
+    CANCEL_REASON_LABEL,
+    HEALTH_TYPES,
+    substitute_sees_type,
+)
 from app.services.hr.notify import notify_each
 from app.services.hr.recipients import (
     people_admin_ids,
@@ -131,7 +135,11 @@ def audit_request(
     request: LeaveRequest,
     action: str,
     extra: Optional[dict[str, Any]] = None,
+    free_text: Optional[str] = None,
 ) -> None:
+    """``free_text`` — wolny tekst w śladzie (powód cofnięcia): jak notatka,
+    może mówić o zdrowiu, więc podnosi wrażliwość wpisu."""
+
     audit.record(
         db,
         actor_user_id=actor_id,
@@ -148,7 +156,7 @@ def audit_request(
             "has_note": bool(request.note),
             **(extra or {}),
         },
-        sensitivity=_sensitivity(request.leave_type, request.note),  # type: ignore[arg-type]
+        sensitivity=_sensitivity(request.leave_type, request.note or free_text),  # type: ignore[arg-type]
     )
 
 
@@ -322,23 +330,41 @@ async def notify_cancelled(
     actor: User,
     subject: User,
     profile: Optional[EmployeeProfile],
+    reason: Optional[str] = None,
 ) -> None:
-    """Anulowanie: osoba, jej przełożony i zastępca z zatwierdzonego wniosku."""
+    """Anulowanie: osoba, jej przełożony i zastępca z zatwierdzonego wniosku.
+
+    Powód cofnięcia (od 28.10.2026, wymagany po pierwszym dniu) dostaje tylko
+    osoba — w dymku; mail ucina go (``hr_mail``), zastępca i przełożony go nie
+    widzą (D6: wolny tekst może mówić o rodzaju).
+    """
 
     supervisor = await supervisor_of(db, profile)
     recipients = [subject.id, *supervisor.user_ids]
     if previous_status == "approved" and request.substitute_user_id is not None:
         recipients.append(request.substitute_user_id)
     form = profile.employment_type if profile else None
+    title = terms(form)["cancelled_title"]
+    message = (
+        f"{subject.name}: {format_range(request.start_date, request.end_date)} "
+        f"— anulowanie: {actor.name}."
+    )
+    if reason:
+        await notify(
+            db,
+            [subject.id],
+            exclude={actor.id},
+            title=title,
+            message=f"{message} {CANCEL_REASON_LABEL}{reason}",
+            ntype=NotificationType.hr_leave_cancelled,
+            link=LINK_CALENDAR,
+        )
     await notify(
         db,
         recipients,
-        exclude={actor.id},
-        title=terms(form)["cancelled_title"],
-        message=(
-            f"{subject.name}: {format_range(request.start_date, request.end_date)} "
-            f"— anulowanie: {actor.name}."
-        ),
+        exclude={actor.id, subject.id} if reason else {actor.id},
+        title=title,
+        message=message,
         ntype=NotificationType.hr_leave_cancelled,
         link=LINK_CALENDAR,
     )
