@@ -103,6 +103,10 @@ export interface SalesCompany {
   parent: Ref | null;
   client: Ref | null;
   owner: Ref | null;
+  /** Opiekun z Atlasa bez konta w NEXUSIE — do przypisania na konto. */
+  owner_label: string | null;
+  /** Tag „atlas: do przejrzenia” — firma przeszła import warunkowo. */
+  needs_review: boolean;
   open_opportunities: number;
   open_value: string;
   archived_at: string | null;
@@ -120,6 +124,9 @@ export interface CompanyFilters {
   lifecycle?: CompanyLifecycle | "";
   status?: CompanyStatus | "";
   owner_id?: number | null;
+  owner_label?: string | null;
+  review?: boolean;
+  tag?: string | null;
   archived?: boolean;
   offset?: number;
 }
@@ -140,6 +147,7 @@ export interface CompanyInput {
   status?: CompanyStatus;
   parent_company_id?: number | null;
   owner_user_id?: number | null;
+  tags?: string[];
   allow_duplicate?: boolean;
 }
 
@@ -219,9 +227,58 @@ export interface OpportunityContact {
   role: ContactRole | null;
 }
 
+export type DecisionOurRole =
+  | "decision_maker"
+  | "economic_buyer"
+  | "champion"
+  | "influencer"
+  | "blocker"
+  | "end_user";
+
+export interface DecisionMapEntry {
+  name: string;
+  role_in_company?: string | null;
+  our_role?: DecisionOurRole | null;
+  decision_level?: number | null;
+  contact_status?: "not_contacted" | "in_progress" | "first_contact" | "regular_dialog" | null;
+  last_contact_at?: string | null;
+  notes?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  linkedin_url?: string | null;
+  nexus_contact_id?: number | null;
+}
+
+export interface ItFactory {
+  decision_map?: DecisionMapEntry[];
+  purchasing_process?: {
+    description?: string | null;
+    decision_cycle_months?: number | null;
+    rfp_frequency?: "yearly" | "biennial" | "ad_hoc" | null;
+    vendor_entry_requirements?: string | null;
+    milestones?: Record<string, string | null>;
+  } | null;
+  next_step?: string | null;
+  next_step_due?: string | null;
+  decision_map_completeness?: number | null;
+  process_completeness?: number | null;
+  updated_at?: string | null;
+}
+
+/** Dane z Atlasa, które NEXUS pokazuje tylko do odczytu (Fabryki IT, produkty). */
+export interface AtlasMotion {
+  it_factory: ItFactory | null;
+  meddic: Record<string, unknown> | null;
+  products: string[];
+  subscription_items: Record<string, unknown>[];
+}
+
 export interface OpportunityDetail extends Opportunity {
   contacts: OpportunityContact[];
+  atlas_motion: AtlasMotion | null;
 }
+
+export type OpportunitySort = "updated" | "value" | "close" | "activity" | "created";
 
 export interface OpportunityList {
   items: Opportunity[];
@@ -235,6 +292,7 @@ export interface OpportunityFilters {
   status?: OpportunityStatus | "";
   q?: string;
   archived?: boolean;
+  sort?: OpportunitySort;
 }
 
 export interface OpportunityInput {
@@ -256,6 +314,15 @@ export interface OpportunityInput {
   owner_user_id?: number | null;
 }
 
+export interface ContactCompanyLink {
+  company_id: number;
+  company_name: string;
+  role: string | null;
+  title: string | null;
+  is_primary: boolean;
+  is_current: boolean;
+}
+
 export interface SalesContact {
   id: number;
   company_id: number | null;
@@ -275,6 +342,7 @@ export interface SalesContact {
   source: string | null;
   archived_at: string | null;
   created_at: string;
+  companies: ContactCompanyLink[];
 }
 
 export interface ContactInput {
@@ -285,6 +353,7 @@ export interface ContactInput {
   title?: string | null;
   email?: string | null;
   phone?: string | null;
+  mobile_phone?: string | null;
   linkedin_url?: string | null;
   is_executive?: boolean;
   notes?: string | null;
@@ -307,6 +376,13 @@ export interface Activity {
   author: Ref | null;
   overdue: boolean;
   created_at: string;
+  external_source: string | null;
+  /** Outlook: link do wiadomości, kierunek maila, czas spotkania/telefonu. */
+  web_link: string | null;
+  direction: "in" | "out" | null;
+  duration_minutes: number | null;
+  /** Mail albo spotkanie firmy dołożone do historii szansy. */
+  from_company: boolean;
 }
 
 export interface ActivityInput {
@@ -360,12 +436,14 @@ export const salesKeys = {
   opportunities: (filters: OpportunityFilters) =>
     ["sales", "opportunities", filters] as const,
   opportunity: (id: number) => ["sales", "opportunity", id] as const,
-  contacts: (companyId: number | null, q: string) =>
-    ["sales", "contacts", companyId, q] as const,
-  activities: (scope: { company_id?: number; opportunity_id?: number }) =>
-    ["sales", "activities", scope] as const,
-  tasks: (scope: "mine" | "team", bucket: TaskBucket) =>
-    ["sales", "tasks", scope, bucket] as const,
+  contacts: (companyId: number | null, q: string, extra?: Record<string, unknown>) =>
+    ["sales", "contacts", companyId, q, extra ?? {}] as const,
+  activities: (scope: ActivityScope) => ["sales", "activities", scope] as const,
+  tasks: (filters: TaskFilters) => ["sales", "tasks", filters] as const,
+  summary: (pipelineId: number | null, period: SummaryPeriod) =>
+    ["sales", "summary", pipelineId, period] as const,
+  ownerLabels: ["sales", "owner-labels"] as const,
+  companyDuplicates: ["sales", "company-duplicates"] as const,
 };
 
 function clean(params: Record<string, unknown>): Record<string, string> {
@@ -592,16 +670,56 @@ export function useLinkOpportunityContact(id: number) {
 
 // ── Kontakty ──────────────────────────────────────────────────────────────
 
-export function useSalesContacts(companyId: number | null, q = "", enabled = true) {
+export interface ContactListOptions {
+  executives?: boolean;
+  archived?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export function useSalesContacts(
+  companyId: number | null,
+  q = "",
+  enabled = true,
+  options: ContactListOptions = {},
+) {
   return useQuery({
-    queryKey: salesKeys.contacts(companyId, q.trim()),
+    queryKey: salesKeys.contacts(companyId, q.trim(), { ...options }),
     queryFn: async () =>
       (
         await api.get<{ items: SalesContact[]; total: number }>("/api/sales/contacts", {
-          params: clean({ company_id: companyId, q, limit: 200 }),
+          params: clean({ company_id: companyId, q, limit: 200, ...options }),
         })
       ).data,
     enabled,
+  });
+}
+
+export function useArchiveSalesContact() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post<SalesContact>(`/api/sales/contacts/${id}/archive`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useLinkContactCompany(contactId: number) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { company_id: number; role?: string | null; title?: string | null; is_current?: boolean }) =>
+      (await api.post<SalesContact>(`/api/sales/contacts/${contactId}/companies`, input)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUnlinkContactCompany(contactId: number) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (companyId: number) => {
+      await api.delete(`/api/sales/contacts/${contactId}/companies/${companyId}`);
+    },
+    onSuccess: invalidate,
   });
 }
 
@@ -625,27 +743,59 @@ export function useUpdateSalesContact(id: number) {
 
 // ── Aktywności i zadania ──────────────────────────────────────────────────
 
-export function useSalesActivities(
-  scope: { company_id?: number; opportunity_id?: number },
-  enabled = true,
-) {
+export interface ActivityScope {
+  company_id?: number;
+  opportunity_id?: number;
+  /** Na szansie: dołóż maile i spotkania firmy z Outlooka (jak karta szansy w Atlasie). */
+  with_company_mail?: boolean;
+  limit?: number;
+}
+
+export function useSalesActivities(scope: ActivityScope, enabled = true) {
   return useQuery({
     queryKey: salesKeys.activities(scope),
     queryFn: async () =>
-      (await api.get<Activity[]>("/api/sales/activities", { params: clean(scope) })).data,
+      (await api.get<Activity[]>("/api/sales/activities", { params: clean({ ...scope }) })).data,
     enabled: enabled && Boolean(scope.company_id || scope.opportunity_id),
   });
 }
 
-export function useSalesTasks(scope: "mine" | "team", bucket: TaskBucket) {
+export interface TaskFilters {
+  scope: "mine" | "team";
+  bucket: TaskBucket;
+  kind?: "task" | "call" | "";
+  limit?: number;
+}
+
+export interface TaskList {
+  items: Activity[];
+  total: number;
+}
+
+export function useSalesTasks(filters: TaskFilters) {
   return useQuery({
-    queryKey: salesKeys.tasks(scope, bucket),
+    queryKey: salesKeys.tasks(filters),
     queryFn: async () =>
-      (
-        await api.get<Activity[]>("/api/sales/activities/tasks", {
-          params: { scope, bucket },
-        })
-      ).data,
+      (await api.get<TaskList>("/api/sales/activities/tasks", { params: clean({ ...filters }) }))
+        .data,
+  });
+}
+
+export function useCompleteTasks() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (ids: number[]) =>
+      (await api.post<{ updated: number }>("/api/sales/activities/tasks/complete", { ids })).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateActivity(id: number) {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (payload: Partial<ActivityInput> & { assignee_user_id?: number | null }) =>
+      (await api.patch<Activity>(`/api/sales/activities/${id}`, payload)).data,
+    onSuccess: invalidate,
   });
 }
 
@@ -760,6 +910,7 @@ export interface Lead {
   opportunity_id: number | null;
   dismissed_reason: string | null;
   created_at: string;
+  payload: Record<string, unknown>;
 }
 
 export interface LeadList {
@@ -884,6 +1035,101 @@ export function useDeleteSalesFile() {
     mutationFn: async (id: number) => {
       await api.delete(`/api/sales/files/${id}`);
     },
+    onSuccess: invalidate,
+  });
+}
+
+// ── Podsumowanie, opiekunowie z Atlasa, duplikaty (audyt importu 28.10.2026) ──
+
+export type SummaryPeriod = "all" | "quarter" | "next_quarter";
+
+export interface SalesSummaryOwner {
+  owner: Ref | null;
+  open: number;
+  value: string;
+  weighted: string;
+  mrr: string;
+  stale: number;
+  no_close: number;
+}
+
+export interface SalesSummary {
+  pipeline: Ref;
+  open_count: number;
+  value: string;
+  weighted: string;
+  mrr: string;
+  stale_count: number;
+  by_owner: SalesSummaryOwner[];
+  by_stage: { stage: { id: number; name: string; position: number }; count: number; value: string }[];
+}
+
+export function useSalesSummary(pipelineId: number | null, period: SummaryPeriod, enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.summary(pipelineId, period),
+    queryFn: async () =>
+      (
+        await api.get<SalesSummary>("/api/sales/summary", {
+          params: clean({ pipeline_id: pipelineId, period }),
+        })
+      ).data,
+    enabled,
+  });
+}
+
+export interface OwnerLabel {
+  label: string;
+  companies: number;
+}
+
+export function useOwnerLabels(enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.ownerLabels,
+    queryFn: async () =>
+      (await api.get<OwnerLabel[]>("/api/sales/companies/owner-labels")).data,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useAssignOwnerLabel() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { label: string; owner_user_id: number }) =>
+      (
+        await api.post<{ companies: number; opportunities: number }>(
+          "/api/sales/companies/owner-labels/assign",
+          input,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export interface DuplicateGroup {
+  key: string;
+  reason: "nip" | "name";
+  companies: { id: number; name: string; nip: string | null; open_opportunities: number }[];
+}
+
+export function useCompanyDuplicateGroups(enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.companyDuplicates,
+    queryFn: async () =>
+      (await api.get<DuplicateGroup[]>("/api/sales/companies/duplicates")).data,
+    enabled,
+  });
+}
+
+export function useMergeCompany() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (input: { target_id: number; source_id: number }) =>
+      (
+        await api.post<SalesCompany>(`/api/sales/companies/${input.target_id}/merge`, {
+          source_id: input.source_id,
+        })
+      ).data,
     onSuccess: invalidate,
   });
 }

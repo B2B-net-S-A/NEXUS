@@ -8,6 +8,7 @@ import { useState } from "react";
 import { EmptyState } from "@/components/ds/EmptyState";
 import { FilterBar } from "@/components/ds/FilterBar";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Table,
@@ -26,12 +27,13 @@ import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table
 import { hasPermission } from "@/lib/permissions";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { formatDealNumber } from "./format";
 import { SalesSelect } from "./SalesSelect";
-import { useCompanyOwnersMock, useOwnersMock } from "./mockups/useAtlasMock";
+import { OwnerLabelsDialog } from "./OwnerLabelsDialog";
+import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
 const LIFECYCLE_OPTIONS = Object.entries(LIFECYCLE_LABELS).map(([value, label]) => ({
   value,
@@ -50,13 +52,26 @@ export function CompaniesList() {
   const lifecycle = (searchParams?.get("etap") ?? "") as CompanyLifecycle | "";
   const offset = Math.max(0, Number(searchParams?.get("od") ?? 0) || 0);
   const [creating, setCreating] = useState(false);
-  // MAKIETA: opiekun (konto albo historyczny z Atlasa) i archiwum.
+  // Opiekun: konto NEXUSA albo etykieta z Atlasa (osoba bez konta); archiwum;
+  // firmy, które import przepuścił warunkowo (audyt importu 28.10.2026).
   const owner = searchParams?.get("opiekun") ?? "";
   const archived = searchParams?.get("archiwum") === "1";
-  const owners = useOwnersMock();
-  const historical = useCompanyOwnersMock();
-  const ownerId = owner === "me" ? (user?.id ?? null) : owner.startsWith("acct:") ? Number(owner.slice(5)) : null;
-  const companies = useSalesCompanies({ q, lifecycle, offset, owner_id: ownerId, archived });
+  const review = searchParams?.get("przeglad") === "1";
+  const ownerOptions = useOwnerFilterOptions();
+  const [assigningLabels, setAssigningLabels] = useState(false);
+  const isAdmin = hasRole(user, "admin");
+  const ownerId =
+    owner === "me" ? (user?.id ?? null) : owner.startsWith("acct:") ? Number(owner.slice(5)) : null;
+  const ownerLabel = owner.startsWith("label:") ? owner.slice(6) : null;
+  const companies = useSalesCompanies({
+    q,
+    lifecycle,
+    offset,
+    owner_id: ownerId,
+    owner_label: ownerLabel,
+    review,
+    archived,
+  });
   const items = companies.data?.items ?? [];
   const total = companies.data?.total ?? 0;
 
@@ -104,38 +119,44 @@ export function CompaniesList() {
               className="w-56"
               value={owner}
               onValueChange={(value) => writeParams({ opiekun: value || null, od: null })}
-              options={[
-                { value: "me", label: "Moje firmy" },
-                ...(owners.data?.accounts ?? []).map((account) => ({
-                  value: `acct:${account.id}`,
-                  label: `${account.name} (${account.companies})`,
-                })),
-                ...(owners.data?.historical ?? []).map((entry) => ({
-                  value: `hist:${entry.name}`,
-                  label: `${entry.name} · z Atlasa, bez konta (${entry.companies})`,
-                })),
-              ]}
+              options={ownerOptions}
               anyLabel="Każdy opiekun"
             />
             <Button
               size="sm"
+              variant={review ? "primary" : "outline"}
+              aria-pressed={review}
+              onClick={() => writeParams({ przeglad: review ? null : "1", od: null })}
+            >
+              Do przejrzenia po imporcie
+            </Button>
+            <Button
+              size="sm"
               variant={archived ? "primary" : "outline"}
+              aria-pressed={archived}
               onClick={() => writeParams({ archiwum: archived ? null : "1", od: null })}
             >
               Archiwum
-            </Button>
-            <Button size="sm" variant="outline">
-              Do przejrzenia po imporcie ({owners.data?.review ?? "…"})
             </Button>
           </>
         }
         resultCount={companies.isSuccess ? total : undefined}
         actions={
-          canEdit ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus className="mr-1 h-4 w-4" aria-hidden /> Nowa firma
+          <div className="flex flex-wrap gap-2">
+            {isAdmin && (
+              <Button size="sm" variant="outline" onClick={() => setAssigningLabels(true)}>
+                Opiekunowie z Atlasa
+              </Button>
+            )}
+            <Button size="sm" variant="outline" onClick={() => router.push("/sales/companies/duplicates")}>
+              Duplikaty
             </Button>
-          ) : null
+            {canEdit && (
+              <Button size="sm" onClick={() => setCreating(true)}>
+                <Plus className="mr-1 h-4 w-4" aria-hidden /> Nowa firma
+              </Button>
+            )}
+          </div>
         }
       />
 
@@ -146,9 +167,9 @@ export function CompaniesList() {
       ) : state === "empty" ? (
         <EmptyState
           icon={Building2}
-          title={q || lifecycle ? "Nic nie pasuje do filtrów" : "Kartoteka jest pusta"}
+          title={q || lifecycle || owner || review || archived ? "Nic nie pasuje do filtrów" : "Kartoteka jest pusta"}
           description={
-            q || lifecycle
+            q || lifecycle || owner || review || archived
               ? "Zmień wyszukiwanie albo etap relacji."
               : "Dodaj pierwszą firmę albo poczekaj na import z Atlasa."
           }
@@ -181,6 +202,11 @@ export function CompaniesList() {
                       >
                         {company.name}
                       </Link>
+                      {company.needs_review && (
+                        <Badge variant="warning" size="sm" className="ml-1.5">
+                          do przejrzenia
+                        </Badge>
+                      )}
                       <p className={CALM_SUBLINE}>
                         {[company.client ? "klient w NEXUSIE" : null, company.industry, company.hq_city]
                           .filter(Boolean)
@@ -193,12 +219,15 @@ export function CompaniesList() {
                       {company.open_opportunities ? formatDealNumber(company.open_value) : "—"}
                     </TableCell>
                     <TableCell>
-                      {company.owner?.name ?? (historical.data?.[String(company.id)] ? (
-                        <span className="text-muted-foreground">
-                          {historical.data[String(company.id)]}
-                          <span className={`${CALM_SUBLINE} block`}>z Atlasa · bez konta w NEXUSIE</span>
-                        </span>
-                      ) : "—")}
+                      {company.owner?.name ??
+                        (company.owner_label ? (
+                          <span className="text-muted-foreground">
+                            {company.owner_label}
+                            <span className={`${CALM_SUBLINE} block`}>z Atlasa · bez konta w NEXUSIE</span>
+                          </span>
+                        ) : (
+                          "—"
+                        ))}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -231,6 +260,7 @@ export function CompaniesList() {
         </>
       )}
 
+      {assigningLabels && <OwnerLabelsDialog onClose={() => setAssigningLabels(false)} />}
       {creating && (
         <CompanyFormDialog
           open={creating}

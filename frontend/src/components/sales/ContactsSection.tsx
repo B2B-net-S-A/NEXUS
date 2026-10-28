@@ -8,10 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useCreateSalesContact, useSalesContacts } from "@/lib/api/sales";
+import { useCreateSalesContact, useSalesContacts, type SalesContact } from "@/lib/api/sales";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
+
+import { ContactEditDialog } from "./ContactEditDialog";
 
 interface ContactsSectionProps {
   companyId: number;
@@ -28,6 +30,7 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
   const { showError, showSuccess } = useToast();
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(EMPTY);
+  const [editing, setEditing] = useState<SalesContact | null>(null);
   const items = contacts.data?.items ?? [];
   const state = resolveViewState({
     isLoading: contacts.isLoading,
@@ -115,11 +118,21 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
         <p className="text-sm text-muted-foreground">Nie ma jeszcze kontaktów w tej firmie.</p>
       ) : (
         <ul className="divide-y divide-border">
-          {items.map((contact) => (
-            <li key={contact.id} className="flex flex-wrap items-start justify-between gap-x-4 py-2 text-sm">
+          {items.map((contact) => {
+            // Osoba może być tu nie główną firmą (np. była albo druga praca).
+            const here = contact.companies.find((link) => link.company_id === companyId);
+            const title = here?.title ?? contact.title;
+            return (
+            <li key={contact.id} className="group flex flex-wrap items-start justify-between gap-x-4 py-2 text-sm">
               <div>
-                <p className="font-medium text-foreground">{contact.full_name}</p>
-                {contact.title && <p className="text-xs text-muted-foreground">{contact.title}</p>}
+                <p className="font-medium text-foreground">
+                  {contact.full_name}
+                  {here && !here.is_current && <span className="ml-1 text-xs font-normal text-muted-foreground">(była)</span>}
+                  {contact.company_id !== companyId && contact.company_name && (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">· teraz {contact.company_name}</span>
+                  )}
+                </p>
+                {title && <p className="text-xs text-muted-foreground">{title}{here?.role ? ` · ${here.role}` : ""}</p>}
               </div>
               <div className="flex flex-wrap gap-x-3 text-xs">
                 {contact.email && (
@@ -135,11 +148,22 @@ export function ContactsSection({ companyId }: ContactsSectionProps) {
                     {contact.phone ?? contact.mobile_phone}
                   </a>
                 )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:text-foreground pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus:opacity-100"
+                    onClick={() => setEditing(contact)}
+                  >
+                    Edytuj
+                  </button>
+                )}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
+      {editing && <ContactEditDialog contact={editing} onClose={() => setEditing(null)} />}
     </Card>
   );
 }

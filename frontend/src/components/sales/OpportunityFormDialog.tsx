@@ -83,6 +83,8 @@ export function OpportunityFormDialog({
   );
   const [mrr, setMrr] = useState(amountInput(opportunity?.mrr_value));
   const [oneOff, setOneOff] = useState(amountInput(opportunity?.one_off_value));
+  // Marża % — w Atlasie liczyła „netto MRR” na pulpicie; import ją przeniósł, formularz jej nie miał.
+  const [margin, setMargin] = useState(amountInput(opportunity?.margin_pct));
   const [months, setMonths] = useState(opportunity?.contract_months ? String(opportunity.contract_months) : "");
   const [closeDate, setCloseDate] = useState(opportunity?.expected_close_date ?? "");
   const [roles, setRoles] = useState(opportunity ? rolesToText(opportunity.roles) : "");
@@ -106,12 +108,18 @@ export function OpportunityFormDialog({
       showError("Kwotę wpisz liczbą, np. 40000 albo 40 000,50.");
       return;
     }
+    const marginValue = parseAmount(margin);
+    if (margin.trim() && (!marginValue || Number(marginValue) > 100)) {
+      showError("Marżę wpisz w procentach, od 0 do 100.");
+      return;
+    }
     const fields = {
       title: title.trim(),
       description: description.trim() || null,
       service_line: serviceLine || null,
       mrr_value: mrrValue,
       one_off_value: oneOffValue,
+      margin_pct: marginValue,
       contract_months: months ? Number(months) : null,
       expected_close_date: closeDate || null,
       roles: parseRoles(roles),
@@ -209,6 +217,15 @@ export function OpportunityFormDialog({
             inputMode="decimal"
             value={oneOff}
             onChange={(event) => setOneOff(event.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="sales-opp-margin">Marża (%)</Label>
+          <Input
+            id="sales-opp-margin"
+            inputMode="decimal"
+            value={margin}
+            onChange={(event) => setMargin(event.target.value)}
           />
         </div>
         <div className="space-y-1">

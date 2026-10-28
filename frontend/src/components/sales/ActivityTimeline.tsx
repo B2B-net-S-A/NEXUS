@@ -24,17 +24,19 @@ import {
 import { formatDateTimePl } from "@/lib/date-pl";
 import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 
-import { ActivityBody } from "./mockups/ActivityBody";
+import { ActivityBody } from "./ActivityBody";
+import { ActivityEditDialog } from "./ActivityEditDialog";
 
 const COMPOSER_KINDS: ActivityKind[] = ["note", "call", "meeting", "email", "task"];
+const PAGE = 100;
 
 interface ActivityTimelineProps {
   companyId?: number;
   opportunityId?: number;
-  /** MAKIETA: firma szansy — jej maile i spotkania w historii szansy. */
-  mailCompanyId?: number;
+  /** Na szansie: pokaż też maile i spotkania jej firmy z Outlooka (jak Atlas). */
+  withCompanyMail?: boolean;
 }
 
 /** Datetime z pola `datetime-local` (czas lokalny) jako ISO; puste → null. */
@@ -44,8 +46,28 @@ export function localInputToIso(value: string): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function inDays(days: number, now = new Date()): string {
+  const date = new Date(now);
+  date.setDate(date.getDate() + days);
+  date.setHours(9, 0, 0, 0);
+  return date.toISOString();
+}
+
+export function followUpSteps(now = new Date()): { subject: string; due_at: string }[] {
+  return [
+    { subject: "Wyślij podsumowanie mailowe ze spotkania", due_at: inDays(0, now) },
+    { subject: "Przygotuj ofertę", due_at: inDays(6, now) },
+    { subject: "Umów drugie spotkanie", due_at: inDays(14, now) },
+  ];
+}
+
+/** Zadanie albo telefon z terminem — rzecz do zrobienia, nie sam wpis historii. */
+export function isTodo(activity: Activity): boolean {
+  return activity.kind === "task" || (activity.kind === "call" && Boolean(activity.due_at));
+}
+
 function when(activity: Activity): string {
-  if (activity.kind === "task") {
+  if (isTodo(activity)) {
     if (activity.done_at) return `zrobione ${formatDateTimePl(activity.done_at)}`;
     return activity.due_at ? `termin ${formatDateTimePl(activity.due_at)}` : "bez terminu";
   }
@@ -53,9 +75,14 @@ function when(activity: Activity): string {
 }
 
 /** Historia firmy albo szansy i szybki wpis: notatka, telefon, spotkanie, mail, zadanie. */
-export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: ActivityTimelineProps) {
-  const scope = opportunityId ? { opportunity_id: opportunityId } : { company_id: companyId };
+export function ActivityTimeline({ companyId, opportunityId, withCompanyMail }: ActivityTimelineProps) {
+  const [showCompanyMail, setShowCompanyMail] = useState(true);
+  const [limit, setLimit] = useState(PAGE);
+  const scope = opportunityId
+    ? { opportunity_id: opportunityId, with_company_mail: Boolean(withCompanyMail && showCompanyMail), limit }
+    : { company_id: companyId, limit };
   const activities = useSalesActivities(scope);
+  const [editing, setEditing] = useState<Activity | null>(null);
   const create = useCreateActivity();
   const complete = useCompleteActivity();
   const remove = useDeleteActivity();
@@ -63,20 +90,17 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
   const { showError, showSuccess } = useToast();
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");
+  const isAdmin = hasRole(user, "admin");
   const [kind, setKind] = useState<ActivityKind>("note");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [due, setDue] = useState("");
+  // Po spotkaniu przy szansie: trzy następne kroki jak w Atlasie
+  // (`meeting_followup_seeder.py`): podsumowanie mailem dziś, oferta za 7 dni,
+  // drugie spotkanie za 14 dni.
+  const [withFollowUps, setWithFollowUps] = useState(true);
 
-  // MAKIETA: na szansie dokładamy maile i spotkania firmy (w Atlasie: msgraph-* z firmy).
-  const companyMail = useSalesActivities({ company_id: mailCompanyId ?? 0 });
-  const [withCompanyMail, setWithCompanyMail] = useState(true);
-  const mailItems = (mailCompanyId ? companyMail.data ?? [] : []).filter(
-    (activity) => activity.opportunity === null && (activity.kind === "email" || activity.kind === "meeting"),
-  );
-  const items = [...(activities.data ?? []), ...(withCompanyMail ? mailItems : [])].sort((a, b) =>
-    (b.occurred_at ?? b.created_at).localeCompare(a.occurred_at ?? a.created_at),
-  );
+  const items = activities.data ?? [];
   const state = resolveViewState({
     isLoading: activities.isLoading,
     error: activities.error,
@@ -96,13 +120,20 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
         opportunity_id: opportunityId ?? null,
         subject: subject.trim() || null,
         body: body.trim() || null,
-        due_at: kind === "task" ? localInputToIso(due) : null,
+        due_at: kind === "task" || kind === "call" ? localInputToIso(due) : null,
       },
       {
         onSuccess: () => {
           setSubject("");
           setBody("");
           setDue("");
+          if (kind === "meeting" && opportunityId && withFollowUps) {
+            for (const step of followUpSteps()) {
+              create.mutate({ kind: "task", opportunity_id: opportunityId, company_id: null, ...step, body: null });
+            }
+            showSuccess("Zapisano spotkanie i trzy następne kroki w zadaniach.");
+            return;
+          }
           showSuccess(kind === "task" ? "Dodano zadanie." : "Zapisano wpis.");
         },
         onError: (error) => showError(apiErrorMessage(error, "Nie udało się zapisać wpisu.")),
@@ -127,14 +158,14 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
     <Card className="space-y-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-base font-semibold text-foreground">Aktywności</h2>
-        {mailCompanyId ? (
+        {withCompanyMail ? (
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
-              checked={withCompanyMail}
-              onChange={(event) => setWithCompanyMail(event.target.checked)}
+              checked={showCompanyMail}
+              onChange={(event) => setShowCompanyMail(event.target.checked)}
             />
-            Pokaż maile i spotkania firmy ({mailItems.length})
+            Pokaż maile i spotkania firmy z Outlooka
           </label>
         ) : null}
       </div>
@@ -153,14 +184,15 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
             value={subject}
             onChange={(event) => setSubject(event.target.value)}
           />
-          {kind === "task" ? (
+          {(kind === "task" || kind === "call") && (
             <Input
-              aria-label="Termin"
+              aria-label={kind === "call" ? "Termin telefonu (puste = już był)" : "Termin"}
               type="datetime-local"
               value={due}
               onChange={(event) => setDue(event.target.value)}
             />
-          ) : (
+          )}
+          {kind !== "task" && (
             <Textarea
               aria-label="Treść"
               rows={3}
@@ -169,7 +201,17 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
               onChange={(event) => setBody(event.target.value)}
             />
           )}
-          <div className="flex justify-end">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {kind === "meeting" && opportunityId && (
+              <label className="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={withFollowUps}
+                  onChange={(event) => setWithFollowUps(event.target.checked)}
+                />
+                Dodaj następne kroki: podsumowanie mailem, oferta (7 dni), drugie spotkanie (14 dni)
+              </label>
+            )}
             <Button size="sm" onClick={submit} loading={create.isPending}>
               Zapisz
             </Button>
@@ -192,8 +234,24 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
                   {activity.subject ? ` · ${activity.subject}` : ""}
                 </p>
                 {activity.body && <ActivityBody body={activity.body} markdown={activity.kind === "note"} />}
-                {activity.opportunity === null && opportunityId && (
-                  <p className="text-xs text-info">z historii firmy</p>
+                {(activity.from_company || activity.direction || activity.duration_minutes || activity.web_link) && (
+                  <p className="text-xs text-muted-foreground">
+                    {[
+                      activity.from_company ? "z historii firmy" : null,
+                      activity.direction === "in" ? "przychodzący" : activity.direction === "out" ? "wychodzący" : null,
+                      activity.duration_minutes ? `${activity.duration_minutes} min` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                    {activity.web_link && (
+                      <>
+                        {" · "}
+                        <a href={activity.web_link} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          Otwórz w Outlooku
+                        </a>
+                      </>
+                    )}
+                  </p>
                 )}
                 <p className={`text-xs ${activity.overdue ? "text-destructive" : "text-muted-foreground"}`}>
                   {when(activity)}
@@ -210,7 +268,7 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
               </div>
               {canEdit && (
                 <div className="flex shrink-0 gap-1 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100 focus-within:opacity-100">
-                  {activity.kind === "task" && (
+                  {isTodo(activity) && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -227,6 +285,11 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
                       {activity.done_at ? "Przywróć" : "Zrobione"}
                     </Button>
                   )}
+                  {(activity.author?.id === user?.id || isAdmin) && !activity.from_company && (
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(activity)}>
+                      Edytuj
+                    </Button>
+                  )}
                   {activity.author?.id === user?.id && (
                     <Button size="sm" variant="quiet" onClick={() => void onDelete(activity)}>
                       Usuń
@@ -238,6 +301,14 @@ export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: Ac
           ))}
         </ul>
       )}
+      {items.length >= limit && (
+        <div className="flex justify-center">
+          <Button size="sm" variant="outline" onClick={() => setLimit((value) => value + PAGE)}>
+            Pokaż starsze
+          </Button>
+        </div>
+      )}
+      {editing && <ActivityEditDialog activity={editing} onClose={() => setEditing(null)} />}
       {confirmDialog}
     </Card>
   );

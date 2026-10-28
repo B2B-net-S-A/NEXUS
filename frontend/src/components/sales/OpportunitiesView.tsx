@@ -28,6 +28,7 @@ import {
   type Opportunity,
   type OpportunityStatus,
   type Stage,
+  type OpportunitySort,
 } from "@/lib/api/sales";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table";
 import { formatIsoDatePl } from "@/lib/date-pl";
@@ -39,9 +40,11 @@ import { useAuthStore } from "@/store/auth";
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber } from "./format";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesSelect } from "./SalesSelect";
+import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
 /** Szansa bez kontaktu dłużej niż tyle dni dostaje ostrzeżenie (Atlas: 14). */
 export const STALE_AFTER_DAYS = 14;
+const NEEDS_ACTION_DAYS = 30;
 
 const STATUS_TONES: Record<OpportunityStatus, "info" | "success" | "neutral"> = {
   open: "info",
@@ -104,6 +107,14 @@ function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => vo
   );
 }
 
+const SORT_OPTIONS: { value: OpportunitySort; label: string }[] = [
+  { value: "updated", label: "Ostatnio zmieniane" },
+  { value: "activity", label: "Ostatni kontakt" },
+  { value: "value", label: "Największa wartość" },
+  { value: "close", label: "Najbliższe zamknięcie" },
+  { value: "created", label: "Najnowsze" },
+];
+
 export function OpportunitiesView() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -112,6 +123,12 @@ export function OpportunitiesView() {
   const canEdit = hasPermission(user, "sales_edit");
   const view: View = searchParams?.get("view") === "list" ? "list" : "board";
   const mine = searchParams?.get("mine") === "1";
+  // Konkretny opiekun (`?opiekun=`), sortowanie i archiwum — jak w Atlasie
+  // (audyt importu 28.10.2026: 766 zarchiwizowanych szans było nie do znalezienia).
+  const ownerParam = Number(searchParams?.get("opiekun") ?? "") || null;
+  const sort = (searchParams?.get("sort") ?? "updated") as OpportunitySort;
+  const archived = searchParams?.get("archiwum") === "1";
+  const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
   const [creating, setCreating] = useState(false);
 
@@ -126,12 +143,23 @@ export function OpportunitiesView() {
   const opportunities = useOpportunities(
     {
       pipeline_id: pipeline?.id ?? null,
-      owner_id: mine ? (user?.id ?? null) : null,
+      owner_id: mine ? (user?.id ?? null) : ownerParam,
       q,
+      sort,
+      archived,
     },
     Boolean(pipeline),
   );
-  const items = useMemo(() => opportunities.data?.items ?? [], [opportunities.data]);
+  // „Wymaga działania” (Atlas: kolejka po 30 dniach bez ruchu) — filtr na tablicy.
+  const needsAction = searchParams?.get("bezruchu") === "1";
+  const items = useMemo(() => {
+    const all = opportunities.data?.items ?? [];
+    if (!needsAction) return all;
+    return all.filter(
+      (item) =>
+        item.status === "open" && (daysSince(item.last_activity_at ?? item.updated_at) ?? 0) > NEEDS_ACTION_DAYS,
+    );
+  }, [opportunities.data, needsAction]);
   const summary = useMemo(() => summarize(items), [items]);
 
   const writeParam = (key: string, value: string | null) => {
@@ -176,16 +204,45 @@ export function OpportunitiesView() {
                 options={(pipelines.data ?? []).map((p) => ({ value: String(p.id), label: p.name }))}
               />
             )}
-            <SegmentedRadio
-              size="sm"
-              label="Czyje szanse"
-              options={[
-                { value: "all", label: "Wszystkie" },
-                { value: "mine", label: "Moje" },
-              ]}
-              value={mine ? "mine" : "all"}
-              onChange={(value) => writeParam("mine", value === "mine" ? "1" : null)}
+            <SalesSelect
+              ariaLabel="Opiekun"
+              className="w-48"
+              value={mine ? "me" : ownerParam ? `acct:${ownerParam}` : ""}
+              onValueChange={(value) => {
+                const params = new URLSearchParams(window.location.search);
+                params.delete("mine");
+                params.delete("opiekun");
+                if (value === "me") params.set("mine", "1");
+                else if (value.startsWith("acct:")) params.set("opiekun", value.slice(5));
+                const qs = params.toString();
+                replaceUrl(qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+              }}
+              options={[{ value: "me", label: "Moje" }, ...ownerOptions]}
+              anyLabel="Każdy opiekun"
             />
+            <SalesSelect
+              ariaLabel="Sortowanie"
+              className="w-48"
+              value={sort}
+              onValueChange={(value) => writeParam("sort", value && value !== "updated" ? value : null)}
+              options={SORT_OPTIONS}
+            />
+            <Button
+              size="sm"
+              variant={needsAction ? "primary" : "outline"}
+              aria-pressed={needsAction}
+              onClick={() => writeParam("bezruchu", needsAction ? null : "1")}
+            >
+              Bez ruchu &gt; {NEEDS_ACTION_DAYS} dni
+            </Button>
+            <Button
+              size="sm"
+              variant={archived ? "primary" : "outline"}
+              aria-pressed={archived}
+              onClick={() => writeParam("archiwum", archived ? null : "1")}
+            >
+              Archiwum
+            </Button>
             <SegmentedRadio
               size="sm"
               label="Widok"
@@ -235,9 +292,9 @@ export function OpportunitiesView() {
       ) : state === "empty" ? (
         <EmptyState
           icon={Target}
-          title={q || mine ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
+          title={q || mine || ownerParam || archived || needsAction ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
           description={
-            q || mine
+            q || mine || ownerParam || archived
               ? "Zmień wyszukiwanie albo pokaż wszystkie szanse."
               : "Dodaj pierwszą szansę — zacznij od firmy w zakładce Firmy."
           }

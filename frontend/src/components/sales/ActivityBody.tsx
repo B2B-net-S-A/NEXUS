@@ -8,11 +8,15 @@ import { Button } from "@/components/ui/button";
 
 const LONG = 280;
 
-/** MAKIETA: treść wpisu jako Markdown (notatki Fireflies z Atlasa), długie zwinięte. */
+/** Stopka Atlasa odsyła do zakładki „Transkrypcje”, której NEXUS nie ma — wycinamy ją. */
+export function stripTranscriptFooter(body: string): string {
+  return body.replace(/\n*[-_]*\s*\*?Pełna transkrypcja[^\n]*$/i, "").trim();
+}
+
+/** Treść wpisu: notatki jako Markdown (podsumowania Fireflies z Atlasa), maile jako tekst; długie zwinięte. */
 export function ActivityBody({ body, markdown = true }: { body: string; markdown?: boolean }) {
   const [open, setOpen] = useState(false);
-  // Stopka Atlasa odsyła do zakładki „Transkrypcje”, której NEXUS nie ma.
-  const text = body.replace(/\n*[-_]*\s*\*?Pełna transkrypcja[^\n]*$/i, "").trim();
+  const text = stripTranscriptFooter(body);
   const long = text.length > LONG;
   return (
     <div className="text-muted-foreground">

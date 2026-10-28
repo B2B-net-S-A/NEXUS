@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { formatIsoDatePl } from "@/lib/date-pl";
 
-import { useOppMotionMock, type DecisionMapEntry } from "./useAtlasMock";
+import type { AtlasMotion, DecisionMapEntry } from "@/lib/api/sales";
 
 const OUR_ROLE: Record<string, string> = {
   decision_maker: "Decydent",
@@ -33,14 +33,14 @@ const MILESTONES: [string, string][] = [
 ];
 const LEVELS = ["Zarząd / C-level", "Dyrektorzy", "Kierownicy", "Zespół"];
 
-function Person({ entry, contactId }: { entry: DecisionMapEntry; contactId?: number }) {
+function Person({ entry }: { entry: DecisionMapEntry }) {
   const status = entry.contact_status ? CONTACT_STATUS[entry.contact_status] : undefined;
   return (
     <li className="flex items-start justify-between gap-3 py-1.5 text-sm">
       <div className="min-w-0">
         <p className="font-medium text-foreground">
           {entry.name}
-          {contactId ? null : (
+          {entry.nexus_contact_id ? null : (
             <span className="ml-1 text-xs font-normal text-muted-foreground">(spoza kontaktów)</span>
           )}
         </p>
@@ -58,16 +58,17 @@ function Person({ entry, contactId }: { entry: DecisionMapEntry; contactId?: num
   );
 }
 
-/** MAKIETA: Sales Motion (Fabryki IT) i produkty z Atlasa na karcie szansy — tylko odczyt. */
-export function SalesMotionPanel({ opportunityId }: { opportunityId: number }) {
-  const mock = useOppMotionMock();
+/**
+ * Sales Motion (Fabryki IT) i produkty z Atlasa na karcie szansy — tylko odczyt
+ * (audyt importu 28.10.2026: dane leżały w `custom_fields.atlas`, ekran ich nie
+ * pokazywał). Edytor mapy dopiero, gdy zespół go potrzebuje.
+ */
+export function SalesMotionPanel({ motion }: { motion: AtlasMotion | null }) {
   const [expanded, setExpanded] = useState(false);
-  const motion = mock.data?.opportunities[String(opportunityId)];
   const factory = motion?.it_factory;
   if (!motion || (!factory && !motion.products?.length)) return null;
   const map = factory?.decision_map ?? [];
   const process = factory?.purchasing_process;
-  const contacts = mock.data?.contacts ?? {};
   const byLevel = LEVELS.map((label, index) => ({
     label,
     people: map.filter((entry) => (entry.decision_level ?? 4) === index + 1),
@@ -80,6 +81,7 @@ export function SalesMotionPanel({ opportunityId }: { opportunityId: number }) {
         <h2 className="text-base font-semibold text-foreground">Mapa decyzyjna i proces zakupowy</h2>
         <p className="text-xs text-muted-foreground">
           {map.length} os. na mapie · kamienie milowe {milestonesDone}/5
+          {factory?.decision_map_completeness != null ? ` · mapa ${factory.decision_map_completeness}%` : ""}
           {factory?.updated_at ? ` · z Atlasa, ${formatIsoDatePl(factory.updated_at.slice(0, 10))}` : ""}
         </p>
       </div>
@@ -104,11 +106,7 @@ export function SalesMotionPanel({ opportunityId }: { opportunityId: number }) {
               <h3 className="mt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{group.label}</h3>
               <ul className="divide-y divide-border">
                 {group.people.map((entry) => (
-                  <Person
-                    key={`${entry.name}-${entry.contact_id}`}
-                    entry={entry}
-                    contactId={entry.contact_id ? contacts[entry.contact_id] : undefined}
-                  />
+                  <Person key={`${entry.name}-${entry.nexus_contact_id ?? ""}`} entry={entry} />
                 ))}
               </ul>
             </div>
