@@ -2,12 +2,20 @@
  * `/preview/kpi-topbar` montuje licznik celów dla trzech ról i nie wysyła
  * ani jednego żądania — rysuje wyłącznie z danych fikcyjnych w propsach.
  */
-import { render, screen, within } from "@testing-library/react";
+import { render as rtlRender, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "@/lib/api";
 import KpiTopbarPreviewPage from "../kpi-topbar/page";
+
+// „Wygląd” w pasku czyta preferencje Jarvisa przez React Query; w aplikacji
+// provider daje główny layout, a bez tokenu zapytanie i tak nie wychodzi.
+function render(ui: ReactElement) {
+  return rtlRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>);
+}
 
 const adapter = vi.fn();
 let previousAdapter: typeof api.defaults.adapter;
