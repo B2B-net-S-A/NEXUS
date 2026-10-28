@@ -18,8 +18,9 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-from datetime import datetime, timedelta
-from typing import Protocol
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from typing import Iterable, Protocol
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
@@ -27,6 +28,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
 from app.models.b2b_signing_request import OPEN_STATUSES, B2BSigningRequest
+from app.models.hr_leave import LeaveRequest
+from app.models.user import User
 from app.services import storage_service
 from app.services.b2b_esign.verdict import (
     MSG_NOT_PDF,
@@ -76,6 +79,7 @@ MSG_EXPIRED = (
 MSG_STILL_LIVE = "Ten link nadal działa. Pobierz umowę i podpisz ją."
 MSG_EXTEND_EXPIRED = "Termin już minął. Wyślij kontraktorowi nowy link."
 MSG_RELINK_LIVE = "Link jeszcze działa. Przedłuż termin zamiast wysyłać nowy link."
+MSG_ALREADY_HANDLER = "Już obsługujesz tę wysyłkę."
 MSG_NO_SIGNER = (
     "W ustawieniach nie ma osoby podpisującej za B2B Network. Poproś admina "
     "o wpis w Ustawienia → Integracje."
@@ -138,10 +142,69 @@ def payload_fingerprint(row: B2BGeneratedContract) -> str:
     return hashlib.sha256(data.encode()).hexdigest()
 
 
+def handler_id(request: B2BSigningRequest) -> int | None:
+    """Kto obsługuje wysyłkę: po „Przejmij obsługę” ta osoba, inaczej nadawca."""
+    return request.handled_by or request.sent_by
+
+
 def watchers(request: B2BSigningRequest) -> list[int]:
-    """Kto dostaje dzwonki wysyłki: nadawca i osoby w DW, bez powtórzeń."""
-    ids = [request.sent_by, *(request.cc_user_ids or [])]
+    """Kto dostaje dzwonki wysyłki: obsługujący, nadawca i osoby w DW, bez
+    powtórzeń."""
+    ids = [handler_id(request), request.sent_by, *(request.cc_user_ids or [])]
     return [uid for uid in dict.fromkeys(ids) if isinstance(uid, int)]
+
+
+@dataclass(frozen=True)
+class Absence:
+    """Obsługujący jest dziś na urlopie (moduł „Urlopy”): do kiedy i kto go
+    zastępuje (``None`` = nikt nie wpisany)."""
+
+    until: date
+    substitute_id: int | None
+
+
+async def absences(
+    db: AsyncSession, user_ids: Iterable[int], today: date
+) -> dict[int, Absence]:
+    """Zatwierdzone całodniowe urlopy obejmujące dziś — ta sama reguła co
+    zastępca przełożonego (``hr.leave_substitute``). Jedno zapytanie na listę."""
+    ids = sorted({uid for uid in user_ids if uid})
+    if not ids:
+        return {}
+    rows = await db.execute(
+        select(
+            LeaveRequest.user_id,
+            LeaveRequest.end_date,
+            LeaveRequest.substitute_user_id,
+        )
+        .where(
+            LeaveRequest.user_id.in_(ids),
+            LeaveRequest.status == "approved",
+            LeaveRequest.half_day.is_(None),
+            LeaveRequest.start_date <= today,
+            LeaveRequest.end_date >= today,
+        )
+        .order_by(LeaveRequest.end_date)
+    )
+    out: dict[int, Absence] = {}
+    for user_id, until, substitute_id in rows.all():
+        out[user_id] = Absence(until=until, substitute_id=substitute_id)
+    return out
+
+
+async def bell_recipients(
+    db: AsyncSession, request: B2BSigningRequest, today: date
+) -> list[int]:
+    """Dzwonki wysyłki: ``watchers`` i zastępca obsługującego, gdy ten jest
+    dziś na urlopie (27.10.2026) — ktoś musi wysłać nowy link."""
+    ids = watchers(request)
+    handler = handler_id(request)
+    absence = (await absences(db, [handler], today)).get(handler) if handler else None
+    if absence is not None and absence.substitute_id is not None:
+        substitute = await db.get(User, absence.substitute_id)
+        if substitute is not None and substitute.is_active:
+            ids = [*ids, absence.substitute_id]
+    return list(dict.fromkeys(ids))
 
 
 def _event(kind: str, at: datetime, **extra: object) -> dict:
@@ -705,3 +768,21 @@ async def request_renewal(
     _push(locked, _event("renewal_requested", now))
     await db.flush()
     return locked, True
+
+
+async def take_over(
+    db: AsyncSession, *, request_id: int, actor_id: int, now: datetime
+) -> tuple[B2BSigningRequest, int | None]:
+    """„Przejmij obsługę” (zastępstwo, 27.10.2026): przypomnienia, mail do
+    reprezentanta i kopia umowy pójdą odtąd ze skrzynki tej osoby, a dzwonki
+    do niej. Zwraca (wniosek, poprzedni obsługujący)."""
+    locked = await _lock(db, request_id)
+    if locked.status not in (*OPEN_STATUSES, "expired"):
+        raise HTTPException(status_code=409, detail=MSG_CLOSED)
+    previous = handler_id(locked)
+    if previous == actor_id:
+        raise HTTPException(status_code=409, detail=MSG_ALREADY_HANDLER)
+    locked.handled_by = actor_id
+    _push(locked, _event("taken_over", now, user_id=actor_id, previous=previous))
+    await db.flush()
+    return locked, previous

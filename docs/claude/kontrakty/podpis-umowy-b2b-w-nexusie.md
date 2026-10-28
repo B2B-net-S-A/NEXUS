@@ -70,10 +70,25 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   (`EsignDefaultsOut.cc_candidates`) to zespół rekrutacji z nadania
   (prowadzący — podpowiedziany, TAC, DL, aktywne przypisanie) i autor umowy,
   każdy tylko gdy sam mógłby ją wysłać (`_may_send` — w linku jest PDF ze
-  stawkami); inne id = 422. DW dostaje pierwszy mail, nowy link, mail
+  stawkami); inne id = 422. DW sprawdza się jeszcze raz przed każdym mailem
+  (`_cc_for_mail`): kto wypadł z zespołu, nie dostaje nowego linku ani kopii.
+  DW dostaje pierwszy mail, nowy link, mail
   o przedłużeniu i kopię podpisanej umowy (bez przypomnień), a dzwonki
   o wygaśnięciu, prośbie kontraktora i podpisie obu stron idą do
   `service.watchers` (nadawca + DW).
+- **Zastępstwo: „Przejmij obsługę”, nie nowe uprawnienie** (decyzja Artura
+  27.10.2026). `b2b_signing_requests.handled_by` (0605, pusta = nadawca,
+  `service.handler_id`): przejmuje ten, kto mógłby wysłać tę umowę
+  (`POST /esign/{id}/take-over` z `_assert_row_sender`) i tylko z połączoną
+  skrzynką M365 (inaczej 409, bo dalsze maile obiegu przepadłyby po cichu), wpis
+  `taken_over` w historii i dzwonek do poprzedniej osoby. Przypomnienia
+  kontraktora, mail do reprezentanta i kopia umowy idą odtąd ze skrzynki
+  obsługującego. Dzwonki (`service.bell_recipients`): obsługujący, nadawca,
+  DW i — gdy obsługujący jest dziś na zatwierdzonym całodniowym urlopie —
+  zastępca z modułu „Urlopy” (`service.absences`, ta sama reguła co
+  `hr.leave_substitute`). Rejestr pokazuje „Obsługuje”, urlop do kiedy
+  i zastępcę. Zastępca spoza zespołu rekrutacji dostaje dzwonek, ale nie
+  przejmie wysyłki (stawki) — przejmuje ktoś z zespołu albo TCM/admin.
 - **Wygasły link: ten sam PDF, nie nowa wysyłka** (pytanie zespołu
   27.10.2026, ocena i makiety: https://claude.ai/artifact/EmKfARRXm5DYHnjwXocec2).
   LibreOffice z tego samego Worda daje za każdym razem inne bajty (data
