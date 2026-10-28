@@ -118,8 +118,10 @@ describe("JobDetailCompactHeader", () => {
 
   it("długie odznaki nie wchodzą pod zakładki: najpierw ustępuje tytuł, potem odznaki się zawijają (zgłoszenie 28.10.2026)", () => {
     renderHeader({ badges: <span data-testid="long-badge">Archiwum z Traffita</span> });
-    // Tytuł kurczy się pierwszy (do 6rem)…
+    // Tytuł kurczy się pierwszy, ale nie poniżej 9rem (przy 6rem zamknięta
+    // rekrutacja miała przy 1280 px „Kierowni…”)…
     expect(screen.getByTestId("job-header-title").className).toMatch(/flex-\[0_100_auto\]/);
+    expect(screen.getByTestId("job-header-title").className).toMatch(/min-w-\[9rem\]/);
     // …a odznaki nie są `shrink-0` (wychodziły wtedy poza kolumnę pod
     // „Tablicę”), tylko zawijają się w swojej kolumnie.
     const badges = screen.getByTestId("long-badge").parentElement!;

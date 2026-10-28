@@ -369,7 +369,7 @@ export function JobDetailCompactHeader({
           zamiast go ucinać. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* Priorytet, tytuł w jednej linii i status obok (14.10.2026, K1):
-            pełny tytuł i nazwa od klienta w dymku. Tytuł ma nie mniej niż 6rem. */}
+            pełny tytuł i nazwa od klienta w dymku. Tytuł ma nie mniej niż 9rem. */}
         <div className="flex min-w-0 flex-[1_1_22rem] items-center gap-2">
           {priority}
           {/* Numer u klienta przed tytułem, także po „Zwiń” (prośba DL
@@ -382,16 +382,18 @@ export function JobDetailCompactHeader({
             testId="header-client-reference"
           />
           <h1
-            className="min-w-[6rem] flex-[0_100_auto] truncate text-lg font-semibold leading-tight text-foreground"
+            className="min-w-[9rem] flex-[0_100_auto] truncate text-lg font-semibold leading-tight text-foreground"
             title={[title, ...(clientLine.length > 0 ? [clientLine.join(" · ")] : [])].join("\n")}
             data-testid="job-header-title"
           >
             {title}
           </h1>
-          {/* Najpierw ustępuje tytuł (do 6rem, `flex-shrink` 100), dopiero potem
+          {/* Najpierw ustępuje tytuł (do 9rem, `flex-shrink` 100), dopiero potem
               odznaki — zawijają się w swojej kolumnie, a nie wychodzą pod
               zakładki (zgłoszenie 28.10.2026: „Archiwum z Traffita” i
-              „Prowadzona w NEXUSIE” przy 1280 px przykrywały „Tablicę”). */}
+              „Prowadzona w NEXUSIE” przy 1280 px przykrywały „Tablicę”).
+              Przy 6rem zamknięta rekrutacja miała przy 1280 px 96 px tytułu
+              („Kierowni…”); 9rem to 144 px, a odznaki skracają się w dymek. */}
           {badges ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
           ) : null}
