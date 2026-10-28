@@ -5,7 +5,10 @@
  *
  * Pracuj.pl nie ma u nas API — ogłoszenie wstawia opiekun konta po mailu.
  * Okno pokazuje mail złożony przez serwer z treści zakładki Pracuj.pl (po
- * kontroli); osoba dopisuje tylko stawkę dla kandydata. Mail wychodzi z jej
+ * kontroli); osoba dopisuje stawkę dla kandydata. Od 28.10.2026 poprawia też
+ * w oknie pola ogłoszenia („Popraw: …”, ten sam edytor co karta) i miasto —
+ * zapis idzie do ogłoszenia z wersją z ekranu, a podgląd liczy się od nowa,
+ * więc mail dalej niesie wyłącznie treść po kontroli. Mail wychodzi z jej
  * skrzynki M365; bez podłączonej skrzynki okno prosi o podłączenie i daje
  * „Kopiuj treść maila”. Reguły:
  * `docs/claude/rekrutacja-tworzenie/ogloszenie-pracuj-mailem-do-opiekuna.md`,
@@ -34,14 +37,32 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   jobAdApi,
   jobAdQueryKey,
+  OFFER_OWN_MAX,
   pracujMailPreviewQueryKey,
+  type AdContent,
   type JobAdState,
   type PracujMailRates,
 } from "@/lib/api/jobAd";
 import { newClientRequestId } from "@/lib/client-request-id";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
-export type PracujMailApi = Pick<typeof jobAdApi, "previewPracujMail" | "sendPracujMail">;
+import { AdBlock } from "./AdBlock";
+import { editorText, withEdited, type AdFieldKey } from "./job-ad-edit";
+import { editHint } from "./PracujTab";
+
+export type PracujMailApi = Pick<
+  typeof jobAdApi,
+  "previewPracujMail" | "sendPracujMail" | "save"
+>;
+
+/** Pola, które wolno poprawić w oknie maila — kolejność formularza Pracuj.pl. */
+const MAIL_EDIT_KEYS: readonly AdFieldKey[] = [
+  "about",
+  "responsibilities",
+  "requirements",
+  "nice_to_have",
+  "offer",
+];
 
 export interface PracujMailDialogProps {
   open: boolean;
@@ -50,6 +71,8 @@ export interface PracujMailDialogProps {
   onClose: () => void;
   /** Mail wyszedł — nowy stan ogłoszenia z serwera. */
   onSent: (next: JobAdState) => void;
+  /** Poprawka treści albo miasta zapisana z okna — nowy stan ogłoszenia. */
+  onSaved?: (next: JobAdState) => void;
   api?: PracujMailApi;
 }
 
@@ -71,6 +94,7 @@ export function PracujMailDialog({
   state,
   onClose,
   onSent,
+  onSaved,
   api = jobAdApi,
 }: PracujMailDialogProps) {
   const queryClient = useQueryClient();
@@ -78,6 +102,12 @@ export function PracujMailDialog({
   const [rateFrom, setRateFrom] = useState("");
   const [rateTo, setRateTo] = useState("");
   const [copied, setCopied] = useState(false);
+  // Poprawka pola ogłoszenia otwarta w oknie: klucz, tekst i ukrycia punktów.
+  const [editKey, setEditKey] = useState<AdFieldKey | null>(null);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [hiddenDraft, setHiddenDraft] = useState<string[] | null>(null);
+  // `null` = miasto bez zmian względem zapisanego.
+  const [cityDraft, setCityDraft] = useState<string | null>(null);
   const bodyRef = useRef<HTMLElement | null>(null);
   // Jeden klucz na otwarcie okna: ponowienie po błędzie sieci nie wyśle
   // drugiego maila (`m365/sender`, klucz żądania).
@@ -87,6 +117,10 @@ export function PracujMailDialog({
     if (!open) return;
     requestId.current = newClientRequestId();
     setCopied(false);
+    setEditKey(null);
+    setDraft(null);
+    setHiddenDraft(null);
+    setCityDraft(null);
   }, [open]);
 
   const typed: PracujMailRates = { rate_from: parseRate(rateFrom), rate_to: parseRate(rateTo) };
@@ -131,19 +165,68 @@ export function PracujMailDialog({
     },
   });
 
+  const closeEdit = () => {
+    setEditKey(null);
+    setDraft(null);
+    setHiddenDraft(null);
+  };
+
+  const save = useMutation({
+    mutationFn: (content: AdContent) =>
+      api.save(jobId, { content, tech: state.ad?.tech ?? [], expected_updated_at: version }),
+    onSuccess: (next) => {
+      onSaved?.(next);
+      closeEdit();
+      setCityDraft(null);
+    },
+    onError: (err) => {
+      if (errorStatus(err) === 409)
+        void queryClient.invalidateQueries({ queryKey: jobAdQueryKey(jobId) });
+      showError(apiErrorMessage(err, "Nie udało się zapisać poprawki. Spróbuj ponownie."));
+    },
+  });
+
+  const content = state.ad?.content ?? null;
+  const editFields = (state.rendered?.pracuj.fields ?? []).filter((field) =>
+    MAIL_EDIT_KEYS.includes(field.key as AdFieldKey),
+  );
+  const editField = editFields.find((field) => field.key === editKey) ?? null;
+  const savedCity = content?.city ?? "";
+  const cityValue = cityDraft ?? savedCity;
+  const cityDirty = cityDraft !== null && cityDraft.trim() !== savedCity;
+  const recruitmentCity = state.facts.find((fact) => fact.key === "city")?.value;
+
+  const saveField = async (text: string): Promise<boolean> => {
+    if (!content || !editKey) return false;
+    const edited = withEdited(content, editKey, text);
+    try {
+      await save.mutateAsync(
+        editKey === "offer" && hiddenDraft !== null
+          ? { ...edited, offer_hidden: hiddenDraft }
+          : edited,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   const data = preview.data;
   const mailboxReady = data?.mailbox === "ready";
   // Ta sama bramka dla wysyłki i kopiowania: do schowka nie idzie treść
   // z blokadą kontroli, bez stawki ani z poprzednią stawką.
-  const sendBlockedReason = !state.can_copy
-    ? "Najpierw usuń z treści fragmenty wskazane w kontroli."
-    : !data
-      ? "Czekam na podgląd maila."
-      : data.rate_error
-        ? data.rate_error
-        : !settled || preview.isFetching
-          ? "Odświeżam podgląd maila."
-          : null;
+  const sendBlockedReason =
+    editKey !== null || cityDirty
+      ? "Najpierw zapisz albo zamknij poprawkę — mail niesie zapisaną treść."
+      : !state.can_copy
+        ? "Najpierw usuń z treści fragmenty wskazane w kontroli."
+        : !data
+          ? "Czekam na podgląd maila."
+          : data.rate_error
+            ? data.rate_error
+            : !settled || preview.isFetching
+              ? "Odświeżam podgląd maila."
+              : null;
 
   const copy = async () => {
     if (!data || sendBlockedReason) return;
@@ -249,33 +332,111 @@ export function PracujMailDialog({
                 kwot nie ma.
               </p>
             </fieldset>
+            {content ? (
+              <form
+                className="flex flex-col gap-1.5 rounded-md border border-border px-3 py-2.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (cityDirty) save.mutate({ ...content, city: cityValue.trim() });
+                }}
+              >
+                <label htmlFor="pracuj-city" className="text-xs font-medium text-foreground">
+                  Miasto w ogłoszeniu
+                </label>
+                <Input
+                  id="pracuj-city"
+                  value={cityValue}
+                  maxLength={80}
+                  placeholder={recruitmentCity ? `Z rekrutacji: ${recruitmentCity}` : "np. Warszawa"}
+                  className="h-8 text-[13px]"
+                  onChange={(e) => setCityDraft(e.target.value === savedCity ? null : e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Bez ulicy i numeru — po adresie łatwo rozpoznać klienta. Zmienia też ogłoszenie
+                  i stronę kariery.
+                </p>
+                {cityDirty ? (
+                  <Button type="submit" size="sm" className="self-start" loading={save.isPending}>
+                    Zapisz miasto
+                  </Button>
+                ) : null}
+              </form>
+            ) : null}
             <p className="text-xs text-muted-foreground">
-              Treść poprawiasz w zakładce Pracuj.pl. Adresata zmienia Head of Recruitment
-              w Stałych częściach ogłoszenia.
+              Treść poprawiasz przyciskami „Popraw” nad podglądem — zmiana trafia do ogłoszenia,
+              strony kariery i obu portali. Adresata zmienia Head of Recruitment w Stałych
+              częściach ogłoszenia.
             </p>
           </div>
-          {preview.isError ? (
-            <Alert
-              variant="error"
-              title="Nie udało się złożyć maila"
-              description={apiErrorMessage(preview.error, "Zamknij okno i spróbuj ponownie.")}
-            />
-          ) : (
-            <section
-              ref={bodyRef}
-              aria-label="Podgląd maila"
-              aria-busy={preview.isFetching}
-              data-testid="pracuj-mail-body"
-              className="max-h-[52dvh] min-w-0 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2.5 text-[13px] leading-relaxed text-foreground"
-            >
-              {data ? data.body_text : "Składam mail…"}
-              {data ? (
-                <span className="mt-3 block text-xs text-muted-foreground">
-                  + Twoja stopka z Outlooka
-                </span>
-              ) : null}
-            </section>
-          )}
+          <div className="flex min-w-0 flex-col gap-2">
+            {content && editFields.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1 text-xs">
+                <span className="text-muted-foreground">Popraw:</span>
+                {editFields.map((field) => (
+                  <Button
+                    key={field.key}
+                    type="button"
+                    size="sm"
+                    variant={editKey === field.key ? "outline" : "ghost"}
+                    className="h-7 px-2"
+                    aria-label={`Popraw: ${field.label}`}
+                    disabled={save.isPending || (editKey !== null && editKey !== field.key)}
+                    onClick={() => {
+                      setEditKey(field.key as AdFieldKey);
+                      setDraft(editorText(content, field.key as AdFieldKey));
+                      setHiddenDraft(null);
+                    }}
+                  >
+                    {field.label}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            {content && editField && editKey ? (
+              <AdBlock
+                fieldKey={editField.key}
+                label={editField.label}
+                kind={editField.kind}
+                text={editField.text}
+                items={editField.items}
+                autoCount={editField.auto_count}
+                fixedCount={editField.fixed_count}
+                editValue={editorText(content, editKey)}
+                editHint={editHint(editKey)}
+                draft={draft}
+                onDraftChange={(text) => (text === null ? closeEdit() : setDraft(text))}
+                onSave={saveField}
+                saving={save.isPending}
+                hiddenAuto={editField.hidden_auto}
+                hiddenFixed={editField.hidden_fixed}
+                hiddenDraft={editKey === "offer" ? hiddenDraft : null}
+                onHiddenChange={editKey === "offer" ? setHiddenDraft : undefined}
+                ownLimit={editKey === "offer" ? OFFER_OWN_MAX : undefined}
+              />
+            ) : null}
+            {preview.isError ? (
+              <Alert
+                variant="error"
+                title="Nie udało się złożyć maila"
+                description={apiErrorMessage(preview.error, "Zamknij okno i spróbuj ponownie.")}
+              />
+            ) : (
+              <section
+                ref={bodyRef}
+                aria-label="Podgląd maila"
+                aria-busy={preview.isFetching}
+                data-testid="pracuj-mail-body"
+                className="max-h-[52dvh] min-w-0 overflow-y-auto whitespace-pre-wrap rounded-md border border-border bg-muted/40 px-3 py-2.5 text-[13px] leading-relaxed text-foreground"
+              >
+                {data ? data.body_text : "Składam mail…"}
+                {data ? (
+                  <span className="mt-3 block text-xs text-muted-foreground">
+                    + Twoja stopka z Outlooka
+                  </span>
+                ) : null}
+              </section>
+            )}
+          </div>
         </DialogBody>
         <DialogFooter className="flex-wrap gap-2">
           <Button

@@ -433,6 +433,7 @@ export function AdChannels({
           apply(next);
           setSendingMail(false);
         }}
+        onSaved={apply}
       />
       <SkipChannelDialog
         open={skipFor !== null}

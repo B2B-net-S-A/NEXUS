@@ -98,6 +98,9 @@ function setup({
       preview(rates, previewPatch),
     ),
     sendPracujMail: vi.fn<PracujMailApi["sendPracujMail"]>(async () => sent),
+    save: vi.fn<PracujMailApi["save"]>(async (_jobId, input) =>
+      adState({ reminders: LEAD, content: input.content }),
+    ),
   };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(["job-ad", 7], state);
@@ -301,5 +304,43 @@ describe("Pracuj.pl mailem do opiekuna", () => {
       expect.stringMatching(/^Prośba o publikację ogłoszenia: Java Developer \(k\/m\/x\)\n\nDzień dobry/),
     );
     expect(within(dialog).getByRole("button", { name: "Skopiowano" })).toBeInTheDocument();
+  });
+});
+
+describe("Pracuj.pl mailem do opiekuna — poprawka przed wysyłką (28.10.2026)", () => {
+  it("„Popraw” otwiera pole ogłoszenia w oknie i zapisuje je wersją z ekranu", async () => {
+    // Zgłoszenie: „fajnie jakbym na tym etapie mogła coś jeszcze edytować”.
+    const { pracujMailApi } = setup();
+    fireEvent.click(screen.getByTestId("pracuj-send"));
+    const dialog = await screen.findByRole("dialog", { name: "Wyślij ogłoszenie do Pracuj.pl" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Popraw: O projekcie" }));
+
+    const box = within(dialog).getByRole("textbox", { name: "Treść: O projekcie" });
+    expect(box).toHaveValue("Zespół buduje mikroserwisy rozliczeniowe.");
+    expect(within(dialog).getByRole("button", { name: "Kopiuj treść maila" })).toBeDisabled();
+
+    fireEvent.change(box, { target: { value: "Projekt w sektorze bankowym." } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(pracujMailApi.save).toHaveBeenCalledTimes(1));
+    const [jobId, body] = pracujMailApi.save.mock.calls[0];
+    expect(jobId).toBe(7);
+    expect(body.content.about).toBe("Projekt w sektorze bankowym.");
+    expect(body.expected_updated_at).toBe("2026-10-12T09:20:00Z");
+    await waitFor(() =>
+      expect(within(dialog).queryByRole("textbox", { name: "Treść: O projekcie" })).toBeNull(),
+    );
+  });
+
+  it("miasto w ogłoszeniu da się zmienić w oknie maila", async () => {
+    const { pracujMailApi } = setup();
+    fireEvent.click(screen.getByTestId("pracuj-send"));
+    const dialog = await screen.findByRole("dialog", { name: "Wyślij ogłoszenie do Pracuj.pl" });
+    const city = within(dialog).getByLabelText("Miasto w ogłoszeniu");
+    expect(city).toHaveAttribute("placeholder", "Z rekrutacji: Warszawa");
+    fireEvent.change(city, { target: { value: "Warszawa lub zdalnie" } });
+    expect(within(dialog).getByRole("button", { name: "Kopiuj treść maila" })).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz miasto" }));
+    await waitFor(() => expect(pracujMailApi.save).toHaveBeenCalledTimes(1));
+    expect(pracujMailApi.save.mock.calls[0][1].content.city).toBe("Warszawa lub zdalnie");
   });
 });
