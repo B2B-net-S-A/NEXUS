@@ -1,4 +1,4 @@
-"""„Ogłoszenia” na pulpicie każdej osoby (decyzja Artura 28.10.2026, 0614).
+"""„Ogłoszenia” na pulpicie każdej osoby (decyzja Artura 28.10.2026, 0615).
 
 * ``GET /api/announcements`` — aktywne ogłoszenia patrzącego (pulpit);
 * ``POST /api/announcements/{id}/read`` — „Przeczytane”;

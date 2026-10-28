@@ -1,4 +1,4 @@
-"""„Ogłoszenia” na pulpicie (0614) — modele.
+"""„Ogłoszenia” na pulpicie (0615) — modele.
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/announcements_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).
