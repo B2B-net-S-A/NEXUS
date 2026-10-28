@@ -316,6 +316,25 @@ describe("InsightsRaces", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("zamknięty miesiąc z progiem per osoba nie mówi „wspólny dla wszystkich”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({ required_verifications: 60, threshold_basis: "workdays" }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByTestId("race-threshold")).toHaveAttribute(
+      "title",
+      expect.stringContaining("z dni pracy osoby"),
+    );
+    expect(
+      screen.queryByText(/Próg kwalifikacji jest wspólny/),
+    ).not.toBeInTheDocument();
+  });
+
   it("mianownik kalendarzowy dostaje dopisek „bez urlopów”", async () => {
     respond({
       [RACES]: racesPayload({

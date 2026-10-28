@@ -31,13 +31,16 @@ bierz `workdays_by_user`, `prorated_targets` albo `target_for_window`.
 
 - **Wyścig Rekomendacji**: plakietka „X/dzień” (`race_workdays_to_date`,
   źródło `nexus`) i próg `required_verifications_by_user` z tych samych dni.
+  Pole `threshold_basis` (`workdays` / `calendar`) zamraża się z wynikiem,
+  żeby zamknięty miesiąc podpisywał próg tak, jak go policzono.
   Dopisek „· liczone z N dni pracy” stoi tylko przy osobach, które miały mniej
   dni pracy niż najwięcej w rankingu; rodzaju nieobecności nie widać.
 - **Insights → Zespół**: „Weryf. / dzień” per osoba
   (`TeamPeople.workdays_by_user`), cel placementów miesiąca w proporcji do dni
   pracy całego miesiąca (także zaplanowana nieobecność).
-- **„Moje KPI” i coach**: cel dnia, tygodnia i miesiąca w proporcji do dni
-  pracy całego okresu (`kpi_engine.target_on_workdays`); w dniu nieobecności
+- **„Moje KPI”, panel „Jak idzie mi ten miesiąc?” i coach**: cel dnia,
+  tygodnia i miesiąca w proporcji do dni pracy całego okresu
+  (`kpi_engine.target_on_workdays`, także `kpi_panel.compute_my_panel`); w dniu nieobecności
   cel dnia = 0, więc trasa `/api/kpis/me/today` go nie zwraca i górny pasek nie
   pokazuje „0 / 4 dziś”. Tempo dalej pomija pełne dni nieobecności.
 - **Cele zespołu (HoR/TCM)**: suma celów osób po przeliczeniu na ich dni pracy.

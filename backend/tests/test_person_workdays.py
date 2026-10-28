@@ -243,3 +243,20 @@ async def test_race_threshold_is_per_person(local_source, monkeypatch) -> None:
         )
         await db.rollback()
     assert required == {away.id: 60}
+
+
+@pytest.mark.asyncio
+async def test_my_panel_targets_follow_workdays(local_source) -> None:
+    """Panel „Moje KPI” pokazuje te same cele co „/me/today” — bez dni nieobecności."""
+    from app.services.kpi_panel import compute_my_panel
+
+    async with AsyncSessionLocal() as db:
+        away = await _person(db, "panel")
+        present = await _person(db, "panel-full")
+        await _absence(db, away, OCT_1, OCT_31)
+        away_panel = await compute_my_panel(db, user=away, now=NOW)
+        full_panel = await compute_my_panel(db, user=present, now=NOW)
+        await db.rollback()
+    assert away_panel.target_verifications_daily == 0
+    assert away_panel.target_placements_monthly == 0
+    assert full_panel.target_verifications_daily > 0

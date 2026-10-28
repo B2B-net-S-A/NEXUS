@@ -1122,6 +1122,9 @@ async def monthly_most_recommendations(
 
     # Próg „N weryfikacji × dni” liczy się z dni pracy osoby — nieobecność
     # nie podnosi wymagania (decyzja Artura 28.10.2026).
+    from app.services.person_workdays import nexus_absences_known
+
+    threshold_basis = "workdays" if await nexus_absences_known(db) else "calendar"
     required = await required_verifications_by_user(
         db,
         list(totals),
@@ -1190,6 +1193,9 @@ async def monthly_most_recommendations(
                     "recommendations": recommendations,
                     "precision_pct": precision_pct,
                     "required_verifications": required_verifications,
+                    # Z czego liczono próg — zamraża się z wynikiem, więc
+                    # zamknięty miesiąc dalej podpisuje próg zgodnie z liczbą.
+                    "threshold_basis": threshold_basis,
                     "qualified": bool(row.qualified) and not reasons,
                     "disqualification_reasons": reasons,
                 },

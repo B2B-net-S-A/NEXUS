@@ -61,6 +61,9 @@ export interface MonthlyRaceEntry {
   //     są zapisane przy rozliczeniu, nie liczone na nowo.
   workdays?: number | null;
   per_day?: number | null;
+  // Z czego liczono próg „wymaganych weryfikacji” (28.10.2026): `workdays` —
+  // dni pracy osoby, `calendar` — wspólne dni robocze. Zamraża się z wynikiem.
+  threshold_basis?: "workdays" | "calendar" | null;
   workdays_source?:
     | "nexus"
     | "compass"

@@ -136,10 +136,13 @@ const RACE_THRESHOLD_SHARED =
 const RACE_THRESHOLD_PER_PERSON =
   "Próg kwalifikacji liczy się z dni pracy osoby: 4 weryfikacje × dni robocze, które upłynęły w tym miesiącu (Pon–Pt bez świąt), minus jej zatwierdzona nieobecność. Ten sam mianownik ma plakietka „/dzień”, więc urlop nie podnosi wymagania.";
 
-function raceThresholdNote(
-  source: MonthlyRaceEntry["workdays_source"],
-): string {
-  return source === "nexus" ? RACE_THRESHOLD_PER_PERSON : RACE_THRESHOLD_SHARED;
+function raceThresholdNote(entry: MonthlyRaceEntry | undefined): string {
+  // `threshold_basis` zamraża się z wynikiem — zamknięty miesiąc nie ma
+  // `workdays_source`, a próg dalej jest liczony per osoba.
+  return entry?.threshold_basis === "workdays" ||
+    entry?.workdays_source === "nexus"
+    ? RACE_THRESHOLD_PER_PERSON
+    : RACE_THRESHOLD_SHARED;
 }
 
 /** „15” albo „14,5” — dni pracy mogą mieć połówkę (pół dnia nieobecności). */
@@ -301,7 +304,7 @@ function RaceRow({
             <>
               {" · "}
               <span
-                title={raceThresholdNote(entry.workdays_source)}
+                title={raceThresholdNote(entry)}
                 className="underline decoration-dotted underline-offset-2"
                 data-testid="race-threshold"
               >
@@ -482,7 +485,7 @@ function RaceCard({
             {/* Wyjaśnienie progu także bez hovera — `title` przy liczbie
                 weryfikacji jest nieosiągalny dotykiem (audyt 23.09.2026). */}
             {variant === "recommendations" && ranking.length > 0 ? (
-              <p>{raceThresholdNote(ranking[0]?.workdays_source)}</p>
+              <p>{raceThresholdNote(ranking[0])}</p>
             ) : null}
             <p>{copy.tieRule}</p>
           </div>
