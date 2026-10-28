@@ -24,6 +24,7 @@ import pytest
 
 from app.models.m365 import M365SyncStatus
 from app.services.m365 import sync as sync_mod
+from app.services.m365.access import CANDIDATE_SCOPE
 
 pytestmark = pytest.mark.asyncio
 
@@ -45,7 +46,7 @@ class _FakeDB:
 
 
 class _FakeGraphClient:
-    def __init__(self, conn, db):  # noqa: D107 — atrapa
+    def __init__(self, conn, db, **_kwargs):  # noqa: D107 — atrapa
         pass
 
     async def __aenter__(self):
@@ -71,10 +72,10 @@ def _isolate_locks(monkeypatch):
     monkeypatch.setattr(sync_mod, "_sync_locks", {})
     monkeypatch.setattr(sync_mod, "_resync_requested", set())
 
-    async def _eligible(_db, _conn):
-        return True
+    async def _scope(_db, _conn):
+        return CANDIDATE_SCOPE
 
-    monkeypatch.setattr(sync_mod, "connection_owner_is_eligible", _eligible)
+    monkeypatch.setattr(sync_mod, "connection_mailbox_scope", _scope)
     monkeypatch.setattr(sync_mod, "GraphClient", _FakeGraphClient)
 
 
@@ -85,13 +86,13 @@ async def test_second_sync_of_the_same_mailbox_is_refused_while_the_first_runs(
     release = asyncio.Event()
     runs = 0
 
-    async def _slow_messages(db, gc, conn, result):
+    async def _slow_messages(db, gc, conn, result, **_kwargs):
         nonlocal runs
         runs += 1
         started.set()
         await release.wait()
 
-    async def _noop_events(db, gc, conn, result):
+    async def _noop_events(db, gc, conn, result, **_kwargs):
         return None
 
     monkeypatch.setattr(sync_mod, "_sync_messages", _slow_messages)
@@ -121,12 +122,12 @@ async def test_different_mailboxes_do_not_block_each_other(monkeypatch):
     started = asyncio.Event()
     release = asyncio.Event()
 
-    async def _slow_messages(db, gc, conn, result):
+    async def _slow_messages(db, gc, conn, result, **_kwargs):
         if conn.id == 1:
             started.set()
             await release.wait()
 
-    async def _noop_events(db, gc, conn, result):
+    async def _noop_events(db, gc, conn, result, **_kwargs):
         return None
 
     monkeypatch.setattr(sync_mod, "_sync_messages", _slow_messages)
@@ -152,10 +153,10 @@ async def test_lock_is_released_when_the_pass_blows_up(monkeypatch):
     skrzynki do restartu kontenera, bez śladu w `/api/health`.
     """
 
-    async def _boom(db, gc, conn, result):
+    async def _boom(db, gc, conn, result, **_kwargs):
         raise RuntimeError("Graph padł")
 
-    async def _noop_events(db, gc, conn, result):
+    async def _noop_events(db, gc, conn, result, **_kwargs):
         return None
 
     monkeypatch.setattr(sync_mod, "_sync_messages", _boom)
@@ -185,13 +186,13 @@ async def test_webhook_during_running_sync_triggers_one_trailing_pass(
     release = asyncio.Event()
     runs = 0
 
-    async def _slow_messages(db, gc, conn, result):
+    async def _slow_messages(db, gc, conn, result, **_kwargs):
         nonlocal runs
         runs += 1
         started.set()
         await release.wait()
 
-    async def _noop_events(db, gc, conn, result):
+    async def _noop_events(db, gc, conn, result, **_kwargs):
         return None
 
     monkeypatch.setattr(sync_mod, "_sync_messages", _slow_messages)

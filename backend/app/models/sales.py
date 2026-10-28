@@ -386,6 +386,21 @@ class SalesActivity(Base, TimestampMixin):
             unique=True,
             postgresql_where=text("external_ref IS NOT NULL"),
         ),
+        # 0616: synchronizacja Outlooka (``services/sales/outlook_activities``).
+        Index(
+            "ix_sales_activities_external_id",
+            "external_source",
+            "external_id",
+            postgresql_where=text("external_id IS NOT NULL"),
+        ),
+        Index(
+            "ux_sales_activities_outlook",
+            "external_source",
+            "external_id",
+            "company_id",
+            unique=True,
+            postgresql_where=text("external_id IS NOT NULL AND external_ref IS NULL"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
