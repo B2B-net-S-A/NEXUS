@@ -516,14 +516,7 @@ async def create_opportunity(
     apply_stage(opp, stage, stages, now=now)
     db.add(opp)
     await db.flush()
-    history.record(
-        db,
-        opportunity_id=opp.id,
-        user_id=current_user.id,
-        kind=OpportunityEventKind.created,
-        field="stage_id",
-        new_value=str(stage.id),
-    )
+    history.record_created(db, opp, user_id=current_user.id)
     if opp.primary_contact_id is not None:
         db.add(
             SalesOpportunityContact(

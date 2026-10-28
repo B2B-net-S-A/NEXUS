@@ -69,6 +69,21 @@ def record(
     )
 
 
+def record_created(
+    db: AsyncSession, opportunity: SalesOpportunity, *, user_id: Optional[int]
+) -> None:
+    """Założenie szansy = wejście na jej pierwszy etap (KPI liczy z tego wiersza)."""
+
+    record(
+        db,
+        opportunity_id=opportunity.id,
+        user_id=user_id,
+        kind=OpportunityEventKind.created,
+        field="stage_id",
+        new_value=str(opportunity.stage_id),
+    )
+
+
 def record_changes(
     db: AsyncSession,
     opportunity: SalesOpportunity,
