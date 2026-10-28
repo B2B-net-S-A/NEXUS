@@ -181,7 +181,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_p0_set: _C.reminders,
     # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
     _T.job_p0_requested: _C.reminders,
-    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    # 0616: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
     _T.job_idle_reminder: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,

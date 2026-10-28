@@ -1,7 +1,7 @@
 """Rekrutacje bez ruchu: powód ``no_activity``, „Jeszcze trwa”, dzwonek.
 
-Revision ID: 0617_job_idle_close
-Revises: 0614_sales_atlas_gaps
+Revision ID: 0616_job_idle_close
+Revises: 0615_job_twins
 
 Decyzja Artura 28.10.2026: 14 dni bez CV do klienta i bez odpowiedzi klienta
 = przypomnienie do Delivery Leada, 21 dni = także Head of Recruitment, 28 dni
@@ -16,8 +16,8 @@ Lustro w safety-net ``entrypoint.sh`` — prod alembic bywa osierocony.
 
 from alembic import op
 
-revision = "0617_job_idle_close"
-down_revision = "0614_sales_atlas_gaps"
+revision = "0616_job_idle_close"
+down_revision = "0615_job_twins"
 branch_labels = None
 depends_on = None
 
@@ -30,7 +30,7 @@ BEGIN
            SELECT 1 FROM notifications
            WHERE notification_type::text = 'job_idle_reminder'
        ) THEN
-        RAISE EXCEPTION 'Downgrade 0617 odmawia: są rekrutacje zamknięte z powodem no_activity albo wpisy job_idle_reminder, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0616 odmawia: są rekrutacje zamknięte z powodem no_activity albo wpisy job_idle_reminder, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
