@@ -382,14 +382,18 @@ export function JobDetailCompactHeader({
             testId="header-client-reference"
           />
           <h1
-            className="min-w-[6rem] flex-[0_1_auto] truncate text-lg font-semibold leading-tight text-foreground"
+            className="min-w-[6rem] flex-[0_100_auto] truncate text-lg font-semibold leading-tight text-foreground"
             title={[title, ...(clientLine.length > 0 ? [clientLine.join(" · ")] : [])].join("\n")}
             data-testid="job-header-title"
           >
             {title}
           </h1>
+          {/* Najpierw ustępuje tytuł (do 6rem, `flex-shrink` 100), dopiero potem
+              odznaki — zawijają się w swojej kolumnie, a nie wychodzą pod
+              zakładki (zgłoszenie 28.10.2026: „Archiwum z Traffita” i
+              „Prowadzona w NEXUSIE” przy 1280 px przykrywały „Tablicę”). */}
           {badges ? (
-            <div className="flex min-w-0 shrink-0 items-center gap-1.5">{badges}</div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">{badges}</div>
           ) : null}
           {collapsed ? recruiterCompact : null}
           {collapsed ? collapsedExtras : null}
