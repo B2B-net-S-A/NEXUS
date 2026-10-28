@@ -31,6 +31,8 @@ class AdContent(BaseModel):
     duration: str = Field(default="", max_length=generate.TERM_MAX)
     # Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia.
     language: str = Field(default="", max_length=generate.TERM_MAX)
+    # Miasto w ogłoszeniu; puste = miasto z rekrutacji (bez adresu).
+    city: str = Field(default="", max_length=generate.TERM_MAX)
     responsibilities: list[Item] = Field(
         default_factory=list, max_length=_LIMITS["responsibilities"]
     )

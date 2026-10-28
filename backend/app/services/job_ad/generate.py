@@ -185,6 +185,12 @@ def clean_content(value: Any, *, title: str) -> dict[str, Any]:
     }
     for key in TERM_FIELDS:
         content[key] = _line(data.get(key), TERM_MAX)
+    # Miasto wpisane w ogłoszeniu zamiast tego z rekrutacji. Klucz tylko
+    # przy wpisanym: odcisk treści (`publications.content_hash`) liczy się
+    # z całego słownika, a pusty klucz zapaliłby „Do aktualizacji” wszędzie.
+    city = _line(data.get("city"), TERM_MAX)
+    if city:
+        content["city"] = city
     for key, limit in LIST_LIMITS.items():
         content[key] = clean_list(data.get(key), limit)
     # Punkty „co oferujemy” z rekrutacji i stałego bloku ukryte w tym

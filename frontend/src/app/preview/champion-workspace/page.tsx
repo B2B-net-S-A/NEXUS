@@ -58,6 +58,7 @@ const JOB_AD: JobAdState = {
       start: "",
       duration: "",
       language: "",
+      city: "",
       responsibilities: [],
       requirements: [],
       nice_to_have: [],

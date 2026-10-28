@@ -28,6 +28,7 @@ export const TEXT_KEYS: readonly AdTextKey[] = [
   "start",
   "duration",
   "language",
+  "city",
 ];
 
 /** Pole treści z własnym edytorem. */

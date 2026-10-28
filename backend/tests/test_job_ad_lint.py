@@ -49,6 +49,27 @@ def test_clean_ad_has_no_findings():
     assert not lint.has_blocking(findings)
 
 
+def test_street_address_only_advises_and_names_where_it_is():
+    # Decyzja 28.10.2026: adres biura pozwala wygooglować klienta, ale nazwy
+    # ulic w opisie projektu bywają niewinne — uwaga, nie blokada.
+    findings = _lint(
+        _content(about="Zespół pracuje w biurze przy ul. Kwiatowej 12."),
+        terms=["praca hybrydowa (Warszawa, Ogrodowa 36)"],
+    )
+    address = [f for f in findings if f.code == lint.CODE_ADDRESS]
+    assert [(f.severity, f.field) for f in address] == [
+        ("advise", "about"),
+        ("advise", lint.FIELD_TERMS),
+    ]
+    assert "Kwiatowej 12" in address[0].message
+    assert not lint.has_blocking(findings)
+
+
+def test_city_typed_in_the_ad_is_checked_like_any_other_field():
+    findings = _lint(_content(city="Warszawa, ul. Kwiatowa 12"))
+    assert [(f.code, f.field) for f in findings] == [(lint.CODE_ADDRESS, "city")]
+
+
 # ── Blokują: reguły strony kariery ──────────────────────────────────────────
 
 

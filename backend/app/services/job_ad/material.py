@@ -56,6 +56,10 @@ class AdMaterial:
     duration: Optional[str]
     language: Optional[str]
     working_time: Optional[str]
+    # Lokalizacja przed `public_city` — tylko do odcisku materiału: samo
+    # wycięcie adresu (28.10.2026) nie jest zmianą rekrutacji i nie może
+    # zapalić „Rekrutacja zmieniła się… Przygotuj ponownie”.
+    location: Optional[str] = None
 
 
 def _text(value: Any) -> str:
@@ -116,6 +120,7 @@ def build_material(job: Any, title: str) -> AdMaterial:
         certifications=_text(draft["certifications"]),
         pitch=_text(draft["pitch"]),
         city=params.get("city"),
+        location=jpp.location(job),
         remote_policy=params.get("remote_policy"),
         onsite_days_per_week=params.get("onsite_days_per_week"),
         onsite_days_per_month=params.get("onsite_days_per_month"),
@@ -158,6 +163,8 @@ _HASH_FIELDS = (
 
 def material_hash(material: AdMaterial) -> str:
     data = asdict(material)
+    if material.location:
+        data["city"] = material.location
     payload = json.dumps(
         [_HASH_VERSION, {key: data[key] for key in _HASH_FIELDS}],
         sort_keys=True,
