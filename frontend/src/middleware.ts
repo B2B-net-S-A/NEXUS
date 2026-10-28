@@ -236,6 +236,9 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     required: "read",
     enforceRoles: true,
   },
+  // Nowości — kto już umie (28.10.2026): imienna lista bez danych domenowych,
+  // lustro `HeadOfRecruitmentPlus`.
+  { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],

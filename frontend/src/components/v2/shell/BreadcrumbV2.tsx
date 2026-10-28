@@ -111,6 +111,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "competence-team": "Kategorie kompetencji",
   contractors: "Kontraktorzy",
   "kpi-targets": "Cele KPI",
+  nowosci: "Nowości — kto już umie",
   "review-states": "Porządek w requestach",
   "strona-kariery": "Strona kariery do uzupełnienia",
   ogloszenia: "Ogłoszenia do nadrobienia",

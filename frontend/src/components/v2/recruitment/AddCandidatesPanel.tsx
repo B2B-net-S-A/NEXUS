@@ -896,6 +896,7 @@ function AddCandidatesPanelOpen({
           type="button"
           role="tab"
           id={`add-candidates-tab-${key}`}
+          data-tour={key === "manual" ? "jobs.add.manual-tab" : undefined}
           aria-selected={tab === key}
           aria-controls={`add-candidates-panel-${key}`}
           tabIndex={tab === key ? 0 : -1}

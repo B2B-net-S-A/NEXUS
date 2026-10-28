@@ -83,6 +83,7 @@ export function CandidateSourcesStripView({
           type="button"
           onClick={() => onOpen(tile.tab)}
           data-testid={`source-tile-${tile.tab}`}
+          data-tour={tile.tab === "search" ? "jobs.sources.search" : undefined}
           title={tile.description}
           className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
         >

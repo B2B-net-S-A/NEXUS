@@ -14,6 +14,7 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
 import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
+import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
@@ -249,6 +250,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
       {/* Game-mode decorations — only in Kids mode (inert otherwise) */}
       <KidsBackdrop />
       <JarvisRoot />
+      {/* Kropki „Nowe”, przeklikanie i okno zmiany procesu. */}
+      <NoveltyLayer />
     </div>
   );
 }
