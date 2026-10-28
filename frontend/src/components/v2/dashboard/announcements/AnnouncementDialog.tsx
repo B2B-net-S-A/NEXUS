@@ -88,6 +88,9 @@ export function AnnouncementDialog({ open, onOpenChange, edited = null, roles }:
   const shown = touched ? errors : {};
   // „Ważne” w poprawce już ogłoszonego nie dzwoni drugi raz (serwer pilnuje `notified_at`).
   const alreadyImportant = Boolean(edited?.important);
+  // Kolejność z `AUDIENCE_ROLE_LABELS` (rekruterzy i DL-e na początku), nie enumu z serwera.
+  const known = Object.keys(AUDIENCE_ROLE_LABELS);
+  const orderedRoles = [...known.filter((r) => roles.includes(r)), ...roles.filter((r) => !known.includes(r))];
   const update = (patch: Partial<AnnouncementForm>) => setForm((current) => ({ ...current, ...patch }));
   const toggleRole = (role: string, checked: boolean) =>
     update({ roles: checked ? [...form.roles, role] : form.roles.filter((r) => r !== role) });
@@ -163,7 +166,7 @@ export function AnnouncementDialog({ open, onOpenChange, edited = null, roles }:
           </div>
           <div className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)]">
             <div className="space-y-1.5">
-              <label htmlFor="announcement-until" className="text-sm font-medium">
+              <label htmlFor="announcement-until" className="block text-sm font-medium">
                 Widoczne do
               </label>
               <Input
@@ -179,7 +182,7 @@ export function AnnouncementDialog({ open, onOpenChange, edited = null, roles }:
               {shown.visibleUntil ? <p className="text-xs text-destructive">{shown.visibleUntil}</p> : null}
             </div>
             <div className="space-y-1.5">
-              <span id="announcement-audience-label" className="text-sm font-medium">
+              <span id="announcement-audience-label" className="block text-sm font-medium">
                 Odbiorcy
               </span>
               <SegmentedRadio<"all" | "roles">
@@ -195,7 +198,7 @@ export function AnnouncementDialog({ open, onOpenChange, edited = null, roles }:
             <fieldset className="space-y-1.5" data-testid="announcement-roles">
               <legend className="sr-only">Role odbiorców</legend>
               <div className="grid gap-x-4 gap-y-2 sm:grid-cols-2">
-                {roles.map((role) => (
+                {orderedRoles.map((role) => (
                   <label key={role} className="flex items-center gap-2 text-sm">
                     <Checkbox
                       checked={form.roles.includes(role)}

@@ -136,7 +136,9 @@ async def _user(role: str, *, roles: list[str] | None = None):
         )
         db.add(user)
         await db.commit()
-        return user.id, {"Authorization": f"Bearer {create_access_token(user.id, role)}"}
+        return user.id, {
+            "Authorization": f"Bearer {create_access_token(user.id, role)}"
+        }
 
 
 def _body(**overrides) -> dict:
