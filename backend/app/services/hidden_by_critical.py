@@ -37,9 +37,11 @@ Reguły, które łatwo cofnąć „przy okazji”:
   ``job_proposals.evidence`` (tam wyłącznie nazwy wymagań i liczby).
 * **Widoczność jak skrzynka**: bez osób w rekrutacji, z globalnej czarnej listy
   i z jakąkolwiek żywą propozycją tej rekrutacji (otwartą, pominiętą, dodaną).
-* **Koszt**: zawężenie w SQL (``ILIKE`` po CV z indeksem trigramowym, profilu
-  i notatkach), potem najwyżej ``SCAN_MAX`` osób sprawdzanych w Pythonie;
-  ``truncated`` mówi, że ukrytych ze śladem może być więcej.
+* **Koszt**: zawężenie w SQL (``ILIKE`` po CV i doświadczeniu z indeksem
+  trigramowym, listach umiejętności i notatkach — bez pól z Traffita, patrz
+  :func:`_candidate_ids_with_trace`), potem najwyżej ``SCAN_MAX`` osób
+  sprawdzanych w Pythonie; ``truncated`` mówi, że może być ich więcej.
+  Kopia produkcji, rekrutacja ze zgłoszenia: ~1 s, 120 osób.
 """
 
 from __future__ import annotations
@@ -48,7 +50,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Sequence
 
-from sqlalchemy import Text, cast, exists, literal, or_, select
+from sqlalchemy import Text, cast, exists, literal, or_, select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.candidate import Candidate, CandidateStatus
@@ -200,30 +202,42 @@ async def _candidate_ids_with_trace(
     db: AsyncSession, *, job_id: int, run_id: str, words: Sequence[str]
 ) -> list[int]:
     """Ukryci przez „musi mieć” tego przeglądu, w których tekstach stoi któreś
-    słowo (zawężenie bez granic słowa — decyduje :func:`_find`)."""
-    from app.services.must_text_evidence import EVIDENCE_NOTE_TYPES
-    from app.services import note_kinds
+    słowo (zawężenie bez granic słowa — decyduje :func:`_find`).
 
-    row = CandidateSearchResult
-    in_text = or_(
-        _ilike_any(Candidate.raw_cv_text, words),
-        _ilike_any(cast(Candidate.experience, Text), words),
-        _ilike_any(cast(Candidate.skills, Text), words),
-        _ilike_any(cast(Candidate.verified_tech, Text), words),
-        _ilike_any(cast(Candidate.tags, Text), words),
-        _ilike_any(cast(Candidate.cv_extracted_data, Text), words),
-        exists(
-            select(literal(1)).where(
-                Note.candidate_id == Candidate.id,
-                Note.source_deleted_at.is_(None),
-                cast(Note.note_type, Text).in_(EVIDENCE_NOTE_TYPES),
-                note_kinds.ai_readable_clause(),
-                _ilike_any(Note.content, words),
+    Zawężenie czyta CV (indeks trigramowy), doświadczenie (indeks trigramowy),
+    listy umiejętności i notatki-dowody — sumą osobnych zapytań, żeby każde
+    użyło indeksu. Pól z Traffita w ``cv_extracted_data`` tu NIE ma: rzut
+    całego JSON-a na tekst kosztował na kopii produkcji 4–10 s na zapytanie,
+    a na rekrutacji ze zgłoszenia dokładał 1 osobę na 120. Sprawdzenie
+    w Pythonie (``profile_text``) czyta je dalej.
+    """
+    from app.services import note_kinds
+    from app.services.must_text_evidence import EVIDENCE_NOTE_TYPES
+
+    traced = union(
+        select(Candidate.id.label("cid")).where(
+            _ilike_any(Candidate.raw_cv_text, words)
+        ),
+        select(Candidate.id).where(_ilike_any(cast(Candidate.experience, Text), words)),
+        select(Candidate.id).where(
+            or_(
+                _ilike_any(cast(Candidate.skills, Text), words),
+                _ilike_any(cast(Candidate.verified_tech, Text), words),
+                _ilike_any(cast(Candidate.tags, Text), words),
             )
         ),
-    )
+        select(Note.candidate_id).where(
+            Note.candidate_id.is_not(None),
+            Note.source_deleted_at.is_(None),
+            cast(Note.note_type, Text).in_(EVIDENCE_NOTE_TYPES),
+            note_kinds.ai_readable_clause(),
+            _ilike_any(Note.content, words),
+        ),
+    ).subquery()
+    row = CandidateSearchResult
     rows = await db.scalars(
         select(row.candidate_id)
+        .join(traced, traced.c.cid == row.candidate_id)
         .join(Candidate, Candidate.id == row.candidate_id)
         .where(
             row.run_id == run_id,
@@ -243,12 +257,20 @@ async def _candidate_ids_with_trace(
                     JobProposal.status != "expired",
                 )
             ),
-            in_text,
         )
         .order_by(row.candidate_id.desc())
         .limit(SCAN_MAX + 1)
     )
     return list(rows.all())
+
+
+_JSON_KEY = re.compile(r'"[A-Za-z_]+"\s*:\s*')
+_JSON_PUNCT = re.compile(r'[{}\[\]"]')
+
+
+def _readable(profile: str) -> str:
+    """Tekst profilu bez składni JSON — cytat ma czytać się jak zdanie."""
+    return _JSON_PUNCT.sub(" ", _JSON_KEY.sub("", profile))
 
 
 def _find(
@@ -358,10 +380,11 @@ async def hidden_by_critical(db: AsyncSession, job) -> HiddenSection:
             verification_fingerprint=inputs.verification_fingerprint,
             options=options,
         )
+        # Cytat najpierw z CV i notatek (zdania), profil na końcu.
         texts = [
-            (SOURCE_PROFILE, profile_text(candidate)),
             (SOURCE_CV, cv_text(candidate)),
             *((SOURCE_NOTE, text) for text in notes.get(candidate_id, ())),
+            (SOURCE_PROFILE, _readable(profile_text(candidate))),
         ]
         first: Optional[HiddenPerson] = None
         for label in missing:
