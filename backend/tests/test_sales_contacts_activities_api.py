@@ -124,15 +124,15 @@ async def test_tasks_buckets_and_only_author_deletes(app_client) -> None:
         await app_client.get(
             f"{ACTIVITIES}/tasks", params={"bucket": "overdue"}, headers=_headers(rep)
         )
-    ).json()
+    ).json()["items"]
     assert [t["subject"] for t in overdue] == ["Oddzwonić"]
     mine_open = (
         await app_client.get(f"{ACTIVITIES}/tasks", headers=_headers(rep))
-    ).json()
+    ).json()["items"]
     assert [t["subject"] for t in mine_open] == ["Oddzwonić", "Oferta"]
     assert (
         await app_client.get(f"{ACTIVITIES}/tasks", headers=_headers(other))
-    ).json() == []
+    ).json() == {"items": [], "total": 0}
 
     done = (
         await app_client.post(f"{ACTIVITIES}/{late['id']}/done", headers=_headers(rep))

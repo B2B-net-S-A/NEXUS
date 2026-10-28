@@ -114,6 +114,7 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
           {lead.company_name ?? "—"} <span className="text-muted-foreground">· {lead.title}</span>
         </p>
         {lead.summary && <p className="line-clamp-2 text-muted-foreground">{lead.summary}</p>}
+        <LeadPayloadLine payload={lead.payload} />
         <p className="text-xs text-muted-foreground">
           {LEAD_SOURCE_LABELS[lead.source]}
           {lead.signal_at ? ` · ${formatIsoDatePl(lead.signal_at)}` : ""}
@@ -175,6 +176,25 @@ function LeadRow({ lead, canEdit }: { lead: Lead; canEdit: boolean }) {
 }
 
 /** Leady (M4): sygnały z importu Atlasa i wpisów ręcznych — bez skanu (decyzja 27.10.2026). */
+/** Osoba i punktacja z Atlasa (LinkedIn), trigger dla sygnałów — wcześniej import je gubił. */
+function LeadPayloadLine({ payload }: { payload: Record<string, unknown> | undefined }) {
+  if (!payload) return null;
+  const person = (payload.person ?? null) as { name?: string; title?: string; company?: string } | null;
+  const breakdown = (payload.score_breakdown ?? null) as Record<string, unknown> | null;
+  const parts = [
+    person?.name ? [person.name, person.title].filter(Boolean).join(", ") : null,
+    breakdown
+      ? Object.entries(breakdown)
+          .filter(([, value]) => typeof value === "number")
+          .slice(0, 4)
+          .map(([key, value]) => `${key.replace(/_/g, " ")} ${value}`)
+          .join(" · ")
+      : null,
+  ].filter(Boolean);
+  if (!parts.length) return null;
+  return <p className="text-xs text-muted-foreground">{parts.join(" — ")}</p>;
+}
+
 export function LeadsView() {
   const user = useAuthStore((s) => s.user);
   const canEdit = hasPermission(user, "sales_edit");

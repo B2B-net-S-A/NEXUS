@@ -113,6 +113,11 @@ class SalesCompany(Base, TimestampMixin):
         Index("ix_sales_companies_parent", "parent_company_id"),
         Index("ix_sales_companies_owner", "owner_user_id"),
         Index(
+            "ix_sales_companies_owner_label",
+            "owner_label",
+            postgresql_where=text("owner_label IS NOT NULL"),
+        ),
+        Index(
             "ux_sales_companies_client",
             "client_id",
             unique=True,
@@ -161,6 +166,8 @@ class SalesCompany(Base, TimestampMixin):
     owner_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
+    #: Opiekun z Atlasa bez konta w NEXUSIE (sam tekst) — do przypisania na konto.
+    owner_label: Mapped[Optional[str]] = mapped_column(String(120))
     created_by_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL")
     )
@@ -170,6 +177,8 @@ class SalesCompany(Base, TimestampMixin):
     #: Stan uzupełniania dat zatrudnienia osób z tej firmy (D3): kiedy, ile osób.
     dates_backfill: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
     external_ref: Mapped[Optional[str]] = mapped_column(String(80))
+    #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     parent: Mapped[Optional["SalesCompany"]] = relationship(
@@ -215,6 +224,8 @@ class SalesContact(Base, TimestampMixin):
         ForeignKey("users.id", ondelete="SET NULL")
     )
     external_ref: Mapped[Optional[str]] = mapped_column(String(80))
+    #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
@@ -309,6 +320,8 @@ class SalesOpportunity(Base, TimestampMixin):
     archived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     archived_reason: Mapped[Optional[str]] = mapped_column(String(255))
     external_ref: Mapped[Optional[str]] = mapped_column(String(80))
+    #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
     company: Mapped[SalesCompany] = relationship()
     stage: Mapped[SalesPipelineStage] = relationship()
@@ -357,6 +370,17 @@ class SalesActivity(Base, TimestampMixin):
             postgresql_where=text("kind = 'task' AND done_at IS NULL"),
         ),
         Index(
+            "ix_sales_activities_open_items",
+            "assignee_user_id",
+            "due_at",
+            postgresql_where=text(
+                f"kind IN ({schema.quoted(schema.TASK_KINDS)}) AND done_at IS NULL"
+            ),
+        ),
+        CheckConstraint(
+            schema.CK_ACTIVITY_DIRECTION, name="ck_sales_activities_direction"
+        ),
+        Index(
             "ux_sales_activities_external_ref",
             "external_ref",
             unique=True,
@@ -392,6 +416,46 @@ class SalesActivity(Base, TimestampMixin):
     )
     external_source: Mapped[Optional[str]] = mapped_column(String(40))
     external_ref: Mapped[Optional[str]] = mapped_column(String(80))
+    #: Ostatni zapis importu z Atlasa; ``updated_at > synced_at`` = zmienione w NEXUSIE.
+    synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    #: Outlook: id wiadomości/wydarzenia, link do otwarcia, kierunek maila, czas.
+    external_id: Mapped[Optional[str]] = mapped_column(String(255))
+    web_link: Mapped[Optional[str]] = mapped_column(String(2000))
+    direction: Mapped[Optional[str]] = mapped_column(String(3))
+    duration_minutes: Mapped[Optional[int]] = mapped_column(Integer)
+
+
+class SalesCompanyContact(Base):
+    """Osoba w firmie — także w drugiej i kolejnej (``sales_contacts.company_id`` to firma główna)."""
+
+    __tablename__ = "sales_company_contacts"
+    __table_args__ = (
+        PrimaryKeyConstraint(
+            "company_id", "contact_id", name="pk_sales_company_contacts"
+        ),
+        Index("ix_sales_company_contacts_contact", "contact_id"),
+    )
+
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_companies.id", ondelete="CASCADE")
+    )
+    contact_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_contacts.id", ondelete="CASCADE")
+    )
+    role: Mapped[Optional[str]] = mapped_column(String(60))
+    title: Mapped[Optional[str]] = mapped_column(String(255))
+    is_primary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    is_current: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    started_at: Mapped[Optional[date]] = mapped_column(Date)
+    ended_at: Mapped[Optional[date]] = mapped_column(Date)
+    external_ref: Mapped[Optional[str]] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
 
 class SalesFile(Base):

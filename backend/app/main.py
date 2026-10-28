@@ -2065,6 +2065,9 @@ app.include_router(
     sales_opportunities_api.router, prefix="/api/sales/opportunities", tags=["sales"]
 )
 app.include_router(
+    sales_opportunities_api.summary_router, prefix="/api/sales/summary", tags=["sales"]
+)
+app.include_router(
     sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
 )
 app.include_router(

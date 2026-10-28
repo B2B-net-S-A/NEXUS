@@ -9,6 +9,7 @@ import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { LOCATION_LABELS, type WorkLocation } from "@/lib/api/hr";
 import type { MonthDay, MonthView, TimesheetEntry } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD } from "@/lib/calm-table";
+import { employmentTerms } from "@/lib/hr-employment-terms";
 import { cn } from "@/lib/utils";
 import { formatWeekdayDayPl } from "@/lib/date-pl";
 
@@ -162,8 +163,9 @@ export function MonthGrid({
   onLocationChange,
   locationPending,
   onQuickSave,
-  defaultDescription = "Praca standardowa",
+  defaultDescription,
 }: MonthGridProps) {
+  const standardDescription = employmentTerms(view.employment_type).standard_description;
   const normPerDay = view.totals.working_days > 0 ? view.totals.norm_hours / view.totals.working_days : 8;
   const weeks = weekGroups(view.days, normPerDay);
   return (
@@ -232,7 +234,7 @@ export function MonthGrid({
                       <td colSpan={3} className="px-2 py-1">
                         <QuickEntry
                           day={day}
-                          defaultDescription={defaultDescription}
+                          defaultDescription={defaultDescription ?? standardDescription}
                           onSave={(input) => onQuickSave(day, input)}
                         />
                       </td>
@@ -258,7 +260,7 @@ export function MonthGrid({
                         <td className="px-2 py-1.5">
                           {day.entries.length === 0 && day.leave?.paid_work ? (
                             <span className="text-xs text-muted-foreground">
-                              Praca standardowa · wpisze się{" "}
+                              {standardDescription} · wpisze się{" "}
                               {view.employment_type === "uop" ? "z wniosku" : "ze zgłoszenia"}
                             </span>
                           ) : null}
