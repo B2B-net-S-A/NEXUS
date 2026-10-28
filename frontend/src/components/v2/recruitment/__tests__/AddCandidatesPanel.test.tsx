@@ -1399,7 +1399,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       expect(within(above).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
         "Zaznacz Anna Nad",
       ]);
-      expect(screen.getByTestId("proposals-below-threshold")).toHaveTextContent("Poniżej 70% · 2 osób");
+      expect(screen.getByTestId("proposals-below-threshold")).toHaveTextContent("Poniżej 70% · 2 osoby");
       const under = screen.getByRole("list", { name: "Propozycje z bazy poniżej 70%" });
       expect(within(under).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
         "Zaznacz Bartek Spod",

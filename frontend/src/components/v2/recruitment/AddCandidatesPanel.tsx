@@ -97,6 +97,7 @@ import {
   type ProposalSortMode,
 } from "@/lib/proposal-facts";
 import { markerCoversEligibility } from "@/lib/employment-marker";
+import { pluralPl } from "@/lib/plural-pl";
 import { rateBudgetBadge } from "@/lib/rate-budget-badge";
 import { useSimilarJobs } from "@/lib/similar-jobs-api";
 import { similarPeopleTotal } from "@/lib/similar-reassign";
@@ -279,7 +280,8 @@ function hiddenRow(item: HiddenByCriticalItem, budgetHourly: number | null): Pic
     availabilityLabel: null,
     note: null,
     facts: [c.title, c.city].filter(Boolean).join(" · ") || null,
-    sourceLabel: "Ukryty przez bramkę",
+    // Nagłówek sekcji mówi już, skąd te osoby — bez chipa w każdym wierszu.
+    sourceLabel: null,
     warnings: elig ? [elig] : [],
     extra: <HiddenTraceBadge item={item} />,
     rateBadge: rateBudgetBadge({ rateHourly: c.expected_rate_hourly, currency: "PLN", budgetHourly }),
@@ -1030,7 +1032,7 @@ function AddCandidatesPanelOpen({
             >
               <span className="font-semibold text-foreground">
                 Poniżej {Math.round(threshold)}% · {belowRows.length}{" "}
-                {belowRows.length === 1 ? "osoba" : "osób"}
+                {pluralPl(belowRows.length, "osoba", "osoby", "osób")}
               </span>{" "}
               — najlepsi spod progu z nocnego przeglądu. Tu też bywają trafienia.
             </div>

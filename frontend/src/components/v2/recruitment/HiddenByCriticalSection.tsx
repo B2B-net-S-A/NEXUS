@@ -58,8 +58,9 @@ export function HiddenTraceBadge({ item }: { item: HiddenByCriticalItem }) {
   const where = SOURCE_LABEL[item.source] ?? "w CV";
   return (
     <p className="mt-1" data-testid="hidden-trace">
+      {/* Do dwóch linii — przycięta w jednej gubiła samo słowo, o które chodzi. */}
       <span
-        className="inline-block max-w-full truncate rounded bg-warning-muted px-1.5 py-px align-top text-[10.5px] font-semibold text-warning-muted-foreground"
+        className="line-clamp-2 inline rounded bg-warning-muted px-1.5 py-px text-[10.5px] font-semibold leading-relaxed text-warning-muted-foreground [box-decoration-break:clone]"
         title={`Bramka szukała „${criticalName(item)}” — ${where} jest „${item.word}”: ${item.snippet}`}
       >
         ≈ {criticalName(item)} · {where}: „{item.snippet}”
@@ -186,7 +187,7 @@ export function HiddenByCriticalSection({
   const confirmVariant = async (variant: HiddenByCriticalVariant) => {
     const ok = await askConfirm({
       title: `„${variant.word}” = ${criticalName(variant)}?`,
-      description: `Dopiszemy „${variant.word}” do wiersza „${criticalName(variant)}” w Profilu Championa, jak „+ lub”. Od następnej nocy przegląd bazy uzna to słowo za tę umiejętność krytyczną — dotyczy ${variant.people} os. z tej listy.`,
+      description: `Dopiszemy „${variant.word}” do wiersza „${criticalName(variant)}” w Profilu Championa, jak „+ lub”. Od następnej nocy przegląd bazy uzna to słowo za tę umiejętność krytyczną — także u osób spoza tej listy.`,
       confirmLabel: "Dopisz wariant",
     });
     if (ok) addVariant.mutate(variant);
@@ -201,12 +202,12 @@ export function HiddenByCriticalSection({
       <div className="flex flex-wrap items-start justify-between gap-2 rounded-t-md bg-warning-muted/60 px-3 py-2">
         <div className="min-w-0 flex-1 space-y-0.5">
           <h3 id="hidden-by-critical-title" className="text-sm font-semibold text-warning-muted-foreground">
-            Ukryci przez „musi mieć”, choć w CV jest coś bliskiego · {data.total}
+            Ukryci przez „musi mieć”, choć w CV jest coś bliskiego · {rows.length}
           </h3>
           <p className="text-xs text-warning-muted-foreground">{searchedLine(data)}</p>
           {data.truncated ? (
             <p className="text-xs text-muted-foreground">
-              Pokazujemy pierwszych {data.total} — może ich być więcej.
+              Sprawdziliśmy pierwszych {data.total} — może ich być więcej.
             </p>
           ) : null}
         </div>
@@ -232,7 +233,7 @@ export function HiddenByCriticalSection({
                   loading={Boolean(busy)}
                   disabled={addVariant.isPending}
                   onClick={() => void confirmVariant(variant)}
-                  title={`Uznaj „${variant.word}” za ${criticalName(variant)} — ${variant.people} os. z tej listy`}
+                  title={`Uznaj „${variant.word}” za ${criticalName(variant)} — dopisz wariant w Profilu Championa`}
                   data-testid="hidden-variant-add"
                 >
                   „{variant.word}” = {criticalName(variant)}
