@@ -213,6 +213,44 @@ async def _main(apply: bool, files: bool) -> int:
     return 0
 
 
+async def _counts_only() -> int:
+    """Odczytaj sześć liczników NEXUSA bez połączenia ze źródłem Atlasa."""
+
+    from sqlalchemy import text
+
+    from app.core.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        try:
+            await db.execute(
+                text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+            )
+            result = await db.execute(
+                text(
+                    "SELECT "
+                    "(SELECT count(*) FROM sales_companies) AS sales_companies, "
+                    "(SELECT count(*) FROM sales_contacts) AS sales_contacts, "
+                    "(SELECT count(*) FROM sales_opportunities) AS sales_opportunities, "
+                    "(SELECT count(*) FROM sales_activities) AS sales_activities, "
+                    "(SELECT count(*) FROM sales_leads) AS sales_leads, "
+                    "(SELECT count(*) FROM sales_files) AS sales_files"
+                )
+            )
+            counts = {
+                name: int(value) for name, value in result.mappings().one().items()
+            }
+        finally:
+            await db.rollback()
+    print(
+        json.dumps(
+            {"applied": False, "mode": "counts-only", "counts": counts},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _lock_path(value: str) -> Path:
     if not re.fullmatch(r"/tmp/nexus-atlas-import-\d+", value):
         raise argparse.ArgumentTypeError(
@@ -232,20 +270,33 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="przenieś pliki z Supabase Storage (po imporcie danych)",
     )
     parser.add_argument(
+        "--counts-only",
+        action="store_true",
+        help="tylko odczytaj liczby sales_* w NEXUSIE, bez połączenia z Atlasem",
+    )
+    parser.add_argument(
         "--lock",
         type=_lock_path,
         help="katalog-blokada biegu z coolify-ops: /tmp/nexus-atlas-import-<run id>",
     )
     args = parser.parse_args(argv)
+    if args.counts_only and (args.apply or args.files):
+        parser.error("--counts-only nie można łączyć z --apply ani --files")
+
+    async def run_selected() -> int:
+        if args.counts_only:
+            return await _counts_only()
+        return await _main(args.apply, args.files)
+
     if args.lock is None:
-        return asyncio.run(_main(args.apply, args.files))
+        return asyncio.run(run_selected())
     try:
         args.lock.mkdir(parents=False)
     except FileExistsError:
         print(f"lock {args.lock} exists — import already ran", file=sys.stderr)
         return 3
     try:
-        return asyncio.run(_main(args.apply, args.files))
+        return asyncio.run(run_selected())
     except Exception as exc:  # noqa: BLE001 — log Actions jest publiczny
         (args.lock / "error.log").write_text(traceback.format_exc())
         print(json.dumps({"applied": False, "error": type(exc).__name__}))
