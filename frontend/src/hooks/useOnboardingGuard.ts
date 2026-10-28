@@ -13,6 +13,7 @@ const EXEMPT_PREFIXES = ["/login", "/onboarding", "/share/", "/apply/", "/karier
 
 function isExempt(pathname: string | null): boolean {
   if (!pathname) return false
+  if (pathname === "/wtyczka/prywatnosc") return true
   return EXEMPT_PREFIXES.some((p) =>
     p.endsWith("/") ? pathname.startsWith(p) : pathname === p || pathname.startsWith(`${p}/`),
   )

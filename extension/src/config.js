@@ -28,7 +28,7 @@ export const ALLOWED_FRONT_ORIGINS = Object.freeze([
 // podaje `apiBase` sama, więc bez tej listy podstawiona strona mogłaby
 // skierować klucz (i odczyty z LinkedIna) pod dowolny adres.
 const API_HOST_RULES = [
-  (u) => u.protocol === "https:" && (u.hostname === "b2bnetwork.pl" || u.hostname.endsWith(".b2bnetwork.pl")),
+  (u) => u.protocol === "https:" && ["nexus.b2bnetwork.pl", "api.nexus.b2bnetwork.pl"].includes(u.hostname),
   (u) => u.protocol === "https:" && u.hostname === "api.nexus.dynaminds.pl",
   (u) => u.protocol === "http:" && u.hostname === "localhost" && u.port === "8100",
 ];

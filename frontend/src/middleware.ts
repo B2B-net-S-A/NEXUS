@@ -600,7 +600,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
-const PUBLIC_EXACT_PATHS = ["/kariera"];
+const PUBLIC_EXACT_PATHS = ["/kariera", "/wtyczka/prywatnosc"];
 
 /**
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza

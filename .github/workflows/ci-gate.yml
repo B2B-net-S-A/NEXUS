@@ -217,6 +217,8 @@ jobs:
         run: ruff check tests/ --select DTZ005,DTZ011
       - name: Release configuration and remote build wrapper tests (native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_coolify_release*.py'
+      - name: LinkedIn extension diagnostic redaction tests (native only)
+        run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_linkedin_extension_audit.py'
       - name: Release selection tests (DEP-01, native only)
         run: python3 -m unittest discover -s ../.github/scripts/tests -p 'test_select_release_sha.py'
       - name: Deploy dedup tests (18.10.2026, native only)
