@@ -53,6 +53,10 @@ _SECTION_AWARE_HELPERS = {
     # pre_contracts.py: sekcja „Rekrutacje” (odczyt/zapis wg metody); Finanse,
     # Rada nadzorcza i Automatyzacje z tytułu roli (decyzja Artura 22.10.2026, F54).
     "require_pre_contract_access",
+    # microsoft365.py: skrzynka Outlook — sekcja kandydatów (odczyt) albo
+    # uprawnienie „Sprzedaż: podgląd” (skrzynka handlowca, 28.10.2026).
+    "require_mailbox_owner",
+    "require_mailbox_status_reader",
 }
 
 _SECTIONLESS_ALLOWLIST: dict[str, str] = {
