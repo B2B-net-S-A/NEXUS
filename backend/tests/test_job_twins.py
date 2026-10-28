@@ -623,3 +623,22 @@ async def test_person_rejected_in_the_twin_does_not_block(dl_skips_on) -> None:
                 )
                 await db.commit()
             await _cleanup(world, [dl_id])
+
+
+async def test_twin_candidates_for_a_new_request(app_client: AsyncClient) -> None:
+    dl_id, dl = await _user(UserRole.delivery_lead)
+    _rec_id, rec = await _user(UserRole.recruiter)
+    own = await _job(dl_id=dl_id)
+    client_id = await _client_of(own)
+    same_client_other_dl = await _job(dl_id=None, client_id=client_id)
+    closed = await _job(dl_id=dl_id, client_id=client_id, status=JobStatus.closed)
+    got = await app_client.get(
+        f"/api/job-twins/candidates?client_id={client_id}", headers=dl
+    )
+    assert got.status_code == 200, got.text
+    ids = [i["id"] for i in got.json()["items"]]
+    assert own in ids and same_client_other_dl not in ids and closed not in ids
+    nothing = await app_client.get(
+        f"/api/job-twins/candidates?client_id={client_id}", headers=rec
+    )
+    assert nothing.json()["items"] == []

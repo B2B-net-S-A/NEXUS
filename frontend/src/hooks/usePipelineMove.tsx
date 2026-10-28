@@ -77,6 +77,7 @@ import {
   rejectionEmailBulkSkipMessage,
   type RejectionEmailText,
 } from "@/lib/rejection-email";
+import { TwinSkipDialog } from "@/components/v2/jobs/twins/TwinSkipDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
   ClientInterviewDateDialog,
@@ -112,8 +113,10 @@ import { assignErrorMessage } from "@/lib/assign-error";
 import {
   cvQcFailureOf,
   debriefRequiredOf,
+  twinRequiredOf,
   type CvQcFailure,
   type PipelineMoveResult,
+  type TwinScreeningRequired,
 } from "@/lib/pipeline-move-core";
 import {
   formatExpectedRate,
@@ -316,6 +319,8 @@ interface SendMoveOptions {
   onMoved?: () => void;
   // 0451 (16.10.2026): okno „Klient zaakceptował” — data akceptacji i start.
   clientAcceptance?: ClientAcceptancePayload;
+  // 0614: pominięcie bliźniaka z powodem (`TwinSkipDialog`).
+  twinSkips?: Record<string, string>;
 }
 
 type RatePayload = {
@@ -510,6 +515,10 @@ export function usePipelineMove({
   );
   // Pipeline v4: 409 DEBRIEF_REQUIRED — najpierw telefon po rozmowie u klienta
   // i pytania klienta, potem TEN SAM ruch.
+  const [twinRequired, setTwinRequired] = useState<{
+    refusal: TwinScreeningRequired;
+    retry: (skips: Record<string, string>) => Promise<void>;
+  } | null>(null);
   const [debriefRequired, setDebriefRequired] = useState<{
     /** `null` — rozmowy nie ma w kalendarzu; okno pyta, kiedy była. */
     eventId: number | null;
@@ -707,6 +716,7 @@ export function usePipelineMove({
           hired_current_engagement: opts?.hiredCurrentEngagement ?? undefined,
           client_accepted_on: opts?.clientAcceptance?.acceptedOn ?? undefined,
           planned_start_on: opts?.clientAcceptance?.plannedStartOn ?? undefined,
+          twin_skips: opts?.twinSkips,
         });
 
         // M4 PR-03 (audyt P1.3): backend tworzy NOWY CandidateStage — karta
@@ -813,6 +823,24 @@ export function usePipelineMove({
               // Tablica po debriefie (05.10.2026): odczyt tablicy, który
               // ruszył PRZED zapisem ruchu, nadpisywał kartę stanem sprzed
               // niego. Ten odczyt startuje dopiero po potwierdzeniu ruchu.
+              if (moved) await refreshAfterMove();
+            },
+          });
+          return false;
+        }
+        const twinRefusal = twinRequiredOf(e);
+        if (!opts?.silent && twinRefusal) {
+          // 0614: karta wraca na miejsce; okno — screening razem w panelu osoby
+          // albo pominięcie bliźniaka z powodem i ten sam ruch.
+          await refreshAfterMove();
+          setTwinRequired({
+            refusal: twinRefusal,
+            retry: async (skips) => {
+              setTwinRequired(null);
+              const moved = await sendMoveRef.current?.(item, dst, reason, {
+                ...opts,
+                twinSkips: { ...opts?.twinSkips, ...skips },
+              });
               if (moved) await refreshAfterMove();
             },
           });
@@ -1780,6 +1808,13 @@ export function usePipelineMove({
         }
       />
 
+      {twinRequired ? (
+        <TwinSkipDialog
+          refusal={twinRequired.refusal}
+          onSkip={(skips) => void twinRequired.retry(skips)}
+          onClose={() => setTwinRequired(null)}
+        />
+      ) : null}
       {debriefRequired && (
         <DebriefRequiredDialog
           open

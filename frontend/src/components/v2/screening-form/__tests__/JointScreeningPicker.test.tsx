@@ -174,3 +174,30 @@ describe("JointScreeningPicker — pamięć rozmowy (16.10.2026, D1 A)", () => {
     expect(screen.queryByRole("button", { name: "Cofnij" })).toBeNull();
   });
 });
+
+describe("JointScreeningPicker — bliźniaki (0614)", () => {
+  it("locks a twin in the conversation and offers to add the person to a missing twin", () => {
+    const onToggle = vi.fn();
+    const onAddAndJoin = vi.fn();
+    render(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        missingTwins={[
+          { job_id: 5, title: "Programista Python C", client_id: 1, verified_stage_def_id: 3, budget_hourly: 110 },
+        ]}
+        selected={new Set([2])}
+        onToggle={onToggle}
+        onAddAndJoin={onAddAndJoin}
+        addingJobId={null}
+      />,
+    );
+    const twin = screen.getByRole("checkbox", { name: /Programista Python B/ });
+    expect(twin).toBeChecked();
+    expect(twin).toBeDisabled();
+    expect(screen.getAllByText("🔒 bliźniak")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "+ Dodaj do bliźniaka" }));
+    expect(onAddAndJoin).toHaveBeenCalledWith(5);
+  });
+});

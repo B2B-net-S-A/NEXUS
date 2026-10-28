@@ -67,3 +67,23 @@ Serwis `services/job_twins.py`, trasy `api/job_twins.py`, DDL
 - **Dzwonek `job_twin_linked`** przy nowym połączeniu: rekruterzy i DL-e obu
   rekrutacji (`job_champions.recipients`) poza łączącym, link do ich
   rekrutacji, kategoria „Ruchy w rekrutacjach”, bez maila.
+- **Gdzie na ekranie (front, 29.10.2026):**
+  - kafel „Otwarte podobne” i chip „⇄ ZOB-2964 · 3 pary” stoją w pasku
+    „Kandydaci do dodania”, zaraz po „Podobnych rekrutacjach”. Chip w rzędzie
+    tytułu przy 1280 × 720 łamał się i nachodził na „Tablicę” (zrzut ze
+    stagingu) — dlatego nie ma go w nagłówku i nie ma tam „Połącz bliźniaka”;
+    łączy się z kafla, a pary pytań poprawia z chipu;
+  - okno „Połącz bliźniaka” (`twins/TwinLinkDialog`): klient i DL, tryb pracy,
+    budżet, liczba osób, pary pytań z listą wyboru, „N pytań zamiast M”;
+  - `/jobs/new`: „Czy to bliźniak którejś z Twoich rekrutacji?”
+    (`GET /api/job-twins/candidates`, najwyżej 3, nic zaznaczone samo);
+    połączenie po utworzeniu, bez par pytań (nowa rekrutacja nie ma jeszcze
+    Profilu Championa);
+  - lista rekrutacji: „⇄ N możliwych bliźniaków” (HoR, admin);
+  - „Screening dla”: bliźniak zaznaczony z kłódką, brakujący bliźniak
+    z „+ Dodaj do bliźniaka”; stawka jako tabela (rekrutacja · tryb pracy ·
+    budżet · stawka), osobne pole tylko dla innego trybu pracy; zapis
+    najpierw wszystkich par, potem ruchy (bramka kotwicy czyta screening
+    zapisany w bliźniaku);
+  - odmowa `TWIN_SCREENING_REQUIRED` na Tablicy i w panelu osoby: okno
+    `TwinSkipDialog` (powód z listy → ten sam ruch z `twin_skips`).

@@ -303,11 +303,18 @@ export const screeningFormQueryKey = (jobId: number, candidateId: number) =>
 export const screeningFormVersionsQueryKey = (jobId: number, candidateId: number) =>
   ["screening-form", jobId, candidateId, "versions"] as const;
 
+/** Tryb pracy rekrutacji (0614) — przy stawce w rozmowie z bliźniakiem. */
+export interface JointWorkMode {
+  remote_policy?: string | null;
+  onsite_days_per_week?: number | null;
+  onsite_days_per_month?: number | null;
+}
+
 /**
  * „Screening dla” (14.10.2026, D3): inna rekrutacja tej osoby do jednej rozmowy.
  * `selectable: false` z powodem (`claimed`, `later_stage`) zostaje na liście.
  */
-export interface JointContextPair {
+export interface JointContextPair extends JointWorkMode {
   job_id: number;
   title: string;
   /** Numer u klienta przed tytułem, jak w nagłówku rekrutacji (22.10.2026). */
@@ -323,9 +330,21 @@ export interface JointContextPair {
   budget_hourly: number | null;
   /** `null` = szablon bez kodu etapu — przekazanie tylko z jej Tablicy. */
   verified_stage_def_id: number | null;
+  /** Bliźniak kotwicy (0614) — w rozmowie obowiązkowo, bez odznaczania. */
+  twin?: boolean;
 }
 
-export interface JointContextAnchor {
+/** Bliźniak, w którym osoby jeszcze nie ma — formularz dodaje ją do „Nowych”. */
+export interface JointMissingTwin extends JointWorkMode {
+  job_id: number;
+  title: string;
+  client_reference?: string | null;
+  client_id: number | null;
+  verified_stage_def_id: number | null;
+  budget_hourly: number | null;
+}
+
+export interface JointContextAnchor extends JointWorkMode {
   job_id: number;
   title: string;
   client_reference?: string | null;
@@ -340,6 +359,8 @@ export interface JointContext {
   /** Rekrutacja, z której otwarto panel. */
   anchor: JointContextAnchor;
   pairs: JointContextPair[];
+  /** Bliźniaki bez tej osoby (0614); brak pola = serwer sprzed bliźniaków. */
+  missing_twins?: JointMissingTwin[];
 }
 
 export interface ScreeningQuestionGroups {

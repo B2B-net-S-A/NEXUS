@@ -339,12 +339,19 @@ export function ScreeningWorkbench({
   const jointSuggestions = (Array.isArray(alsoFitsQuery.data?.jobs) ? alsoFitsQuery.data.jobs : []).filter(
     (job) => !inContext.has(job.job_id),
   );
+  // Bliźniaki (0614) są w rozmowie zawsze — przed wyborem rekrutera, bez odznaczania.
+  const twinIds = jointPairs.filter((p) => p.twin === true && p.selectable).map((p) => p.job_id);
+  const jointMissingTwins = Array.isArray(jointContext.data?.missing_twins) ? jointContext.data.missing_twins : [];
   const selectedJoint = new Set(
-    [...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)).slice(0, JOINT_MAX_OTHERS),
+    [...twinIds, ...[...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable))].slice(
+      0,
+      JOINT_MAX_OTHERS,
+    ),
   );
   const selectedPairs = jointPairs.filter((p) => selectedJoint.has(p.job_id));
   // Odznaczenie chowa rekrutację, wpisy zostają w pamięci (D1 A) — z „Cofnij”.
   const toggleJoint = (id: number) => {
+    if (twinIds.includes(id)) return;
     const title = jointPairs.find((p) => p.job_id === id)?.title ?? "";
     const memory = memorySummary.byJob.get(id);
     // Od tego, co widać — zaznaczenie przywrócone z pamięci może mieć rekrutację,
@@ -502,6 +509,7 @@ export function ScreeningWorkbench({
             selected={selectedJoint}
             onToggle={toggleJoint}
             onAddAndJoin={addAndJoin}
+            missingTwins={jointMissingTwins}
             addingJobId={addingJobId}
             error={jointError}
             memory={memorySummary.byJob}
@@ -523,6 +531,7 @@ export function ScreeningWorkbench({
               clientName: activeJoint.anchor.client_name,
               budgetHourly: jobBudgetHourly ?? activeJoint.anchor.budget_hourly,
               verifiedStageDefId: activeJoint.verifiedStageDefId,
+              workMode: activeJoint.anchor,
             }}
             others={activeJoint.others}
             onMoved={onMoved}

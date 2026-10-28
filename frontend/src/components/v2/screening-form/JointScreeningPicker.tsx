@@ -14,6 +14,11 @@
  * Od 22.10.2026 przed tytułem stoi numer u klienta (`ClientReferenceTag`), jak
  * w nagłówku rekrutacji i oknach wyboru — tytuły dla rekrutera są uogólnione.
  * Etykieta, nie przycisk kopiowania: klik w wiersz zaznacza rekrutację.
+ *
+ * Bliźniaki (0614, 28.10.2026) są zaznaczone zawsze i bez odznaczania
+ * („🔒 bliźniak”): weryfikacja idzie pod nie obowiązkowo. Bliźniak, w którym
+ * osoby jeszcze nie ma, stoi z „+ Dodaj do bliźniaka” — bez tego bramka
+ * „Zweryfikowany” zatrzyma przekazanie.
  */
 
 import { Check, Layers } from "lucide-react";
@@ -26,7 +31,7 @@ import {
   memoryChipLabel,
 } from "@/components/v2/screening-form/ScreeningMemoryNotes";
 import type { AlsoFitsJob } from "@/lib/also-fits-api";
-import type { JointContextPair } from "@/lib/api/screeningForm";
+import type { JointContextPair, JointMissingTwin } from "@/lib/api/screeningForm";
 import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { cn } from "@/lib/utils";
 
@@ -70,6 +75,8 @@ export interface JointScreeningPickerProps {
   notice?: JointPickerNotice | null;
   /** „Cofnij” po odznaczeniu — zaznacza rekrutację z powrotem. */
   onUndo?: () => void;
+  /** Bliźniaki bez tej osoby — dodanie jak „+ Dodaj i dołącz”. */
+  missingTwins?: readonly JointMissingTwin[];
 }
 
 function claimLine(pair: JointContextPair): string | null {
@@ -92,8 +99,9 @@ export function JointScreeningPicker({
   memory,
   notice,
   onUndo,
+  missingTwins = [],
 }: JointScreeningPickerProps) {
-  if (pairs.length === 0 && suggestions.length === 0) return null;
+  if (pairs.length === 0 && suggestions.length === 0 && missingTwins.length === 0) return null;
   const count = selected.size + 1;
   const full = selected.size >= JOINT_MAX_OTHERS;
   return (
@@ -129,6 +137,7 @@ export function JointScreeningPicker({
           const id = `joint-pair-${pair.job_id}`;
           const claim = claimLine(pair);
           const blockedByLimit = pair.selectable && full && !selected.has(pair.job_id);
+          const locked = pair.twin === true && pair.selectable;
           const remembered = selected.has(pair.job_id) ? null : memory?.get(pair.job_id);
           return (
             <li
@@ -143,14 +152,23 @@ export function JointScreeningPicker({
                 type="checkbox"
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[hsl(var(--primary))]"
                 checked={selected.has(pair.job_id)}
-                disabled={!pair.selectable || blockedByLimit}
+                disabled={!pair.selectable || blockedByLimit || locked}
                 onChange={() => onToggle(pair.job_id)}
+                aria-describedby={locked ? `${id}-twin` : undefined}
               />
               <label htmlFor={id} className="min-w-0 flex-1">
                 <span className="block font-semibold text-foreground">
                   <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={pair.client_reference} />
                   {pair.title}
                   {pair.client_name ? <span className="font-normal text-muted-foreground"> · {pair.client_name}</span> : null}
+                  {pair.twin ? (
+                    <span
+                      id={`${id}-twin`}
+                      className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary"
+                    >
+                      🔒 bliźniak
+                    </span>
+                  ) : null}
                 </span>
                 <span className="text-muted-foreground">
                   {pair.selectable
@@ -167,6 +185,35 @@ export function JointScreeningPicker({
             </li>
           );
         })}
+        {missingTwins.map((twin) => (
+          <li
+            key={`t-${twin.job_id}`}
+            data-testid={`joint-missing-twin-${twin.job_id}`}
+            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-background px-2.5 py-2 text-xs"
+          >
+            <span className="min-w-0 flex-1">
+              <span className="block font-semibold text-foreground">
+                <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={twin.client_reference} />
+                {twin.title}
+                <span className="ml-1.5 rounded bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary">
+                  🔒 bliźniak
+                </span>
+              </span>
+              <span className="text-muted-foreground">
+                Osoby tu jeszcze nie ma — dodaj ją, żeby przekazać dalej w obu rekrutacjach.
+              </span>
+            </span>
+            <Button
+              type="button"
+              size="sm"
+              className="h-7 shrink-0 px-2 text-xs"
+              disabled={addingJobId != null}
+              onClick={() => onAddAndJoin(twin.job_id)}
+            >
+              {addingJobId === twin.job_id ? "Dodaję…" : "+ Dodaj do bliźniaka"}
+            </Button>
+          </li>
+        ))}
         {suggestions.map((job) => (
           <li
             key={`s-${job.job_id}`}

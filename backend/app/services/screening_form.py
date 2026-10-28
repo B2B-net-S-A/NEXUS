@@ -608,6 +608,17 @@ JOINT_REASON_MESSAGES: dict[str, str] = {
 }
 
 
+def joint_work_mode(job: Job) -> dict[str, Any]:
+    """Tryb pracy rekrutacji — przy stawce we wspólnym screeningu bliźniaków
+    (0614, 28.10.2026): inna stawka tylko przy innym trybie pracy."""
+    policy = getattr(job, "remote_policy", None)
+    return {
+        "remote_policy": policy.value if hasattr(policy, "value") else policy,
+        "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),
+        "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
+    }
+
+
 async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
     """Rekrutacja, z której otwarto panel — klient i budżet do formularza wspólnego."""
     from app.models.client import Client
@@ -630,6 +641,7 @@ async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
         "client_id": job.client_id,
         "client_name": client_name,
         "budget_hourly": float(budget) if budget is not None else None,
+        **joint_work_mode(job),
     }
 
 
@@ -719,6 +731,7 @@ async def joint_pairs(
                 "reason": reason,
                 "reason_message": JOINT_REASON_MESSAGES.get(reason or ""),
                 "budget_hourly": float(budget) if budget is not None else None,
+                **joint_work_mode(job),
             }
         )
     return out
