@@ -341,6 +341,12 @@ z odnośnikiem `hr_documents.leave_request_id`.
     zatrudnienia z kartoteki (`work_start_date`–`last_working_day`, też
     w `days_missing`). Poprawka samego opisu albo projektu wpisu nie przelicza
     nadgodzin dnia (audyt 19.10.2026).
+  - Domyślny opis dnia (bez opisu roli i szablonu; też auto-wpis płatnej
+    puli) to słowo formy `standard_description`: B2B i zlecenie „Realizacja
+    usług zgodnie z umową”, UoP „Praca standardowa” (decyzja Artura
+    28.10.2026). Stare wpisy zostają; przepisane były tylko szkice X/2026
+    (`scripts/timesheet_standard_description_rewrite.py`, podgląd →
+    `--apply`). Raportów z `pdf_hash` nie przepisuje się — hash liczy opis.
   - „Szablony opisów” osoby (dodaj, edytuj, usuń, kolejność = `sort_order`)
     i karta „Domyślne opisy godzin” w Ustawieniach → Kadry (role NEXUSA bez
     `user`/`sourcer`/`tac`) — na istniejących trasach `/api/hr/time/me/templates`
