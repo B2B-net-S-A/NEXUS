@@ -34,7 +34,7 @@ _TIME = re.compile(
 )
 _ACCESS = re.compile(
     r'"(?P<method>GET|POST|DELETE|PUT|PATCH|OPTIONS|HEAD) '
-    r"(?P<path>/api/(?:candidates/from-linkedin|extension/[a-z/-]+))"
+    r"(?P<path>/api/(?:candidates/from-linkedin|extension/[a-z0-9_$/-]{1,160}))"
     r'(?:\?[^\s"]*)? HTTP/[0-9.]+" (?P<status>[1-5][0-9]{2})(?:\s|$)'
 )
 

@@ -89,6 +89,30 @@ invalid log "POST /api/candidates/from-linkedin HTTP/1.1" secret data""")
         self.assertEqual(result["timestamped_line_count"], 1)
         self.assertNotIn("private@example.test", json.dumps(result))
 
+    def test_numeric_candidate_routes_are_counted_in_text_and_json_logs(self):
+        text = (
+            'INFO: "POST /api/extension/candidates/123/contacts HTTP/1.1" 201 Created'
+        )
+        production = json.dumps(
+            {
+                "name": "uvicorn.access",
+                "message": '10.0.0.1:123 - "POST /api/extension/candidates/456/jobs HTTP/1.1" 200 OK',
+            }
+        )
+        revoked = 'INFO: "POST /api/extension/connections/v1$abcdef123456/revoke HTTP/1.1" 204 No Content'
+        result = audit.project_logs(text + "\n" + production + "\n" + revoked)
+        self.assertEqual(
+            result["extension_status_counts"], {"200": 1, "201": 1, "204": 1}
+        )
+        self.assertEqual(result["recognized_extension_access_lines"], 3)
+        self.assertNotIn("123", json.dumps(result))
+        self.assertNotIn("456", json.dumps(result))
+        self.assertNotIn("abcdef", json.dumps(result))
+
+    def test_overlong_extension_path_does_not_match(self):
+        line = 'INFO: "POST /api/extension/' + "a" * 161 + ' HTTP/1.1" 200 OK'
+        self.assertEqual(audit.project_logs(line)["extension_status_counts"], {})
+
     def test_invalid_api_shapes_fail_closed(self):
         for bad in ({}, ["bad"]):
             with self.assertRaises(audit.ops.OpsError):
