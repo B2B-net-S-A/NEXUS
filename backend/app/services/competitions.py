@@ -20,6 +20,7 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 
 import json
 import logging
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -1051,9 +1052,6 @@ async def monthly_most_recommendations(
     start, end = month_bounds(year, month)
     thresholds = await monthly_race_thresholds(db, period)
     min_precision_pct = thresholds.precision_pct
-    required_verifications = (
-        thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
-    )
     from app.services.credited_snapshot import (
         CREDITED_FROM_SNAPSHOT_CTE,
         credited_bind,
@@ -1122,6 +1120,17 @@ async def monthly_most_recommendations(
         bucket["verifications"] += person.counts.verifications
         bucket["recommendations"] += person.counts.recommendations
 
+    # Próg „N weryfikacji × dni” liczy się z dni pracy osoby — nieobecność
+    # nie podnosi wymagania (decyzja Artura 28.10.2026).
+    required = await required_verifications_by_user(
+        db,
+        list(totals),
+        year=year,
+        month=month,
+        per_day=thresholds.verifications_per_day,
+        today=business_today(),
+    )
+
     # Podwójna numeracja, bo limit dotyczy listy wyświetlanej: bierzemy TOP N
     # do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą nie
     # wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się osobę.
@@ -1135,7 +1144,7 @@ async def monthly_most_recommendations(
                 verifications=data["verifications"],
                 recommendations=data["recommendations"],
                 qualified=(
-                    data["verifications"] >= required_verifications
+                    data["verifications"] >= required[user_id]
                     and 100 * data["recommendations"]
                     >= min_precision_pct * data["verifications"]
                 ),
@@ -1157,6 +1166,7 @@ async def monthly_most_recommendations(
 
     ranked: list[RankedUser] = []
     for row in rows:
+        required_verifications = required[row.id]
         verified = int(row.verifications)
         recommendations = int(row.recommendations)
         precision_pct = (
@@ -1186,6 +1196,39 @@ async def monthly_most_recommendations(
             )
         )
     return ranked
+
+
+async def required_verifications_by_user(
+    db: AsyncSession,
+    user_ids: list[int],
+    *,
+    year: int,
+    month: int,
+    per_day: int,
+    today: date,
+) -> dict[int, int]:
+    """Próg Wyścigu Rekomendacji per osoba: ``per_day`` × jej dni pracy.
+
+    Przy urlopach NEXUSA mianownik jest ten sam co plakietki „X/dzień”
+    (``person_workdays``), więc „33 / 60 wymaganych” i „2.2/dzień” liczą się
+    z tych samych dni; w górę do pełnej weryfikacji (pół dnia nieobecności).
+    Przy innym źródle próg jak dotąd: dni robocze kalendarza dla wszystkich.
+    """
+    if not user_ids:
+        return {}
+    from app.services.person_workdays import nexus_absences_known, workdays_by_user
+
+    if not await nexus_absences_known(db):
+        common = per_day * business_days_elapsed_in_month(year, month)
+        return {uid: common for uid in user_ids}
+
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    last = min(today, next_first - timedelta(days=1))
+    first = date(year, month, 1)
+    if last < first:
+        return {uid: 0 for uid in user_ids}
+    days = await workdays_by_user(db, user_ids, first, last)
+    return {uid: math.ceil(round(per_day * days[int(uid)], 6)) for uid in user_ids}
 
 
 def business_days_elapsed_in_month(

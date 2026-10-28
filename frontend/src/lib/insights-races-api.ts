@@ -49,6 +49,8 @@ export interface MonthlyRaceEntry {
   // rankingu (nie do `extras` — nie zamrażają się w historii). Mianownik to dni
   // robocze od 1. dnia miesiąca do dziś (Pon–Pt bez świąt) minus urlop
   // z COMPASSA, gdy go znamy:
+  //   - `nexus`    — dni pracy z urlopów NEXUSA (dni robocze minus zatwierdzona
+  //     nieobecność do dziś); z nich liczy się też próg (28.10.2026),
   //   - `compass`  — urlopy uwzględnione,
   //   - `calendar` — dni kalendarzowe BEZ urlopów (brak danych z COMPASSA
   //     albo urlop w trwającym miesiącu, którego część dopiero nadejdzie);
@@ -60,6 +62,7 @@ export interface MonthlyRaceEntry {
   workdays?: number | null;
   per_day?: number | null;
   workdays_source?:
+    | "nexus"
     | "compass"
     | "calendar"
     | "dynareporter"

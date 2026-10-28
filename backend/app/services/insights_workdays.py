@@ -300,6 +300,9 @@ async def race_workdays_to_date(
     Decyzja Artura 23.09.2026 (plan PR3): plakietka ma liczbę ZAWSZE, a jej
     źródło mówi, ile wiemy. Każda osoba dostaje wpis:
 
+    * ``"nexus"`` — urlopy NEXUSA (``hr_availability_source = local``): dni
+      robocze, które upłynęły, minus zatwierdzona nieobecność na nich
+      (``person_workdays``). Przy tym źródle dwie gałęzie niżej nie biegną.
     * ``"compass"`` — COMPASS zna nieobecności w tym oknie: miesiąc zamknięty
       (wiersz miesięczny = pełny miesiąc minus zatwierdzony urlop) albo miesiąc
       trwający, w którym COMPASS nie ma ŻADNEGO urlopu (wtedy dni kalendarzowe,
@@ -316,6 +319,17 @@ async def race_workdays_to_date(
     """
     if not user_ids:
         return {}
+    from app.services.person_workdays import nexus_absences_known, workdays_by_user
+
+    if await nexus_absences_known(db):
+        # Urlopy NEXUSA znają każdy dzień, więc także trwający miesiąc liczy
+        # dni pracy do dziś (decyzja Artura 28.10.2026, `person_workdays`).
+
+        last = min(today, month_end)
+        if last < month_start:
+            return {uid: (0.0, "nexus") for uid in user_ids}
+        worked = await workdays_by_user(db, user_ids, month_start, last)
+        return {uid: (worked[int(uid)], "nexus") for uid in user_ids}
     rows = (
         await db.execute(
             select(

@@ -33,6 +33,7 @@ from app.services.insights_person_scope import (
 from app.services.kpi_targets import resolve_kpi_targets_bulk
 from app.services.kpi_team import TeamPanelResult, compute_team_panel
 from app.services.order_burn_rate import workdays_between
+from app.services.person_workdays import prorated_targets, workdays_by_user
 from app.services.request_work_state import WORK_STATES
 
 if TYPE_CHECKING:
@@ -105,6 +106,9 @@ class TeamPeople:
     placements_targets: Optional[dict[int, int]] = None
     # Pary w drodze dziś (pierwszy weryfikujący) — stan, nie okno.
     in_flight: dict[int, int] = field(default_factory=dict)
+    # Dni pracy osoby w oknie do dziś (dni robocze minus zatwierdzona
+    # nieobecność, `person_workdays`) — mianownik „Weryf. / dzień”.
+    workdays_by_user: dict[int, float] = field(default_factory=dict)
 
 
 async def current_team_panel(
@@ -136,10 +140,18 @@ async def team_people(
             ).all()
         )
         resolved = await resolve_kpi_targets_bulk(db, users, ["monthly_placements"])
-        targets = {
-            uid: per_kpi.get("monthly_placements", 0)
-            for uid, per_kpi in resolved.items()
-        }
+        # Cel miesiąca w proporcji do dni pracy całego miesiąca — także
+        # zaplanowana nieobecność (decyzja Artura 28.10.2026).
+        targets = await prorated_targets(
+            db,
+            {
+                uid: per_kpi.get("monthly_placements", 0)
+                for uid, per_kpi in resolved.items()
+            },
+            period.start.date(),
+            (period.end - timedelta(microseconds=1)).date(),
+        )
+    window_last = min((period.end - timedelta(microseconds=1)).date(), today)
     return TeamPeople(
         current=current,
         previous=previous,
@@ -147,7 +159,15 @@ async def team_people(
         outside_user_ids=frozenset(outside),
         placements_targets=targets,
         in_flight=await in_flight_by_verifier(db),
+        workdays_by_user=await workdays_by_user(
+            db, [r.user_id for r in current.rows], period.start.date(), window_last
+        ),
     )
+
+
+def _per_workday(verifications: int, workdays: float) -> Optional[float]:
+    """Weryfikacje na dzień pracy; zero dni pracy = „nie policzono”, nie 0."""
+    return round(verifications / workdays, 1) if workdays else None
 
 
 def people_payload(people: TeamPeople) -> dict:
@@ -197,10 +217,9 @@ def people_payload(people: TeamPeople) -> dict:
                 ),
                 "in_flight": people.in_flight.get(r.user_id, 0),
                 "previous_placements": prev.placementy if prev else 0,
-                "verifications_per_workday": (
-                    round(r.weryfikacje / people.workdays, 1)
-                    if people.workdays
-                    else None
+                "verifications_per_workday": _per_workday(
+                    r.weryfikacje,
+                    people.workdays_by_user.get(r.user_id, people.workdays),
                 ),
                 # Kohorta: z par zweryfikowanych w 30 dniach, ile ma „CV wysłane"
                 # (≤ 100%). None = mniej niż 5 weryfikacji, „nie policzono".
