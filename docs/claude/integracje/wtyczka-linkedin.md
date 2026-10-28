@@ -79,9 +79,17 @@ nagłówkach `h2`, pozycje doświadczenia rozdzielone `hr` (lista = rodzic
 dzielony przez najwięcej `hr`; pojedynczy płytszy `hr` to stopka „Show all”),
 wyniki wyszukiwania = `[role=list] [role=listitem]`. Sekcje doładowują się
 po przewinięciu kontenera strony (nie `window`). Sprawdzone na żywo: profil
-i lista wyników. **Recruiter (`/talent/…`) nie był mierzony** — czytnik
-działa tym samym podejściem plus selektory `data-test-*`; pierwszy rekruter
-z licencją Recruiter potwierdza go na kilku profilach.
+i lista wyników. **Recruiter (`/talent/…`) został zmierzony na aktywnym koncie
+28.10.2026**: trzy wiersze wyników oraz dwa układy profilu (panel boczny
+i osobna strona profilu). Sprawdzono obecność imienia i nazwiska, nagłówka,
+lokalizacji, pozycji doświadczenia i umiejętności.
+Wersja 1.0.1 uwzględnia kontrolkę „Select …” przed imieniem w wierszu i panel
+profilu poza główną sekcją strony z wynikami. Pomiary nie eksportują danych
+rzeczywistych osób do repozytorium; regresje używają fikcyjnych fixture’ów.
+
+Pomiar DOM Recruitera i lokalna instalacja ZIP-a nie zastępują pełnej ścieżki
+zainstalowanej wtyczki z kontem rekrutera i produkcyjnym NEXUSEM. Ten etap
+wymaga osobnego potwierdzenia po połączeniu wtyczki.
 
 ## Gdy LinkedIn zmieni stronę
 

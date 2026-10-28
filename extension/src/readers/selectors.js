@@ -12,6 +12,8 @@
 // zapas dla starszego układu. Instrukcja w README.md.
 
 // ── Odczyt w karcie (przekazywane do funkcji wstrzykiwanej, więc tylko dane JSON) ──
+export const RECRUITER_PROFILE_ROOTS = [".profile__container", ".profile-slidein__profile"];
+
 export const CAPTURE = Object.freeze({
   main: ["main", "[role='main']"],
   // Lista wyników: pozycje po rolach ARIA (zmierzone), potem zapas.
@@ -26,6 +28,10 @@ export const CAPTURE = Object.freeze({
   maxSections: 40,
   maxListItems: 80,
   maxLinks: 200,
+  recruiterRoots: RECRUITER_PROFILE_ROOTS,
+  recruiterTopCards: [".profile__topcard-wrapper", "[data-test-profile-header]", "[data-test-topcard]", ".topcard"],
+  recruiterNames: ["[data-test-row-lockup-full-name]", "[data-test-topcard-full-name]"],
+  publicLinkSelectors: "a[data-test-public-profile-link], a[data-test-personal-info-profile-link], a.personal-info__link",
 });
 
 export const MAIN = ["main", "[role='main']", ".scaffold-layout__main", "#main", "body"];
@@ -158,6 +164,7 @@ export const HIDDEN_TEXT = ".visually-hidden, .a11y-text, .sr-only";
 // ── Recruiter: talent/profile/… i talent/hire/…/profile/… ────────────────────
 export const RECRUITER = {
   container: [
+    ".profile__topcard-wrapper",
     "[data-test-profile-header]",
     "[data-test-topcard]",
     ".profile-header",
@@ -184,6 +191,8 @@ export const RECRUITER = {
     ".artdeco-entity-lockup__caption",
   ],
   position: {
+    titleLink: ".position-item__position-title-link",
+    groupedCompany: ".grouped-position-entity__company-name",
     item: ["[data-test-position-entity]", "li.position-item", "li.background-entity"],
     title: ["[data-test-position-entity-title]", ".position-item__title", ".background-entity__summary-definition--title"],
     company: ["[data-test-position-entity-company-name]", "[data-test-position-entity-company-link]", ".position-item__company-link", ".background-entity__summary-definition--subtitle"],

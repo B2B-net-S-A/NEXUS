@@ -21,7 +21,14 @@ import {
   PRIORITY_PAUSED_HINT,
   type PriorityLevel,
 } from "@/lib/request-priority";
-import { isP0Active, P0_HINT, P0_LABEL, P0_SET_BY_HINT, type P0Source } from "@/lib/job-p0";
+import {
+  isP0Active,
+  P0_HINT,
+  P0_LABEL,
+  P0_REQUEST_HINT,
+  P0_SET_BY_HINT,
+  type P0Source,
+} from "@/lib/job-p0";
 import { cn } from "@/lib/utils";
 import { P0Chip } from "./p0/P0Chip";
 import { SetP0Dialog } from "./p0/SetP0Dialog";
@@ -80,6 +87,13 @@ export interface JobPriorityMenuProps {
   canSetP0?: boolean;
   /** Tytuł do okna „Ustaw P0”. */
   jobTitle?: string | null;
+  /**
+   * `can_request_p0` — Delivery Lead tej rekrutacji prosi o P0, Head of
+   * Recruitment zatwierdza (28.10.2026).
+   */
+  canRequestP0?: boolean;
+  /** Prośba DL o P0 czeka na Head of Recruitment (`p0_requested_at`). */
+  p0RequestPending?: boolean;
 }
 
 /**
@@ -101,7 +115,10 @@ export function JobPriorityMenu({
   p0 = null,
   canSetP0 = false,
   jobTitle = null,
+  canRequestP0 = false,
+  p0RequestPending = false,
 }: JobPriorityMenuProps) {
+  const asksForP0 = canRequestP0 && !canSetP0;
   const { value, change, confirmDialog } = useJobPriorityChange(jobId, level, team);
   const [p0DialogOpen, setP0DialogOpen] = useState(false);
   const p0Active = isP0Active(p0);
@@ -191,6 +208,25 @@ export function JobPriorityMenu({
             </span>
           </DropdownMenuItem>
         ) : null}
+        {asksForP0 && !p0Active ? (
+          <DropdownMenuItem
+            className="items-start"
+            data-testid="job-priority-option-p0-request"
+            onSelect={() => setP0DialogOpen(true)}
+          >
+            <span className="min-w-0">
+              <span className={cn(CHIP_CLASS, "gap-1 border-destructive text-destructive-muted-foreground")}>
+                <Flame className="h-3 w-3" aria-hidden="true" />
+                {p0RequestPending ? "Zmień prośbę o P0…" : "Poproś o P0…"}
+              </span>
+              <span className="mt-1 block text-xs leading-snug text-muted-foreground">
+                {p0RequestPending
+                  ? "Twoja prośba czeka na Head of Recruitment."
+                  : P0_REQUEST_HINT}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ) : null}
         {p0Active ? (
           <p
             className="mx-2 mb-1 rounded-md bg-destructive-muted px-2 py-1.5 text-xs leading-snug text-destructive-muted-foreground"
@@ -238,13 +274,14 @@ export function JobPriorityMenu({
         </p>
       </DropdownMenuContent>
       {confirmDialog}
-      {canSetP0 ? (
+      {canSetP0 || asksForP0 ? (
         <SetP0Dialog
           jobId={jobId}
           jobTitle={jobTitle}
           open={p0DialogOpen}
           onOpenChange={setP0DialogOpen}
           initialReason={p0Active ? p0?.p0_reason : null}
+          mode={canSetP0 ? "set" : "request"}
         />
       ) : null}
     </DropdownMenu>

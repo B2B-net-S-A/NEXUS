@@ -337,7 +337,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
     # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
-    # 0610: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
+    # 0611: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -793,6 +793,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
+    # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -1181,7 +1183,7 @@ except Exception as _linkedin_extension_err:  # noqa: BLE001
     print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
     _LINKEDIN_EXTENSION_DDL = []
 
-# Oceny „Oceń z AI” (migracja 0610) — JEDNO źródło z migracją
+# Oceny „Oceń z AI” (migracja 0611) — JEDNO źródło z migracją
 # (`app/services/candidate_ai_assessment_schema.py`).
 try:
     from app.services import candidate_ai_assessment_schema as _ai_assessment_schema
@@ -5141,6 +5143,12 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_by INTEGER NULL "
     "REFERENCES users(id) ON DELETE SET NULL",
+    # 0610: prośba Delivery Leada o P0 (services/job_p0.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_reason VARCHAR(300) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_duration VARCHAR(16) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
     # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).
@@ -7598,7 +7606,7 @@ _DATA_STATEMENTS = [
     "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'linkedin_message_draft')",
-    # 0610: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
+    # 0611: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
