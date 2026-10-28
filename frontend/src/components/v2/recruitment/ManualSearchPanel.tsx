@@ -37,6 +37,7 @@ import {
 } from "@/lib/matching-requirements";
 import { championApi } from "@/lib/api";
 import { aiAssessmentApi } from "@/lib/ai-assessment";
+import { countPl } from "@/lib/plural-pl";
 
 import { ManualAddedStrip } from "./ManualAddedStrip";
 import { useUndoWindow } from "./useUndoWindow";
@@ -132,7 +133,7 @@ export function ManualSearchPanel({
     <div className="space-y-3">
       {onOpenLatestAi && latestCount > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="ai-assessment-latest">
-          Ostatnia ocena AI: {latestCount} {latestCount === 1 ? "osoba" : "osób"}{" "}
+          Ostatnia ocena AI: {countPl(latestCount, "osoba", "osoby", "osób")}{" "}
           <button type="button" className="font-medium text-primary underline" onClick={onOpenLatestAi}>
             Otwórz
           </button>

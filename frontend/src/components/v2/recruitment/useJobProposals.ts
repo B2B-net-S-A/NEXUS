@@ -81,6 +81,8 @@ export interface AddToJobOptions {
   initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
+  /** Po jednej osobie w kolejności `candidateIds` („Oceń z AI”, 28.10.2026). */
+  oneByOne?: boolean;
 }
 
 /**
@@ -378,7 +380,10 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       if (readOnly) throw new Error("Sekcja Pipeline jest dostępna tylko do odczytu.");
       const picked = candidateIds.flatMap((id) => entryById.get(id) ?? []);
       const parts: BulkProposalsResponse[] = [];
-      for (const group of groupAddsByOrigin(picked, autoRunId)) {
+      const groups = opts.oneByOne
+        ? picked.flatMap((entry) => groupAddsByOrigin([entry], autoRunId))
+        : groupAddsByOrigin(picked, autoRunId);
+      for (const group of groups) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };
         if (opts.stageDefId != null) body.initial_stage_def_id = opts.stageDefId;
         else if (opts.initialStageLegacy) body.initial_stage_legacy = opts.initialStageLegacy;

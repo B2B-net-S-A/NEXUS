@@ -33,6 +33,7 @@ import {
   type AiAssessmentRow,
   type AiVerdict,
 } from "@/lib/ai-assessment";
+import { pluralPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 
 export interface AiAssessmentPerson {
@@ -44,7 +45,10 @@ export interface AiAssessmentPanelProps {
   jobId: number;
   /** Zaznaczone osoby; `null` = pokaż ostatnią zapisaną ocenę. */
   people: readonly AiAssessmentPerson[] | null;
-  /** Dodanie do „Nowych” w podanej kolejności; zwraca, kogo dodano. */
+  /**
+   * Dodanie do „Nowych” po jednej osobie w podanej kolejności (panel podaje
+   * odwróconą kolejność dzwonienia); zwraca, kogo dodano.
+   */
   onAdd: (candidateIds: number[]) => Promise<readonly number[]>;
   onClose: () => void;
   readOnly?: boolean;
@@ -104,6 +108,8 @@ function useAssessment(jobId: number, people: readonly AiAssessmentPerson[] | nu
       let stopped = false;
       const worker = async () => {
         while (next < chunks.length) {
+          // Panel zamknięty albo „Oceń jeszcze raz” — nie wysyłaj kolejnych paczek.
+          if (runId.current !== id) return;
           const chunk = chunks[next++];
           if (stopped) {
             // Po wyczerpaniu limitu reszta zaznaczenia zostaje na liście bez werdyktu.
@@ -145,8 +151,11 @@ function useAssessment(jobId: number, people: readonly AiAssessmentPerson[] | nu
 
   useEffect(() => {
     if (people) {
-      void run(false);
+      // Start po bieżącym cyklu: podwójny efekt w trybie Strict (dev) kasuje
+      // pierwszy start, zanim cokolwiek poleci do modelu.
+      const timer = setTimeout(() => void run(false), 0);
       return () => {
+        clearTimeout(timer);
         runId.current += 1;
       };
     }
@@ -203,7 +212,7 @@ export function AiAssessmentPanel({
   const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set());
   const counts = verdictCounts(rows);
   const callIds = rows
-    .filter((r) => r.verdict === "call" && !addedIds.has(r.candidate_id))
+    .filter((r) => r.verdict === "call" && !r.in_job && !addedIds.has(r.candidate_id))
     .map((r) => r.candidate_id);
   const count = people?.length ?? rows.length;
   const when = formatTime(createdAt);
@@ -212,7 +221,9 @@ export function AiAssessmentPanel({
     if (callIds.length === 0 || adding) return;
     setAdding(true);
     try {
-      const added = await onAdd(callIds);
+      // Tablica stawia najnowsze wejście na górze „Nowych” (`compareNewestFirst`),
+      // więc dodajemy od ostatniej osoby — pierwsza do telefonu ląduje na górze.
+      const added = await onAdd([...callIds].reverse());
       setAddedIds((prev) => new Set([...prev, ...added]));
     } finally {
       setAdding(false);
@@ -228,7 +239,8 @@ export function AiAssessmentPanel({
       <header className="space-y-2 border-b border-border px-5 pb-3 pt-4">
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-base font-semibold">
-            Ocena AI · {count} {count === 1 ? "zaznaczona osoba" : "zaznaczonych osób"}
+            Ocena AI · {count}{" "}
+            {pluralPl(count, "zaznaczona osoba", "zaznaczone osoby", "zaznaczonych osób")}
           </h3>
           <Button
             variant="ghost"
@@ -287,9 +299,9 @@ export function AiAssessmentPanel({
             <div className="min-w-0 flex-1 space-y-1">
               <div className="flex items-start justify-between gap-2">
                 <span className="font-medium">{row.full_name}</span>
-                {addedIds.has(row.candidate_id) ? (
+                {addedIds.has(row.candidate_id) || row.in_job ? (
                   <span className="shrink-0 rounded-full bg-success-muted px-2 py-0.5 text-xs font-medium text-success-muted-foreground">
-                    Dodano do Nowych
+                    {addedIds.has(row.candidate_id) ? "Dodano do Nowych" : "Już w rekrutacji"}
                   </span>
                 ) : row.verdict ? (
                   <span
@@ -332,7 +344,7 @@ export function AiAssessmentPanel({
         <p className="text-xs text-muted-foreground">
           CV nie wychodzą z NEXUSA · ocena zapisana przy rekrutacji
           {when ? ` (${when})` : ""}
-          {remaining != null ? ` · dziś zostało ${remaining} ocen` : ""}
+          {remaining != null ? ` · dziś zostało ${remaining} ${pluralPl(remaining, "ocena", "oceny", "ocen")}` : ""}
           {people && !running ? (
             <>
               {" · "}

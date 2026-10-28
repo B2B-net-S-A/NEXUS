@@ -35,6 +35,8 @@ export interface AiAssessmentRow {
    */
   error_kind: "no_cv" | "model" | "limit" | null;
   reused: boolean;
+  /** Osoba ma już kartę w tej rekrutacji (np. dodana po ocenie). */
+  in_job?: boolean;
 }
 
 export interface AiAssessmentBatch {

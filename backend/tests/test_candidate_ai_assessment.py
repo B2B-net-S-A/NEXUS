@@ -308,6 +308,19 @@ async def test_assess_orders_by_verdict_and_saves_at_the_job(app_client, monkeyp
     assert latest.status_code == 200
     assert latest.json()["batch_id"] == body["batch_id"]
     assert [r["verdict"] for r in latest.json()["rows"]] == ["call", "no_fit", None]
+    assert not any(r["in_job"] for r in latest.json()["rows"])
+
+    # Dodana po ocenie osoba wraca w zapisanej ocenie jako „już w rekrutacji”.
+    added = await app_client.post(
+        f"/api/jobs/{job_id}/proposals/bulk",
+        json={"candidate_ids": [fit], "initial_stage_legacy": "new"},
+        headers=_headers(uid),
+    )
+    assert added.status_code == 200, added.text
+    again = await app_client.get(
+        f"/api/jobs/{job_id}/ai-assessments/latest", headers=_headers(uid)
+    )
+    assert {r["candidate_id"]: r["in_job"] for r in again.json()["rows"]}[fit] is True
 
 
 @needs_db

@@ -25,6 +25,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.candidate import Candidate
 from app.models.candidate_ai_assessment import CandidateAiAssessment
 from app.models.job import Job
+from app.models.recruitment_pipeline import CandidateStage
 from app.services import candidate_ai_assessment as svc
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -53,7 +54,7 @@ def _error_kind(row: CandidateAiAssessment) -> Optional[str]:
     return "no_cv" if row.error == svc.ERROR_NO_CV else "model"
 
 
-def _row(row: CandidateAiAssessment, names: dict[int, str]) -> dict:
+def _row(row: CandidateAiAssessment, names: dict[int, str], in_job: set[int]) -> dict:
     return {
         "candidate_id": row.candidate_id,
         "full_name": names.get(row.candidate_id) or f"Kandydat #{row.candidate_id}",
@@ -73,6 +74,8 @@ def _row(row: CandidateAiAssessment, names: dict[int, str]) -> dict:
         ],
         "error_kind": _error_kind(row),
         "reused": row.reused_from_id is not None,
+        # Osoba ma już kartę w tej rekrutacji — panel nie proponuje jej dodania.
+        "in_job": row.candidate_id in in_job,
     }
 
 
@@ -94,8 +97,24 @@ async def _payload(
         if ids
         else {}
     )
+    in_job = (
+        set(
+            (
+                await db.scalars(
+                    select(CandidateStage.candidate_id)
+                    .where(
+                        CandidateStage.job_id == rows[0].job_id,
+                        CandidateStage.candidate_id.in_(ids),
+                    )
+                    .distinct()
+                )
+            ).all()
+        )
+        if ids
+        else set()
+    )
     used = await svc.used_today(db, user_id)
-    ordered = sorted((_row(r, names) for r in rows), key=svc.call_order_key)
+    ordered = sorted((_row(r, names, in_job) for r in rows), key=svc.call_order_key)
     return {
         "batch_id": rows[0].batch_id if rows else None,
         "created_at": max(r.created_at for r in rows).isoformat() if rows else None,

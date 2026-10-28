@@ -1582,7 +1582,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  });
  }, [embedUndone]);
  const addToEmbedJob = useCallback(
- async (candidateIds: number[]): Promise<readonly number[]> => {
+ async (candidateIds: number[], chunkSize?: number): Promise<readonly number[]> => {
  if (embedJobId == null || candidateIds.length === 0) return [];
  setAddingIds((prev) => new Set([...prev, ...candidateIds]));
  try {
@@ -1591,7 +1591,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  candidate_ids: candidateIds,
  initial_stage_legacy: "new",
  source: "manual_search",
- });
+ }, chunkSize);
  const summary = summarizeBulkResult(result);
  const parts = [
  result.total_added > 0
@@ -3075,7 +3075,8 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                       candidateId,
                       fullName: namesSeen.current.get(candidateId) ?? `Kandydat #${candidateId}`,
                     })),
-                    add: addToEmbedJob,
+                    // Po jednej osobie, w kolejności podanej przez panel.
+                    add: (ids) => addToEmbedJob(ids, 1),
                   })
                 }
               />

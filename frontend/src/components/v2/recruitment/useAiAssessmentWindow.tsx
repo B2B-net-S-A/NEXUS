@@ -21,6 +21,7 @@ import { AiAssessmentPanel, type AiAssessmentPerson } from "./AiAssessmentPanel"
 
 export interface AiAssessmentRequest {
   people: readonly AiAssessmentPerson[] | null;
+  /** Dodanie po jednej osobie w podanej kolejności; zwraca, kogo dodano. */
   add?: (candidateIds: number[]) => Promise<readonly number[]>;
 }
 
@@ -49,7 +50,7 @@ export function useAiAssessmentWindow({
           candidate_ids: candidateIds,
           initial_stage_legacy: "new",
           source: "manual_search",
-        });
+        }, 1);
         if (result.total_added > 0) showSuccess(`Dodano do Nowych: ${result.total_added}.`);
         else showError("Nikogo nie dodano — te osoby są już w rekrutacji albo dodanie jest zablokowane.");
         void queryClient.invalidateQueries({ queryKey: ["candidates-v2"] });

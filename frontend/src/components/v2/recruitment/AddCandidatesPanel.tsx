@@ -634,7 +634,11 @@ function AddCandidatesPanelOpen({
    * komunikat wyniku). Dodani zostają na liście z „Cofnij”; zamknięta karta
    * i inne odmowy zostają jak dotąd z komunikatem.
    */
-  const addIds = (ids: readonly number[], perRow: boolean): Promise<readonly number[]> => {
+  const addIds = (
+    ids: readonly number[],
+    perRow: boolean,
+    oneByOne = false,
+  ): Promise<readonly number[]> => {
     if (readOnly || ids.length === 0 || listTab == null) return Promise.resolve([]);
     const tabNow = listTab;
     const snapshot = new Map<number, KeptEntry>();
@@ -648,7 +652,7 @@ function AddCandidatesPanelOpen({
     const done = new Promise<readonly number[]>((resolve) => {
       settle = resolve;
     });
-    proposals.addToJob([...ids], {}, {
+    proposals.addToJob([...ids], oneByOne ? { oneByOne } : {}, {
       onSuccess: (response) => {
         const added = response.added.filter((id) => snapshot.has(id));
         setKept((prev) => {
@@ -682,7 +686,7 @@ function AddCandidatesPanelOpen({
         candidateId,
         fullName: names.get(candidateId) ?? `Kandydat #${candidateId}`,
       })),
-      add: (ids) => addIds(ids, false),
+      add: (ids) => addIds(ids, false, true),
     });
   };
   /** „Cofnij”: wiersz wraca do zwykłego stanu, gdy źródła już go znów mają. */

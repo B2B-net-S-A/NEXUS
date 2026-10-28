@@ -168,12 +168,40 @@ describe("AiAssessmentPanel", () => {
     expect(screen.getByText("Dodaj 0 „Dzwoń” do Nowych w tej kolejności").closest("button")).toBeDisabled();
   });
 
+  it("dodaje „Dzwoń” od ostatniego w kolejności, żeby pierwszy stanął na górze Nowych", async () => {
+    mocks.assess.mockResolvedValue(
+      batch([
+        row({ candidate_id: 1, selection_index: 0, verdict: "call", strength: 3 }),
+        row({ candidate_id: 2, selection_index: 1, verdict: "call", strength: 5 }),
+        row({ candidate_id: 3, selection_index: 2, verdict: "maybe", strength: 5 }),
+      ]),
+    );
+    const onAdd = vi.fn().mockResolvedValue([1, 2]);
+    render(
+      <AiAssessmentPanel jobId={7} people={[EWA, PIOTR, OLA]} onAdd={onAdd} onClose={vi.fn()} />,
+    );
+    const button = await screen.findByText("Dodaj 2 „Dzwoń” do Nowych w tej kolejności");
+    await waitFor(() => expect(button.closest("button")).not.toBeDisabled());
+    fireEvent.click(button);
+    // Kolejność dzwonienia: 2 (siła 5), potem 1 — dodanie od końca.
+    await waitFor(() => expect(onAdd).toHaveBeenCalledWith([1, 2]));
+  });
+
   it("bez zaznaczenia pokazuje ostatnią zapisaną ocenę bez wołania modelu", async () => {
     mocks.latest.mockResolvedValue(RESULT);
     render(<AiAssessmentPanel jobId={7} people={null} onAdd={vi.fn()} onClose={vi.fn()} />);
     await waitFor(() => expect(rows()).toHaveLength(3));
     expect(mocks.assess).not.toHaveBeenCalled();
     expect(screen.queryByTestId("ai-assessment-rerun")).not.toBeInTheDocument();
+  });
+
+  it("osoba już w rekrutacji nie wchodzi do dodania", async () => {
+    mocks.latest.mockResolvedValue(
+      batch([row({ candidate_id: 1, full_name: EWA.fullName, verdict: "call", in_job: true })]),
+    );
+    render(<AiAssessmentPanel jobId={7} people={null} onAdd={vi.fn()} onClose={vi.fn()} />);
+    expect(await screen.findByText("Już w rekrutacji")).toBeInTheDocument();
+    expect(screen.getByText("Dodaj 0 „Dzwoń” do Nowych w tej kolejności").closest("button")).toBeDisabled();
   });
 
   it("tylko podgląd nie ma przycisku dodania", async () => {
