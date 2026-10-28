@@ -160,6 +160,12 @@ SPECS: dict[str, _Spec] = {
     "job_p0_set": _Spec(
         "Rekrutacja na P0 — ultrapilne", chip="P0", label="Otwórz rekrutację"
     ),
+    "job_closed_people_waiting": _Spec(
+        "Daj znać swoim osobom",
+        chip="Rekrutacja zamknięta",
+        label="Otwórz Tablicę",
+        use_title=True,
+    ),
     "request_assignment_changed": _Spec(
         "Nowa rekrutacja dla Ciebie", chip="Nowa rekrutacja", label="Otwórz rekrutację"
     ),
@@ -315,7 +321,7 @@ def _facts(ntype: str, hr: bool, facts: MailFacts) -> tuple[tuple[str, str], ...
 def _about(ntype: str, hr: bool, facts: MailFacts) -> Optional[str]:
     if hr:
         parts = [facts.person]
-    elif ntype == "request_assignment_changed":
+    elif ntype in {"request_assignment_changed", "job_closed_people_waiting"}:
         parts = [facts.job, facts.client]
     else:
         parts = [facts.candidate, facts.client]

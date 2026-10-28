@@ -83,6 +83,8 @@ import {
   peopleInProgress,
   type AddedByFilter,
 } from "@/lib/board-added-by";
+import { closeReasonLabel } from "@/lib/job-close-reasons";
+import { closedOnLabel } from "@/lib/job-closed-waiting";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
@@ -1355,6 +1357,16 @@ export default function JobDetailPage() {
               // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
               addedBy={addedBy}
               onAddedByChange={setAddedBy}
+              // Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego,
+              // którym trzeba dać znać.
+              closedJob={
+                job.status === "closed"
+                  ? {
+                      closedOn: closedOnLabel(job.closed_at),
+                      reasonLabel: job.close_reason ? closeReasonLabel(job.close_reason) : null,
+                    }
+                  : null
+              }
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={

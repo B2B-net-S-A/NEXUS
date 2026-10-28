@@ -2518,11 +2518,12 @@ async def update_job(
             # Lustro `close_job` (13.10.2026): okno edycji zamyka rekrutację
             # tak samo jak okno z powodem, więc tak samo ostrzega o osobach
             # w toku. Przed pierwszą zmianą — odmowa niczego nie zapisuje.
-            from app.services.job_active_cards import load_active_cards
+            # Ostrzeżenie niesie listę rekruterów, którzy dostaną wiadomość.
+            from app.services.job_closed_notices import active_cards_warning
 
-            active = await load_active_cards(db, job.id)
-            if active.total:
-                raise HTTPException(status_code=409, detail=active.warning_detail())
+            warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+            if warning is not None:
+                raise HTTPException(status_code=409, detail=warning)
     # Ochrona rekrutacji w pracy: zapis odmawia tylko przy NOWYM braku bramki
     # przekazania (porównanie po kodach, przed i po zapisie).
     regression_baseline = job_lifecycle.regression_baseline(job)
@@ -2871,6 +2872,11 @@ async def update_job(
             from app.services.job_proposals import expire_open_for_job
 
             await expire_open_for_job(db, job_id=job_id)
+            # Lustro `close_job` (28.10.2026): rekruterzy osób od „CV wysłane”
+            # w górę dostają dzwonek i mail.
+            from app.services.job_closed_notices import notify_closed
+
+            await notify_closed(db, job, actor_id=current_user.id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             job_lifecycle.clear_close_choice(job)
@@ -3229,12 +3235,13 @@ async def close_job(
     )
     if not data.acknowledge_active_cards:
         # Zamknięcie nie rusza kart: osoby w toku zostają w zamkniętej
-        # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada.
-        from app.services.job_active_cards import load_active_cards
+        # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada — z listą
+        # rekruterów, którzy dostaną wiadomość (28.10.2026).
+        from app.services.job_closed_notices import active_cards_warning
 
-        active = await load_active_cards(db, job.id)
-        if active.total:
-            raise HTTPException(status_code=409, detail=active.warning_detail())
+        warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+        if warning is not None:
+            raise HTTPException(status_code=409, detail=warning)
 
     effects = job_lifecycle.PostCommit()
     await job_lifecycle.close_job_core(
@@ -3246,6 +3253,10 @@ async def close_job(
         effects=effects,
     )
     job.duplicate_of_job_id = choice.duplicate_of_job_id
+    # Rekruterzy osób od „CV wysłane” w górę dostają dzwonek i mail (28.10.2026).
+    from app.services.job_closed_notices import notify_closed
+
+    await notify_closed(db, job, actor_id=current_user.id)
     await db.commit()
     await db.refresh(job)
     await job_lifecycle.run_post_commit(effects)

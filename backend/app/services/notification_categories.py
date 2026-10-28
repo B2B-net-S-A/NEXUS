@@ -144,6 +144,9 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # i osoba znowu nad nią pracuje. Zmiana Twojego przydziału, jak wyżej.
     _T.recruiter_parked: _C.mentions,
     _T.recruiter_restored: _C.mentions,
+    # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
+    # zadanie (daj im znać), nie do wyciszenia jak przydział.
+    _T.job_closed_people_waiting: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach

@@ -83,7 +83,11 @@ import {
 } from "@/components/calendar/CandidateCombobox";
 import { HiringManagerCombobox } from "@/components/jobs/HiringManagerCombobox";
 import { jobGateErrorText, jobGateRefusal } from "@/lib/job-gate-errors";
-import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
+import {
+  activeCardsWarningFrom,
+  closeAnywayLabel,
+  type ActiveCardsWarning,
+} from "@/lib/job-close";
 import { ActiveCardsNotice } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { OfficeDaysField } from "@/components/jobs/OfficeDaysField";
 import {
@@ -2236,7 +2240,13 @@ export function EditJobModal({
         )}
         <div className="flex justify-end gap-3 pt-1">
           <button type="button" onClick={onClose} className="h-10 px-4 text-sm text-muted-foreground dark:text-muted-foreground hover:text-foreground dark:hover:text-muted-foreground focus:outline-hidden focus-visible:ring-2 focus-visible:ring-gray-400 rounded-lg transition-colors">Anuluj</button>
-          <SaveButton saving={saving} label={closingWarning ? "Zapisz i zamknij mimo to" : "Zapisz zmiany"} />
+          <SaveButton saving={saving} label={
+              !closingWarning
+                ? "Zapisz zmiany"
+                : closingWarning.recipients.length > 0
+                  ? closeAnywayLabel(closingWarning, "Zapisz, zamknij")
+                  : "Zapisz i zamknij mimo to"
+            } />
         </div>
       </form>
     </Modal>
