@@ -7288,7 +7288,7 @@ export interface ServiceAccountWebhookDto {
 
 const SERVICE_ACCOUNTS_URL = "/api/settings/service-accounts";
 
-// ── Wtyczka LinkedIn (`/api/extension/*`, migracja 0607) ─────────────────────
+// ── Wtyczka LinkedIn (`/api/extension/*`, migracja 0608) ─────────────────────
 // Strona `/extension/connect` łączy wtyczkę z kontem; Ustawienia → Wtyczka
 // LinkedIn pokazują połączenia i odłączają je. Pozostałe trasy woła sama
 // wtyczka kluczem `X-Extension-Key` (kontrakt: `extension/API.md`).

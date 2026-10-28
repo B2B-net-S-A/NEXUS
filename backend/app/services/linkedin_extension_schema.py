@@ -1,4 +1,4 @@
-"""DDL połączeń wtyczki LinkedIn — JEDNO źródło dla migracji 0607 i siatki
+"""DDL połączeń wtyczki LinkedIn — JEDNO źródło dla migracji 0608 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``linkedin_extension_connections``: jeden wiersz na wtyczkę połączoną z kontem

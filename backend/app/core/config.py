@@ -924,7 +924,7 @@ class Settings(BaseSettings):
     # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
     SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
 
-    # ── Wtyczka LinkedIn (nagłówek X-Extension-Key, migracja 0607) ───────────
+    # ── Wtyczka LinkedIn (nagłówek X-Extension-Key, migracja 0608) ───────────
     # Odcięcie wszystkich wtyczek naraz jednym env-em. Ważność połączenia:
     # po tym czasie rekruter łączy wtyczkę ponownie jednym kliknięciem.
     # Limit to odczyty stron LinkedIna na osobę dziennie (profil albo strona

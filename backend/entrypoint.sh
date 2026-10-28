@@ -335,7 +335,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
     # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
-    # 0607: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
+    # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -1169,7 +1169,7 @@ except Exception as _pair_owner_err:  # noqa: BLE001
     print(f"pair owner DDL unavailable: {_pair_owner_err!r}")
     _PAIR_OWNER_DDL = []
 
-# Połączenia wtyczki LinkedIn (migracja 0607) — JEDNO źródło z migracją
+# Połączenia wtyczki LinkedIn (migracja 0608) — JEDNO źródło z migracją
 # (`app/services/linkedin_extension_schema.py`).
 try:
     from app.services import linkedin_extension_schema as _linkedin_extension_schema
@@ -7580,7 +7580,7 @@ _DATA_STATEMENTS = [
     "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
-    # 0607: seed klucza AI szkicu wiadomości z wtyczki LinkedIn.
+    # 0608: seed klucza AI szkicu wiadomości z wtyczki LinkedIn.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

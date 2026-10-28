@@ -1,4 +1,4 @@
-"""Połączenie wtyczki LinkedIn z kontem NEXUSA (migracja 0607).
+"""Połączenie wtyczki LinkedIn z kontem NEXUSA (migracja 0608).
 
 Wtyczka nie dostaje JWT użytkownika: ten otwiera całe API, a wtyczka
 potrzebuje tylko tras ``/api/extension/*``. Dostaje własny klucz

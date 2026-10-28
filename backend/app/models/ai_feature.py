@@ -183,7 +183,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0529 (27.10.2026): zrzut zgody RODO pod CV (PKO BP) — model odczytuje
     # nadawcę, datę, numer ZOB i nazwisko, a kod porównuje je z rekrutacją.
     consent_screenshot_check = "consent_screenshot_check"
-    # 0607 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
+    # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
     # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
     linkedin_message_draft = "linkedin_message_draft"
 

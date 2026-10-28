@@ -1,7 +1,7 @@
 """Wtyczka LinkedIn: połączenia z kontami i klucz AI szkicu wiadomości.
 
-Revision ID: 0607_linkedin_extension
-Revises: 0606_autofill_whole_client
+Revision ID: 0608_linkedin_extension
+Revises: 0607_job_closed_notification
 
 Decyzja Artura 28.10.2026: wtyczka Chrome dla zespołu na LinkedInie
 i w LinkedIn Recruiterze, klucz per osoba odwoływany w Ustawieniach.
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import linkedin_extension_schema as schema
 
-revision = "0607_linkedin_extension"
-down_revision = "0606_autofill_whole_client"
+revision = "0608_linkedin_extension"
+down_revision = "0607_job_closed_notification"
 branch_labels = None
 depends_on = None
 
@@ -41,7 +41,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0607 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0608 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
