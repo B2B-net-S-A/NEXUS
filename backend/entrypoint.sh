@@ -337,7 +337,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
     # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
-    # 0614: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
+    # 0615: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -1185,7 +1185,7 @@ except Exception as _linkedin_extension_err:  # noqa: BLE001
     print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
     _LINKEDIN_EXTENSION_DDL = []
 
-# Oceny „Oceń z AI” (migracja 0614) — JEDNO źródło z migracją
+# Oceny „Oceń z AI” (migracja 0615) — JEDNO źródło z migracją
 # (`app/services/candidate_ai_assessment_schema.py`).
 try:
     from app.services import candidate_ai_assessment_schema as _ai_assessment_schema
@@ -7611,7 +7611,7 @@ _DATA_STATEMENTS = [
     "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'linkedin_message_draft')",
-    # 0614: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
+    # 0615: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
