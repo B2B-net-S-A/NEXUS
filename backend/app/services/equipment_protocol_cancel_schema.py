@@ -1,6 +1,6 @@
-"""Sprzęt — anulowanie protokołu: SQL migracji ``0609_equipment_protocol_cancel`` i lustra entrypointu.
+"""Sprzęt — anulowanie protokołu: SQL migracji ``0611_equipment_protocol_cancel`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0609_equipment_protocol_cancel.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0611_equipment_protocol_cancel.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

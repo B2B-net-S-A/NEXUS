@@ -73,7 +73,7 @@ osobie z kartoteki i uczestniku Akademii.
   znikają; gdy część już wróciła — 409 „najpierw anuluj zwrot”), anulowany
   zwrot przywraca wydania (egzemplarz ponownie wydany albo wycofany = 409).
   Link unieważniony, zadanie „podpis” → `anulowane`, kto/kiedy/dlaczego
-  w `cancelled_at`, `cancelled_by`, `cancel_reason` (0609). Stan `anulowany` nie
+  w `cancelled_at`, `cancelled_by`, `cancel_reason` (0611). Stan `anulowany` nie
   liczy się do „Czeka na podpis” ani „Bez podpisu”. Każda zmiana stanu protokołu
   (poprawka, anulowanie, link, skan, potwierdzenie) bierze zamek
   `protocols.lock`: najpierw linki, potem protokół — ta sama kolejność co podpis

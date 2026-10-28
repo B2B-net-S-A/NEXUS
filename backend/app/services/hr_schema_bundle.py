@@ -64,7 +64,7 @@ MODULES = (
     approval_basis,
     # 0509: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
     care_board,
-    # 0609: poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    # 0611: poprawka i anulowanie protokołu sprzętu (28.10.2026).
     equipment_cancel,
 )
 

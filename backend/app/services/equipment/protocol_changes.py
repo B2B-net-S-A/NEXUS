@@ -381,7 +381,7 @@ async def _sync_contract_rows(
 async def cancel(
     db: AsyncSession, protocol_id: int, *, reason: str, actor: User
 ) -> EquipmentProtocol:
-    """Anulowanie niepotwierdzonego protokołu z powodem (audyt i kolumny 0609)."""
+    """Anulowanie niepotwierdzonego protokołu z powodem (audyt i kolumny 0611)."""
     cleaned = " ".join((registry.clean_notes(reason, label="Powód") or "").split())
     if len(cleaned) < 3:
         raise EquipmentError("Wpisz powód anulowania.")

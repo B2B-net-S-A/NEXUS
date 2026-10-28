@@ -1,7 +1,7 @@
 """Sprzęt — anulowanie protokołu: kto, kiedy i dlaczego.
 
-Revision ID: 0609_equipment_protocol_cancel
-Revises: 0608_linkedin_extension
+Revision ID: 0611_equipment_protocol_cancel
+Revises: 0610_job_p0_request
 
 Decyzja Artura 28.10.2026: „Popraw protokół” przed podpisem i „Anuluj
 protokół” niepotwierdzony. SQL ma jedno źródło
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import equipment_protocol_cancel_schema as schema
 
-revision = "0609_equipment_protocol_cancel"
-down_revision = "0608_linkedin_extension"
+revision = "0611_equipment_protocol_cancel"
+down_revision = "0610_job_p0_request"
 branch_labels = None
 depends_on = None
 
