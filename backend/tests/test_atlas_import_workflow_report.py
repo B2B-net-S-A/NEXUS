@@ -280,6 +280,61 @@ class AtlasImportWorkflowReportTests(unittest.TestCase):
             (1, {"applied": False, "error": "RuntimeError"}),
         )
 
+    def test_counters_from_import_gap_fixes_are_accepted(self):
+        # Importer po audycie 28.10.2026 liczy więcej rzeczy; raport nie może
+        # wtedy padać jako ReportValidationError (dry-run 40783598006).
+        extra = {
+            "companies_owner_label": 3397,
+            "companies_kept_by_domain_or_registry": 356,
+            "companies_redirected_to_merge_target": 0,
+            "companies_merge_cycle": 0,
+            "company_contacts_imported": 9942,
+            "company_contacts_primary": 9740,
+            "company_contacts_not_reinserted": 0,
+            "company_contacts_skipped_unresolved": 3,
+            "activities_external_id_too_long": 0,
+            "notes_candidate_prep_skipped": 158,
+            "notes_candidate_prep_removed": 158,
+            "transcripts_imported": 369,
+            "transcripts_skipped_deal_not_imported": 2,
+            "transcripts_candidate_prep_skipped": 40,
+            "leads_skipped_job_board": 6,
+            "leads_job_board_removed": 6,
+            "invalid_service_line": 3,
+            "invalid_activity_kind": 1,
+            "invalid_direction": 2,
+            "edited_in_nexus_sales_companies": 0,
+            "edited_in_nexus_sales_activities": 0,
+        }
+        report = self.validate({"applied": False, **DATA, **extra}, "dry-run")
+        self.assertEqual(report, {"applied": False, **DATA, **extra})
+        for key in (
+            "invalid_",
+            "edited_in_nexus_",
+            "edited_in_nexus_users",
+            "invalid_Name",
+        ):
+            with (
+                self.subTest(key=key),
+                self.assertRaises(reporter.ReportValidationError),
+            ):
+                self.validate({"applied": False, **DATA, key: 1}, "dry-run")
+
+    def test_offer_file_counters_are_accepted_in_file_modes(self):
+        dry = {"applied": False, "files_would_copy": 120, "offer_files_would_copy": 270}
+        self.assertEqual(self.validate(dry, "files-dry-run"), dry)
+        applied = {
+            "applied": True,
+            "files_copied": 0,
+            "files_already_copied": 129,
+            "offer_files_copied": 268,
+            "offer_files_missing_in_storage": 2,
+            "offer_files_skipped_owner_not_imported": 1,
+        }
+        self.assertEqual(self.validate(applied, "files-apply"), applied)
+        with self.assertRaises(reporter.ReportValidationError):
+            self.validate({"applied": True, "offer_files_would_copy": 1}, "files-apply")
+
     def test_unknown_mode_is_failure_without_echoing_input(self):
         result, report = self.run_main(
             json.dumps({"applied": False, **DATA}), "SYNTHETIC_PRIVATE_MARKER"
