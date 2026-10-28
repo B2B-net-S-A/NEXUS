@@ -273,6 +273,11 @@ class NotificationType(str, enum.Enum):
     # bez osoby, która ustawiła; related_entity=(job, id). Mail obowiązkowy
     # „P0 na rekrutacji” (`services/job_p0.py`).
     job_p0_set = "job_p0_set"
+    # 0607 (28.10.2026): ktoś zamknął rekrutację, w której Twoje osoby stoją
+    # od „CV wysłane” w górę — daj im znać; related_entity=(job, id), bez
+    # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
+    # osoby czekają” (`services/job_closed_notices.py`).
+    job_closed_people_waiting = "job_closed_people_waiting"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"

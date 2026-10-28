@@ -168,7 +168,9 @@ async def test_active_cards_message_declines_the_count() -> None:
         assert message.startswith(f"W tej rekrutacji {words} w toku"), message
 
 
-async def _seed_candidate_in_job(job_id: int, *stages: str) -> int:
+async def _seed_candidate_in_job(
+    job_id: int, *stages: str, actor_user_id: int | None = None
+) -> int:
     """Osoba z kartą w rekrutacji — kolejne etapy przez komendę procesu."""
     import uuid
 
@@ -192,7 +194,7 @@ async def _seed_candidate_in_job(job_id: int, *stages: str) -> int:
                 candidate_id=candidate.id,
                 job_id=job_id,
                 stage=PipelineStage(stage),
-                actor_user_id=None,
+                actor_user_id=actor_user_id,
                 # Etap końcowy niesie stronę, która zamknęła kartę.
                 **({"ended_by": "recruiter"} if stage == "rejected" else {}),
             )
@@ -281,3 +283,161 @@ async def test_closing_from_the_edit_window_warns_the_same_way(
     )
     assert closed.status_code == 200, closed.text
     assert closed.json()["status"] == "closed"
+
+
+# ── Rekruterzy osób od „CV wysłane” dostają wiadomość (28.10.2026) ──────────
+
+
+async def _seed_recruiter(*, is_active: bool = True) -> tuple[int, str]:
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import hash_password
+    from app.models.user import User, UserRole
+
+    suffix = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"close-recruiter-{suffix}@example.com",
+            password_hash=hash_password("P@ssw0rd"),
+            name=f"Rekruterka {suffix}",
+            role=UserRole.recruiter,
+            is_active=is_active,
+        )
+        db.add(user)
+        await db.flush()
+        seeded = (user.id, user.name)
+        await db.commit()
+        return seeded
+
+
+async def _closed_notices(job_id: int) -> list[tuple[int, str, str]]:
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.notification import Notification, NotificationType
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.execute(
+            select(Notification.user_id, Notification.title, Notification.link).where(
+                Notification.related_entity_type == "job",
+                Notification.related_entity_id == job_id,
+                Notification.notification_type
+                == NotificationType.job_closed_people_waiting,
+            )
+        )
+        return [tuple(r) for r in rows.all()]
+
+
+async def test_close_tells_the_recruiter_whose_people_were_sent(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Zgłoszenie 28.10.2026: rekruterka nie wiedziała o zamknięciu rekrutacji,
+    w której jej osoby były u klienta, więc nie dała im znać."""
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-tells-recruiter"
+    )
+    recruiter_id, recruiter_name = await _seed_recruiter()
+    inactive_id, _ = await _seed_recruiter(is_active=False)
+    await _seed_candidate_in_job(
+        job_id, "new", "verified", "cv_sent", actor_user_id=recruiter_id
+    )
+    # Osoba w „Nowych” nic nie wie o rekrutacji — nie liczy się.
+    await _seed_candidate_in_job(job_id, "new", actor_user_id=recruiter_id)
+    # Konto nieaktywne nie dostaje nic.
+    await _seed_candidate_in_job(
+        job_id, "new", "verified", "cv_sent", actor_user_id=inactive_id
+    )
+
+    warned = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor"},
+        headers=app_auth_headers,
+    )
+    assert warned.status_code == 409, warned.text
+    assert warned.json()["detail"]["recipients"] == [
+        {
+            "user_id": recruiter_id,
+            "name": recruiter_name,
+            "people": 1,
+            "columns": {"cv_sent": 1},
+        }
+    ]
+    assert await _closed_notices(job_id) == []
+
+    closed = await app_client.post(
+        f"/api/jobs/{job_id}/close",
+        json={"reason": "competitor", "acknowledge_active_cards": True},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert await _closed_notices(job_id) == [
+        (
+            recruiter_id,
+            "Rekrutacja zamknięta — daj znać 1 osobie",
+            f"/jobs/{job_id}",
+        )
+    ]
+
+
+async def test_closing_from_the_edit_window_tells_recruiters_too(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-edit-tells-recruiter"
+    )
+    recruiter_id, _ = await _seed_recruiter()
+    await _seed_candidate_in_job(
+        job_id, "new", "verified", "client_interview", actor_user_id=recruiter_id
+    )
+
+    warned = await app_client.patch(
+        f"/api/jobs/{job_id}", json={"status": "closed"}, headers=app_auth_headers
+    )
+    assert warned.status_code == 409, warned.text
+    assert [r["user_id"] for r in warned.json()["detail"]["recipients"]] == [
+        recruiter_id
+    ]
+
+    closed = await app_client.patch(
+        f"/api/jobs/{job_id}",
+        params={"acknowledge_active_cards": "true"},
+        json={"status": "closed"},
+        headers=app_auth_headers,
+    )
+    assert closed.status_code == 200, closed.text
+    assert [n[0] for n in await _closed_notices(job_id)] == [recruiter_id]
+
+
+async def test_automatic_close_tells_nobody(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+) -> None:
+    """Automaty (archiwum Traffita, scalanie, stare szkice) zamykają przez
+    ``close_job_core`` hurtem i bez człowieka — bez dzwonków."""
+    from sqlalchemy import select
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job import Job, JobCloseReason
+    from app.services import job_lifecycle
+
+    job_id = await _create_draft_job(
+        app_client, app_auth_headers, "pytest-close-automat-silent"
+    )
+    recruiter_id, _ = await _seed_recruiter()
+    await _seed_candidate_in_job(
+        job_id, "new", "verified", "cv_sent", actor_user_id=recruiter_id
+    )
+
+    async with AsyncSessionLocal() as db:
+        job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one()
+        await job_lifecycle.close_job_core(
+            db,
+            job,
+            reason=JobCloseReason.duplicate,
+            notes="automat",
+            actor_id=None,
+            effects=job_lifecycle.PostCommit(),
+        )
+        await db.commit()
+
+    assert await _closed_notices(job_id) == []

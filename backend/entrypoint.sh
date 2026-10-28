@@ -787,6 +787,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
     # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
+    # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",

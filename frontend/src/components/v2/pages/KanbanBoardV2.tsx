@@ -115,6 +115,8 @@ import {
  peopleInProgress,
  type AddedByFilter,
 } from "@/lib/board-added-by";
+import { myWaitingItems } from "@/lib/job-closed-waiting";
+import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -300,6 +302,8 @@ interface KanbanBoardV2Props {
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
   */
  renderAbove?: (viewControls: React.ReactNode) => React.ReactNode;
+ /** Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego od „CV wysłane”. */
+ closedJob?: { closedOn: string | null; reasonLabel: string | null } | null;
  /** Filtr „Kto dodał” (14.10.2026): strona trzyma go w adresie (`?added_by=`).
   *  Chowa karty innych osób w kolumnach w toku i zawęża kolejkę panelu.
   *  Obiekt ma być stabilny między renderami (strona go memoizuje). */
@@ -1976,7 +1980,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -3108,6 +3112,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => stageCols.find((c) => terminalOf(c) === "rejected"),
  [stageCols]
  );
+ // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
+ // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
+ const myWaiting = useMemo(
+ () => (closedJob ? myWaitingItems(stageCols, authUser?.id) : []),
+ [closedJob, stageCols, authUser?.id]
+ );
  const dockItemColumn = dockItemColId
  ? (cols.find((c) => colId(c) === dockItemColId) ?? null)
  : null;
@@ -4119,6 +4129,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  ) : null}
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
+ {closedJob ? (
+ <ClosedJobWaitingBanner
+ closedOn={closedJob.closedOn}
+ reasonLabel={closedJob.reasonLabel}
+ people={myWaiting.map((item) => [item.name, item.lastname].filter(Boolean).join(" ") || `Kandydat #${item.candidate_id}`)}
+ onRejectFirst={
+ !readOnly && rejectedTemplateCol && myWaiting.length > 0
+ ? () => requestReject(myWaiting[0], rejectedTemplateCol)
+ : undefined
+ }
+ />
+ ) : null}
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
