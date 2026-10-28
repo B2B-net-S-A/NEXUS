@@ -210,6 +210,7 @@ function contactForm(ctx, ps, lookup) {
       ps.contact = null;
       ps.notice = res.reminder_id ? `Kontakt zapisany. Przypomnienie za ${st.days} dni.` : "Kontakt zapisany.";
       ctx.onWrite();
+      ctx.addLocalContact(st.channel, note.value.trim());
     });
   return h(
     "div",

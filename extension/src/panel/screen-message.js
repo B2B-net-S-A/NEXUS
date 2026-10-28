@@ -94,6 +94,7 @@ async function saveContact(ctx, ms) {
     });
     ms.notice = res.reminder_id ? `Kontakt zapisany. Przypomnienie za ${ms.remind} dni.` : "Kontakt zapisany.";
     ctx.onWrite();
+    ctx.addLocalContact(channel, ms.job ? `rekrutacja: ${ms.job.title}` : null);
   } catch (err) {
     if (err.kind !== ERROR_KINDS.KEY_INVALID) ms.error = apiErrorText(err);
   } finally {

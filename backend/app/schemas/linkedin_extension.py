@@ -244,7 +244,7 @@ class ContactRequest(BaseModel):
     channel: ContactChannel
     job_id: Optional[int] = None
     note: Optional[str] = Field(default=None, max_length=2000)
-    remind_in_days: Optional[int] = Field(default=None, ge=1, le=30)
+    remind_in_days: Optional[int] = Field(default=None, ge=1, le=60)
 
 
 class ContactResponse(BaseModel):

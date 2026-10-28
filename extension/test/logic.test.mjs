@@ -149,3 +149,12 @@ test("licznik odczytów w menu", () => {
   assert.equal(usageLabel({ reads_today: 34, reads_limit: 150 }), "Dziś: 34 / 150 odczytów");
   assert.equal(usageLabel(null), "");
 });
+
+test("kontakt zapisany w panelu trafia od razu na oś osoby (bez nowego odczytu)", async () => {
+  const { withLocalContact } = await import("../src/view/logic.js");
+  const lookup = { status: "found", contacts: [{ at: "2026-10-01T10:00:00Z", user_name: "Anna Fikcyjna", channel_label: "telefon", note: null }] };
+  const next = withLocalContact(lookup, { channel: "inmail", note: "rekrutacja: Java Developer", userName: "Jan Testowy", at: "2026-10-28T12:00:00Z" });
+  assert.equal(next.contacts.length, 2);
+  assert.deepEqual(next.contacts[0], { at: "2026-10-28T12:00:00Z", user_name: "Jan Testowy", channel_label: "InMail", note: "rekrutacja: Java Developer" });
+  assert.equal(lookup.contacts.length, 1, "bez mutacji wejścia");
+});

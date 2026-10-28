@@ -294,6 +294,25 @@ export const CONTACT_CHANNELS = Object.freeze([
   { value: "phone", label: "Telefon" },
 ]);
 
+// Etykiety kanałów na osi „Kontakty zespołu” — te same, które zwraca NEXUS
+// (`CHANNEL_LABELS` w backend/app/services/linkedin_extension_lookup.py).
+export const TIMELINE_CHANNEL_LABELS = Object.freeze({
+  inmail: "InMail",
+  invitation: "zaproszenie na LinkedInie",
+  linkedin_message: "wiadomość na LinkedInie",
+  phone: "telefon",
+});
+
+/**
+ * Kontakt zapisany w panelu → od razu na osi osoby, bez ponownego odczytu
+ * strony (odczyt liczy się do limitu dziennego).
+ */
+export function withLocalContact(lookup, { channel, note, userName, at = new Date().toISOString() }) {
+  if (!lookup) return lookup;
+  const entry = { at, user_name: userName || null, channel_label: TIMELINE_CHANNEL_LABELS[channel] || "kontakt", note: note || null };
+  return { ...lookup, contacts: [entry, ...(lookup.contacts || [])].slice(0, 4) };
+}
+
 export const FIELD_LABELS = Object.freeze({
   full_name: "Osoba",
   current_title: "Stanowisko",

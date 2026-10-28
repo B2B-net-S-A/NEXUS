@@ -7,7 +7,7 @@ import { connectUrl, SERVERS } from "../config.js";
 import { readTab } from "../page.js";
 import { detectPage, PAGE_KINDS } from "../readers/index.js";
 import { clearConnection, getConnection, getServerId, onConnectionChanged, setServerId } from "../storage.js";
-import { chooseScreen, firstName, initialsOf, SCREENS, screenForError, usageLabel } from "../view/logic.js";
+import { chooseScreen, firstName, initialsOf, SCREENS, screenForError, usageLabel, withLocalContact } from "../view/logic.js";
 import { apiErrorText } from "./errors.js";
 import { initialAddState, renderAdd } from "./screen-add.js";
 import { applyBatch, initialListState, renderList } from "./screen-list.js";
@@ -71,6 +71,10 @@ const ctx = {
   api,
   render,
   onWrite: () => cache.delete(state.page?.key),
+  addLocalContact: (channel, note) => {
+    state.lookup = withLocalContact(state.lookup, { channel, note, userName: state.me?.user?.name });
+    render();
+  },
   refreshLookup: () => {
     cache.delete(state.page?.key);
     handleActiveTab({ force: true });

@@ -238,7 +238,15 @@ export function renderAdd(ctx) {
   const head = h(
     "div",
     { class: "person-head" },
-    h("div", { class: "row row--wrap" }, offLimits ? pill("Off-limits", "error") : pill("Nie ma w NEXUSIE", "muted")),
+    h(
+      "div",
+      { class: "row row--wrap" },
+      add.result
+        ? pill(add.result.created === false ? "W NEXUSIE" : "W NEXUSIE · dodano teraz", "success")
+        : offLimits
+          ? pill("Off-limits", "error")
+          : pill("Nie ma w NEXUSIE", "muted"),
+    ),
     h("h2", { class: "person-head__name" }, p.full_name || "Osoba bez nazwiska"),
     p.headline ? h("p", { class: "person-head__sub muted" }, p.headline) : null,
   );
