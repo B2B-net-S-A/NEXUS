@@ -161,6 +161,11 @@ class NotificationType(str, enum.Enum):
     # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
     # mail od razu (`services/new_person_setup.py`).
     new_person_signed_in = "new_person_signed_in"
+    # 0613 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
+    # oznaczone „ważne” — do odbiorców ogłoszenia (wszyscy albo wybrane role),
+    # bez autora; related_entity=(announcement, id). Mail obowiązkowy
+    # (`services/announcements.py`).
+    announcement_important = "announcement_important"
     # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
     # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
     # dzienna lista do dopisania, tylko admini, mail od razu

@@ -231,6 +231,16 @@ CATALOG = (
         "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
+    # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
+    dict(
+        id="announcement",
+        label="Ważne ogłoszenie",
+        module="System",
+        trigger="Head of Recruitment albo administrator opublikował na pulpicie "
+        "ogłoszenie oznaczone „ważne”.",
+        recipient_rule="Odbiorcy ogłoszenia (wszyscy albo wybrane role), bez autora. "
+        "W mailu: tytuł, treść i do kiedy ogłoszenie jest widoczne.",
+    ),
     # 0612 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
     dict(
         id="new_person",
@@ -404,6 +414,7 @@ CLIENT_JOB_KIND = "client_job_opened"
 JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
 JOB_CLOSED_KIND = "job_closed"
+ANNOUNCEMENT_KIND = "announcement"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -420,6 +431,7 @@ REQUIRED_KINDS = frozenset(
         JOB_AD_KIND,
         JOB_P0_KIND,
         JOB_CLOSED_KIND,
+        ANNOUNCEMENT_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -505,6 +517,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
+    ANNOUNCEMENT_KIND: ("announcement_important",),
 }
 
 

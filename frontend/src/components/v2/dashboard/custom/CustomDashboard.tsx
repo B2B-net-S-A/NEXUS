@@ -74,6 +74,7 @@ import { BoardPanelsMenu } from "./BoardPanelsMenu"
 import { TileCatalogSheet } from "./TileCatalogSheet"
 import { TileSettingsDialog } from "./TileSettingsDialog"
 import { P0NowPanel } from "@/components/v2/jobs/p0/P0NowPanel"
+import { AnnouncementPublishButton, AnnouncementsPanel } from "../announcements/AnnouncementsPanel"
 
 const CONTACT_OVERSIGHT_HASH = "#nadzor-kontaktu"
 const BOARD_TASKS_TILE_TYPE = "board_tasks"
@@ -525,6 +526,7 @@ export function CustomDashboard() {
                   </Link>
                 </Button>
               ) : null}
+              <AnnouncementPublishButton />
               {canCustomizePanels && query.isSuccess ? (
                 <BoardPanelsMenu
                   hidden={hiddenPanels}
@@ -554,6 +556,9 @@ export function CustomDashboard() {
       {/* P0 — ultrapilne teraz (27.10.2026): u każdego nad wszystkim, bez
           względu na własny układ (decyzja Artura); znika, gdy nie ma P0. */}
       {editing ? null : <P0NowPanel />}
+      {/* Ogłoszenia (28.10.2026): HoR i admin publikują, u odbiorców nad
+          kafelkami bez względu na układ; znika, gdy nie ma aktywnych. */}
+      {editing ? null : <AnnouncementsPanel />}
       {editing ? null : <EsignCompanyBand />}
       {editing ? null : <DlSendQueueBand hiddenPanels={hiddenPanels} />}
       {/* Panel czeka na układ pulpitu: inaczej listy „Do uzupełnienia” mignęłyby
