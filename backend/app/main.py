@@ -120,6 +120,7 @@ from app.api.integrations_v1.common import (
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_work_rhythm
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -1737,6 +1738,13 @@ app.include_router(
 # Capability VIEW_TEAM_KPI — imienne wyniki cudzej pracy.
 app.include_router(
     insights_team_signals.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
+# Rytm dnia (28.10.2026): rytm i intensywność rekruterów widzi cały zespół;
+# CV do klienta i podpowiedź tylko liderzy, reguły zmienia HoR i admin.
+app.include_router(
+    insights_work_rhythm.router,
     prefix="/api/insights",
     tags=["insights"],
 )
