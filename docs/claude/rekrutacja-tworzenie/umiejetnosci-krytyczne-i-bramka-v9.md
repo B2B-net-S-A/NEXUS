@@ -174,6 +174,14 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     znika razem z odpowiedzią (`evidence_note_text`, słownik
     `_NEGATIVE_ANSWER_RE`; „podstawy”, „słabo” to wciąż znajomość). Ten sam
     tekst czytają statystyki podpowiedzi (`critical_skills.compute_stats`).
+  - 28.10.2026 (zgłoszenie DL-a: „✓ angular” u osoby, która go nie zna):
+    w karcie i faktach ze screeningu odpada też każde zdanie albo jego część
+    po „ale / natomiast / za to / but” (`drop_negative_sentences`), która
+    przeczy albo mówi o chęci nauki („open to learning”, „chce się nauczyć”),
+    a z nagłówka „Frontend (React / Angular)” zostają tylko pozycje, które
+    wymienia treść pod nim (`_prune_heading_lists`). Zwykłe notatki bez zmian.
+    Staging 22.10: 338 z 79 242 par notatka × must przestaje być dowodem
+    (228 z 16 034 kart), 86 wraca (tekst zamiast znaczników HTML).
   - „Tylko zdalnie” z notatek ukrywa wyłącznie przy pracy stacjonarnej, od
     4 dni w biurze albo przy jawnym `exclude_remote_only`
     (`DealbreakerInputs.remote_only_hides`); przy hybrydzie wiersz niesie
