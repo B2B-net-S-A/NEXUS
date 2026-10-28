@@ -59,7 +59,28 @@ def test_backlog_is_reminded_on_the_first_day_of_the_rule() -> None:
     assert (state.days, state.stage) == (14, "remind")
     # Ludzie widzą prawdziwą ciszę, nie dzień cyklu.
     assert state.quiet_days == 180
-    assert state.close_on.isoformat() == "2026-11-12"
+    # Zaległe mają 28 dni (decyzja Artura 29.10.2026): HoR po 21, zamknięcie po 28.
+    assert state.hor_on.isoformat() == "2026-11-19"
+    assert state.close_on.isoformat() == "2026-11-26"
+    assert (
+        idle_state(old, started_at=START, now=START + timedelta(days=20)).stage
+        == "remind"
+    )
+    assert (
+        idle_state(old, started_at=START, now=START + timedelta(days=21)).stage == "hor"
+    )
+    assert (
+        idle_state(old, started_at=START, now=START + timedelta(days=28)).stage
+        == "close"
+    )
+
+
+def test_new_silence_after_the_start_keeps_14_21_28() -> None:
+    moved = START + timedelta(days=3)
+    facts = _facts(last_move_at=moved, last_move_kind="cv")
+    state = idle_state(facts, started_at=START, now=moved + timedelta(days=21))
+    assert (state.days, state.stage) == (21, "hor")
+    assert (state.close_on - state.hor_on).days == 7
 
 
 def test_cv_to_the_client_restarts_the_count() -> None:

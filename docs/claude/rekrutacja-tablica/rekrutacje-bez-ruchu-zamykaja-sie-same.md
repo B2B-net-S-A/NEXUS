@@ -19,8 +19,9 @@ https://claude.ai/artifact/VKCXNX7A4Tqw5q5FTbP3kz (wersja 2).
 - Licznik liczy dni kalendarza firmy od późniejszego z: ostatniego ruchu,
   otwarcia rekrutacji, „Jeszcze trwa” (`jobs.idle_snoozed_at`) i startu reguły
   minus 14 dni (`app_settings['job_idle:started_at']`, zapisuje go pierwszy
-  przebieg). Zaległe dostają więc przypomnienie w dniu włączenia, HoR po
-  7 dniach, zamknięcie po 14.
+  przebieg). Zaległe dostają więc przypomnienie w dniu włączenia, a —
+  decyzja Artura z 29.10.2026, bo na kopii stagingu byłoby to 113 z ok. 200
+  otwartych — HoR po 21 dniach i zamknięcie po 28 (`BACKLOG_EXTRA_DAYS`).
 - **14 dni** → dzwonek i mail obowiązkowy do Delivery Leada (bez aktywnego DL:
   Head of Recruitment). **21 dni** → to samo i do Head of Recruitment, z liczbą
   rekrutacji na DL. **28 dni** → NEXUS zamyka (`close_job_core`, autor pusty)

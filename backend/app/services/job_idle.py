@@ -12,7 +12,8 @@ i wybrał jedną regułę z dwoma przyciskami:
   rekrutacji rekruter ruszał karty w ostatnich 14 dniach;
 * licznik liczy od późniejszego z: ostatniego ruchu, otwarcia rekrutacji,
   „Jeszcze trwa” (``jobs.idle_snoozed_at``) i startu reguły minus 14 dni
-  (zaległe dostają przypomnienie w dniu włączenia);
+  (zaległe dostają przypomnienie w dniu włączenia, a — decyzja Artura
+  29.10.2026 — HoR po 21 dniach i zamknięcie po 28 od startu);
 * **14 dni** → dzwonek i mail do Delivery Leada (bez DL: Head of Recruitment),
   **21 dni** → to samo i do Head of Recruitment, **28 dni** → NEXUS zamyka
   rekrutację powodem ``no_activity``, który liczy się jak przegrana
@@ -58,6 +59,10 @@ CLOSE_DAYS = 28
 # Zamknięcie najwcześniej tyle dni (kalendarz firmy) po przypomnieniu do Head
 # of Recruitment — liczone dniami, bo wpis dzwonka jest jeden na dzień.
 CLOSE_AFTER_HOR_DAYS = 7
+# Zaległe (cisza sprzed startu reguły) — decyzja Artura 29.10.2026: 28 dni na
+# reakcję zamiast 14. Przypomnienie w dniu startu, HoR po 21 dniach, zamknięcie
+# po 28 (próg HoR i zamknięcia przesunięty o 14 dni).
+BACKLOG_EXTRA_DAYS = 14
 STARTED_KEY = "job_idle:started_at"
 MARKER_ACTION = "idle_notice"
 SNOOZE_ACTION = "idle_snoozed"
@@ -112,10 +117,10 @@ def _local_day(moment: datetime) -> date:
     return _aware(moment).astimezone(_tz()).date()
 
 
-def stage_for(days: int) -> Optional[str]:
-    if days >= CLOSE_DAYS:
+def stage_for(days: int, extra: int = 0) -> Optional[str]:
+    if days >= CLOSE_DAYS + extra:
         return "close"
-    if days >= HOR_DAYS:
+    if days >= HOR_DAYS + extra:
         return "hor"
     if days >= REMIND_DAYS:
         return "remind"
@@ -136,15 +141,17 @@ def idle_state(facts: IdleFacts, *, started_at: datetime, now: datetime) -> Idle
     days = max(0, (today - start_day).days)
     real = candidates[1:]
     quiet_days = max(0, (today - _local_day(max(real))).days) if real else days
+    backlog = all(moment < floor for moment in real)
+    extra = BACKLOG_EXTRA_DAYS if backlog else 0
     return IdleState(
         job_id=facts.job_id,
         since=since,
         days=days,
         quiet_days=max(days, quiet_days),
-        stage=stage_for(days),
+        stage=stage_for(days, extra),
         remind_on=start_day + timedelta(days=REMIND_DAYS),
-        hor_on=start_day + timedelta(days=HOR_DAYS),
-        close_on=start_day + timedelta(days=CLOSE_DAYS),
+        hor_on=start_day + timedelta(days=HOR_DAYS + extra),
+        close_on=start_day + timedelta(days=CLOSE_DAYS + extra),
         last_move_at=facts.last_move_at,
         last_move_kind=facts.last_move_kind,
     )
