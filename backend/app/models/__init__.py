@@ -748,7 +748,7 @@ from app.models.candidate_job_owner import (  # noqa: F401
     CandidateJobOwnerEvent,
 )
 from app.models.pair_departure_care import PairDepartureCare  # noqa: F401
-from app.models.job_similar_link import JobSimilarLink  # noqa: F401
+from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
 
 # 0369: Akademia — nabór do programów szkoleniowych.

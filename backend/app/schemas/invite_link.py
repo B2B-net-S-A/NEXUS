@@ -198,7 +198,7 @@ class PublicProfileResponse(BaseModel):
     show_on_recruiter_page: bool = True
     # 0478: wybór rekrutera (``None`` = domyślny) i domyślny według roli.
     theme: Optional[str] = None
-    theme_default: str = "terminal"
+    theme_default: str = "grafit"
     approved_at: Optional[datetime] = None
     approved_by_name: Optional[str] = None
     # Zatwierdzony opis, ale must/nice, miasto, start albo długość zmieniły się
