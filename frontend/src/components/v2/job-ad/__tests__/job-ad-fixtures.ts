@@ -19,6 +19,7 @@ export const CONTENT: AdContent = {
   start: "listopad 2026",
   duration: "12 miesięcy",
   language: "polski",
+  city: "",
   responsibilities: ["rozwój mikroserwisów", "przeglądy kodu"],
   requirements: ["min. 5 lat doświadczenia w Javie", "praktyka z Apache Kafka"],
   nice_to_have: ["Kubernetes i OpenShift"],

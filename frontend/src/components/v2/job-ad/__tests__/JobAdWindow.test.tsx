@@ -342,6 +342,21 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
     });
   });
 
+  it("miasto w ogłoszeniu zastępuje to z rekrutacji, a puste pole wraca do rekrutacji", async () => {
+    // Zgłoszenie 28.10.2026: adres biura z lokalizacji rekrutacji zdradzał klienta.
+    const api = setup(adState());
+    const city = await screen.findByLabelText("Miasto w ogłoszeniu");
+    expect(city).toHaveValue("");
+    expect(city).toHaveAttribute("placeholder", "Z rekrutacji: Warszawa");
+    fireEvent.change(city, { target: { value: " Warszawa lub Lublin " } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz warunki" }));
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    expect(api.save.mock.calls[0][1].content).toMatchObject({
+      city: "Warszawa lub Lublin",
+      start: "listopad 2026",
+    });
+  });
+
   it("„Przygotuj ponownie” pyta o zgodę, zanim zastąpi treść", async () => {
     const api = setup(adState());
     fireEvent.click(await screen.findByRole("button", { name: "Przygotuj ponownie" }));

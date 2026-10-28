@@ -402,3 +402,62 @@ def test_rendered_texts_cover_everything_that_can_be_copied():
     ):
         assert expected in texts, expected
     assert all(texts)
+
+
+# ── Miasto bez adresu (zgłoszenie 28.10.2026) ───────────────────────────────
+
+from app.services.public_city import has_address, public_city  # noqa: E402
+
+
+def test_public_city_drops_the_street_that_points_at_the_client():
+    # adres biura klienta
+    # z pola lokalizacji szedł do ogłoszenia, maila do opiekuna i JustJoin.IT.
+    assert public_city("Warszawa, Kwiatowa 12") == "Warszawa"
+    assert public_city("Warszawa, ul. Kwiatowa 12") == "Warszawa"
+    assert (
+        public_city("Siedziba klienta, al. Przykładowa 7, 00-950 Warszawa")
+        == "Warszawa"
+    )
+    assert public_city("ul. Portowa 3\n80-001 Gdańsk") == "Gdańsk"
+    assert (
+        public_city(
+            "Warszawa, ul. Kwiatowa 12 / Lublin, ul. Lipowa 32a – kandydat może wybrać"
+        )
+        == "Warszawa lub Lublin"
+    )
+
+
+def test_public_city_keeps_a_location_without_an_address():
+    for text in (
+        "Warszawa",
+        "Poznań",
+        "Gdańsk lub Warszawa (2 dni z biura obowiązkowo, 3 dni od stycznia)",
+        "Sporadycznie, zakładamy 1-2 dni w miesiącu",
+        "",
+    ):
+        assert public_city(text) == text
+
+
+def test_public_city_without_a_known_city_leaves_nothing_rather_than_the_address():
+    assert public_city("ul. Nieznana 5") == ""
+
+
+def test_has_address_finds_streets_and_postal_codes_but_not_working_days():
+    assert has_address("biuro przy ul. Kwiatowej 12")
+    assert has_address("Warszawa, Ogrodowa 36")
+    assert has_address("00-950 Warszawa")
+    assert not has_address("Gdańsk lub Warszawa (2 dni z biura, 3 dni od stycznia)")
+    assert not has_address("Sporadycznie, zakładamy 1-2 dni w miesiącu")
+    assert not has_address("ASP.NET Core 8, Angular 17")
+
+
+def test_city_typed_in_the_ad_replaces_the_one_from_the_recruitment():
+    view = _render(_content(city="Warszawa lub zdalnie"), _material(city="Warszawa"))
+    assert "Warszawa lub zdalnie" in render.rendered_texts(view)
+    assert all("(Warszawa)" not in text for text in render.rendered_texts(view))
+
+
+def test_domain_ending_a_sentence_is_not_a_street():
+    assert not has_address(
+        "Ogłoszenie wisi na pracuj.pl. Kandydat aplikuje przez portal."
+    )

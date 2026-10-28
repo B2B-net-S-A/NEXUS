@@ -27,6 +27,7 @@ from app.models.job import Job, JobStatus
 from app.models.job_public_profile import DEFAULT_PUBLIC_SECTIONS, JobPublicProfile
 from app.models.user import User
 from app.services import champion_view
+from app.services.public_city import public_city
 from app.services.public_profile_lint import (
     Finding,
     lint_internal_codes,
@@ -317,6 +318,13 @@ def _clean(value: Any, limit: int = 120) -> Optional[str]:
     return text[:limit] if text else None
 
 
+def location(job: Job) -> Optional[str]:
+    """Lokalizacja z rekrutacji tak, jak ją wpisano — także z adresem biura."""
+    raw = getattr(job, "champion_profile", None) or {}
+    basics = champion_view.basics(raw) if isinstance(raw, dict) and raw else {}
+    return _clean(job.location) or _clean(basics.get("candidate_location_pref"))
+
+
 def public_params(job: Job) -> dict[str, Any]:
     raw = getattr(job, "champion_profile", None) or {}
     basics = champion_view.basics(raw) if isinstance(raw, dict) and raw else {}
@@ -333,7 +341,8 @@ def public_params(job: Job) -> dict[str, Any]:
     # Bez typów rekrutacji (25.09.2026): każda rekrutacja to współpraca B2B.
     contract = "B2B"
     return {
-        "city": _clean(job.location) or _clean(basics.get("candidate_location_pref")),
+        # Samo miasto: adres biura klienta pozwala go wygooglować (28.10.2026).
+        "city": public_city(location(job)),
         "remote_policy": remote,
         "onsite_days_per_week": onsite,
         # 0407: gdy klient liczy na miesiąc, strona pokazuje „N dni w miesiącu”.
