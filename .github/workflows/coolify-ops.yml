@@ -55,7 +55,7 @@ on:
       action:
         description: "What to do"
         type: choice
-        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing, atlas-import]
+        options: [teams-prep-session-audit, teams-prep-config-audit, teams-prep-meeting-probe, app-mail-send-probe, app-mail-config-audit, release-config-audit, linkedin-extension-audit, staging-status, candidate-index-audit, candidate-index-repair, list, cancel, cron-list, backup-status, client-lookup, migration-receipts, contract-merge-audit, contract-merge-apply, nexus-data-correction-audit, nexus-data-correction-apply, eval-ab, eval-ab-scorer, eval-ab-text, eval-ab-text-notes, eval-ab-query-adapter, eval-read, eval-stop, eval-cv-quality, recover-cv-quality, inspect-cv-quality, cleanup-cv-quality, cv-generation-logs, startup-timing, atlas-import]
         default: list
       index_audit_identity:
         description: "Reviewed audit RUN_ID-ATTEMPT (candidate-index-repair only)"
@@ -194,6 +194,25 @@ permissions:
   contents: read
 
 jobs:
+  linkedin-extension-audit:
+    name: Read LinkedIn extension configuration and bounded route counters
+    # Only checked-in code from main may read production configuration/logs.
+    if: ${{ github.ref == 'refs/heads/main' && inputs.action == 'linkedin-extension-audit' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Verify redaction and read-only request scope
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_linkedin_extension_audit.py
+      - name: Read public extension IDs and sanitized route counts
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+        run: python3 .github/scripts/linkedin-extension-audit.py
+
   teams-prep-probe:
     name: Scoped Teams access and optional synthetic meeting probe
     if: ${{ github.ref == 'refs/heads/main' && (inputs.action == 'teams-prep-config-audit' || inputs.action == 'teams-prep-meeting-probe' || inputs.action == 'teams-prep-session-audit') }}
@@ -288,7 +307,7 @@ jobs:
     # eval-* przeszedłby jako zielony bez wykonania czegokolwiek — a zielony
     # job, który nic nie zrobił, czyta się jak potwierdzenie.
     # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
-    if: ${{ github.ref == 'refs/heads/main' && (inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-')) }}
+    if: ${{ github.ref == 'refs/heads/main' && (inputs.action != 'linkedin-extension-audit' && inputs.action != 'release-config-audit' && inputs.action != 'cv-generation-logs' && inputs.action != 'startup-timing' && inputs.action != 'staging-status' && !startsWith(inputs.action, 'eval') && inputs.action != 'recover-cv-quality' && inputs.action != 'inspect-cv-quality' && inputs.action != 'cleanup-cv-quality' && !startsWith(inputs.action, 'contract-merge-') && !startsWith(inputs.action, 'nexus-data-correction-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -53,6 +53,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
   const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
+  const isExtensionPrivacyPage = pathname === "/wtyczka/prywatnosc";
   // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
   // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
   // a `usePathname()` zwraca adres WIDOCZNY — samo `startsWith("/kariera")`
@@ -90,7 +91,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const hasOwnSession = useAuthStore((s) => !!s.token && !s.realUser);
   const userSynced = useRef(false);
   useEffect(() => {
-    if (!hydrated || !hasOwnSession || userSynced.current) return;
+    if (isExtensionPrivacyPage || !hydrated || !hasOwnSession || userSynced.current) return;
     userSynced.current = true;
     api
       .get("/api/auth/me")
@@ -99,7 +100,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
         // Best-effort: przy błędzie zostaje zapamiętany profil. Martwą sesję
         // (401) obsługuje interceptor w lib/api.ts.
       });
-  }, [hydrated, hasOwnSession, syncUser]);
+  }, [hydrated, hasOwnSession, syncUser, isExtensionPrivacyPage]);
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -153,6 +154,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isCvPreviewPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
+  if (isExtensionPrivacyPage) return <>{children}</>;
   if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
   if (pathname?.startsWith("/preview")) return <>{children}</>;

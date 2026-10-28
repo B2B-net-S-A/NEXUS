@@ -13,11 +13,14 @@ rm -f "$OUT"
 # Sprawdzenie przed pakowaniem: poprawny JSON i zielone testy.
 node -e "JSON.parse(require('fs').readFileSync('manifest.json','utf8'))"
 if [ -d node_modules/linkedom ]; then
-  node --test test >/dev/null
+  node --test test
 else
-  echo "Uwaga: brak node_modules (npm install) — pakuję bez uruchomienia testów." >&2
+  echo "Brak zależności testów. Uruchom npm ci w extension/ przed pakowaniem." >&2
+  exit 1
 fi
 
 zip -r -X -q "$OUT" manifest.json icons src -x "*.DS_Store"
+unzip -t "$OUT" >/dev/null
+shasum -a 256 "$OUT" > "$OUT.sha256"
 echo "Gotowe: extension/$OUT"
 unzip -l "$OUT" | tail -n 1

@@ -32,7 +32,8 @@
   ],
   "host_permissions": [
     "https://www.linkedin.com/*",
-    "https://*.b2bnetwork.pl/*",
+    "https://nexus.b2bnetwork.pl/*",
+    "https://api.nexus.b2bnetwork.pl/*",
     "https://api.nexus.dynaminds.pl/*",
     "http://localhost:8100/*"
   ],
