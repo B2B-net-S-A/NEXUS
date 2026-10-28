@@ -72,7 +72,9 @@ def test_migration_reads_the_shared_module() -> None:
     assert "for stmt in schema.ALL_DDL:" in source
     leads = (ROOT / "alembic/versions/0602_sales_leads.py").read_text(encoding="utf-8")
     assert "for stmt in schema.LEADS_DDL:" in leads
-    gaps = (ROOT / "alembic/versions/0614_sales_atlas_gaps.py").read_text(encoding="utf-8")
+    gaps = (ROOT / "alembic/versions/0614_sales_atlas_gaps.py").read_text(
+        encoding="utf-8"
+    )
     assert "for stmt in schema.GAPS_DDL:" in gaps
     history = (ROOT / "alembic/versions/0615_sales_opportunity_events.py").read_text(
         encoding="utf-8"
