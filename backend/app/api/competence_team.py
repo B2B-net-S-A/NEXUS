@@ -194,14 +194,33 @@ async def put_assignment(
     1. priorytet jest jeden na osobę (częściowy UNIQUE): nadanie go w nowej
     kategorii przenosi dotychczasową główną na 2. priorytet.
     """
-    user = await db.scalar(
-        select(User).where(User.id == payload.user_id).with_for_update()
+    await assign_category(
+        db,
+        user_id=payload.user_id,
+        category_id=payload.competence_category_id,
+        priority=payload.priority,
+        actor=current_user,
     )
+    await db.commit()
+    return {"ok": True}
+
+
+async def assign_category(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    category_id: int,
+    priority: Literal[1, 2],
+    actor: User,
+) -> None:
+    """Nadanie kategorii bez commitu — także z okna „Ustaw nową osobę”
+    (``api/people_setup.py``), w jednej transakcji ze zmianą roli."""
+    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
     if user is None or not user.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
     if not user.has_any_role(*OPERATOR_ROLES):
         raise HTTPException(422, "Kategorię można nadać tylko rekruterowi.")
-    category = await db.get(CompetenceCategory, payload.competence_category_id)
+    category = await db.get(CompetenceCategory, category_id)
     if category is None or not category.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej kategorii.")
 
@@ -215,7 +234,7 @@ async def put_assignment(
         ).all()
     )
     existing = next((r for r in rows if r.competence_category_id == category.id), None)
-    if payload.priority == 1:
+    if priority == 1:
         for row in rows:
             if row is not existing and row.priority == 1:
                 row.priority = 2
@@ -226,22 +245,22 @@ async def put_assignment(
             UserCompetenceCategory(
                 user_id=user.id,
                 competence_category_id=category.id,
-                priority=payload.priority,
-                is_primary=payload.priority == 1,
+                priority=priority,
+                is_primary=priority == 1,
             )
         )
     else:
-        existing.priority = payload.priority
-        existing.is_primary = payload.priority == 1
+        existing.priority = priority
+        existing.is_primary = priority == 1
     db.add(
         Activity(
             entity_type="user",
             entity_id=user.id,
             action="competence_category_assigned",
-            user_id=current_user.id,
+            user_id=actor.id,
             details={
                 "competence_category_id": category.id,
-                "priority": payload.priority,
+                "priority": priority,
             },
         )
     )
@@ -249,8 +268,6 @@ async def put_assignment(
     await sync_cc_participants(
         db, category_ids=[row.competence_category_id for row in rows] + [category.id]
     )
-    await db.commit()
-    return {"ok": True}
 
 
 @router.delete("/assignments/{assignment_id}")

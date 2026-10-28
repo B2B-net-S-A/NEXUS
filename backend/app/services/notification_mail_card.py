@@ -183,6 +183,9 @@ SPECS: dict[str, _Spec] = {
     "candidate_data_access_alert": _Spec(
         "Sprawdź alarm", chip="Bezpieczeństwo", label="Sprawdź konta"
     ),
+    # 0612: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
+    # „Ustaw” na pulpicie (`?nowa-osoba=`), decyzja zapada dopiero w oknie.
+    "new_person_signed_in": _Spec("Zdecyduj, kim jest nowa osoba", label="Zdecyduj"),
     # Czas i ludzie — temat bez rodzaju nieobecności.
     "hr_leave_requested": _Spec("Zatwierdź nieobecność", label="Zatwierdź"),
     "hr_absence_reported": _Spec(
@@ -370,6 +373,11 @@ def _buttons(
             MailButton("Zatwierdź", with_params(link, decide="approve"), "primary"),
             MailButton("Odrzuć", with_params(link, decide="reject"), "neg"),
             MailButton("Otwórz wniosek", with_params(link, decide=None)),
+        )
+    if ntype == "new_person_signed_in" and "nowa-osoba=" in link:
+        return (
+            MailButton(spec.label, link, "primary"),
+            MailButton("Zostaw jako Konsultanta", with_params(link, zostaw="1"), "neg"),
         )
     if ntype == "hr_leave_requested":
         # Wniosek „do wiadomości” (zastępca przy L4) albo bez numeru w linku.

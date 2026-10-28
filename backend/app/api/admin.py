@@ -84,6 +84,9 @@ class AdminUserResponse(BaseModel):
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
+    # 0612: konto po pierwszym logowaniu czeka na decyzję, kim jest
+    # (filtr „Do decyzji” i plakietka „Nowa · zdecyduj”).
+    setup_pending_since: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -216,6 +219,7 @@ async def list_users(
             roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            setup_pending_since=u.setup_pending_since,
             extra_permissions=list(
                 granted_beyond_roles(
                     u,
@@ -428,6 +432,14 @@ async def update_user(
     if authorization_changed:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+    if (
+        user.role != original_role
+        or list(user.roles or []) != original_roles
+        or not user.is_active
+    ):
+        # 0612: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
+        # znika z „Nowych osób do ustawienia”.
+        user.setup_pending_since = None
     await trainee_program.sync_program_for_roles(
         db,
         user.id,

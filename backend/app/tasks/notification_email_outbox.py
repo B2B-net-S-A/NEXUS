@@ -123,6 +123,8 @@ def kind_clause(kind: str):
         )
     if kind == "data_access_alert":
         return ntype == NotificationType.candidate_data_access_alert
+    if kind == "new_person":
+        return ntype == NotificationType.new_person_signed_in
     if kind == HR_MAIL_KIND:
         return ntype.in_([NotificationType(value) for value in HR_MAIL_TYPES])
     if kind == HR_BONUS_KIND:
