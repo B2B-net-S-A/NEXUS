@@ -78,7 +78,10 @@ from app.services.hr.time_entries import (
 router = APIRouter()
 
 MODULE = HrModule.time
-NOT_APPROVER_DETAIL = "Godziny potwierdza koordynator, Kadry albo administrator."
+NOT_APPROVER_DETAIL = (
+    "Godziny potwierdza koordynator, Kadry, osoba z uprawnieniem „Raporty godzin” "
+    "albo administrator."
+)
 NOT_PAYROLL_DETAIL = "Godziny całego miesiąca (paczkę i CSV) pobierają Płace i Kadry."
 NOT_ADMIN_DETAIL = "Domyślne opisy ustawiają Kadry."
 NOT_REMINDER_DETAIL = (
@@ -91,7 +94,8 @@ NOT_REMINDER_DETAIL = (
 
 
 def require_hr_time_approver():
-    """Kolejka akceptacji: przełożony z ludźmi w kartotece, Kadry, admin."""
+    """Kolejka akceptacji: przełożony z ludźmi w kartotece, Kadry, „Raporty
+    godzin”, admin."""
 
     async def _check(
         current_user: User = Depends(require_onboarded_user),
@@ -106,7 +110,8 @@ def require_hr_time_approver():
 
 
 def require_hr_time_reader():
-    """PDF timesheetu: osoba z kartoteką albo Płace/Kadry/admin (zakres w handlerze)."""
+    """PDF timesheetu: osoba z kartoteką albo Płace/Kadry/„Raporty godzin”/admin
+    (zakres w handlerze)."""
 
     async def _check(
         current_user: User = Depends(require_onboarded_user),
@@ -115,7 +120,11 @@ def require_hr_time_reader():
         await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin) or any(
             has_permission(current_user, p)
-            for p in (ProductAction.people_admin, ProductAction.payroll)
+            for p in (
+                ProductAction.people_admin,
+                ProductAction.payroll,
+                ProductAction.timesheets,
+            )
         ):
             return current_user
         if await people.has_live_profile(db, current_user.id):

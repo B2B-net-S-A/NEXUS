@@ -72,6 +72,7 @@ export function TimesheetApprovalsSection({
   const canApprove =
     config.me.is_admin ||
     config.me.people_admin ||
+    config.me.timesheets === true ||
     config.me.is_manager ||
     (config.me.covering?.length ?? 0) > 0;
   const canZip = config.me.is_admin || config.me.people_admin || config.me.payroll;

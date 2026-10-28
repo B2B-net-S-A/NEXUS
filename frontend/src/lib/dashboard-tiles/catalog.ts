@@ -890,7 +890,7 @@ export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability 
         : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założą ją Kadry" };
     case "hr_approvals":
       if (!open.leave && !open.time) return "hidden";
-      return me.is_admin || me.people_admin || me.is_manager
+      return me.is_admin || me.people_admin || me.timesheets === true || me.is_manager
         ? OK
         : { ok: false, reason: "Dla koordynatorów i Kadr" };
     case "equipment_tasks":

@@ -70,7 +70,6 @@ from app.services.hr.leave_context import candidate_payload, substitute_candidat
 from app.services.hr.leave_policy import LeavePolicyError
 from app.services.hr.leave_queries import history_counts, mask_for_viewer
 from app.services.hr.modules import HrModule, load_modules, module_open_for
-from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
 from app.services.permission_denial import ensure_any_permission
 
@@ -93,16 +92,7 @@ def require_hr_leave_approver():
         db: AsyncSession = Depends(get_db),
     ) -> User:
         await ensure_module(db, current_user, MODULE)
-        if service.actor_of(current_user).sees_everyone:
-            return current_user
-        if await people.direct_report_ids(db, current_user.id):
-            return current_user
-        if await leave_substitute.covered_reports(
-            db, current_user.id, business_today()
-        ):
-            return current_user
-        # Head pionu prowadzi osoby swojego pionu bez żywego przełożonego.
-        if await division_charges(db, current_user.id):
+        if await service.is_leave_approver(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
