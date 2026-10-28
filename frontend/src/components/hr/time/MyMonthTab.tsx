@@ -52,9 +52,6 @@ import {
   statusLine,
 } from "./time-format";
 
-/** Opis, gdy osoba nie ma domyślnego opisu roli (jak serwer i „Wypełnij miesiąc”). */
-const STANDARD_DESCRIPTION = "Praca standardowa";
-
 export interface MyMonthTabProps {
   config: HrConfig;
   /** Miesiąc z adresu (np. link z powiadomienia); domyślnie bieżący. */
@@ -135,7 +132,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   };
 
   const roleDefault = templates.data?.role_default ?? null;
-  const defaultDescription = roleDefault?.description || STANDARD_DESCRIPTION;
+  // Bez opisu roli — słowo formy, jak serwer i „Wypełnij miesiąc”.
+  const defaultDescription = roleDefault?.description || words.standard_description;
   const quickSave = (day: MonthDay, input: QuickEntryInput) =>
     save
       .mutateAsync({

@@ -237,8 +237,25 @@ describe("MyMonthTab", () => {
     renderTab();
 
     const paid = await screen.findByTestId("day-2031-03-04");
-    expect(within(paid).getByText(/wpisze się ze zgłoszenia/)).toBeInTheDocument();
+    expect(within(paid).getByText(/wpisze się ze zgłoszenia/)).toHaveTextContent(
+      "Realizacja usług zgodnie z umową · wpisze się ze zgłoszenia",
+    );
     expect(within(paid).queryByText(/wniosk/)).toBeNull();
+  });
+
+  it("B2B: pusty dzień wpisuje się opisem „Realizacja usług zgodnie z umową”, nie „Praca standardowa”", async () => {
+    routeGet(month({ employment_type: "b2b" }));
+    mocks.post.mockResolvedValue({ data: {} });
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/hr/time/me/2031/3/entries",
+        expect.objectContaining({ description: "Realizacja usług zgodnie z umową" }),
+      ),
+    );
   });
 
   it("wysłany timesheet nie ma akcji edycji, zaakceptowany ma PDF", async () => {

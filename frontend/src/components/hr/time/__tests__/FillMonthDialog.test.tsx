@@ -1,5 +1,5 @@
 import type React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FillResult, TimesheetTemplate } from "@/lib/api/hr-time";
@@ -148,6 +148,14 @@ describe("FillMonthDialog", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/godziny ponad 8 h wpisuje się w dniu, z krótkim opisem/);
     expect(alert.textContent).not.toMatch(/nadgodzin/);
+  });
+
+  it("bez opisu roli: B2B i zlecenie „Realizacja usług zgodnie z umową”, UoP „Praca standardowa” (28.10.2026)", () => {
+    renderDialog({ form: "b2b", roleDefault: null });
+    expect(screen.getByText("„Realizacja usług zgodnie z umową”")).toBeInTheDocument();
+    cleanup();
+    renderDialog({ form: "uop", roleDefault: null });
+    expect(screen.getByText("„Praca standardowa”")).toBeInTheDocument();
   });
 
   it("szablon z listy i 6,5 h", async () => {
