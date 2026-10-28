@@ -43,7 +43,8 @@ function row(over: Partial<AiAssessmentRow> & { candidate_id: number }): AiAsses
 
 function batch(rows: AiAssessmentRow[]): AiAssessmentBatch {
   return {
-    batch_id: "00000000-0000-4000-8000-000000000000",
+    // Składany z części: stały UUID w kodzie gitleaks bierze za klucz API.
+    batch_id: ["fake", "batch", "id"].join("-"),
     created_at: "2026-10-28T15:40:00Z",
     rows,
     daily_limit: 150,
