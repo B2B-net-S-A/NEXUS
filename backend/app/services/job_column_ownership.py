@@ -109,7 +109,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "p0_reason",
         "p0_set_at",
         "p0_set_by",
-        # 0609: prośba Delivery Leada o P0.
+        # 0610: prośba Delivery Leada o P0.
         "p0_request_reason",
         "p0_request_duration",
         "p0_requested_at",

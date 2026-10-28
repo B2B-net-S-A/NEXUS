@@ -179,7 +179,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_ad_nudge: _C.reminders,
     # 0525: P0 na rekrutacji Twojego zespołu (mail obowiązkowy).
     _T.job_p0_set: _C.reminders,
-    # 0609: Delivery Lead prosi o P0 (do Head of Recruitment).
+    # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
     _T.job_p0_requested: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,

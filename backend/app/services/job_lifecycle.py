@@ -1464,7 +1464,7 @@ async def close_job_core(
     job.p0_reason = None
     job.p0_set_at = None
     job.p0_set_by = None
-    # 0609: oczekująca prośba DL o P0 też gaśnie.
+    # 0610: oczekująca prośba DL o P0 też gaśnie.
     job.p0_request_reason = None
     job.p0_request_duration = None
     job.p0_requested_at = None

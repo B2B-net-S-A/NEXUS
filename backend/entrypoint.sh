@@ -791,7 +791,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
-    # 0609: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
+    # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
@@ -5130,7 +5130,7 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_by INTEGER NULL "
     "REFERENCES users(id) ON DELETE SET NULL",
-    # 0609: prośba Delivery Leada o P0 (services/job_p0.py).
+    # 0610: prośba Delivery Leada o P0 (services/job_p0.py).
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_reason VARCHAR(300) NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_duration VARCHAR(16) NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_at TIMESTAMPTZ NULL",

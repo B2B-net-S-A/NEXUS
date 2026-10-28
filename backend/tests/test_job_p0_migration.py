@@ -12,7 +12,7 @@ from app.models.notification import NotificationType
 
 BACKEND = Path(__file__).resolve().parents[1]
 MIGRATION = BACKEND / "alembic" / "versions" / "0525_job_p0.py"
-REQUEST_MIGRATION = BACKEND / "alembic" / "versions" / "0609_job_p0_request.py"
+REQUEST_MIGRATION = BACKEND / "alembic" / "versions" / "0610_job_p0_request.py"
 
 
 def _migration_module(path: Path = MIGRATION):
@@ -47,7 +47,7 @@ def test_model_knows_every_p0_column() -> None:
 
 
 def test_p0_request_columns_and_notification_type_are_mirrored() -> None:
-    """0609: prośba DL o P0 — to samo lustro w entrypoincie i w modelu."""
+    """0610: prośba DL o P0 — to samo lustro w entrypoincie i w modelu."""
     module = _migration_module(REQUEST_MIGRATION)
     entry = _entrypoint()
     for statement in (*module.COLUMNS, module.ADD_NOTIFICATION_TYPE):

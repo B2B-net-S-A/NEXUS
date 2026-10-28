@@ -1,7 +1,7 @@
 """P0: prośba Delivery Leada, zatwierdza Head of Recruitment (decyzja Artura 28.10.2026).
 
-Revision ID: 0609_job_p0_request
-Revises: 0608_linkedin_extension
+Revision ID: 0610_job_p0_request
+Revises: 0609_skill_catalog_identityiq
 
 Propozycja Olafa: Delivery Lead też ma móc oznaczyć rekrutację jako P0.
 Decyzja Artura: DL nie ustawia P0 sam, tylko prosi z powodem i czasem,
@@ -17,8 +17,8 @@ Lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0609_job_p0_request"
-down_revision = "0608_linkedin_extension"
+revision = "0610_job_p0_request"
+down_revision = "0609_skill_catalog_identityiq"
 branch_labels = None
 depends_on = None
 
@@ -41,7 +41,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'job_p0_requested'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0609 odmawia: notifications ma wpisy job_p0_requested, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0610 odmawia: notifications ma wpisy job_p0_requested, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

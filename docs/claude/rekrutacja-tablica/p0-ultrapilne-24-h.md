@@ -67,7 +67,7 @@ widziała najpierw trzy cudze, a jej własne chowało się w „I jeszcze 2”.
   wybiera w menu priorytetu „Poproś o P0…” — to samo okno co „Ustaw P0”
   (`SetP0Dialog mode="request"`), powód i czas obowiązkowe.
   `POST /api/jobs/{id}/p0/request` zapisuje prośbę w `jobs.p0_request_*`
-  / `p0_requested_at` / `p0_requested_by` (0609; jedna oczekująca na
+  / `p0_requested_at` / `p0_requested_by` (0610; jedna oczekująca na
   rekrutację, kolejna nadpisuje) i dzwoni `job_p0_requested` do Head of
   Recruitment (bez nich — do adminów), mail obowiązkowy w rodzaju `job_p0`.
   Prośba przy trwającym P0 = 409. Panel na pulpicie pokazuje HoR
