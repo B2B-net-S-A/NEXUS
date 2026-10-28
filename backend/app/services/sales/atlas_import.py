@@ -309,6 +309,10 @@ class _Context:
     #: Opiekun z Atlasa po rozwiązaniu na konto NEXUSA (id Atlasa → user id).
     company_owner: dict[str, Optional[int]] = field(default_factory=dict)
     deal_owner: dict[str, Optional[int]] = field(default_factory=dict)
+    #: Firma scalona w NEXUSIE → firma docelowa (po całym łańcuchu scaleń).
+    merged: dict[int, int] = field(default_factory=dict)
+    #: Kontakty, które ten import już kiedyś zsynchronizował (przed biegiem).
+    synced_contact_refs: set[str] = field(default_factory=set)
 
 
 def _user_id(
@@ -622,10 +626,28 @@ async def _import_companies(
                     table.c.owner_label,
                 ),
                 else_=new.owner_label,
-            )
+            ),
+            # Klucze dopisane w NEXUSIE (``merged_into`` po scaleniu) zostają,
+            # klucz ``atlas`` idzie za Atlasem.
+            "custom_fields": lambda table, new: func.coalesce(
+                table.c.custom_fields, text("'{}'::jsonb")
+            ).op("||")(new.custom_fields),
         },
     )
     ctx.report.add("companies_imported", len(ids))
+
+    # Firma scalona w NEXUSIE zostaje w archiwum; wszystko, co import do niej
+    # przypina (osoby, powiązania, szanse, aktywności, leady), idzie do
+    # firmy docelowej. ``own`` to wiersze samych firm (rodzic, klient).
+    own = ids
+    ctx.merged = await company_merge_targets(db, ctx.report)
+    ids = {
+        ref: ctx.merged.get(company_id, company_id) for ref, company_id in own.items()
+    }
+    ctx.report.add(
+        "companies_redirected_to_merge_target",
+        sum(1 for ref in own if own[ref] != ids[ref]),
+    )
 
     # Dalsze zapisy importu dotyczą tylko wierszy zapisanych w tym biegu
     # i niezmienionych w NEXUSIE (``synced_at`` = znacznik biegu); ustawiają
@@ -633,7 +655,7 @@ async def _import_companies(
     written_now = SalesCompany.synced_at == ctx.now
     linked = 0
     for child, parent in parents:
-        child_id = ids.get(_ref("companies", child))
+        child_id = own.get(_ref("companies", child))
         parent_id = ids.get(_ref("companies", parent))
         if child_id and parent_id and child_id != parent_id:
             await db.execute(
@@ -657,7 +679,7 @@ async def _import_companies(
         ).scalars()
     )
     for row in rows:
-        company_id = ids.get(row["external_ref"])
+        company_id = own.get(row["external_ref"])
         client_id = by_nip.get(row["nip"] or "") or by_name.get(row["normalized_name"])
         if company_id and client_id and client_id not in taken:
             await db.execute(
@@ -777,6 +799,27 @@ async def _import_company_contacts(
                 else "atlas:company_contacts",
             }
     table = SalesCompanyContact.__table__
+    # Powiązanie usunięte w NEXUSIE nie może wracać przy każdym biegu, a tabela
+    # nie ma ``synced_at``. Reguła: nowe powiązania dostają tylko osoby, których
+    # ten import jeszcze nie synchronizował (pierwszy import 28.10 nie znał
+    # ``company_contacts``, nowe osoby). Osobie już zsynchronizowanej import
+    # tylko poprawia istniejące powiązania. Cena: powiązanie dodane w Atlasie
+    # po jej synchronizacji nie przyjdzie — Atlas jest wygaszany.
+    synced = {contacts[ref] for ref in ctx.synced_contact_refs if ref in contacts}
+    existing = set()
+    if synced:
+        existing = set(
+            (
+                await db.execute(
+                    select(table.c.company_id, table.c.contact_id).where(
+                        table.c.contact_id.in_(list(synced))
+                    )
+                )
+            ).all()
+        )
+    for key in [key for key in rows if key[1] in synced and key not in existing]:
+        del rows[key]
+        ctx.report.add("company_contacts_not_reinserted")
     values = list(rows.values())
     for start in range(0, len(values), BATCH):
         stmt = insert(SalesCompanyContact).values(values[start : start + BATCH])
@@ -860,7 +903,7 @@ async def _company_for_orphan(
     ).scalar_one_or_none()
     if existing is not None:
         ctx.report.add("opportunities_company_adopted")
-        return existing
+        return ctx.merged.get(existing, existing)
     # Skrót, nie obcięcie: dwie długie nazwy o wspólnym początku dawały ten sam
     # klucz i druga szansa dostawała firmę pierwszej.
     ref = _ref("deal-company", hashlib.sha256(canonical.encode()).hexdigest()[:40])
@@ -881,6 +924,7 @@ async def _company_for_orphan(
         ],
         now=ctx.now,
     )
+    created = {key: ctx.merged.get(value, value) for key, value in created.items()}
     companies.update(created)
     ctx.report.add("opportunities_company_created")
     return created[ref]
@@ -1424,6 +1468,73 @@ async def _referenced_companies(source: AtlasSource) -> set[str]:
     return referenced
 
 
+async def company_merge_targets(
+    db: AsyncSession, report: Optional[ImportReport] = None
+) -> dict[int, int]:
+    """Firma scalona (``custom_fields.merged_into``) → ostateczna firma docelowa.
+
+    Łańcuch A→B→C daje A→C. Cykl (nie powinien powstać, ale dane bywają
+    ręcznie poprawiane) zostawia firmy bez przekierowania i liczy
+    ``companies_merge_cycle``.
+    """
+
+    rows = await db.execute(
+        select(SalesCompany.id, SalesCompany.custom_fields["merged_into"].astext).where(
+            SalesCompany.custom_fields.has_key("merged_into")
+        )
+    )
+    direct: dict[int, int] = {}
+    for company_id, target in rows.all():
+        try:
+            direct[company_id] = int(target)
+        except (TypeError, ValueError):
+            continue
+    final: dict[int, int] = {}
+    for start in direct:
+        seen, current = {start}, start
+        while current in direct:
+            current = direct[current]
+            if current in seen:
+                if report is not None:
+                    report.add("companies_merge_cycle")
+                break
+            seen.add(current)
+        else:
+            final[start] = current
+    return final
+
+
+async def _baseline_first_import(db: AsyncSession, report: ImportReport) -> None:
+    """Wiersze z pierwszego importu (28.10.2026, bez ``synced_at``) dostają znacznik.
+
+    Pierwszy import zapisał wszystko w jednej transakcji, więc wspólny
+    ``updated_at`` (najmniejszy w tabeli) to chwila importu; wiersz z późniejszym
+    ``updated_at`` zmieniono w NEXUSIE i jego pola chronimy. Biegnie w tej samej
+    transakcji co import — na sucho jest wycofywane.
+    """
+
+    for model in (SalesCompany, SalesContact, SalesOpportunity, SalesActivity):
+        table = model.__table__
+        first_import = and_(
+            table.c.synced_at.is_(None), table.c.external_ref.like("atlas:%")
+        )
+        baseline = (
+            select(func.min(table.c.updated_at)).where(first_import).scalar_subquery()
+        )
+        # ``updated_at`` podany wprost — inaczej ``onupdate`` zatarłby różnicę.
+        await db.execute(
+            table.update()
+            .where(first_import)
+            .values(synced_at=baseline, updated_at=table.c.updated_at)
+        )
+        edited = await db.scalar(
+            select(func.count())
+            .select_from(table)
+            .where(table.c.external_ref.like("atlas:%"), _edited_in_nexus(table))
+        )
+        report.add(f"edited_in_nexus_{table.name}", int(edited or 0))
+
+
 async def run_import(
     db: AsyncSession, source: AtlasSource, *, now: Optional[datetime] = None
 ) -> ImportReport:
@@ -1447,6 +1558,17 @@ async def run_import(
         report=report,
         now=now or datetime.now(timezone.utc),
     )
+    ctx.synced_contact_refs = set(
+        (
+            await db.execute(
+                select(SalesContact.external_ref).where(
+                    SalesContact.external_ref.like("atlas:%"),
+                    SalesContact.synced_at.is_not(None),
+                )
+            )
+        ).scalars()
+    )
+    await _baseline_first_import(db, report)
     stages = await _import_pipelines(db, source, ctx)
     companies = await _import_companies(
         db, source, ctx, await _referenced_companies(source)

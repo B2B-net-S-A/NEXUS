@@ -53,12 +53,22 @@ class _Job(NamedTuple):
 
 
 async def _ids(db: AsyncSession, model: Any, refs: Sequence[str]) -> dict[str, int]:
+    """``external_ref`` → id; firma scalona w NEXUSIE → jej firma docelowa."""
+
     if not refs:
         return {}
     rows = await db.execute(
         select(model.external_ref, model.id).where(model.external_ref.in_(list(refs)))
     )
-    return dict(rows.all())
+    ids = dict(rows.all())
+    if model is SalesCompany:
+        from app.services.sales.atlas_import import company_merge_targets
+
+        merged = await company_merge_targets(db)
+        ids = {
+            ref: merged.get(company_id, company_id) for ref, company_id in ids.items()
+        }
+    return ids
 
 
 def _attachment_jobs(

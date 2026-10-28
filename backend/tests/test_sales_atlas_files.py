@@ -377,3 +377,54 @@ async def test_latest_offer_version_files_land_in_offers_folder(
             users_by_email={},
         )
     assert empty.as_dict() == {}
+
+
+@pytest.mark.asyncio
+async def test_file_of_company_merged_in_nexus_lands_on_merge_target(
+    monkeypatch, tmp_path
+) -> None:
+    monkeypatch.setattr(storage_service, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage_service, "SALES_FILES_DIR", tmp_path / "sales_files")
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        target = SalesCompany(name=f"Docelowa {tag}", normalized_name=f"docelowa {tag}")
+        db.add(target)
+        await db.flush()
+        db.add(
+            SalesCompany(
+                name=f"Scalona {tag}",
+                normalized_name=f"scalona {tag}",
+                external_ref=f"atlas:companies:m-{tag}",
+                custom_fields={"merged_into": target.id},
+            )
+        )
+        await db.commit()
+        target_id = target.id
+
+    async def fetch(bucket: str, path: str):
+        return b"tresc"
+
+    async with AsyncSessionLocal() as db:
+        await copy_attachments(
+            db,
+            deal_attachments=[],
+            company_attachments=[
+                {
+                    "id": f"m1-{tag}",
+                    "company_id": f"m-{tag}",
+                    "filename": "nda.pdf",
+                    "storage_path": "c/nda.pdf",
+                }
+            ],
+            fetch=fetch,
+            users_by_email={},
+        )
+        await db.commit()
+        copied = (
+            await db.execute(
+                select(SalesFile).where(
+                    SalesFile.external_ref == f"atlas:company_attachments:m1-{tag}"
+                )
+            )
+        ).scalar_one()
+    assert copied.company_id == target_id

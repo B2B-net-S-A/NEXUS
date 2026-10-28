@@ -24,10 +24,15 @@ from app.models.sales import (
     SalesContact,
     SalesLead,
     SalesOpportunity,
+    SalesPipeline,
+    SalesPipelineStage,
 )
 from app.models.user import User, UserRole
+from app.services.sales.merge import merge_companies
 from app.services.sales.atlas_import import (
     ATLAS_REVIEW_TAG,
+    ImportReport,
+    company_merge_targets,
     is_candidate_prep_note,
     run_import,
 )
@@ -232,11 +237,12 @@ async def test_rows_edited_in_nexus_keep_user_fields_and_owners_are_never_wiped(
             .where(SalesContact.external_ref == f"atlas:contacts:p1-{tag}")
             .values(title="CEO", updated_at=edited_at)
         )
-        # Wiersz z pierwszego importu (bez ``synced_at``) z opiekunem z NEXUSA.
+        # Niezmieniony wiersz (``updated_at`` = ``synced_at``) z opiekunem
+        # wpisanym bez śladu edycji — import go odświeża, opiekuna nie rusza.
         await db.execute(
             update(SalesOpportunity)
             .where(SalesOpportunity.external_ref == f"atlas:deals:d2-{tag}")
-            .values(synced_at=None, owner_user_id=ela, updated_at=edited_at)
+            .values(owner_user_id=ela, updated_at=NOW)
         )
         await db.commit()
 
@@ -271,7 +277,7 @@ async def test_rows_edited_in_nexus_keep_user_fields_and_owners_are_never_wiped(
         ola,
     )
 
-    # Bez ``synced_at`` = pełne odświeżenie, ale opiekun z NEXUSA zostaje (COALESCE).
+    # Niezmieniony = pełne odświeżenie, ale opiekun z NEXUSA zostaje (COALESCE).
     first_import = await _one(SalesOpportunity, f"atlas:deals:d2-{tag}")
     assert (first_import.title, first_import.owner_user_id) == (
         "Szansa nietknięta v2",
@@ -908,3 +914,239 @@ async def test_script_source_reads_missing_optional_tables_as_empty() -> None:
     assert await source.company_team_members() == [{"company_id": "c1"}]
     with pytest.raises(asyncpg.UndefinedTableError):
         await source.deals()  # tabela obowiązkowa — błąd nie jest połykany
+
+
+@pytest.mark.asyncio
+async def test_reimport_follows_company_merges_made_in_nexus() -> None:
+    tag = uuid.uuid4().hex[:8]
+    source = FakeAtlas(
+        {
+            **_sales_pipeline(tag),
+            "companies": [
+                {"id": f"a-{tag}", "name": f"Scalona Docelowa {tag}"},
+                {
+                    "id": f"b-{tag}",
+                    "name": f"Scalona Źródłowa {tag}",
+                    "custom_fields": {"segment": "IT"},
+                },
+            ],
+            "contacts": [
+                {
+                    "id": f"p-{tag}",
+                    "full_name": "Osoba Scalana",
+                    "primary_company_id": f"b-{tag}",
+                }
+            ],
+            "company_contacts": [
+                {"company_id": f"b-{tag}", "contact_id": f"p-{tag}", "role": "CTO"}
+            ],
+            "deals": [
+                {
+                    "id": f"d-{tag}",
+                    "title": "Szansa źródłowej",
+                    "company_id": f"b-{tag}",
+                    "stage_id": "stage-lead",
+                }
+            ],
+            "company_activities": [
+                {
+                    "id": f"ca-{tag}",
+                    "company_id": f"b-{tag}",
+                    "activity_type": "email",
+                    "subject": "Mail",
+                    "created_at": NOW,
+                }
+            ],
+        }
+    )
+    await _import(source)
+    a_ref, b_ref = f"atlas:companies:a-{tag}", f"atlas:companies:b-{tag}"
+    async with AsyncSessionLocal() as db:
+        target = (
+            await db.execute(
+                select(SalesCompany).where(SalesCompany.external_ref == a_ref)
+            )
+        ).scalar_one()
+        merged = (
+            await db.execute(
+                select(SalesCompany).where(SalesCompany.external_ref == b_ref)
+            )
+        ).scalar_one()
+        a_id = target.id
+        await merge_companies(
+            db, target=target, source=merged, now=NOW + timedelta(hours=1)
+        )
+        await db.commit()
+
+    report = await _import(source, LATER)
+    assert report["companies_redirected_to_merge_target"] == 1
+
+    assert (await _one(SalesOpportunity, f"atlas:deals:d-{tag}")).company_id == a_id
+    assert (await _one(SalesContact, f"atlas:contacts:p-{tag}")).company_id == a_id
+    activity = await _one(SalesActivity, f"atlas:company_activities:ca-{tag}")
+    assert activity.company_id == a_id
+    async with AsyncSessionLocal() as db:
+        contact_id = (await _one(SalesContact, f"atlas:contacts:p-{tag}")).id
+        links = dict(
+            (
+                await db.execute(
+                    select(
+                        SalesCompanyContact.company_id, SalesCompanyContact.is_primary
+                    ).where(SalesCompanyContact.contact_id == contact_id)
+                )
+            ).all()
+        )
+    assert links == {a_id: True}
+    archived = await _one(SalesCompany, b_ref)
+    assert archived.archived_at is not None
+    assert archived.custom_fields["merged_into"] == a_id
+    assert archived.custom_fields["atlas"] == {"segment": "IT"}
+
+
+@pytest.mark.asyncio
+async def test_merge_chains_resolve_to_last_target_and_cycles_are_left_alone() -> None:
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        made = [
+            SalesCompany(
+                name=f"Łańcuch {n} {tag}", normalized_name=f"lancuch {n} {tag}"
+            )
+            for n in range(5)
+        ]
+        db.add_all(made)
+        await db.flush()
+        a, b, c, x, y = (company.id for company in made)
+        for company, target in zip(made, (b, c, None, y, x)):
+            if target is not None:
+                company.custom_fields = {"merged_into": target}
+        await db.flush()
+        report = ImportReport()
+        targets = await company_merge_targets(db, report)
+        await db.rollback()
+    assert (targets[a], targets[b]) == (c, c)
+    assert c not in targets and x not in targets and y not in targets
+    assert report.as_dict()["companies_merge_cycle"] == 2
+
+
+@pytest.mark.asyncio
+async def test_first_reimport_keeps_edits_made_after_the_first_import() -> None:
+    tag = uuid.uuid4().hex[:8]
+    first_import = datetime(2026, 10, 1, 18, 20, tzinfo=timezone.utc)
+    source = FakeAtlas(
+        {
+            **_sales_pipeline(tag),
+            "companies": [{"id": f"c-{tag}", "name": f"Pierwszy Import {tag}"}],
+            "deals": [
+                {
+                    "id": f"d{n}-{tag}",
+                    "title": f"Szansa {n}",
+                    "company_id": f"c-{tag}",
+                    "stage_id": "stage-lead",
+                }
+                for n in (1, 2)
+            ],
+            "deal_activities": [
+                {
+                    "id": f"a{n}-{tag}",
+                    "deal_id": f"d1-{tag}",
+                    "activity_type": "task",
+                    "subject": f"Zadanie {n}",
+                }
+                for n in (1, 2)
+            ],
+        }
+    )
+    await _import(source)
+    proposal = await _one(SalesOpportunity, f"atlas:deals:d2-{tag}")
+    async with AsyncSessionLocal() as db:
+        # Stan po imporcie 28.10: bez ``synced_at``, jeden ``updated_at``.
+        for model in (SalesCompany, SalesOpportunity, SalesActivity):
+            await db.execute(
+                update(model)
+                .where(model.external_ref.like(f"atlas:%-{tag}"))
+                .values(synced_at=None, updated_at=first_import)
+            )
+        edited_at = first_import + timedelta(days=1)
+        await db.execute(
+            update(SalesActivity)
+            .where(SalesActivity.external_ref == f"atlas:deal_activities:a1-{tag}")
+            .values(done_at=edited_at, updated_at=edited_at)
+        )
+        stage_id = (
+            await db.execute(
+                select(SalesPipelineStage.id)
+                .join(SalesPipeline, SalesPipeline.id == SalesPipelineStage.pipeline_id)
+                .where(
+                    SalesPipeline.key == "sales", SalesPipelineStage.key == "qualified"
+                )
+            )
+        ).scalar_one()
+        await db.execute(
+            update(SalesOpportunity)
+            .where(SalesOpportunity.external_ref == f"atlas:deals:d1-{tag}")
+            .values(stage_id=stage_id, title="Etap z NEXUSA", updated_at=edited_at)
+        )
+        await db.commit()
+    assert proposal.stage_id != stage_id
+
+    for deal in source.data["deals"]:
+        deal["title"] = f"{deal['title']} v2"
+        deal["stage_id"] = "stage-proposal"
+    for activity in source.data["deal_activities"]:
+        activity["subject"] = f"{activity['subject']} v2"
+    report = await _import(source, LATER)
+    assert report["edited_in_nexus_sales_activities"] >= 1
+    assert report["edited_in_nexus_sales_opportunities"] >= 1
+
+    edited = await _one(SalesOpportunity, f"atlas:deals:d1-{tag}")
+    untouched = await _one(SalesOpportunity, f"atlas:deals:d2-{tag}")
+    assert edited.title == "Etap z NEXUSA"
+    assert untouched.title == "Szansa 2 v2"
+    assert untouched.stage_id not in (stage_id, proposal.stage_id)  # etap z Atlasa
+    assert edited.stage_id == stage_id  # zostaje etap ustawiony w NEXUSIE
+    done = await _one(SalesActivity, f"atlas:deal_activities:a1-{tag}")
+    fresh = await _one(SalesActivity, f"atlas:deal_activities:a2-{tag}")
+    assert (done.done_at, done.subject) == (edited_at, "Zadanie 1")
+    assert (fresh.done_at, fresh.subject) == (None, "Zadanie 2 v2")
+
+
+@pytest.mark.asyncio
+async def test_link_removed_in_nexus_does_not_come_back() -> None:
+    tag = uuid.uuid4().hex[:8]
+    source = FakeAtlas(
+        {
+            **_sales_pipeline(tag),
+            "companies": [
+                {"id": f"c1-{tag}", "name": f"Główna {tag}"},
+                {"id": f"c2-{tag}", "name": f"Druga {tag}"},
+            ],
+            "contacts": [
+                {
+                    "id": f"p-{tag}",
+                    "full_name": "Osoba Odpięta",
+                    "primary_company_id": f"c1-{tag}",
+                }
+            ],
+            "company_contacts": [
+                {"company_id": f"c1-{tag}", "contact_id": f"p-{tag}"},
+                {
+                    "company_id": f"c2-{tag}",
+                    "contact_id": f"p-{tag}",
+                    "is_primary_employer": False,
+                },
+            ],
+        }
+    )
+    await _import(source)
+    contact = await _one(SalesContact, f"atlas:contacts:p-{tag}")
+    c2 = await _one(SalesCompany, f"atlas:companies:c2-{tag}")
+    async with AsyncSessionLocal() as db:
+        link = await db.get(SalesCompanyContact, (c2.id, contact.id))
+        assert link is not None
+        await db.delete(link)  # jak DELETE /api/sales/contacts/{id}/companies/{id}
+        await db.commit()
+
+    report = await _import(source, LATER)
+    assert report["company_contacts_not_reinserted"] == 1
+    async with AsyncSessionLocal() as db:
+        assert await db.get(SalesCompanyContact, (c2.id, contact.id)) is None
