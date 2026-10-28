@@ -686,6 +686,8 @@ async def test_started_pending_request_is_not_cancelled_by_owner(
     today = business_today()
     async with AsyncSessionLocal() as db:
         boss = await _user(db, "delivery_lead", profile=True)
+        hr = await _user(db, "recruiter")
+        await _grant(db, hr, "people_admin")
         worker = await _user(
             db, "employee", profile=True, manager_user_id=boss.id, employment_type="uop"
         )
@@ -726,12 +728,19 @@ async def test_started_pending_request_is_not_cancelled_by_owner(
         f"{BASE}/requests/{future_id}/cancel", headers=_headers(worker)
     )
     assert own.status_code == 200 and own.json()["status"] == "cancelled"
-    by_boss = await app_client.post(
+    reason = "Nieobecność wpisana pomyłkowo"
+    by_hr = await app_client.post(
         f"{BASE}/approvals/{started_id}/cancel",
-        json={"reason": "Nieobecność wpisana pomyłkowo"},
-        headers=_headers(boss),
+        json={"reason": reason},
+        headers=_headers(hr),
     )
-    assert by_boss.status_code == 200, by_boss.text
+    assert by_hr.status_code == 200, by_hr.text
+    # Powód widzi tylko osoba; przełożony dostaje dymek bez niego (D6).
+    to_worker = await _bell(worker.id, NotificationType.hr_leave_cancelled)
+    to_boss = await _bell(boss.id, NotificationType.hr_leave_cancelled)
+    # (własne anulowanie przyszłego wniosku nie daje osobie dymka)
+    assert len(to_worker) == 1 and to_worker[0].message.endswith(f"Powód: {reason}")
+    assert len(to_boss) == 2 and all("Powód" not in b.message for b in to_boss)
 
 
 @pytest.mark.asyncio
