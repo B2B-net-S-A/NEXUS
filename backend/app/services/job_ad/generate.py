@@ -42,6 +42,8 @@ LIST_LIMITS = {
     "nice_to_have": 12,
     "offer": 6,
 }
+# Warunki z rekrutacji (do 5) i stały blok firmy (do `OFFER_MAX_ITEMS`).
+OFFER_HIDDEN_MAX = 20
 # Warunki wpisane w rekrutacji wolnym tekstem; rekruter może je poprawić.
 TERM_FIELDS = ("start", "duration", "language")
 
@@ -185,6 +187,13 @@ def clean_content(value: Any, *, title: str) -> dict[str, Any]:
         content[key] = _line(data.get(key), TERM_MAX)
     for key, limit in LIST_LIMITS.items():
         content[key] = clean_list(data.get(key), limit)
+    # Punkty „co oferujemy” z rekrutacji i stałego bloku ukryte w tym
+    # ogłoszeniu. Klucz tylko przy ukrytych: odcisk treści
+    # (`publications.content_hash`) liczy się z całego słownika, a pusta lista
+    # zapaliłaby „Do aktualizacji” przy każdym oznaczonym ogłoszeniu.
+    hidden = clean_list(data.get("offer_hidden"), OFFER_HIDDEN_MAX)
+    if hidden:
+        content["offer_hidden"] = hidden
     return content
 
 

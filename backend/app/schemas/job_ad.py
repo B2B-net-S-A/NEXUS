@@ -40,7 +40,17 @@ class AdContent(BaseModel):
     nice_to_have: list[Item] = Field(
         default_factory=list, max_length=_LIMITS["nice_to_have"]
     )
-    offer: list[Item] = Field(default_factory=list, max_length=_LIMITS["offer"])
+    # Własne punkty „co oferujemy”. Przyjmujemy więcej niż limit, bo wklejona
+    # lista z karty niesie też warunki z rekrutacji (do 5) i stały blok —
+    # serwer je wycina, a dopiero reszta liczy się do `LIST_LIMITS["offer"]`.
+    offer: list[Item] = Field(
+        default_factory=list,
+        max_length=_LIMITS["offer"] + 5 + fixed_blocks.OFFER_MAX_ITEMS,
+    )
+    # Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu.
+    offer_hidden: list[Item] = Field(
+        default_factory=list, max_length=generate.OFFER_HIDDEN_MAX
+    )
 
 
 class AdTechItem(BaseModel):
@@ -123,6 +133,8 @@ class RenderedField(BaseModel):
     items: list[str]
     auto_count: int = 0
     fixed_count: int = 0
+    hidden_auto: list[str] = Field(default_factory=list)
+    hidden_fixed: list[str] = Field(default_factory=list)
 
 
 class RenderedPracuj(BaseModel):

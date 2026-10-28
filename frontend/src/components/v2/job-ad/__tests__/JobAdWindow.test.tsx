@@ -277,6 +277,57 @@ describe("JobAdWindow — poprawki i ponowne przygotowanie", () => {
     ).toBeInTheDocument();
   });
 
+  it("„To oferujemy” w edycji pokazuje całą listę, wycina wklejone kopie i ukrywa punkt", async () => {
+    // Zgłoszenie 28.10.2026: „Edytuj” dawało puste pole, a wklejona lista
+    // kończyła się błędem „List should have at most 6 items”.
+    const api = setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: To oferujemy" }));
+
+    const box = screen.getByRole("textbox", { name: "Treść: To oferujemy" });
+    expect(box).toHaveValue("projekt na lata");
+    expect(
+      within(screen.getByRole("list", { name: "Z rekrutacji — dokłada się samo" })).getByText(
+        "kontrakt B2B",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "Stały blok — dokłada się sam" })).getByText(
+        "opieka medyczna",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Twoje punkty: 1 / 6")).toBeInTheDocument();
+
+    fireEvent.change(box, {
+      target: { value: "Kontrakt B2B\nprojekt na lata\nopieka medyczna\nzespół w Warszawie" },
+    });
+    expect(screen.getByText("Pominięto 2 punkty, które ogłoszenie już ma.")).toBeInTheDocument();
+    expect(screen.getByText("Twoje punkty: 2 / 6")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ukryj w tym ogłoszeniu: opieka medyczna" }));
+    expect(
+      screen.getByRole("button", { name: "Przywróć: opieka medyczna" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+
+    await waitFor(() => expect(api.save).toHaveBeenCalledTimes(1));
+    const saved = api.save.mock.calls[0][1].content;
+    expect(saved.offer).toEqual(["projekt na lata", "zespół w Warszawie"]);
+    expect(saved.offer_hidden).toEqual(["opieka medyczna"]);
+  });
+
+  it("za dużo własnych punktów w „To oferujemy” wyłącza zapis z komunikatem po polsku", async () => {
+    const api = setup(adState());
+    fireEvent.click(await screen.findByRole("button", { name: "Edytuj: To oferujemy" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Treść: To oferujemy" }), {
+      target: { value: Array.from({ length: 7 }, (_, i) => `punkt ${i + 1}`).join("\n") },
+    });
+    expect(
+      screen.getByText("Najwyżej 6 własnych punktów, jest 7. Usuń albo połącz część z nich."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zapisz" })).toBeDisabled();
+    expect(api.save).not.toHaveBeenCalled();
+  });
+
   it("warunki z lewej kolumny zapisują się razem z resztą treści", async () => {
     const api = setup(adState());
     fireEvent.change(await screen.findByLabelText("Długość współpracy"), {

@@ -205,3 +205,23 @@ rekrutację); front `components/v2/job-ad/`, `lib/api/jobAd.ts`, karta
   (`removed_at IS NULL`) = 409 `job_has_ad_on_portal` z listą `portals`.
   Kaskada kasowała jedyny ślad, gdzie wisi ogłoszenie, którego NEXUS nie
   zdejmie. Po „Zdjęte z portalu” rekrutację da się usunąć.
+
+## „To oferujemy”: cała lista w edycji, ukrywanie punktów (28.10.2026)
+
+Zgłoszenie rekruterki: „Edytuj” dawało puste pole, a wklejona lista z karty
+kończyła się błędem „List should have at most 6 items”. Decyzja Artura
+28.10.2026 (makiety https://claude.ai/artifact/5pGFGYC8vinSANdsF52ugB).
+
+- **Pole niesie tylko własne punkty** (`content.offer`, limit 6). Warunki
+  z rekrutacji i stały blok edytor pokazuje nad i pod polem jako wiersze tylko
+  do odczytu (`AdBlock`, `hidden_auto` / `hidden_fixed` w `RenderedField`).
+- **Kopie tego, co ogłoszenie dokłada samo, wypadają** — na froncie przed
+  zapisem (`ownOfferLines`) i na serwerze (`render.own_offer`: w `PUT` przed
+  liczeniem limitu i w renderze dla starych zapisów). Limit liczy się po
+  wycięciu; przekroczenie = 422 z polskim zdaniem.
+- **„Ukryj w tym ogłoszeniu”** przy punkcie z rekrutacji albo stałego bloku
+  zapisuje go w `content.offer_hidden` (porównanie bez wielkości liter
+  i spacji). Ukryty punkt znika z Pracuj.pl, JustJoin.IT (także z sekcji
+  warunków) i maila do opiekuna. Klucz zapisuje się tylko przy ukrytych
+  punktach: `publications.content_hash` liczy się z całej treści, a pusta
+  lista w każdym ogłoszeniu zapaliłaby „Do aktualizacji” wszędzie.

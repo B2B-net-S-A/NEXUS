@@ -500,6 +500,45 @@ async def test_edit_rejects_too_many_items_instead_of_trimming(
         headers=headers,
     )
     assert resp.status_code == 422
+    assert "najwyżej 6" in resp.json()["detail"]
+
+
+async def test_pasted_offer_list_keeps_only_the_own_points(
+    api: AsyncClient, monkeypatch
+):
+    """Zgłoszenie 28.10.2026: wklejona cała lista z karty (warunki + stały blok
+    + własny punkt) dawała 422 po angielsku. Kopie tego, co ogłoszenie dokłada
+    samo, nie liczą się do limitu i nie zapisują się drugi raz."""
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    blocks = fixed_blocks.DEFAULTS
+    card = next(
+        f
+        for f in (
+            await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+        ).json()["rendered"]["pracuj"]["fields"]
+        if f["key"] == "offer"
+    )
+    pasted = [*card["items"], "praca przy dużym projekcie"]
+    assert len(pasted) > 6
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={
+            "content": {
+                **ad["content"],
+                "offer": pasted,
+                "offer_hidden": [blocks.pl.offer[0]],
+            },
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ad"]["content"]["offer"] == ["praca przy dużym projekcie"]
+    offer = next(f for f in body["rendered"]["pracuj"]["fields"] if f["key"] == "offer")
+    assert offer["hidden_fixed"] == [blocks.pl.offer[0]]
+    assert blocks.pl.offer[0] not in offer["items"]
 
 
 # ── Oznaczenie publikacji (0432) ────────────────────────────────────────────

@@ -192,6 +192,22 @@ def test_saved_content_drops_invisible_characters_but_keeps_emoji():
     assert content["requirements"] == ["Java 17", "zespół \U0001f469\u200d\U0001f4bb"]
 
 
+def test_hidden_offer_points_are_saved_only_when_there_are_any():
+    """Odcisk treści (`publications.content_hash`) liczy się z całego słownika:
+    pusty klucz w każdej zapisanej treści zapaliłby „Do aktualizacji” przy
+    wszystkich oznaczonych ogłoszeniach."""
+    plain = generate.clean_content({"offer": ["projekt"]}, title="Dev")
+    assert "offer_hidden" not in plain
+    assert "offer_hidden" not in generate.clean_content(
+        {"offer_hidden": ["", "  "]}, title="Dev"
+    )
+    hidden = generate.clean_content(
+        {"offer_hidden": ["prywatna  opieka medyczna", "Prywatna opieka medyczna"]},
+        title="Dev",
+    )
+    assert hidden["offer_hidden"] == ["prywatna opieka medyczna"]
+
+
 def test_parser_reads_fenced_json_and_cleans_bullets():
     parsed = generate.parse_generated(
         '```json\n{"lead": " Szukamy  osoby ", "about": "Projekt.", '
