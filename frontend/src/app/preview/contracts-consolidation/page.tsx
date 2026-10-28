@@ -299,7 +299,8 @@ function seededClient(): QueryClient {
   // endingSoon=false, page=1) — inaczej queryFn wystartuje i strzeli w API.
   // Domyślny filtr statusów rejestru to „Aktywne + Kończące się"
   // (`DEFAULT_CONTRACT_STATUS_FILTER`) — klucz musi go nieść.
-  // Pusty zakres dat i brak sortowania też są częścią klucza.
+  // Pusty zakres dat, brak sortowania i wyłączona „Umowa nierozwiązana” też
+  // są częścią klucza.
   qc.setQueryData(
     [
       "contracts-v2",
@@ -310,6 +311,7 @@ function seededClient(): QueryClient {
       { startFrom: "", startTo: "", orderEndFrom: "", orderEndTo: "" },
       { by: null, dir: "asc" },
       1,
+      false,
     ],
     LIST_PAYLOAD,
   );

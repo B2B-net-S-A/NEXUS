@@ -28,6 +28,12 @@ export interface ContractsListState {
   statusFilter: ContractStatusValue[];
   typeFilter: ContractTypeValue[];
   endingSoon: boolean;
+  /**
+   * „Umowa nierozwiązana” (`?agreement=not_terminated`, decyzja Artura
+   * 28.10.2026): projekt B2B zakończony albo kończący się, umowa bez
+   * zapisanego rozwiązania. Filtruje serwer (`agreement_not_terminated`).
+   */
+  agreementNotTerminated: boolean;
   /** Zakres daty rozpoczęcia umowy (ISO `YYYY-MM-DD`, pusty = bez granicy). */
   startFrom: string;
   startTo: string;
@@ -81,6 +87,7 @@ const LIST_PARAM_NAMES = [
   "status",
   "contract_type",
   "ending",
+  "agreement",
   "start_from",
   "start_to",
   "order_end_from",
@@ -155,6 +162,7 @@ export function parseContractsListState(
     ),
   );
   const endingSoon = params.get("ending") === "30";
+  const agreementNotTerminated = params.get("agreement") === "not_terminated";
   const rawSort = params.get("sort");
 
   return {
@@ -165,7 +173,7 @@ export function parseContractsListState(
         ? []
         : validStatuses.length > 0
           ? validStatuses
-          : endingSoon
+          : endingSoon || agreementNotTerminated
             ? []
             : [...DEFAULT_CONTRACT_STATUS_FILTER],
       typeFilter: uniqueValues(
@@ -176,6 +184,7 @@ export function parseContractsListState(
           ),
       ),
       endingSoon,
+      agreementNotTerminated,
       startFrom: validIsoDate(params.get("start_from")),
       startTo: validIsoDate(params.get("start_to")),
       orderEndFrom: validIsoDate(params.get("order_end_from")),
@@ -213,6 +222,7 @@ export function buildContractsListUrl(
   state.typeFilter.forEach((type) => params.append("contract_type", type));
   if (state.search) params.set("q", state.search);
   if (state.endingSoon) params.set("ending", "30");
+  if (state.agreementNotTerminated) params.set("agreement", "not_terminated");
   if (state.startFrom) params.set("start_from", state.startFrom);
   if (state.startTo) params.set("start_to", state.startTo);
   if (state.orderEndFrom) params.set("order_end_from", state.orderEndFrom);
