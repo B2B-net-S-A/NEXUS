@@ -60,7 +60,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
 HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
     {
         NotificationType.candidate_data_access_alert,
-        # 0609: nowa osoba po pierwszym logowaniu (decyzja Artura 28.10.2026).
+        # 0610: nowa osoba po pierwszym logowaniu (decyzja Artura 28.10.2026).
         NotificationType.new_person_signed_in,
     }
 )

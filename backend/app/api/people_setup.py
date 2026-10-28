@@ -1,4 +1,4 @@
-"""Okno „Ustaw nową osobę” — decyzje Artura z 28.10.2026 (0609).
+"""Okno „Ustaw nową osobę” — decyzje Artura z 28.10.2026 (0610).
 
 Head of Recruitment i admin decydują o koncie po pierwszym logowaniu przez
 Microsoft i uzupełniają rekruterowi, czego mu brakuje — w jednym zapisie:

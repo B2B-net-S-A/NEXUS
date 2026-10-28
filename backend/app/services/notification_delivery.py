@@ -231,7 +231,7 @@ CATALOG = (
         "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
-    # 0609 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
+    # 0610 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
     dict(
         id="new_person",
         label="Nowa osoba w NEXUSIE",

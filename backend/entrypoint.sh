@@ -823,7 +823,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
     # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
-    # 0609: nowa osoba po pierwszym logowaniu — do HoR i adminów.
+    # 0610: nowa osoba po pierwszym logowaniu — do HoR i adminów.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -6804,7 +6804,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_HR_COLUMN_DDL,
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
-    # 0609: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
+    # 0610: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
 ]
@@ -9001,7 +9001,7 @@ SELECT 'job', id, 'archived',
     *_HR_DATA_DDL,
     # Sprzedaż — domyślny lejek „Sprzedaż” z etapami Atlasa.
     *_SALES_DATA_DDL,
-    # 0609: konta SSO od 19.10 bez decyzji o roli → „Czeka na Ciebie” HoR
+    # 0610: konta SSO od 19.10 bez decyzji o roli → „Czeka na Ciebie” HoR
     # i adminów (`app/services/new_person_setup_schema.py`, idempotentne).
     "UPDATE users u SET setup_pending_since = u.created_at WHERE u.setup_pending_since IS NULL AND u.is_active AND u.roles = jsonb_build_array('employee') AND u.created_at >= '2026-10-19' AND EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action = 'sso_user_provisioned') AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action IN ('role_changed', 'roles_changed', 'new_person_setup_decided'))",
 ]

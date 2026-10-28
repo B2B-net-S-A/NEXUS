@@ -1097,7 +1097,7 @@ async def callback(
         db, user, actor_id=None, source="sso_login"
     )
     if created:
-        # Nowa osoba w NEXUSIE (0609): HoR i admini decydują, kim jest.
+        # Nowa osoba w NEXUSIE (0610): HoR i admini decydują, kim jest.
         await new_person_setup.mark_and_notify(db, user)
     await resolve_effective_section_access(db, user)
 

@@ -1,6 +1,6 @@
 "use client";
 
-// Okno „Ustaw nową osobę” (0609, decyzje Artura 28.10.2026). Head of
+// Okno „Ustaw nową osobę” (0610, decyzje Artura 28.10.2026). Head of
 // Recruitment i admin decydują o koncie po pierwszym logowaniu i uzupełniają
 // rekruterowi kategorie kompetencji i przełożonego — jednym zapisem
 // (`POST /api/people-setup/{id}`). Rolę inną niż Rekruter nadaje admin

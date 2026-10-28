@@ -1,4 +1,4 @@
-"""„Nowe osoby do ustawienia” — decyzja Artura z 28.10.2026 (0609).
+"""„Nowe osoby do ustawienia” — decyzja Artura z 28.10.2026 (0610).
 
 Pierwsze logowanie przez Microsoft zakłada konto „Konsultant/Kontraktor”
 (``employee``) i dotąd nikt się o tym nie dowiadywał: konto czekało tygodniami,

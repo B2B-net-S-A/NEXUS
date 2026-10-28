@@ -84,7 +84,7 @@ class AdminUserResponse(BaseModel):
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
-    # 0609: konto po pierwszym logowaniu czeka na decyzję, kim jest
+    # 0610: konto po pierwszym logowaniu czeka na decyzję, kim jest
     # (filtr „Do decyzji” i plakietka „Nowa · zdecyduj”).
     setup_pending_since: Optional[datetime] = None
 
@@ -437,7 +437,7 @@ async def update_user(
         or list(user.roles or []) != original_roles
         or not user.is_active
     ):
-        # 0609: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
+        # 0610: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
         # znika z „Nowych osób do ustawienia”.
         user.setup_pending_since = None
     await trainee_program.sync_program_for_roles(

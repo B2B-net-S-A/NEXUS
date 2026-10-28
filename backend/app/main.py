@@ -2190,7 +2190,7 @@ app.include_router(
     prefix="/api/competence-team",
     tags=["competence-team"],
 )
-# 0609: okno „Ustaw nową osobę” (HoR i admin) — `api/people_setup.py`.
+# 0610: okno „Ustaw nową osobę” (HoR i admin) — `api/people_setup.py`.
 app.include_router(
     people_setup_api.router,
     prefix="/api/people-setup",

@@ -180,7 +180,7 @@ SPECS: dict[str, _Spec] = {
     "candidate_data_access_alert": _Spec(
         "Sprawdź alarm", chip="Bezpieczeństwo", label="Sprawdź konta"
     ),
-    # 0609: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
+    # 0610: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
     # „Ustaw” na pulpicie (`?nowa-osoba=`), decyzja zapada dopiero w oknie.
     "new_person_signed_in": _Spec("Zdecyduj, kim jest nowa osoba", label="Zdecyduj"),
     # Czas i ludzie — temat bez rodzaju nieobecności.

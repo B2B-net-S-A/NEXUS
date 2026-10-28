@@ -157,7 +157,7 @@ class NotificationType(str, enum.Enum):
     # alarm bez blokady do adminów i Head of Recruitment, mail od razu
     # (`services/candidate_data_access_alerts.py`).
     candidate_data_access_alert = "candidate_data_access_alert"
-    # 0609 (28.10.2026): ktoś zalogował się pierwszy raz przez Microsoft —
+    # 0610 (28.10.2026): ktoś zalogował się pierwszy raz przez Microsoft —
     # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
     # mail od razu (`services/new_person_setup.py`).
     new_person_signed_in = "new_person_signed_in"

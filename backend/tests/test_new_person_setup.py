@@ -1,4 +1,4 @@
-"""„Nowe osoby do ustawienia” (0609, decyzje Artura 28.10.2026).
+"""„Nowe osoby do ustawienia” (0610, decyzje Artura 28.10.2026).
 
 Pierwsze logowanie przez Microsoft zakłada konto „Konsultant/Kontraktor”;
 Head of Recruitment i admini dostają dzwonek i mail, osoba stoi w „Czeka na

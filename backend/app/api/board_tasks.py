@@ -212,7 +212,7 @@ class AllocationProposalRow(BaseModel):
 
 
 class NewPersonSetupRow(BaseModel):
-    """Osoba do ustawienia (0609) — kształt = ``new_person_setup.NewPersonRow``."""
+    """Osoba do ustawienia (0610) — kształt = ``new_person_setup.NewPersonRow``."""
 
     user_id: int
     name: str
@@ -548,7 +548,7 @@ class BoardTasksResponse(BaseModel):
     # Kto prowadzi rekrutacje przekazane do searchu w ostatnich dniach — lista
     # informacyjna, tylko dla admina i Head of Recruitment.
     new_job_leads: list[NewJobLeadRow] = []
-    # 0609 (28.10.2026): „Nowe osoby do ustawienia” — admin i Head of
+    # 0610 (28.10.2026): „Nowe osoby do ustawienia” — admin i Head of
     # Recruitment. `None` = liczenie się nie powiodło.
     new_people: Optional[list[NewPersonSetupRow]] = []
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
