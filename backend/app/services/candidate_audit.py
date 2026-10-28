@@ -52,6 +52,8 @@ PROFILE_RATE_SCRAPER_REVERTED = "profile_rate_scraper_reverted"
 LANGUAGES_REPLACED = "candidate_languages_replaced"
 LOCATION_CHANGED = "candidate_location_changed"
 WORK_MODE_CHANGED = "candidate_work_mode_changed"
+# 28.10.2026: odrzucenie osoby od systemu z powodem „Nie szuka pracy” i datą.
+AVAILABILITY_CHANGED = "candidate_availability_changed"
 NOTES_FACT_APPLIED = "candidate_notes_fact_applied"
 # 0374: telefon praktykanta zapisał fakty w profilu / przekazał osobę rekruterowi.
 TRAINEE_CALL_SAVED = "candidate_trainee_call_saved"

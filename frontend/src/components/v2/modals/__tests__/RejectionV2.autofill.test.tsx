@@ -20,6 +20,7 @@ import {
   autofillBucketHint,
   autofillMoveFields,
   needsAutofillReason,
+  notLookingUntil,
   templateReasonFor,
 } from "@/lib/autofill-feedback";
 
@@ -111,6 +112,36 @@ describe("RejectionV2 — osoba od systemu", () => {
       wholeClient: false,
     });
     expect(autofillMoveFields(choice).autofill_whole_client).toBeUndefined();
+  });
+
+  it("„Nie szuka pracy” pyta „do kiedy” (domyślnie 3 miesiące) i niesie datę do ruchu", () => {
+    const onConfirm = renderWith({ rateKnown: false, several: false });
+    fireEvent.click(screen.getByText("Brak kluczowej umiejętności"));
+    expect(screen.queryByTestId("autofill-not-looking-until")).toBeNull();
+    fireEvent.click(screen.getByText("Nie szuka pracy"));
+    expect(screen.getByRole("button", { name: "3 miesiące" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Rok (ma projekt)" }));
+    fireEvent.click(screen.getByText("Z rozmowy z osobą"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    const choice = onConfirm.mock.calls[0][9];
+    expect(choice).toEqual({
+      reason: "not_looking",
+      learnedFrom: "call",
+      rateHourly: null,
+      notLookingUntil: notLookingUntil(12),
+    });
+    expect(autofillMoveFields(choice).autofill_not_looking_until).toBe(notLookingUntil(12));
+  });
+
+  it("trzy powody z rundy 3: „Zgłoszony przez inną firmę” pyta o cały klient", () => {
+    const onConfirm = renderWith({ rateKnown: false, several: false });
+    expect(screen.getByText("Za wysoki poziom (overqualified)")).toBeInTheDocument();
+    expect(screen.getByText("Błędny numer telefonu")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Zgłoszony do klienta przez inną firmę"));
+    expect(screen.getByRole("checkbox", { name: /Dotyczy wszystkich rekrutacji tego klienta/ })).toBeChecked();
+    fireEvent.click(screen.getByText("Z rozmowy z osobą"));
+    fireEvent.click(screen.getByRole("button", { name: "Potwierdź" }));
+    expect(onConfirm.mock.calls[0][9]).toMatchObject({ reason: "client_other_vendor", wholeClient: true });
   });
 
   it("„Lokalizacja lub tryb pracy” liczy się jako tryb pracy i pyta o dni w biurze", () => {
@@ -227,5 +258,14 @@ describe("autofill-feedback", () => {
     expect(templateReasonFor("no_answer", reasons)?.id).toBe("9");
     expect(templateReasonFor("missing_skill", [])).toBeUndefined();
     expect(templateReasonFor(null, reasons)).toBeUndefined();
+  });
+});
+
+describe("notLookingUntil", () => {
+  it("dodaje miesiące w kalendarzu i nie wychodzi poza koniec miesiąca", () => {
+    expect(notLookingUntil(3, "2026-10-28")).toBe("2027-01-28");
+    expect(notLookingUntil(6, "2026-08-31")).toBe("2027-02-28");
+    expect(notLookingUntil(12, "2028-02-29")).toBe("2029-02-28");
+    expect(notLookingUntil(0, "2026-10-28")).toBe("2026-10-28");
   });
 });
