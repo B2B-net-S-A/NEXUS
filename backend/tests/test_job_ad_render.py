@@ -241,6 +241,46 @@ def test_pracuj_offer_joins_terms_project_points_and_the_fixed_block():
     assert offer["auto_count"] == 5
     assert offer["fixed_count"] == len(DEFAULTS.pl.offer)
     assert offer["text"].split("\n") == offer["items"]
+    assert offer["hidden_auto"] == [] and offer["hidden_fixed"] == []
+
+
+def test_hidden_offer_points_leave_both_portals_but_stay_restorable():
+    # Zgłoszenie 28.10: rekruterka chciała zdjąć punkt stałego bloku w jednej
+    # rekrutacji. Ukryty punkt znika z Pracuj.pl i JustJoin.IT, a okno dostaje
+    # go osobno, żeby dało się go przywrócić.
+    medical = DEFAULTS.pl.offer[0]
+    view = _render(_content(offer_hidden=[medical.upper(), "kontrakt  B2B"]))
+    offer = _field(view, "offer")
+    assert medical not in offer["items"] and "kontrakt B2B" not in offer["items"]
+    assert offer["hidden_fixed"] == [medical]
+    assert offer["hidden_auto"] == ["kontrakt B2B"]
+    assert offer["auto_count"] == 4
+    assert offer["fixed_count"] == len(DEFAULTS.pl.offer) - 1
+    assert medical not in _section(view, "offer")["items"]
+    assert "kontrakt B2B" not in _section(view, "terms")["items"]
+    assert medical not in render.rendered_texts(view)
+
+
+def test_own_offer_point_repeating_a_term_or_the_fixed_block_is_shown_once():
+    # Wklejona cała lista z karty: punkty z rekrutacji i stałego bloku
+    # dokładają się same, więc ich kopie we własnych punktach nie wychodzą.
+    pasted = ["Kontrakt B2B", DEFAULTS.pl.offer[1], "długoterminowy projekt"]
+    view = _render(_content(offer=pasted))
+    offer = _field(view, "offer")
+    assert offer["items"].count("kontrakt B2B") == 1
+    assert offer["items"].count(DEFAULTS.pl.offer[1]) == 1
+    assert "Kontrakt B2B" not in offer["items"]
+    assert "długoterminowy projekt" in offer["items"]
+    assert _section(view, "offer")["items"].count(DEFAULTS.pl.offer[1]) == 1
+
+
+def test_own_offer_drops_what_the_terms_and_fixed_block_already_say():
+    material = _material()
+    content = _content(offer=["kontrakt B2B", "długoterminowy projekt"])
+    own = render.own_offer(
+        content, render.terms_from(material, content), DEFAULTS.pl, lang="pl"
+    )
+    assert own == ["długoterminowy projekt"]
 
 
 def test_pracuj_about_falls_back_to_the_lead_when_the_project_is_empty():

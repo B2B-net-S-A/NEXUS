@@ -126,6 +126,18 @@ def _items(value: Any) -> list[str]:
     return [text for text in (_clean(item) for item in value) if text]
 
 
+def _key(text: str) -> str:
+    return _clean(text).casefold()
+
+
+def _split(items: list[str], hidden: set[str]) -> tuple[list[str], list[str]]:
+    """(pokazane, ukryte w tym ogłoszeniu) — w kolejności źródła."""
+    return (
+        [item for item in items if _key(item) not in hidden],
+        [item for item in items if _key(item) in hidden],
+    )
+
+
 def _lang(lang: str) -> str:
     return "en" if lang == LANG_EN else "pl"
 
@@ -188,6 +200,28 @@ def term_lines(terms: Terms, lang: str) -> list[str]:
             else f"język pracy: {terms.language}"
         )
     return lines
+
+
+def own_offer(
+    content: dict[str, Any], terms: Terms, blocks: LangBlocks, *, lang: str
+) -> list[str]:
+    """Własne punkty „co oferujemy” bez tych, które ogłoszenie dokłada samo.
+
+    Rekruterka wklejała całą listę z karty, więc warunki z rekrutacji i stały
+    blok wychodziły dwa razy (zgłoszenie 28.10.2026). Ukryty punkt też się
+    liczy: jego kopia we własnych nie może go przywrócić.
+    """
+    taken = {_key(item) for item in [*term_lines(terms, lang), *blocks.offer]}
+    own: list[str] = []
+    for item in _items(content.get("offer")):
+        if _key(item) not in taken:
+            taken.add(_key(item))
+            own.append(item)
+    return own
+
+
+def _offer_hidden(content: dict[str, Any]) -> set[str]:
+    return {_key(item) for item in _items(content.get("offer_hidden"))}
 
 
 def clean_tech(value: Any) -> list[dict[str, str]]:
@@ -285,6 +319,8 @@ def _text_field(key: str, label: str, text: str) -> dict[str, Any]:
         "items": [],
         "auto_count": 0,
         "fixed_count": 0,
+        "hidden_auto": [],
+        "hidden_fixed": [],
     }
 
 
@@ -296,6 +332,8 @@ def _list_field(
     ordered: bool = False,
     auto_count: int = 0,
     fixed_count: int = 0,
+    hidden_auto: Optional[list[str]] = None,
+    hidden_fixed: Optional[list[str]] = None,
 ) -> dict[str, Any]:
     return {
         "key": key,
@@ -308,6 +346,10 @@ def _list_field(
         # `fixed_count` — ze stałego bloku z Ustawień; środek edytuje rekruter.
         "auto_count": auto_count,
         "fixed_count": fixed_count,
+        # Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu — okno
+        # pokazuje je w edycji, żeby dało się je przywrócić.
+        "hidden_auto": hidden_auto or [],
+        "hidden_fixed": hidden_fixed or [],
     }
 
 
@@ -347,9 +389,10 @@ def pracuj_view(
     lang: str,
     title: str,
 ) -> dict[str, Any]:
-    auto = term_lines(terms, lang)
-    own = _items(content.get("offer"))
-    fixed = list(blocks.offer)
+    hidden = _offer_hidden(content)
+    auto, hidden_auto = _split(term_lines(terms, lang), hidden)
+    own = own_offer(content, terms, blocks, lang=lang)
+    fixed, hidden_fixed = _split(list(blocks.offer), hidden)
     required = [t["name"] for t in tech if t["level"] != LEVEL_NICE]
     optional = [t["name"] for t in tech if t["level"] == LEVEL_NICE]
     about = str(content.get("about") or "")
@@ -379,6 +422,8 @@ def pracuj_view(
             [*auto, *own, *fixed],
             auto_count=len(auto),
             fixed_count=len(fixed),
+            hidden_auto=hidden_auto,
+            hidden_fixed=hidden_fixed,
         ),
         _list_field("tech_required", "Technologie wymagane", required),
         _list_field("tech_optional", "Technologie mile widziane", optional),
@@ -501,12 +546,14 @@ def jjit_view(
     title: str,
 ) -> dict[str, Any]:
     headings = _HEADINGS[_lang(lang)]
-    own_offer = _items(content.get("offer"))
-    fixed_offer = list(blocks.offer)
+    hidden = _offer_hidden(content)
+    own = own_offer(content, terms, blocks, lang=lang)
+    fixed_offer, _ = _split(list(blocks.offer), hidden)
+    terms_shown, _ = _split(term_lines(terms, lang), hidden)
     candidates = [
         _section("lead", None, text=str(content.get("lead") or "")),
         _section("about", headings["about"], text=str(content.get("about") or "")),
-        _section("terms", headings["terms"], items=term_lines(terms, lang)),
+        _section("terms", headings["terms"], items=terms_shown),
         _section(
             "responsibilities",
             headings["responsibilities"],
@@ -525,7 +572,7 @@ def jjit_view(
         _section(
             "offer",
             headings["offer"],
-            items=[*own_offer, *fixed_offer],
+            items=[*own, *fixed_offer],
             fixed_count=len(fixed_offer),
         ),
         _section(

@@ -6,7 +6,14 @@
  * podpowiedź — to nie jest tekst do wklejenia.
  */
 
-import type { AdContent, AdFinding, RenderedAd, RenderedField } from "@/lib/api/jobAd";
+import {
+  linesToItems,
+  OFFER_OWN_MAX,
+  type AdContent,
+  type AdFinding,
+  type RenderedAd,
+  type RenderedField,
+} from "@/lib/api/jobAd";
 
 import { AdBlock, type AdBlockTone } from "./AdBlock";
 import {
@@ -15,6 +22,7 @@ import {
   isEditKey,
   type AdDrafts,
   type AdEditKey,
+  type AdFieldKey,
 } from "./job-ad-edit";
 
 export interface AdTabProps {
@@ -30,7 +38,7 @@ export interface AdTabProps {
   copyBlockedReason: string | null;
   onCopy: (key: string, html: string, text: string) => void;
   onDraftChange: (key: AdEditKey, text: string | null) => void;
-  onSaveField: (key: AdEditKey, text: string) => Promise<boolean>;
+  onSaveField: (key: AdFieldKey, text: string) => Promise<boolean>;
 }
 
 const EDIT_HINTS: Partial<Record<AdEditKey, string>> = {
@@ -41,10 +49,10 @@ const EDIT_HINTS: Partial<Record<AdEditKey, string>> = {
   requirements: "Jedna pozycja w wierszu.",
   nice_to_have: "Jedna pozycja w wierszu.",
   offer:
-    "Jedna pozycja w wierszu. Tu wpisujesz punkty z projektu — warunki z rekrutacji i stały blok firmy dopisują się same.",
+    "Jedna pozycja w wierszu. W polu tylko punkty z projektu — warunki z rekrutacji i stały blok dokładają się same; możesz je ukryć w tym ogłoszeniu.",
 };
 
-export function editHint(key: AdEditKey): string | undefined {
+export function editHint(key: AdFieldKey): string | undefined {
   return EDIT_HINTS[key];
 }
 
@@ -75,6 +83,8 @@ export function PracujTab({
   const block = (field: RenderedField) => {
     const editKey = isEditKey(field.key) ? field.key : null;
     const copyKey = `pracuj.${field.key}`;
+    const offer = field.key === "offer";
+    const hiddenDraft = drafts.offer_hidden;
     return (
       <AdBlock
         key={field.key}
@@ -89,8 +99,23 @@ export function PracujTab({
         editValue={editKey ? editorText(content, editKey) : undefined}
         editHint={editKey ? editHint(editKey) : undefined}
         draft={editKey ? (drafts[editKey] ?? null) : null}
-        onDraftChange={editKey ? (text) => onDraftChange(editKey, text) : undefined}
+        onDraftChange={
+          editKey
+            ? (text) => {
+                onDraftChange(editKey, text);
+                // „Anuluj” odrzuca też niezapisane ukrycia punktów.
+                if (offer && text === null) onDraftChange("offer_hidden", null);
+              }
+            : undefined
+        }
         onSave={editKey ? (text) => onSaveField(editKey, text) : undefined}
+        hiddenAuto={field.hidden_auto}
+        hiddenFixed={field.hidden_fixed}
+        hiddenDraft={offer && hiddenDraft !== undefined ? linesToItems(hiddenDraft) : null}
+        onHiddenChange={
+          offer ? (hidden) => onDraftChange("offer_hidden", hidden.join("\n")) : undefined
+        }
+        ownLimit={offer ? OFFER_OWN_MAX : undefined}
         saving={saving}
         locked={locked}
         copied={copied.has(copyKey)}

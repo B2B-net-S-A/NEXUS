@@ -37,7 +37,12 @@ export interface AdContent {
   requirements: string[];
   nice_to_have: string[];
   offer: string[];
+  /** Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu. */
+  offer_hidden?: string[];
 }
+
+/** Ile własnych punktów „co oferujemy” przyjmuje serwer (`LIST_LIMITS`). */
+export const OFFER_OWN_MAX = 6;
 
 export type AdListKey = "responsibilities" | "requirements" | "nice_to_have" | "offer";
 export type AdTextKey = "title" | "lead" | "about" | "start" | "duration" | "language";
@@ -93,6 +98,9 @@ export interface RenderedField {
   auto_count: number;
   /** Ostatnie N pozycji to stały blok z Ustawień. */
   fixed_count: number;
+  /** Punkty z rekrutacji / stałego bloku ukryte w tym ogłoszeniu. */
+  hidden_auto?: string[];
+  hidden_fixed?: string[];
 }
 
 export interface RenderedTech {
