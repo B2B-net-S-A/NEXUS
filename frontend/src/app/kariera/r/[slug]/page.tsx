@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { CareerJobView } from "@/components/career/CareerJobView";
+import { CareerMockup, isCareerMockupId } from "@/components/career/mockups";
 import { fetchCareerJob } from "@/lib/career/server";
 import { paramsSummary } from "@/lib/career/format";
 import { primaryCareerHost } from "@/lib/career/host";
@@ -11,6 +12,7 @@ import { careerRequestContext } from "../../_context";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ uklad?: string }>;
 }
 
 export const dynamic = "force-dynamic";
@@ -58,10 +60,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function CareerJobPage({ params }: PageProps) {
+export default async function CareerJobPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const data = await load(slug);
   const { base, host } = await careerRequestContext();
+  // MAKIETA: warianty układu ogłoszenia (feedback zespołu 28.10.2026).
+  const uklad = (await searchParams)?.uklad;
+  if (isCareerMockupId(uklad)) return <CareerMockup id={uklad} data={data} base={base} host={host} />;
   const posting = jobPostingJsonLd(data, canonicalUrl(data.canonical_slug ?? slug));
   return (
     <>
