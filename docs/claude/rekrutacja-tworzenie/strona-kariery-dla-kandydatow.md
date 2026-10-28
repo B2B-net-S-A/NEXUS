@@ -62,8 +62,21 @@ Reguły, które łatwo cofnąć:
   (`(42835)`, `(ZOB-3003)`), „(K8s)” i „(ISO 27001)” zostają — jak w nagłówku
   CV. Opis zatwierdzony z tytułem według dawnych reguł zostaje na stronie z tym
   tytułem (`legacy_default_public_title`), aż ktoś zatwierdzi nowy.
+- **Tytuły Nordei** (29.10.2026, decyzja Artura): tytuł domyślny zdejmuje też
+  numer zapotrzebowania `TP#41745` / `TP ID 40942`, kraj i zespół na początku
+  (`PL - MDM - `, `PL_KYC_`, `PL-EBSD-`; `PL/SQL`, `PL-300` i `IT_` po kraju
+  zostają) oraz `Replacement (for …)` na końcu albo na początku (bywa w nim
+  imię i nazwisko osoby; „Replacement (open request)” zostaje, bo bez niego nie
+  ma roli). Kontrola `internal_code` zna `TP#` i `TP ID`.
+- **Zdjęcie samych kodów nie wymaga ponownego zatwierdzenia** (29.10.2026,
+  decyzja Artura): gdy dzisiejszy tytuł domyślny to zatwierdzony tytuł bez
+  kodów, a treść się nie zmieniła, opis zostaje „Zatwierdzony” i strona, OG
+  i maile od razu pokazują nowy tytuł (`_approved_title_with_codes`). Wersja
+  opublikowana sprzed zmian w edytorze też dostaje tytuł bez kodów. Do migawki
+  idzie tytuł, z którym policzono skrót (`PublishedVersion.approved_title`) —
+  inaczej pierwsza zmiana opisu zdjęłaby stronę. Adres linku się nie zmienia.
 - **Kontrola kodów wewnętrznych** (`lint_internal_codes`, kod `internal_code`):
-  `RITM|REQ|SCTASK|ZOB|PKN|EITE` z co najmniej 4 cyframi i części
+  `RITM|REQ|SCTASK|ZOB|PKN|EITE` z co najmniej 4 cyframi, `TP#` (Nordea) i części
   `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
   i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
   link (stary daje 404), a numer w adresie to kosmetyka.
