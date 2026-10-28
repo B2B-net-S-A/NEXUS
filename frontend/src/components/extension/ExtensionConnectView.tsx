@@ -16,6 +16,7 @@ export interface ExtensionKeyMessage {
 }
 
 type SendToExtension = (extensionId: string, message: ExtensionKeyMessage) => Promise<void>;
+type PingExtension = (extensionId: string) => Promise<boolean>;
 
 type ConnectState =
   | { status: "missing_extension" }
@@ -26,7 +27,7 @@ type ConnectState =
 interface ChromeRuntimeLike {
   sendMessage: (
     extensionId: string,
-    message: ExtensionKeyMessage,
+    message: ExtensionKeyMessage | { type: "nexus-ping" },
     callback: (response: unknown) => void,
   ) => void;
   lastError?: { message?: string };
@@ -56,18 +57,41 @@ export const sendViaChromeRuntime: SendToExtension = (extensionId, message) =>
     });
   });
 
+/**
+ * „Czy wtyczka jest?” zanim NEXUS wyda klucz. Nowe połączenie odwołuje
+ * poprzednie, więc wejście na tę stronę bez wtyczki (albo z obcego linku)
+ * odłączyłoby działającą wtyczkę tej osoby.
+ */
+export const pingViaChromeRuntime: PingExtension = (extensionId) =>
+  new Promise<boolean>((resolve) => {
+    const runtime = chromeRuntime();
+    if (!runtime) {
+      resolve(false);
+      return;
+    }
+    try {
+      runtime.sendMessage(extensionId, { type: "nexus-ping" }, (response) => {
+        resolve(!runtime.lastError && (response as { ok?: boolean } | undefined)?.ok === true);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+
 const EXTENSION_ID_RE = /^[a-p]{32}$/;
 
 export interface ExtensionConnectViewProps {
   extensionId: string | null;
   extensionVersion: string | null;
   send?: SendToExtension;
+  ping?: PingExtension;
 }
 
 export function ExtensionConnectView({
   extensionId,
   extensionVersion,
   send = sendViaChromeRuntime,
+  ping = pingViaChromeRuntime,
 }: ExtensionConnectViewProps) {
   const validId = extensionId && EXTENSION_ID_RE.test(extensionId) ? extensionId : null;
   const [state, setState] = useState<ConnectState>(
@@ -77,6 +101,14 @@ export function ExtensionConnectView({
 
   const connect = async (id: string) => {
     setState({ status: "connecting" });
+    if (!(await ping(id))) {
+      setState({
+        status: "error",
+        message:
+          "Nie widzę wtyczki NEXUS w tej przeglądarce. Zainstaluj ją z linku od administratora (albo włącz w chrome://extensions) i kliknij „Połącz ponownie”.",
+      });
+      return;
+    }
     try {
       const { data } = await linkedinExtensionApi.connect({
         extension_id: id,

@@ -32,7 +32,7 @@ describe("ExtensionConnectView", () => {
     });
     const send = vi.fn().mockResolvedValue(undefined);
 
-    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion="1.0.0" send={send} />);
+    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion="1.0.0" send={send} ping={async () => true} />);
 
     expect(await screen.findByText(/Połączono jako/)).toBeInTheDocument();
     expect(screen.getByText("Ola Testowa")).toBeInTheDocument();
@@ -46,13 +46,13 @@ describe("ExtensionConnectView", () => {
   });
 
   it("bez id wtyczki nie wydaje klucza i mówi, skąd otworzyć stronę", () => {
-    render(<ExtensionConnectView extensionId={null} extensionVersion={null} send={vi.fn()} />);
+    render(<ExtensionConnectView extensionId={null} extensionVersion={null} send={vi.fn()} ping={async () => true} />);
     expect(screen.getByText(/Tę stronę otwiera wtyczka NEXUS/)).toBeInTheDocument();
     expect(connect).not.toHaveBeenCalled();
   });
 
   it("id spoza formatu Chrome traktuje jak brak wtyczki", () => {
-    render(<ExtensionConnectView extensionId="../evil" extensionVersion={null} send={vi.fn()} />);
+    render(<ExtensionConnectView extensionId="../evil" extensionVersion={null} send={vi.fn()} ping={async () => true} />);
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -71,7 +71,7 @@ describe("ExtensionConnectView", () => {
       .mockRejectedValueOnce(new Error("extension_rejected"))
       .mockResolvedValueOnce(undefined);
 
-    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion={null} send={send} />);
+    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion={null} send={send} ping={async () => true} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Wtyczka nie odebrała połączenia");
     await userEvent.click(screen.getByRole("button", { name: "Połącz ponownie" }));
@@ -84,7 +84,17 @@ describe("ExtensionConnectView", () => {
       isAxiosError: true,
       response: { status: 403, data: { detail: "Ta wtyczka nie jest wtyczką NEXUSA." } },
     });
-    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion={null} send={vi.fn()} />);
+    render(<ExtensionConnectView extensionId={EXT_ID} extensionVersion={null} send={vi.fn()} ping={async () => true} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Ta wtyczka nie jest wtyczką NEXUSA.");
+  });
+});
+
+describe("ExtensionConnectView — bez wtyczki", () => {
+  it("nie prosi NEXUSA o klucz, gdy wtyczka nie odpowiada (nie odłącza działającej)", async () => {
+    render(
+      <ExtensionConnectView extensionId={EXT_ID} extensionVersion={null} send={vi.fn()} ping={async () => false} />,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Nie widzę wtyczki NEXUS");
+    expect(connect).not.toHaveBeenCalled();
   });
 });

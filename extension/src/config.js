@@ -81,6 +81,17 @@ export function connectUrl(frontUrl, extensionId, version) {
  * `sender` to obiekt z `chrome.runtime.onMessageExternal` (origin albo url).
  * Zwraca `{ok: true, connection}` albo `{ok: false, reason}`.
  */
+/**
+ * „Czy jesteś?” od strony połączenia — odpowiada tylko stronom NEXUSA.
+ * Strona pyta, zanim poprosi NEXUS o klucz: bez wtyczki nowy klucz odłączyłby
+ * działającą wtyczkę tej osoby (nowe połączenie odwołuje poprzednie).
+ */
+export function isPingFromNexus(message, sender) {
+  if (!message || message.type !== "nexus-ping") return false;
+  const senderOrigin = originOf(sender?.origin) || originOf(sender?.url);
+  return !!senderOrigin && ALLOWED_FRONT_ORIGINS.includes(senderOrigin);
+}
+
 export function validateKeyMessage(message, sender) {
   if (!message || typeof message !== "object" || message.type !== "nexus-extension-key") {
     return { ok: false, reason: "wrong_type" };

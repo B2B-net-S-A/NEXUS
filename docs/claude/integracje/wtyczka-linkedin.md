@@ -40,6 +40,8 @@ Stara wtyczka v0.2 (modal na stronie, logowanie hasłem) została usunięta.
 - **Klucz trafia tylko do wtyczki z listy `LINKEDIN_EXTENSION_IDS`** (strona
   `/extension/connect` → `chrome.runtime.sendMessage`). Pusta lista = nikt nie
   połączy wtyczki; inaczej obca wtyczka w przeglądarce mogłaby odebrać klucz.
+  Strona najpierw pinguje wtyczkę (`nexus-ping`) i bez odpowiedzi nie prosi
+  o klucz — nowe połączenie odwołuje poprzednie.
 - **Uprawnienia jak w NEXUSIE:** role `RecruiterPlus` i sufit sekcji Sourcing
   (odczyt dla sprawdzania, zapis dla dodawania), liczony w
   `ExtensionReader`/`ExtensionWriter`, bo `require_section_access` czyta JWT.
@@ -67,6 +69,19 @@ Stara wtyczka v0.2 (modal na stronie, logowanie hasłem) została usunięta.
   z rekrutacji (`ai: false`). Zaproszenie ≤ 300 znaków.
 - **Awaria nie wygląda jak „Nie ma w NEXUSIE”** — panel pokazuje błąd
   połączenia, a pole, którego czytnik nie odczytał, oznacza „wpisz ręcznie”.
+
+## Jak wtyczka czyta LinkedIna (pomiar 28.10.2026)
+
+Nowy LinkedIn (2025/26) nie ma `h1`, klas `pvs-list`/`artdeco` ani `ul/li`
+w sekcjach; klasy są haszowane. Czytniki pracują na `innerText` żywej strony:
+imię = pierwszy `h2` w `main`, karta górna = jego `section`, sekcje po
+nagłówkach `h2`, pozycje doświadczenia rozdzielone `hr` (lista = rodzic
+dzielony przez najwięcej `hr`; pojedynczy płytszy `hr` to stopka „Show all”),
+wyniki wyszukiwania = `[role=list] [role=listitem]`. Sekcje doładowują się
+po przewinięciu kontenera strony (nie `window`). Sprawdzone na żywo: profil
+i lista wyników. **Recruiter (`/talent/…`) nie był mierzony** — czytnik
+działa tym samym podejściem plus selektory `data-test-*`; pierwszy rekruter
+z licencją Recruiter potwierdza go na kilku profilach.
 
 ## Gdy LinkedIn zmieni stronę
 

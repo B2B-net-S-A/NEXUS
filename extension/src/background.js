@@ -1,7 +1,7 @@
 // Service worker: klik ikony otwiera panel, a strona NEXUSA „Połącz wtyczkę”
 // oddaje tu klucz. Nic tu nie czyta LinkedIna i nic nie działa w tle.
 
-import { validateKeyMessage } from "./config.js";
+import { isPingFromNexus, validateKeyMessage } from "./config.js";
 import { saveConnection } from "./storage.js";
 
 const CLOSE_CONNECT_TAB_AFTER_MS = 1500;
@@ -16,6 +16,10 @@ chrome.runtime.onInstalled.addListener(enablePanelOnActionClick);
 chrome.runtime.onStartup.addListener(enablePanelOnActionClick);
 
 chrome.runtime.onMessageExternal.addListener((message, sender, sendResponse) => {
+  if (message?.type === "nexus-ping") {
+    sendResponse({ ok: isPingFromNexus(message, sender), version: chrome.runtime.getManifest().version });
+    return false;
+  }
   const result = validateKeyMessage(message, sender);
   if (!result.ok) {
     console.warn("NEXUS: odrzucona wiadomość połączenia", result.reason);

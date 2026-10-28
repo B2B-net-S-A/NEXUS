@@ -61,6 +61,7 @@ export type SettingsItemId =
   | "ai"
   | "qc-quality"
   | "api-keys"
+  | "linkedin-extension"
   | "traffit"
   | "job-boards"
   | "teams-prep"

@@ -12,7 +12,10 @@ błędów: `{"detail": "<kod albo zdanie po polsku>"}`.
 ## Połączenie (strona NEXUSA, nie wtyczka)
 
 Wtyczka otwiera kartę `https://<front>/extension/connect?ext=<chrome.runtime.id>&v=<wersja>`.
-Strona (zalogowany użytkownik NEXUSA) woła `POST /api/extension/connect`
+Strona najpierw pyta wtyczkę `chrome.runtime.sendMessage(ext, {type: "nexus-ping"})`
+→ `{ok: true, version}`; bez odpowiedzi nie prosi NEXUSA o klucz (nowe połączenie
+odwołuje poprzednie, więc wejście bez wtyczki odłączyłoby działającą).
+Potem (zalogowany użytkownik NEXUSA) woła `POST /api/extension/connect`
 (JWT) i przekazuje klucz do wtyczki:
 `chrome.runtime.sendMessage(ext, {type: "nexus-extension-key", key, apiBase})`.
 Wtyczka przyjmuje to w `chrome.runtime.onMessageExternal` (manifest:

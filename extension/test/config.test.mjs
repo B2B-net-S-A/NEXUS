@@ -41,3 +41,10 @@ test("adres strony połączenia i normalizacja apiBase", () => {
   assert.equal(normalizeApiBase("https://api.nexus.b2bnetwork.pl/api/"), "https://api.nexus.b2bnetwork.pl");
   assert.equal(isAllowedApiBase("https://user:pass@api.nexus.b2bnetwork.pl"), false);
 });
+
+test("ping od strony połączenia: odpowiada tylko stronom NEXUSA", async () => {
+  const { isPingFromNexus } = await import("../src/config.js");
+  assert.equal(isPingFromNexus({ type: "nexus-ping" }, { origin: "https://nexus.b2bnetwork.pl" }), true);
+  assert.equal(isPingFromNexus({ type: "nexus-ping" }, { origin: "https://evil.example" }), false);
+  assert.equal(isPingFromNexus({ type: "other" }, { origin: "https://nexus.b2bnetwork.pl" }), false);
+});
