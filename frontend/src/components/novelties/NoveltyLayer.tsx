@@ -41,6 +41,7 @@ import {
   dotNovelties,
   eventForClick,
   markSeenOnce,
+  placeBeside,
   readTour,
   requiredForPath,
   writeTour,
@@ -65,6 +66,8 @@ interface Box {
 }
 
 const PAD = 6;
+/** Rozmiar karty kroku do wyboru miejsca obok celu (wysokość z zapasem na dwie linie). */
+const STEP_CARD = { width: 340, height: 170 };
 
 function findAnchor(anchor: string): HTMLElement | null {
   for (const el of Array.from(
@@ -221,6 +224,9 @@ function formatShipped(iso: string): string {
   return `${day}.${month}`;
 }
 
+// Krok `ack` stoi nad otwartym oknem Radix (np. „Zakończ współpracę”), które
+// wyłącza kliknięcia poza sobą (`pointer-events: none` na body) — karta
+// przywraca je sobie. Klik w nią zamyka to okno bez zapisu, i o to chodzi.
 function TourStepCard({
   novelty,
   state,
@@ -235,16 +241,15 @@ function TourStepCard({
   onStop: () => void;
 }) {
   const step = novelty.steps[state.step];
-  const below = !box || box.top + box.height + 200 < window.innerHeight;
   const style: React.CSSProperties = box
-    ? {
-        top: below ? box.top + box.height + 12 : Math.max(12, box.top - 180),
-        left: Math.min(Math.max(12, box.left), window.innerWidth - 352),
-      }
+    ? placeBeside(box, STEP_CARD, {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      })
     : { bottom: 24, left: "50%", transform: "translateX(-50%)" };
   return (
     <div
-      className="fixed z-[70] w-[340px] rounded-xl border border-primary/30 bg-card p-4 shadow-xl"
+      className="pointer-events-auto fixed z-[121] w-[340px] rounded-xl border border-primary/30 bg-card p-4 shadow-xl"
       style={style}
       role="status"
       data-testid="novelty-tour-step"
@@ -287,10 +292,12 @@ function TourStepCard({
   );
 }
 
+// Podświetlenie i karta kroku leżą nad oknami (z-110, `ui/dialog.tsx`), bo
+// krok bywa w środku okna („Co z umową B2B?”). Kropka i karta nowości — pod.
 function Spotlight({ box }: { box: Box }) {
   return (
     <div
-      className="pointer-events-none fixed inset-0 z-[60]"
+      className="pointer-events-none fixed inset-0 z-[120]"
       aria-hidden
       data-testid="novelty-spotlight"
     >
@@ -311,7 +318,7 @@ function FinishedCard({
 }) {
   return (
     <div
-      className="fixed bottom-6 left-1/2 z-[70] w-[380px] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-xl border border-success/30 bg-card p-4 shadow-xl"
+      className="pointer-events-auto fixed bottom-6 left-1/2 z-[121] w-[380px] max-w-[calc(100vw-24px)] -translate-x-1/2 rounded-xl border border-success/30 bg-card p-4 shadow-xl"
       role="status"
       data-testid="novelty-tour-finished"
     >
@@ -323,7 +330,7 @@ function FinishedCard({
         <div className="min-w-0">
           <p className="text-sm font-semibold">Zaliczone: {novelty.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Kropka zniknęła, a w „Nowościach” masz ✓.
+            Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment.
           </p>
         </div>
         <button
@@ -364,7 +371,7 @@ function ProcessDialog({
             Pokazujemy to raz, przy pierwszym wejściu na ten ekran po zmianie.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-3 text-sm">
+        <div className="relative space-y-3 px-6 py-4 text-sm">
           <div className="rounded-lg border border-warning/25 bg-warning-muted p-3 text-warning-muted-foreground">
             {novelty.why}
           </div>
@@ -504,6 +511,9 @@ export function NoveltyLayer() {
     const box = boxes.get(touring.steps[tour.step].anchor) ?? null;
     return (
       <>
+        {/* Postać „Moi ludzie” z dymkiem w rogu zasłania stopkę panelu
+            (np. „Zakończ współpracę…”) — na czas przeklikania jej nie ma. */}
+        <style>{"[data-floating-corner]{visibility:hidden}"}</style>
         {box ? <Spotlight box={box} /> : null}
         <TourStepCard
           novelty={touring}

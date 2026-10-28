@@ -73,7 +73,9 @@ export function JarvisMascot({
           )}
         </div>
       )}
-      <div className="group/mascot pointer-events-auto relative">
+      {/* `data-tour`: kropka nowości „schowasz krzyżykiem” stoi na całej
+          postaci — sam × widać dopiero po najechaniu. */}
+      <div className="group/mascot pointer-events-auto relative" data-tour="jarvis.mascot.hide">
         <button
           type="button"
           onClick={onToggle}
@@ -106,7 +108,6 @@ export function JarvisMascot({
             title={`Schowaj ${name}`}
             className="absolute -left-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full border border-border bg-card text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover/mascot:opacity-100 max-md:opacity-100"
             data-testid="jarvis-mascot-hide"
-            data-tour="jarvis.mascot.hide"
           >
             <X className="h-3 w-3" aria-hidden />
           </button>

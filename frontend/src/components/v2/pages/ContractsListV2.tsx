@@ -1552,6 +1552,7 @@ export function ContractsListV2({
  selected={rowSelected}
  {...rowActivationProps(String(m.id), () => openContract(m.id))}
  aria-selected={panelOpen}
+ data-tour="contracts.list.row"
  data-selected={panelOpen || undefined}
  // Spokojna tabela: jedna cienka linia między wierszami, bez
  // zebry. Wyróżnia się tylko wiersz zaznaczony i ten, którego

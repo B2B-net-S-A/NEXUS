@@ -13,6 +13,7 @@ import {
   cardCandidate,
   eventForClick,
   pendingCount,
+  placeBeside,
   requiredForPath,
   type Novelty,
 } from "@/lib/novelties/logic";
@@ -209,5 +210,36 @@ describe("logika nowości", () => {
       "dot_clicked",
     );
     expect(eventForClick(dot, element("inne"))).toBeNull();
+  });
+});
+
+describe("miejsce karty kroku", () => {
+  const card = { width: 340, height: 170 };
+  const viewport = { width: 1280, height: 720 };
+
+  it("pod celem, gdy jest miejsce", () => {
+    expect(
+      placeBeside(
+        { top: 160, left: 820, width: 140, height: 40 },
+        card,
+        viewport,
+      ).top,
+    ).toBe(212);
+  });
+
+  it("przycisk przy dolnej krawędzi: karta nie zasłania celu i mieści się w oknie", () => {
+    for (const target of [
+      { top: 630, left: 890, width: 170, height: 50 },
+      { top: 560, left: 890, width: 170, height: 150 },
+    ]) {
+      const at = placeBeside(target, card, viewport);
+      const overlaps =
+        at.left < target.left + target.width &&
+        at.left + card.width > target.left &&
+        at.top < target.top + target.height &&
+        at.top + card.height > target.top;
+      expect(overlaps).toBe(false);
+      expect(at.top + card.height).toBeLessThanOrEqual(viewport.height);
+    }
   });
 });

@@ -176,3 +176,44 @@ export function markSeenOnce(noveltyId: string): boolean {
     return false;
   }
 }
+
+export interface Rect {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Miejsce karty kroku obok podświetlenia: pod, nad, z lewej, z prawej —
+ * pierwsze, które mieści się w oknie i nie zasłania celu. Przycisk w stopce
+ * panelu (np. „Zakończ współpracę…”) nie ma miejsca pod ani nad sobą.
+ */
+export function placeBeside(
+  target: Rect,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 12,
+): { top: number; left: number } {
+  const clampLeft = (x: number) =>
+    Math.min(Math.max(12, x), viewport.width - card.width - 12);
+  const clampTop = (y: number) =>
+    Math.min(Math.max(12, y), viewport.height - card.height - 12);
+  const candidates = [
+    { top: target.top + target.height + gap, left: clampLeft(target.left) },
+    { top: target.top - card.height - gap, left: clampLeft(target.left) },
+    { top: clampTop(target.top), left: target.left - card.width - gap },
+    { top: clampTop(target.top), left: target.left + target.width + gap },
+  ];
+  const fits = (c: { top: number; left: number }) =>
+    c.top >= 0 &&
+    c.left >= 0 &&
+    c.top + card.height <= viewport.height &&
+    c.left + card.width <= viewport.width;
+  const overlaps = (c: { top: number; left: number }) =>
+    c.left < target.left + target.width &&
+    c.left + card.width > target.left &&
+    c.top < target.top + target.height &&
+    c.top + card.height > target.top;
+  return candidates.find((c) => fits(c) && !overlaps(c)) ?? candidates[0];
+}

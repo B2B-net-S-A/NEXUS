@@ -244,15 +244,19 @@ export function NoveltiesAdoptionView({
           {current.people.map((p) => (
             <li
               key={p.user_id}
-              className="flex min-w-0 items-center gap-2 border-b border-border/60 py-2 text-sm"
+              className="flex min-w-0 items-start gap-2 border-b border-border/60 py-2 text-sm"
             >
-              <StateIcon state={p.state} />
-              <span className="min-w-0 truncate font-medium">{p.name}</span>
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                {STATE_LABEL[p.state]}
-                {p.reminded_at && !KNOWS.includes(p.state)
-                  ? " · przypomniano"
-                  : ""}
+              <span className="mt-0.5 shrink-0">
+                <StateIcon state={p.state} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{p.name}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {STATE_LABEL[p.state]}
+                  {p.reminded_at && !KNOWS.includes(p.state)
+                    ? " · przypomniano"
+                    : ""}
+                </span>
               </span>
             </li>
           ))}
