@@ -930,6 +930,9 @@ export default function JobDetailPage() {
             canSet={canSetPriority}
             p0={job}
             canSetP0={job.can_set_p0 === true}
+            // Delivery Lead tej rekrutacji prosi o P0 (28.10.2026).
+            canRequestP0={job.can_request_p0 === true}
+            p0RequestPending={Boolean(job.p0_requested_at)}
             jobTitle={job.working_title || job.title}
             // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
             paused={job.priority_paused === true}

@@ -29,8 +29,11 @@
  ],
  "routes": {
   "DELETE /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "DELETE /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/p0-jobs": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/jobs/{job_id}/p0/request/approve": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

@@ -263,6 +263,8 @@ export interface RequestBoardViewProps {
   scopeLabel?: string | null
   /** „Pokaż wszystkie” — zdejmuje filtr zakresu. */
   onClearScope?: () => void
+  /** Sama tabela bez nagłówka, filtrów i obłożenia — panel P0 na pulpicie. */
+  tableOnly?: boolean
 }
 
 export type RequestBoardVariant = "tile" | "daily"
@@ -452,6 +454,15 @@ function RequestRow({
             onOpenChange={setP0DialogOpen}
           />
         ) : null}
+        {/* Powód P0 (28.10.2026): w samym dymku chipu nikt go nie czytał. */}
+        {p0 && request.p0_reason ? (
+          <p
+            className="mt-0.5 break-words text-[11px] font-medium text-destructive-muted-foreground"
+            data-testid="request-row-p0-reason"
+          >
+            „{request.p0_reason}”
+          </p>
+        ) : null}
         {meta.length > 0 && (
           <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-[11px] text-muted-foreground">
             {meta.map((item, index) => (
@@ -571,6 +582,7 @@ export function RequestBoardView({
   variant = "tile",
   scopeLabel = null,
   onClearScope,
+  tableOnly = false,
 }: RequestBoardViewProps) {
   const daily = variant === "daily"
   const { groups, shown, total } = useMemo(
@@ -587,6 +599,73 @@ export function RequestBoardView({
     return new Date(year, month - 1, day, 12)
   }, [today])
   const mode = MODE_COPY[board.mode]
+
+  const table = (
+    <>
+      {/* `relative`: nazwy dla czytników ekranu w komórkach są pozycjonowane
+          absolutnie i mają zostać w obrębie przewijanej tabeli. */}
+      <div className="@container/rtable relative overflow-x-auto rounded-lg border border-border bg-card">
+        <div className="min-w-[820px] @min-[820px]/rtable:min-w-0">
+          <div
+            className={cn(
+              "grid gap-x-3 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+              GRID_COLS,
+            )}
+          >
+            <div className={cn("py-2 pl-4", STICKY_FIRST)}>Request</div>
+            <div className={cn(WIDE_ONLY, "py-2")}>Kategoria</div>
+            <div className={cn(WIDE_ONLY, "py-2")}>Delivery Lead</div>
+            <div className={cn(WIDE_ONLY, "py-2")}>Otwarta</div>
+            <div className="py-2">Termin</div>
+            <div className="py-2" title="Stoją teraz w kolumnie „Zweryfikowany”">
+              Zweryf.
+            </div>
+            <div className="py-2" title="Stoją teraz w kolumnie „QC CV”">
+              QC CV
+            </div>
+            <div className="py-2">Wysłani</div>
+            <div className="py-2 pr-4">Rekruter</div>
+          </div>
+          {groups.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              {board.requests.length === 0
+                ? "Żaden request nie jest w stanie „Szukamy kandydatów”. Ustaw stany w „Porządku w requestach”."
+                : "Żaden request nie pasuje do ustawionych filtrów."}
+            </p>
+          ) : (
+            groups.map((group) => (
+              <section key={group.category_id ?? "none"} aria-label={group.name}>
+                <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-4 py-2">
+                  <Badge variant={competenceTone(group.slug)}>{group.name}</Badge>
+                  <span className="text-sm font-semibold">{group.shownLabel}</span>
+                  <span className="text-sm text-muted-foreground">{group.detail}</span>
+                </div>
+                {group.rows.map((request) => (
+                  <RequestRow
+                    key={request.job_id}
+                    board={board}
+                    request={request}
+                    group={group}
+                    now={now}
+                    canStaff={canStaff}
+                    canDecide={canDecide}
+                    canSetP0={canSetP0}
+                    onAddPerson={onAddPerson}
+                    onRemovePerson={onRemovePerson}
+                    onAcceptProposal={onAcceptProposal}
+                    busyKeys={busyKeys}
+                  />
+                ))}
+              </section>
+            ))
+          )}
+        </div>
+      </div>
+    </>
+  )
+
+  // Panel P0 na pulpicie: sama tabela, bez nagłówka, filtrów i obłożenia.
+  if (tableOnly) return <div className="@container/rboard">{table}</div>
 
   return (
     <div className="@container/rboard flex flex-col gap-4">
@@ -664,65 +743,7 @@ export function RequestBoardView({
             total={total}
             unstaffed={unstaffed}
           />
-          {/* `relative`: nazwy dla czytników ekranu w komórkach są pozycjonowane
-              absolutnie i mają zostać w obrębie przewijanej tabeli. */}
-          <div className="@container/rtable relative overflow-x-auto rounded-lg border border-border bg-card">
-            <div className="min-w-[820px] @min-[820px]/rtable:min-w-0">
-              <div
-                className={cn(
-                  "grid gap-x-3 border-b border-border text-xs font-semibold uppercase tracking-wide text-muted-foreground",
-                  GRID_COLS,
-                )}
-              >
-                <div className={cn("py-2 pl-4", STICKY_FIRST)}>Request</div>
-                <div className={cn(WIDE_ONLY, "py-2")}>Kategoria</div>
-                <div className={cn(WIDE_ONLY, "py-2")}>Delivery Lead</div>
-                <div className={cn(WIDE_ONLY, "py-2")}>Otwarta</div>
-                <div className="py-2">Termin</div>
-                <div className="py-2" title="Stoją teraz w kolumnie „Zweryfikowany”">
-                  Zweryf.
-                </div>
-                <div className="py-2" title="Stoją teraz w kolumnie „QC CV”">
-                  QC CV
-                </div>
-                <div className="py-2">Wysłani</div>
-                <div className="py-2 pr-4">Rekruter</div>
-              </div>
-              {groups.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-                  {board.requests.length === 0
-                    ? "Żaden request nie jest w stanie „Szukamy kandydatów”. Ustaw stany w „Porządku w requestach”."
-                    : "Żaden request nie pasuje do ustawionych filtrów."}
-                </p>
-              ) : (
-                groups.map((group) => (
-                  <section key={group.category_id ?? "none"} aria-label={group.name}>
-                    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-4 py-2">
-                      <Badge variant={competenceTone(group.slug)}>{group.name}</Badge>
-                      <span className="text-sm font-semibold">{group.shownLabel}</span>
-                      <span className="text-sm text-muted-foreground">{group.detail}</span>
-                    </div>
-                    {group.rows.map((request) => (
-                      <RequestRow
-                        key={request.job_id}
-                        board={board}
-                        request={request}
-                        group={group}
-                        now={now}
-                        canStaff={canStaff}
-                        canDecide={canDecide}
-                        canSetP0={canSetP0}
-                        onAddPerson={onAddPerson}
-                        onRemovePerson={onRemovePerson}
-                        onAcceptProposal={onAcceptProposal}
-                        busyKeys={busyKeys}
-                      />
-                    ))}
-                  </section>
-                ))
-              )}
-            </div>
-          </div>
+          {table}
         </div>
         {/* Na daily „Zmiany od wczoraj” stoją na górze — z boku tylko obłożenie. */}
         <aside
@@ -751,9 +772,12 @@ export function RequestBoardView({
 export function RequestBoard({
   scope = "all",
   variant = "tile",
+  onlyJobIds,
 }: {
   scope?: RequestBoardScope
   variant?: RequestBoardVariant
+  /** Sama tabela tych requestów, bez filtrów — panel P0 na pulpicie. */
+  onlyJobIds?: ReadonlySet<number>
 } = {}) {
   const query = useRequestBoard()
   const pathname = usePathname()
@@ -833,11 +857,16 @@ export function RequestBoard({
   if (state === "forbidden" || state === "not_found" || state === "error") {
     return <QueryStateNotice state={state} onRetry={() => query.refetch()} />
   }
-  const board = query.data as RequestBoardData
+  const fullBoard = query.data as RequestBoardData
+  const board = onlyJobIds
+    ? { ...fullBoard, requests: fullBoard.requests.filter((r) => onlyJobIds.has(r.job_id)) }
+    : fullBoard
   const scoped = scopeFilters(scope, board.viewer)
   const scopeActive =
     !urlHasFilters && !scopeDismissed && Object.keys(scoped).length > 0
-  const filters: BoardFilters = urlHasFilters
+  const filters: BoardFilters = onlyJobIds
+    ? EMPTY_FILTERS
+    : urlHasFilters
     ? urlFilters
     : scopeActive
       ? { ...EMPTY_FILTERS, ...scoped }
@@ -847,6 +876,7 @@ export function RequestBoard({
       <RequestBoardView
         board={board}
         variant={variant}
+        tableOnly={onlyJobIds !== undefined}
         scopeLabel={scopeActive && scope !== "all" ? SCOPE_LABEL[scope] : null}
         onClearScope={() => setScopeDismissed(true)}
         today={warsawToday()}
