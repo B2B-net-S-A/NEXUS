@@ -186,7 +186,7 @@ SPECS: dict[str, _Spec] = {
     # 0612: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
     # „Ustaw” na pulpicie (`?nowa-osoba=`), decyzja zapada dopiero w oknie.
     "new_person_signed_in": _Spec("Zdecyduj, kim jest nowa osoba", label="Zdecyduj"),
-    # 0615: ważne ogłoszenie — temat to tytuł ogłoszenia.
+    # 0616: ważne ogłoszenie — temat to tytuł ogłoszenia.
     "announcement_important": _Spec(
         "Ważne ogłoszenie", chip="Ogłoszenie", label="Otwórz pulpit", use_title=True
     ),
