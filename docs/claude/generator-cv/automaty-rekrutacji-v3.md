@@ -110,7 +110,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `autofill_withdrawn_client`, „Praca w tle” z `why: "client"`), a
   `ranked_picks` nie podsuwa jej żadnej rekrutacji tego klienta. Bez
   zaznaczenia — tylko ta rekrutacja.
-- **E. Runda 3: „Nie szuka do…” i trzy nowe powody (0614, decyzja Artura
+- **E. Runda 3: „Nie szuka do…” i trzy nowe powody (0615, decyzja Artura
   28.10.2026).** Analiza 44 odrzuceń z 27–28.10: 9 to „Nie szuka pracy”,
   a żadna z 12 takich osób od 23.10 nie miała tego w profilu i 5 z nich
   czekało w 9 „Nowych” innych rekrutacji; 6 z 10 „Inne” to overqualified,

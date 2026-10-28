@@ -1,7 +1,7 @@
 """Trzy nowe powody odrzucenia osoby od systemu.
 
-Revision ID: 0614_autofill_more_reasons
-Revises: 0613_timesheets_permission
+Revision ID: 0615_autofill_more_reasons
+Revises: 0614_sales_atlas_gaps
 
 Decyzja Artura 28.10.2026 po analizie 44 odrzuceń (runda 3): 6 z 10 „Inne”
 to „overqualified”, błędny numer telefonu i „zgłoszony do klienta przez inną
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services import autofill_feedback_schema as schema
 
-revision = "0614_autofill_more_reasons"
-down_revision = "0613_timesheets_permission"
+revision = "0615_autofill_more_reasons"
+down_revision = "0614_sales_atlas_gaps"
 branch_labels = None
 depends_on = None
 
