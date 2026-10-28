@@ -2275,6 +2275,16 @@ async def apply_move(
             getattr(stage_def, "terminal_type", None),
         ),
     )
+    # 28.10.2026: karta bez osoby („System”) przeniesiona przez człowieka
+    # z „Nowych” do „Screeningu” jest jego, jak po „Biorę”.
+    if (
+        policy.mover is not None
+        and policy.actor_id is not None
+        and not candidate_claim.is_integration_request(request)
+    ):
+        await candidate_claim.take_unowned_on_screening(
+            db, previous=previous_stage_row, moved=stage, user_id=policy.actor_id
+        )
     await _pre_contracts.on_move(
         db,
         candidate_id=data.candidate_id,
@@ -5406,6 +5416,10 @@ async def bulk_move_candidates(
                 else {}
             ),
         )
+        if not candidate_claim.is_integration_request(request):
+            await candidate_claim.take_unowned_on_screening(
+                db, previous=previous_row, moved=entry, user_id=current_user.id
+            )
         await create_original_cv_snapshot(db, entry)
         await maybe_ensure_contact_opportunity(
             db,

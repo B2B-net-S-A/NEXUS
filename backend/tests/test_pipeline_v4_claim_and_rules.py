@@ -1252,3 +1252,158 @@ async def test_deactivated_taker_is_not_the_card_person(api_client):
         assert card.get("taken_by_user_id") is None
     finally:
         await _cleanup([cand_id], job_id)
+
+
+async def _make_system_card(cand_id: int, job_id: int) -> None:
+    """Karta jak od silnika „Nowi na 20”: bez osoby dodającej i bez blokady."""
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(RecruitmentProcess)
+            .where(
+                RecruitmentProcess.candidate_id == cand_id,
+                RecruitmentProcess.job_id == job_id,
+            )
+            .values(
+                entry_source="system",
+                claimed_by_user_id=None,
+                claimed_until=None,
+                owner_user_id=None,
+            )
+        )
+        await db.execute(
+            update(CandidateStage)
+            .where(
+                CandidateStage.candidate_id == cand_id,
+                CandidateStage.job_id == job_id,
+            )
+            .values(moved_by=None)
+        )
+        await db.commit()
+
+
+async def test_moving_system_card_to_screening_takes_it_like_biore(api_client):
+    """Zgłoszenie z 28.10.2026: karta „System” przeniesiona z „Nowych” do
+    „Screeningu” zostawała „System”. Ruch człowieka bierze kartę bez osoby
+    jak „Biorę”: osoba karty, filtr „Ty” i blokada 12 h."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _make_system_card(cand_id, job_id)
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["entry_source"] == "system"
+        assert card.get("taken_by_user_id") is None
+
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _fetch_card(api_client, owner_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == other_id
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_by_user_id == other_id
+        assert proc.claimed_until > datetime.now(timezone.utc) + timedelta(hours=11)
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_moving_someone_elses_card_to_screening_keeps_its_person(api_client):
+    """Karta dodana przez człowieka zostaje u niego, także po 12 h — kto chce
+    ją wziąć, klika „Biorę” (wariant A, nie „każdy ruch przepisuje kartę”)."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _expire_claim(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": cand_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        card = await _fetch_card(api_client, other_h, job_id, cand_id)
+        assert card["taken_by_user_id"] == owner_id
+        assert (await _process(cand_id, job_id)).claimed_by_user_id == owner_id
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_bulk_move_of_system_card_to_screening_takes_it_too(api_client):
+    """Ruch paczką (zaznaczone karty) idzie tą samą regułą co przeciągnięcie."""
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+        await _make_system_card(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/bulk-move",
+            headers=other_h,
+            json={"candidate_ids": [cand_id], "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        assert (await _process(cand_id, job_id)).claimed_by_user_id == other_id
+    finally:
+        await _cleanup([cand_id], job_id)
+
+
+async def test_backfill_gives_system_cards_in_screening_their_mover(api_client):
+    """Jednorazowo (28.10.2026): karty „System” przeniesione do „Screeningu”
+    przed zmianą dostają osobę z ruchu; blokada liczy się od tamtego ruchu.
+    Karta „System” w „Nowych” zostaje bez osoby."""
+    from app.services import system_card_screening_backfill as backfill
+
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    other_id, other_email, other_pw = await _seed_user(UserRole.recruiter)
+    job_id, _ = await _seed_job(owner_id, collaborator_ids=(other_id,))
+    moved_id, waiting_id = await _seed_candidate(), await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    other_h = await _login(api_client, other_email, other_pw)
+    try:
+        for cand_id in (moved_id, waiting_id):
+            await _add(api_client, owner_h, job_id, cand_id, "manual_search")
+            await _make_system_card(cand_id, job_id)
+        moved = await api_client.post(
+            "/api/pipeline/move",
+            headers=other_h,
+            json={"candidate_id": moved_id, "job_id": job_id, "stage": "screening"},
+        )
+        assert moved.status_code == 200, moved.text
+        # Stan sprzed poprawki: ruch nikogo nie zapisał.
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                update(RecruitmentProcess)
+                .where(RecruitmentProcess.job_id == job_id)
+                .values(claimed_by_user_id=None, claimed_until=None)
+            )
+            await db.commit()
+
+        async with AsyncSessionLocal() as db:
+            takes = [t for t in await backfill.plan(db) if t.job_id == job_id]
+            assert [(t.candidate_id, t.user_id) for t in takes] == [
+                (moved_id, other_id)
+            ]
+            done = await backfill.apply(db, takes)
+            await db.commit()
+        assert len(done) == 1
+        proc = await _process(moved_id, job_id)
+        assert proc.claimed_by_user_id == other_id
+        assert proc.claimed_until == takes[0].moved_at + timedelta(hours=12)
+        assert (await _process(waiting_id, job_id)).claimed_by_user_id is None
+        card = await _fetch_card(api_client, owner_h, job_id, moved_id)
+        assert card["taken_by_user_id"] == other_id
+    finally:
+        await _cleanup([moved_id, waiting_id], job_id)
