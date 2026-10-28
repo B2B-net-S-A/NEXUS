@@ -1,0 +1,1142 @@
+/* Szablon `grafit` („Grafit B2B”) — strona otwartej rekrutacji, 28.10.2026.
+   Kolory z tokenów szablonu (`--kr-*`, `themes.ts`); własne odcienie
+   (karta, węgiel, obramowanie pola, błąd) zdefiniowane raz na korzeniu. */
+
+.root {
+  --c-bg: var(--kr-bg);
+  --c-bg2: #1c1c1c;
+  --c-card: #242424;
+  --c-coal: #3a3a3a;
+  /* Obramowanie pola ≥ 3:1 do tła pola (#1c1c1c). */
+  --c-field-line: #6b737b;
+  --c-text: var(--kr-text);
+  --c-head: var(--kr-white);
+  --c-muted: var(--kr-gray);
+  --c-para: var(--kr-para);
+  --c-accent: var(--kr-red);
+  --c-red: var(--kr-title);
+  --c-decor: var(--kr-bordo);
+  --c-btn: var(--kr-btn);
+  --c-btn-hover: var(--kr-btn-hover);
+  --c-btn-text: var(--kr-btn-text);
+  /* Komunikaty błędów: #F05A69 z tokenu ma na karcie 4,2:1 — jaśniejszy 6,7:1. */
+  --c-err: #ff8a95;
+  --c-red-soft: rgba(231, 55, 72, 0.16);
+  --f-head: "Montserrat", sans-serif;
+  --f-body: "Source Sans 3", sans-serif;
+  --pad: 40px;
+  --max: 1200px;
+  --radius: 20px;
+
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--f-body);
+  font-size: 18px;
+  line-height: 1.6;
+  overflow-x: clip;
+}
+
+.main {
+  flex: 1 0 auto;
+}
+
+.root :focus-visible {
+  outline: 3px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+/* ── Pasek ───────────────────────────────────────────── */
+
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(20, 20, 20, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--kr-line);
+}
+
+.barInner {
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.logoLink {
+  display: inline-flex;
+  border-radius: 6px;
+}
+
+.barNav {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.root .barLink {
+  font-size: 16px;
+  color: var(--c-muted);
+  text-decoration: none;
+}
+
+.root .barLink:hover {
+  color: var(--c-head);
+}
+
+.root .barCta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 1.5px solid var(--c-btn);
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 15px;
+  text-decoration: none;
+  color: var(--c-head);
+}
+
+.root .barCta:hover {
+  background: var(--c-btn);
+  color: var(--c-btn-text);
+}
+
+/* ── Hero ────────────────────────────────────────────── */
+
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--c-bg) 0%, var(--c-bg2) 100%);
+}
+
+.glow {
+  position: absolute;
+  z-index: -2;
+  width: 900px;
+  height: 900px;
+  right: -260px;
+  top: -420px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(231, 55, 72, 0.3) 0%, rgba(231, 55, 72, 0.08) 40%, transparent 68%);
+  filter: blur(20px);
+}
+
+.arc {
+  position: absolute;
+  z-index: -1;
+  right: -40px;
+  top: 28px;
+  width: 440px;
+  height: auto;
+  opacity: 0.22;
+}
+
+/* Jedyne wejście na stronie: łuk znaku rysuje się raz. Treść hero stoi od
+   razu (tytuł nie czeka na animację). */
+.arcPath {
+  fill: none;
+  stroke: var(--c-decor);
+  stroke-width: 34;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: draw 1.6s cubic-bezier(0.6, 0, 0.2, 1) both;
+}
+
+.heroInner {
+  position: relative;
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin: 0 auto;
+  padding: 44px var(--pad) 56px;
+}
+
+.kicker {
+  margin: 0 0 14px;
+  font-family: var(--f-head);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  color: var(--c-accent);
+}
+
+.title {
+  color: var(--c-head);
+  margin: 0;
+  max-width: 980px;
+  font-family: var(--f-head);
+  font-weight: 800;
+  font-size: clamp(36px, 5.3vw, 76px);
+  line-height: 1.04;
+  letter-spacing: -0.025em;
+  overflow-wrap: break-word;
+  text-wrap: balance;
+}
+
+.titleTail {
+  color: var(--c-red);
+}
+
+.subtitle {
+  margin: 20px 0 0;
+  max-width: 720px;
+  font-size: 20px;
+  line-height: 1.5;
+  color: var(--c-muted);
+}
+
+.heroBottom {
+  margin-top: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.heroBottomSolo {
+  grid-template-columns: 280px;
+}
+
+.facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--fact-cols, 3), minmax(0, 1fr));
+  gap: 16px;
+  align-content: start;
+}
+
+/* „Poziom” i „Start” — pod kaflami, jedna linia tekstu, nie kolejny kafel. */
+.factExtra {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: -4px;
+  font-size: 17px;
+}
+
+.extraLabel {
+  color: var(--c-muted);
+}
+
+.extraLabel::after {
+  content: ":";
+}
+
+.extraValue {
+  margin: 0;
+  color: var(--c-head);
+  font-weight: 600;
+}
+
+.factSep {
+  display: none;
+}
+
+.fact {
+  padding: 18px 22px 20px;
+  border-radius: var(--radius);
+  background: rgba(36, 36, 36, 0.82);
+  border: 1px solid var(--c-coal);
+  backdrop-filter: blur(6px);
+  min-width: 0;
+}
+
+.factLabel {
+  font-size: 15px;
+  color: var(--c-muted);
+  margin-bottom: 6px;
+}
+
+.factValue {
+  margin: 0;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1.25;
+  color: var(--c-head);
+  overflow-wrap: break-word;
+}
+
+.factNote {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--f-body);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--c-muted);
+}
+
+.ctaBox {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.root .cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  padding: 0 28px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--c-btn);
+  color: var(--c-btn-text);
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 18px;
+  text-decoration: none;
+  box-shadow: 0 10px 30px rgba(214, 46, 64, 0.32);
+  transition: background-color 0.15s ease;
+}
+
+.root .cta:hover {
+  background: var(--c-btn-hover);
+  color: var(--c-btn-text);
+}
+
+.ctaNote {
+  margin: 0;
+  text-align: center;
+  font-size: 16px;
+  color: var(--c-muted);
+}
+
+/* ── Kafle treści ────────────────────────────────────── */
+
+.bento {
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin: 0 auto;
+  padding: 56px var(--pad) 0;
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: 20px;
+  /* Kolumny kończą się na jednej linii: ostatni kafel każdej rośnie. */
+  align-items: stretch;
+}
+
+.bentoSingle {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.col > .tile:last-child {
+  flex: 1 0 auto;
+}
+
+.tile {
+  padding: 32px 36px;
+  border-radius: var(--radius);
+  background: var(--c-card);
+  border: 1px solid var(--c-coal);
+}
+
+.tileTitle {
+  color: var(--c-head);
+  margin: 0 0 16px;
+  font-family: var(--f-head);
+  font-weight: 800;
+  font-size: 26px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.tileLead {
+  margin: -8px 0 16px;
+  font-size: 16px;
+  color: var(--c-muted);
+}
+
+.para {
+  margin: 0 0 14px;
+  max-width: 68ch;
+  color: var(--c-para);
+}
+
+.para:last-child {
+  margin-bottom: 0;
+}
+
+.bullets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  color: var(--c-para);
+}
+
+.bullets li {
+  position: relative;
+  padding-left: 26px;
+}
+
+.bullets li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 0.62em;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--c-decor);
+}
+
+.tileMust {
+  background: linear-gradient(160deg, #2b2425 0%, var(--c-card) 55%);
+  border-color: rgba(231, 55, 72, 0.45);
+}
+
+/* Wymagania: krótka kreska marki zamiast wypełnionego ptaszka — ptaszek
+   wyglądał, jakby kandydat już coś zaznaczył (przegląd makiety). */
+.must {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.must li {
+  position: relative;
+  padding-left: 30px;
+}
+
+.must li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72em;
+  width: 16px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--c-decor);
+}
+
+.mustCompact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 20px;
+}
+
+.mustCompact li {
+  padding-left: 24px;
+}
+
+.mustCompact li::before {
+  width: 12px;
+}
+
+.mustName {
+  font-family: var(--f-head);
+  font-weight: 600;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--c-head);
+}
+
+.mustNote {
+  display: block;
+  font-size: 16px;
+  color: var(--c-muted);
+}
+
+.tileNice {
+  background: var(--c-bg2);
+}
+
+.plus {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 14px;
+}
+
+.plus li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  line-height: 1.45;
+  color: var(--c-para);
+}
+
+.plusMark {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1.5px solid var(--c-coal);
+  display: grid;
+  place-items: center;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--c-muted);
+}
+
+/* ── Formularz ───────────────────────────────────────── */
+
+.applyWrap {
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin: 0 auto;
+  padding: 20px var(--pad) 72px;
+}
+
+.apply {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 48px;
+  padding: 44px 48px;
+  border-radius: var(--radius);
+  background: radial-gradient(120% 70% at 0% 0%, rgba(231, 55, 72, 0.14) 0%, transparent 55%), var(--c-card);
+  border: 1.5px solid rgba(231, 55, 72, 0.7);
+}
+
+/* Formularz jest wyższy niż wstęp z krokami: wstęp jedzie obok formularza,
+   zamiast zostawiać pustą kolumnę przy przewijaniu. */
+.applyIntro {
+  min-width: 0;
+  align-self: start;
+  position: sticky;
+  top: 100px;
+}
+
+.applyTitle {
+  color: var(--c-head);
+  margin: 0 0 16px;
+  font-family: var(--f-head);
+  font-weight: 800;
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.applyWho {
+  margin: 16px 0 0;
+  font-size: 17px;
+  color: var(--c-muted);
+}
+
+.process {
+  margin-top: 32px;
+  padding-top: 28px;
+  border-top: 1px solid var(--c-coal);
+}
+
+.processTitle {
+  margin: 0 0 18px;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 20px;
+  line-height: 1.3;
+  color: var(--c-head);
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  padding-bottom: 18px;
+}
+
+.step:last-child {
+  padding-bottom: 0;
+}
+
+.step:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  left: 17px;
+  top: 40px;
+  bottom: 4px;
+  width: 2px;
+  background: var(--c-coal);
+}
+
+.stepNo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--c-coal);
+  color: var(--c-head);
+  font-family: var(--f-head);
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.step:first-child .stepNo {
+  background: var(--c-btn);
+  color: var(--c-btn-text);
+}
+
+.stepTitle {
+  display: block;
+  padding-top: 6px;
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 17px;
+  line-height: 1.35;
+  color: var(--c-head);
+}
+
+.stepNote {
+  display: block;
+  font-size: 16px;
+  color: var(--c-muted);
+}
+
+/* Cel kotwic „Aplikuj” — fokus programowy, bez obwódki wokół całego formularza. */
+.form {
+  min-width: 0;
+  scroll-margin-top: 88px;
+}
+
+.form:focus {
+  outline: none;
+}
+
+/* Klasy `CareerApplyForm` — style bazowe z `career.css` (mono, drobne
+   rozmiary) nadpisane pod szablon: tekst ≥ 15 px, pola ≥ 44 px, etykiety
+   sans, fokus i błędy czytelne na grafitowej karcie. */
+.form :global(.kr-form) {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-family: var(--f-body);
+  font-size: 17px;
+  color: var(--c-text);
+}
+
+.form :global(.kr-c),
+.form :global(.kr-g) {
+  font-family: var(--f-body);
+  font-style: normal;
+  color: var(--c-muted);
+}
+
+.form :global(.kr-required-note) {
+  font-size: 15px;
+}
+
+.form :global(.kr-grid2) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 16px;
+}
+
+.form :global(.kr-label) {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--f-body);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+}
+
+.form :global(.kr-input) {
+  height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--c-field-line);
+  border-radius: 12px;
+  background-color: var(--c-bg2);
+  font-family: var(--f-body);
+  font-size: 17px;
+  color: var(--c-text);
+}
+
+.form select:global(.kr-input) {
+  padding-right: 40px;
+  background-position: calc(100% - 22px) 23px, calc(100% - 17px) 23px;
+}
+
+.form :global(.kr-input)::placeholder {
+  color: #8a949e;
+}
+
+.form :global(.kr-input):focus {
+  outline: none;
+  border-color: var(--c-accent);
+  box-shadow: 0 0 0 3px var(--c-red-soft);
+}
+
+.form :global(.kr-input)[aria-invalid="true"] {
+  border-color: var(--c-err);
+  border-width: 2px;
+}
+
+.form :global(.kr-err) {
+  margin-top: 6px;
+  font-family: var(--f-body);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--c-err);
+}
+
+.form :global(.kr-file) {
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 72px;
+  padding: 14px 18px;
+  border: 1.5px dashed var(--c-field-line);
+  border-radius: 14px;
+  background: var(--c-bg2);
+  font-size: 16px;
+  text-align: left;
+}
+
+.form :global(.kr-file) > :global(.kr-r) {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--c-red-soft);
+  color: var(--c-accent);
+  font-family: var(--f-head);
+  font-weight: 700;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.form :global(.kr-file):hover,
+.form :global(.kr-file-drag) {
+  border-color: var(--c-accent);
+  border-style: solid;
+  background: #221c1d;
+}
+
+.form :global(.kr-file):focus-within {
+  outline: 3px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.form :global(.kr-file)[data-invalid="true"] {
+  border: 2px solid var(--c-err);
+}
+
+.form :global(.kr-opt-toggle) {
+  min-height: 44px;
+  font-family: var(--f-head);
+  font-size: 16px;
+  font-weight: 600;
+  font-style: normal;
+  color: var(--c-text);
+}
+
+.form :global(.kr-opt-label) {
+  font-family: var(--f-head);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text);
+  margin-bottom: -6px;
+}
+
+.form :global(.kr-consent) {
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-coal);
+  border-radius: 12px;
+  background: var(--c-bg2);
+}
+
+.form :global(.kr-consent)[data-invalid="true"] {
+  border: 2px solid var(--c-err);
+}
+
+.form :global(.kr-consent) input {
+  width: 22px;
+  height: 22px;
+  margin: 1px 0 0;
+  accent-color: var(--c-btn);
+}
+
+.form :global(.kr-consent-text) {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--c-para);
+}
+
+.form :global(.kr-consent-text) a {
+  color: var(--c-head);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.form :global(.kr-submit) {
+  height: auto;
+  min-height: 58px;
+  padding: 0 28px;
+  border-radius: 999px;
+  background: var(--c-btn);
+  color: var(--c-btn-text);
+  font-family: var(--f-head);
+  font-size: 18px;
+  font-weight: 700;
+  box-shadow: 0 10px 30px rgba(214, 46, 64, 0.3);
+  transition: background-color 0.15s ease;
+}
+
+.form :global(.kr-submit):hover:not(:disabled) {
+  background: var(--c-btn-hover);
+}
+
+.form :global(.kr-kbd) {
+  display: none;
+}
+
+.form :global(.kr-alert) {
+  padding: 14px 16px;
+  border: 2px solid var(--c-err);
+  border-radius: 12px;
+  background: #2e2022;
+  font-family: var(--f-body);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--c-head);
+}
+
+.form :global(.kr-alert) :global(.kr-g) {
+  font-weight: 400;
+  color: var(--c-err);
+}
+
+.form :global(.kr-alert):focus {
+  outline: 3px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.form :global(.kr-kept-note) {
+  font-size: 15px;
+  text-align: center;
+}
+
+.form :global(.kr-sub-link) {
+  font-size: 16px;
+  color: var(--c-head);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.form :global(.kr-sub-link):hover {
+  color: var(--c-accent);
+}
+
+/* ── Stopka ──────────────────────────────────────────── */
+
+.footer {
+  width: 100%;
+  max-width: calc(var(--max) + 2 * var(--pad));
+  margin: 0 auto;
+  padding: 28px var(--pad) 40px;
+  border-top: 1px solid var(--c-coal);
+}
+
+.footerTop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  font-size: 15px;
+}
+
+.footerBrand {
+  font-family: var(--f-head);
+  font-weight: 700;
+  color: var(--c-head);
+}
+
+.root .footerLink {
+  color: var(--c-muted);
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+
+.root .footerLink:hover {
+  color: var(--c-head);
+}
+
+.legal {
+  margin: 14px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #8f99a3;
+}
+
+/* ── Dolny pasek „Aplikuj” (tylko telefon) ───────────── */
+
+.applyBar {
+  display: none;
+}
+
+/* ── Ruch ────────────────────────────────────────────── */
+
+@keyframes draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+/* ── Średnie ekrany ──────────────────────────────────── */
+
+@media (max-width: 1040px) {
+  .heroBottom,
+  .heroBottomSolo {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ctaBox {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 20px;
+  }
+  .ctaNote {
+    text-align: left;
+  }
+  .bento {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .apply {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .applyIntro {
+    position: static;
+  }
+}
+
+/* ── Telefon ─────────────────────────────────────────── */
+
+@media (max-width: 640px) {
+  .root {
+    --pad: 20px;
+    --radius: 16px;
+    font-size: 17px;
+    /* Miejsce pod przyklejonym paskiem „Aplikuj”, żeby nie zasłaniał stopki. */
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+  .barInner {
+    height: 60px;
+  }
+  .barNav {
+    gap: 14px;
+  }
+  .root .barLink {
+    font-size: 15px;
+  }
+  .root .barCta {
+    padding: 0 16px;
+  }
+  .arc {
+    width: 240px;
+    right: -70px;
+    top: 10px;
+    opacity: 0.16;
+  }
+  .glow {
+    width: 520px;
+    height: 520px;
+    right: -240px;
+    top: -260px;
+  }
+  .heroInner {
+    padding: 24px var(--pad) 36px;
+  }
+  .kicker {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .title {
+    font-size: clamp(30px, 8.6vw, 40px);
+    line-height: 1.08;
+  }
+  .subtitle {
+    margin-top: 14px;
+    font-size: 18px;
+  }
+  .heroBottom {
+    margin-top: 22px;
+    gap: 14px;
+  }
+  .facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    border-radius: var(--radius);
+    border: 1px solid var(--c-coal);
+    background: rgba(36, 36, 36, 0.82);
+    overflow: hidden;
+  }
+  .fact {
+    border: 0;
+    border-radius: 0;
+    background: none;
+    backdrop-filter: none;
+    padding: 10px 16px;
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+  }
+  .fact + .fact {
+    border-top: 1px solid var(--c-coal);
+  }
+  .factLabel {
+    margin: 0;
+    font-size: 14px;
+  }
+  .factValue {
+    font-size: 17px;
+  }
+  .factNote {
+    display: inline;
+    font-size: 16px;
+  }
+  .factSep {
+    display: inline;
+  }
+  .factExtra {
+    margin: 0;
+    padding: 10px 16px;
+    display: grid;
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 12px;
+    align-items: baseline;
+    border-top: 1px solid var(--c-coal);
+  }
+  .extraLabel {
+    font-size: 14px;
+  }
+  .extraLabel::after {
+    content: none;
+  }
+  .extraValue {
+    font-family: var(--f-head);
+    font-weight: 700;
+    font-size: 17px;
+  }
+  .ctaBox {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .root .cta {
+    min-height: 54px;
+    width: 100%;
+  }
+  .ctaNote {
+    text-align: center;
+    font-size: 15px;
+  }
+  .bento {
+    padding-top: 32px;
+    gap: 16px;
+  }
+  .col {
+    gap: 16px;
+  }
+  .tile {
+    padding: 24px 20px;
+  }
+  .tileTitle {
+    font-size: 22px;
+  }
+  .applyWrap {
+    padding-top: 16px;
+    padding-bottom: 40px;
+  }
+  .apply {
+    padding: 28px 20px;
+    gap: 28px;
+  }
+  .applyTitle {
+    font-size: 30px;
+  }
+  .process {
+    margin-top: 24px;
+    padding-top: 22px;
+  }
+  .form :global(.kr-grid2) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .footer {
+    padding-bottom: 28px;
+  }
+
+  .applyBar {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: rgba(20, 20, 20, 0.92);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid var(--c-coal);
+    transition: transform 0.2s ease;
+  }
+  .applyBar[data-hidden] {
+    transform: translateY(110%);
+  }
+  .root .applyBarBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 52px;
+    border-radius: 999px;
+    background: var(--c-btn);
+    color: var(--c-btn-text);
+    font-family: var(--f-head);
+    font-weight: 700;
+    font-size: 17px;
+    text-decoration: none;
+  }
+  .root .applyBarBtn:hover {
+    background: var(--c-btn-hover);
+    color: var(--c-btn-text);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .arcPath {
+    animation: none;
+  }
+  .root .cta,
+  .form :global(.kr-submit),
+  .applyBar {
+    transition: none;
+  }
+}
