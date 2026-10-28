@@ -87,7 +87,11 @@ class IdleFacts:
 class IdleState:
     job_id: int
     since: datetime
+    # Dni od początku cyklu (etap, terminy) — dla zaległych liczone od startu
+    # reguły minus 14 dni.
     days: int
+    # Prawdziwa cisza do pokazania ludziom (bez podłogi startu reguły).
+    quiet_days: int
     stage: Optional[str]  # None | "remind" | "hor" | "close"
     remind_on: date
     hor_on: date
@@ -128,11 +132,15 @@ def idle_state(facts: IdleFacts, *, started_at: datetime, now: datetime) -> Idle
     ]
     since = max(candidates)
     start_day = _local_day(since)
-    days = max(0, (_local_day(now) - start_day).days)
+    today = _local_day(now)
+    days = max(0, (today - start_day).days)
+    real = candidates[1:]
+    quiet_days = max(0, (today - _local_day(max(real))).days) if real else days
     return IdleState(
         job_id=facts.job_id,
         since=since,
         days=days,
+        quiet_days=max(days, quiet_days),
         stage=stage_for(days),
         remind_on=start_day + timedelta(days=REMIND_DAYS),
         hor_on=start_day + timedelta(days=HOR_DAYS),
@@ -274,7 +282,7 @@ async def snooze(db: AsyncSession, job: Job, *, actor_id: int, now: datetime) ->
             entity_id=job.id,
             action=SNOOZE_ACTION,
             user_id=actor_id,
-            details={"days": before.days if before else None},
+            details={"days": before.quiet_days if before else None},
         )
     )
 
@@ -284,7 +292,7 @@ def state_payload(state: Optional[IdleState], *, snoozes: int) -> dict[str, Any]
         return {"stage": None, "days": 0, "snooze_count": snoozes}
     return {
         "stage": state.stage,
-        "days": state.days,
+        "days": state.quiet_days,
         "since": state.since.isoformat(),
         "last_move_at": state.last_move_at.isoformat() if state.last_move_at else None,
         "last_move_kind": state.last_move_kind,
@@ -414,14 +422,14 @@ async def run_idle_sweep(
     counts = {"remind": 0, "hor": 0, "closed": 0}
     info = {row[0]: row for row in jobs}
 
-    for job_id, state in sorted(due.items(), key=lambda kv: -kv[1].days):
+    for job_id, state in sorted(due.items(), key=lambda kv: -kv[1].quiet_days):
         _id, title, working_title, lead_id, client = info[job_id]
         line = _Line(
             job_id=job_id,
             title=working_title or title,
             client=client,
             lead_id=lead_id,
-            days=state.days,
+            days=state.quiet_days,
             detail=last_move_text(state),
         )
         since = state.since.isoformat()

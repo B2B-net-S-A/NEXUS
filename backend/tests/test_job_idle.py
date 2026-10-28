@@ -57,6 +57,8 @@ def test_backlog_is_reminded_on_the_first_day_of_the_rule() -> None:
     old = _facts(opened_at=START - timedelta(days=180))
     state = idle_state(old, started_at=START, now=START)
     assert (state.days, state.stage) == (14, "remind")
+    # Ludzie widzą prawdziwą ciszę, nie dzień cyklu.
+    assert state.quiet_days == 180
     assert state.close_on.isoformat() == "2026-11-12"
 
 
