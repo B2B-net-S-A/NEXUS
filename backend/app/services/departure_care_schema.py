@@ -1,4 +1,4 @@
-"""DDL opieki po odejściu — JEDNO źródło dla migracji 0614 i siatki
+"""DDL opieki po odejściu — JEDNO źródło dla migracji 0615 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``pair_departure_care``: para (kandydat, rekrutacja), którą prowadziła osoba
