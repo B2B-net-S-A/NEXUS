@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, Sequence
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import exists, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -18,10 +18,20 @@ from app.models.academy import AcademyApplication, AcademyProgram
 from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.contract import Contract, ContractStatus
-from app.models.equipment import EquipmentAssignment, EquipmentExternalPerson
+from app.models.equipment import (
+    EquipmentAssignment,
+    EquipmentExternalPerson,
+    EquipmentProtocol,
+    EquipmentTask,
+)
 from app.models.user import User
 from app.services.equipment import sanitize
-from app.services.equipment.errors import EquipmentError, EquipmentNotFound
+from app.services.equipment.errors import (
+    EquipmentConflict,
+    EquipmentError,
+    EquipmentNotFound,
+)
+from app.services.hr import audit
 
 HolderKind = Literal["user", "contract", "external", "academy"]
 
@@ -377,3 +387,121 @@ async def create_external_person(
     db.add(person)
     await db.flush()
     return person
+
+
+#: Protokoły, które idą za sprzętem na konto — jeszcze niezamknięte podpisem.
+#: Potwierdzony zostaje przy osobie spoza NEXUSA (migawka z chwili wydania).
+MOVABLE_PROTOCOL_STATUSES = ("oczekuje", "podpisany")
+
+
+async def move_external_to_user(
+    db: AsyncSession, person_id: int, user_id: int, *, actor: User
+) -> dict[str, Any]:
+    """„Przepisz na konto”: niezwrócony sprzęt osoby spoza NEXUSA przechodzi na konto.
+
+    Nowa osoba w firmie dostaje sprzęt od razu jako osoba spoza NEXUSA, zanim
+    powstanie jej konto (decyzja Artura 28.10.2026, wariant B). W jednej
+    transakcji przechodzą aktywne wydania, otwarte zadania i protokoły przed
+    potwierdzeniem; potwierdzone zostają z migawką (``holder_name``) i dostają
+    wpis w dzienniku, na kogo przeszedł ich sprzęt. Zwrócone wydania zostają
+    historią osoby spoza NEXUSA.
+    """
+    person = await db.get(EquipmentExternalPerson, person_id)
+    if person is None:
+        raise EquipmentNotFound("Nie ma takiej osoby spoza NEXUSA.")
+    user = await db.get(User, user_id)
+    if user is None:
+        raise EquipmentNotFound("Nie ma takiego konta.")
+    if not user.is_active:
+        raise EquipmentConflict(
+            f"Konto {user.name or user.email} jest nieaktywne — sprzęt przepiszesz "
+            "tylko na aktywne konto NEXUSA."
+        )
+    assignments = (
+        await db.scalars(
+            select(EquipmentAssignment)
+            .where(
+                EquipmentAssignment.external_person_id == person.id,
+                EquipmentAssignment.returned_at.is_(None),
+            )
+            .order_by(EquipmentAssignment.id)
+            .with_for_update()
+        )
+    ).all()
+    if not assignments:
+        raise EquipmentConflict(
+            f"{person.full_name} nie ma niezwróconego sprzętu — nie ma czego przepisać."
+        )
+    for assignment in assignments:
+        # CHECK jednego posiadacza: najpierw zdejmujemy osobę spoza, potem konto.
+        assignment.external_person_id = None
+        assignment.user_id = user.id
+    moved_protocols = list(
+        (
+            await db.scalars(
+                update(EquipmentProtocol)
+                .where(
+                    EquipmentProtocol.external_person_id == person.id,
+                    EquipmentProtocol.status.in_(MOVABLE_PROTOCOL_STATUSES),
+                )
+                .values(external_person_id=None, user_id=user.id)
+                .returning(EquipmentProtocol.id)
+            )
+        ).all()
+    )
+    moved_tasks = list(
+        (
+            await db.scalars(
+                update(EquipmentTask)
+                .where(
+                    EquipmentTask.external_person_id == person.id,
+                    EquipmentTask.status == "otwarte",
+                )
+                .values(external_person_id=None, user_id=user.id)
+                .returning(EquipmentTask.id)
+            )
+        ).all()
+    )
+    issue_protocols = {
+        a.issue_protocol_id for a in assignments if a.issue_protocol_id is not None
+    }
+    confirmed = sorted(issue_protocols - set(moved_protocols))
+    await db.flush()
+    move = {
+        "from_external_person_id": person.id,
+        "to_user_id": user.id,
+    }
+    for protocol_id in confirmed:
+        audit.record(
+            db,
+            actor_user_id=actor.id,
+            subject_user_id=user.id,
+            entity_type="equipment_protocol",
+            entity_id=protocol_id,
+            action="equipment_holder_moved_to_user",
+            details=move,
+        )
+    audit.record(
+        db,
+        actor_user_id=actor.id,
+        subject_user_id=user.id,
+        entity_type="equipment_external_person",
+        entity_id=person.id,
+        action="equipment_moved_to_user",
+        details={
+            **move,
+            "assignment_ids": [a.id for a in assignments],
+            "protocol_ids": sorted(moved_protocols),
+            "confirmed_protocol_ids": confirmed,
+            "task_ids": sorted(moved_tasks),
+        },
+    )
+    return {
+        "holder": Holder(
+            "user", user.id, user.name or user.email, user.email, "Konto NEXUSA"
+        ).as_dict(),
+        "assignments": len(assignments),
+        "protocols": len(moved_protocols),
+        "confirmed_protocols": len(confirmed),
+        "tasks": len(moved_tasks),
+    }

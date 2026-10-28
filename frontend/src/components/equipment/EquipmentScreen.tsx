@@ -37,6 +37,7 @@ import { PriceListTab } from "./PriceListTab";
 import { ProtocolDialog } from "./ProtocolDialog";
 import { ProtocolTemplatesTab } from "./ProtocolTemplatesTab";
 import { ProtocolsTab } from "./ProtocolsTab";
+import { MoveToAccountDialog } from "./MoveToAccountDialog";
 import { ReturnWizard } from "./ReturnWizard";
 import { StockTiles } from "./StockTiles";
 import { TasksTab } from "./TasksTab";
@@ -101,6 +102,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
   const [issuing, setIssuing] = useState<IssueRequest | null>(null);
   const [itemsCategory, setItemsCategory] = useState<EquipmentCategory | "">("");
   const [returning, setReturning] = useState<{ holder: EquipmentHolder | null } | null>(null);
+  const [movingPerson, setMovingPerson] = useState<EquipmentHolder | null>(null);
   const allowed = config.me.equipment || config.me.is_admin;
   const moduleOpen = config.open_modules.equipment;
   const summary = useEquipmentSummary(allowed && moduleOpen);
@@ -236,6 +238,7 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
           onOpenProtocol={setProtocolId}
           onIssue={(items) => setIssuing({ holder: null, items })}
           onReturn={(holder) => setReturning({ holder })}
+          onMoveToAccount={setMovingPerson}
           initialView={searchParams.get("view") === "modele" ? "modele" : "sztuki"}
         />
       )}
@@ -265,6 +268,13 @@ export function EquipmentScreen({ config }: { config: HrConfig }) {
       ) : null}
       {returning ? (
         <ReturnWizard presetHolder={returning.holder} onClose={() => setReturning(null)} />
+      ) : null}
+      {movingPerson ? (
+        <MoveToAccountDialog
+          key={movingPerson.id}
+          person={movingPerson}
+          onClose={() => setMovingPerson(null)}
+        />
       ) : null}
     </div>
   );

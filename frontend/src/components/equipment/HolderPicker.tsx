@@ -24,12 +24,22 @@ interface HolderPickerProps {
    * zadaniu). Bez niego (import plików, zwrot z rejestru) uczestnika nie wybierzesz.
    */
   academy?: boolean;
+  /**
+   * Tylko aktywne konta NEXUSA — „Przepisz na konto” osoby spoza NEXUSA.
+   * Bez kontraktów, osób spoza i dodawania nowej osoby.
+   */
+  accountsOnly?: boolean;
 }
 
 type SearchMode = "registry" | "academy";
 
 /** Wybór posiadacza: konto NEXUSA, kontrakt konsultanta, osoba spoza albo uczestnik Akademii. */
-export function HolderPicker({ value, onChange, academy: withAcademy = false }: HolderPickerProps) {
+export function HolderPicker({
+  value,
+  onChange,
+  academy: withAcademy = false,
+  accountsOnly = false,
+}: HolderPickerProps) {
   const [mode, setMode] = useState<SearchMode>("registry");
   const [query, setQuery] = useState("");
   const deferred = useDeferredValue(query);
@@ -37,7 +47,8 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
   const registry = useHolderSearch(academyMode ? "" : deferred);
   const academy = useAcademyHolderSearch(deferred, academyMode);
   const results = academyMode ? academy : registry;
-  const hits: EquipmentHolder[] = (academyMode ? academy.data : registry.data) ?? [];
+  const found: EquipmentHolder[] = (academyMode ? academy.data : registry.data) ?? [];
+  const hits = accountsOnly ? found.filter((holder) => holder.kind === "user") : found;
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -48,6 +59,7 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
   const choose = (holder: EquipmentHolder | null) => {
     // Import plików i zwrot z rejestru nie przyjmują uczestnika Akademii.
     if (holder?.kind === "academy" && !withAcademy) return;
+    if (holder && accountsOnly && holder.kind !== "user") return;
     onChange(holder);
   };
 
@@ -102,7 +114,7 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
         <div role="group" aria-label="Kogo szukasz" className="flex gap-1">
           {(
             [
-              ["registry", "Konsultant/kontraktor, osoba spoza"],
+              ["registry", "Pracownik, konsultant, osoba spoza"],
               ["academy", "Uczestnik Akademii"],
             ] as const
           ).map(([key, label]) => (
@@ -128,11 +140,15 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
         />
         <Input
           autoFocus
-          aria-label={academyMode ? "Szukaj uczestnika Akademii" : "Szukaj osoby albo kontraktu"}
-          placeholder={
+          aria-label={
             academyMode
-              ? "Imię i nazwisko uczestnika Akademii…"
-              : "Imię i nazwisko konsultanta/kontraktora…"
+              ? "Szukaj uczestnika Akademii"
+              : accountsOnly
+                ? "Szukaj konta NEXUSA"
+                : "Szukaj osoby albo kontraktu"
+          }
+          placeholder={
+            academyMode ? "Imię i nazwisko uczestnika Akademii…" : "Imię i nazwisko albo e-mail…"
           }
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -145,7 +161,11 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
             {apiErrorMessage(results.error, "Nie udało się wyszukać osób.")}
           </p>
         ) : results.isSuccess && hits.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nikt nie pasuje do „{deferred}”.</p>
+          academyMode ? (
+            <p className="text-sm text-muted-foreground">Nikt nie pasuje do „{deferred}”.</p>
+          ) : (
+            <NoMatch query={deferred} accountsOnly={accountsOnly} />
+          )
         ) : (
           <ul className="max-h-64 divide-y divide-border overflow-y-auto rounded-md border border-border">
             {hits.map((holder) => (
@@ -165,7 +185,7 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
       ) : (
         <p className="text-xs text-muted-foreground">Wpisz co najmniej dwie litery.</p>
       )}
-      {academyMode ? (
+      {accountsOnly ? null : academyMode ? (
         <p className="text-xs text-muted-foreground">
           Uczestnik po zaliczonym zadaniu w Akademii; imię, nazwisko i e-mail do protokołu
           pochodzą ze zgłoszenia.
@@ -205,6 +225,33 @@ export function HolderPicker({ value, onChange, academy: withAcademy = false }: 
           <UserPlus className="h-4 w-4" aria-hidden />
           Osoba spoza NEXUSA
         </Button>
+      )}
+    </div>
+  );
+}
+
+/** Pusty wynik w rejestrze: gdzie szukaliśmy i co zrobić z nową osobą bez konta. */
+function NoMatch({ query, accountsOnly }: { query: string; accountsOnly: boolean }) {
+  return (
+    <div className="space-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+      <p className="font-medium">Nikt nie pasuje do „{query}”.</p>
+      {accountsOnly ? (
+        <p className="text-xs text-muted-foreground">
+          Szukam wśród aktywnych kont NEXUSA. Jeśli konta jeszcze nie ma, przepiszesz sprzęt, gdy
+          powstanie.
+        </p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Szukam wśród aktywnych kont NEXUSA, kontraktów konsultantów (od szkicu do zakończenia)
+            i osób spoza NEXUSA.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium text-foreground">Nowa osoba w firmie?</span> Sprzęt wydasz
+            jej od razu jako osobie spoza NEXUSA, a gdy powstanie konto, przepiszesz go jednym
+            kliknięciem („Przepisz na konto” w menu ⋯ wiersza).
+          </p>
+        </>
       )}
     </div>
   );
