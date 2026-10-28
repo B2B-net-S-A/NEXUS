@@ -131,6 +131,18 @@ class AsyncpgSource:
         return total
 
 
+async def _fetch_attachment(
+    client: Any, base: str, bucket: str, path: str
+) -> bytes | None:
+    """Tylko 404 oznacza brak pliku; awarie dostawcy przerywają import."""
+
+    response = await client.get(f"{base}/storage/v1/object/{bucket}/{path}")
+    if response.status_code == 404:
+        return None
+    response.raise_for_status()
+    return response.content
+
+
 async def _copy_files(
     connection: asyncpg.Connection, db, apply: bool
 ) -> dict[str, int]:
@@ -167,8 +179,7 @@ async def _copy_files(
     ) as client:
 
         async def fetch(bucket: str, path: str):
-            resp = await client.get(f"{base}/storage/v1/object/{bucket}/{path}")
-            return resp.content if resp.status_code == 200 else None
+            return await _fetch_attachment(client, base, bucket, path)
 
         report = await copy_attachments(
             db,

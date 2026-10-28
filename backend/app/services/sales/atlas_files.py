@@ -9,7 +9,6 @@ wstrzykiwane (``Fetch``), żeby test nie wychodził do sieci.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Any, Optional
 
@@ -19,8 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.sales import SalesCompany, SalesFile, SalesOpportunity
 from app.services import storage_service
 from app.services.sales.atlas_import import ImportReport
-
-logger = logging.getLogger(__name__)
 
 DEAL_BUCKET = "deal-attachments"
 COMPANY_BUCKET = "company-attachments"
@@ -98,12 +95,8 @@ async def copy_attachments(
             # Na sucho: bez pobierania i bez zapisu na dysk — same liczby.
             report.add("files_would_copy")
             continue
-        try:
-            data = await fetch(bucket, str(row["storage_path"]))
-        except Exception:  # noqa: BLE001 — jeden plik nie zatrzymuje reszty
-            logger.warning("[atlas-files] pobranie nieudane: %s", ref)
-            data = None
-        if not data:
+        data = await fetch(bucket, str(row["storage_path"]))
+        if data is None:
             report.add("files_missing_in_storage")
             continue
         name = str(row.get("filename") or "plik")[:255]
