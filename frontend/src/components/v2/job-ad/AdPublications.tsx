@@ -12,7 +12,7 @@
 
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink } from "lucide-react";
+import { Check, Copy, ExternalLink } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import {
   type JobAdState,
   type PracujRequest,
 } from "@/lib/api/jobAd";
+import { copyHtmlToClipboard } from "@/lib/clipboard";
 import { cn, formatDate } from "@/lib/utils";
 
 export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRemoved">;
@@ -81,6 +82,8 @@ export function AdPublications({
   // Portal z otwartym polem linku i jego niezapisana wartość.
   const [linkFor, setLinkFor] = useState<AdPortal | null>(initialLinkFor);
   const [link, setLink] = useState("");
+  // „Skopiowane” przy opisie JustJoin.IT — dla tej wersji treści.
+  const [jjitCopiedAt, setJjitCopiedAt] = useState<string | null>(null);
 
   const apply = (next: JobAdState) => {
     queryClient.setQueryData(jobAdQueryKey(jobId), next);
@@ -113,6 +116,17 @@ export function AdPublications({
     : !state.can_copy
       ? "Najpierw usuń z treści fragmenty wskazane w kontroli."
       : null;
+
+  const jjitBody = state.rendered?.jjit ?? null;
+  const jjitCopied = !!state.ad && jjitCopiedAt === state.ad.updated_at;
+  const copyJjit = async () => {
+    if (!jjitBody) return;
+    if (await copyHtmlToClipboard(jjitBody.body_html, jjitBody.body_text)) {
+      setJjitCopiedAt(state.ad?.updated_at ?? null);
+    } else {
+      showError("Nie udało się skopiować. Otwórz zakładkę JustJoin.IT i skopiuj opis ręcznie.");
+    }
+  };
 
   const confirmRemoved = async (portal: AdPortal, label: string) => {
     const confirmed = await askConfirm({
@@ -280,6 +294,36 @@ export function AdPublications({
                 </p>
               ) : null}
 
+              {key === "jjit" && !active && !jobClosed ? (
+                // Publikacji przez API JustJoin.IT jeszcze nie ma (brak klucza na
+                // produkcji) — rekruterka szukała przycisku „dodaj” (28.10.2026).
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                  <span>
+                    Ogłoszenie wstawiasz w panelu pracodawcy JustJoin.IT: skopiuj opis, wklej go
+                    w nowym ogłoszeniu, a potem oznacz je tutaj z linkiem.
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className={cn(
+                      "h-7 px-2.5",
+                      jjitCopied && "border-success/30 bg-success-muted text-success-muted-foreground",
+                    )}
+                    aria-label={jjitCopied ? "Skopiowane" : "Kopiuj opis JustJoin.IT"}
+                    title={blockedReason ?? undefined}
+                    disabled={busy || !!blockedReason || !jjitBody}
+                    onClick={() => void copyJjit()}
+                  >
+                    {jjitCopied ? (
+                      <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                    )}
+                    {jjitCopied ? "Skopiowane" : "Kopiuj opis"}
+                  </Button>
+                </div>
+              ) : null}
               {editingLink ? (
                 <form
                   className="flex flex-wrap items-end gap-2"
