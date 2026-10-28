@@ -118,6 +118,61 @@ def test_same_card_is_parsed_once_not_on_every_board_refresh(monkeypatch):
     assert len(calls) == 1
 
 
+def test_heading_list_counts_only_what_the_body_names():
+    """Zgłoszenie DL-a 28.10.2026: fakty ze screeningu z nagłówkiem
+    „Frontend (React / Angular)” i treścią tylko o Reakcie dawały „✓ angular”
+    osobie, która Angulara nie zna."""
+    content = (
+        "<p><strong>Frontend (React / Angular)</strong><br>Ma jedynie podstawowe "
+        "doświadczenie – głównie w zakresie bug fixing w React. Brak aktywnego "
+        "rozwoju większych modułów.</p>"
+        "<p><strong>Backend (Java / Spring Boot)</strong><br>8 lat komercyjnie, "
+        "mikroserwisy.</p>"
+    )
+    text = evidence_note_text("screening_facts", content)
+    assert not mentions(gate_requirement("Angular"), text)
+    assert mentions(gate_requirement("React"), text)
+    # Treść nie wymienia żadnej pozycji nagłówka — cały nagłówek zostaje.
+    assert mentions(gate_requirement("Java"), text)
+    assert mentions(gate_requirement("Spring Boot"), text)
+
+
+def test_wrapped_list_line_is_not_a_heading():
+    content = (
+        "<p>Key technologies: Python (advanced level),<br>Robot Framework, "
+        "CI/CD with Jenkins, SQL, Selenium, and AI solutions<br>Automated "
+        "regression with Robot Framework and Jenkins for two years.</p>"
+    )
+    text = evidence_note_text("card", content)
+    assert mentions(gate_requirement("Selenium"), text)
+    assert mentions(gate_requirement("SQL"), text)
+
+
+def test_negation_in_one_part_of_a_sentence_keeps_the_other_part():
+    content = (
+        "<p>Narzędzia: QTest nie używał, ale za to Jira, Confluence jest.</p>"
+        "<p>Nie pracuje na co dzień z bazami danych, natomiast zna SQL.</p>"
+        "<p>Pracował nie tylko z Kafką, ale i z RabbitMQ.</p>"
+    )
+    notes = [evidence_note_text("screening_facts", content)]
+    assert text_met_labels(
+        _cand(), ["QTest", "Jira", "SQL", "Kafka", "RabbitMQ"], notes
+    ) == frozenset({"Jira", "SQL", "Kafka", "RabbitMQ"})
+
+
+def test_wish_to_learn_is_not_evidence():
+    content = (
+        "<p>Podsumowanie: backend w Java i Spring Boot, Kafka, Docker. Open to "
+        "expanding skills in frontend technologies (React.js, Angular.js) and "
+        "Big Data tools.</p><p>Uwagi: Chce się nauczyć Kubernetes.</p>"
+    )
+    cand = _cand()
+    notes = [evidence_note_text("card", content)]
+    assert text_met_labels(
+        cand, ["Java", "Kafka", "Angular", "React", "Kubernetes"], notes
+    ) == frozenset({"Java", "Kafka"})
+
+
 def test_other_note_kinds_pass_through():
     content = "<p>P1: Kubernetes?</p><p>Odpowiedź: nie</p>"
     assert evidence_note_text("human", content) == content
@@ -139,6 +194,16 @@ def test_other_note_kinds_pass_through():
         ("", False),
         (None, False),
         ("Pracował z Kafką, nie tylko z RabbitMQ", False),
+        ("chętnie się nauczy", True),
+        ("Open to learning Angular", True),
+        ("willing to learn", True),
+        ("chciałby poznać Reacta", True),
+        ("Chce rozwijać się w kierunku chmury, zna AWS", False),
+        ("Posiada ISTQB, przygotowanie teoretyczne i praktyczne", False),
+        ("W CV nie miał wpisanej Jiry - wszystko zna i używał", False),
+        ("Nie miał dotychczas styczności z SOA", True),
+        ("PowerShell największe, Bash słabe, Python nie miał", True),
+        ("Ma tylko teoretyczne, na studiach", True),
     ],
 )
 def test_negative_answer_dictionary(answer, negative):

@@ -71,10 +71,22 @@ _NOTES_INSIGHTS_EVIDENCE_FIELDS = ("skills_evidenced", "certifications")
 # Świadomie wąsko: „podstawy”, „słabo” to wciąż jakaś znajomość.
 _NEGATIVE_ANSWER_RE = re.compile(
     r"^\W*(?:nie\b|brak\b|no\b|none\b|not\b|n/a\b|zero\b|0\s*lat)"
-    r"|\bnie\s+(?:zna|miał\w*|pracował\w*|używał\w*|korzystał\w*|posiada|ma\s+doświadcz\w*)"
+    r"|\bnie\s+(?:zna|pracował\w*|używał\w*|korzystał\w*|posiada|ma\s+doświadcz\w*)"
+    # „W CV nie miał wpisanej Jiry — wszystko zna” to nie przeczenie (28.10.2026).
+    r"|\bnie\s+miał\w*\s+(?:\w+\s+)?(?:doświadcz\w*|styczności|do\s+czynienia)"
+    r"|\bnie\s+miał\w*\s*(?:$|[.,;)])"
     r"|\bbrak\s+(?:doświadcz\w*|styczności|znajomości)"
-    r"|\b(?:tylko\s+)?teoretyczn\w*"
-    r"|\bnie\s+miał\w*\s+styczności",
+    # Przysłówek „zna teoretycznie” tak; „przygotowanie teoretyczne
+    # i praktyczne” to nie przeczenie (28.10.2026).
+    r"|\bteoretycznie\b|\b(?:tylko|jedynie|wyłącznie)\s+teoretyczn\w*"
+    # Chęć nauki to nie znajomość: „Open to expanding skills in (React.js,
+    # Angular.js)” dawało „✓ angular” (zgłoszenie DL-a 28.10.2026).
+    r"|\b(?:open|willing|eager|keen)\s+to\s+(?:learn|expand|explor|develop)\w*"
+    r"|\binterested\s+in\s+learning\b|\bwould\s+like\s+to\s+learn\b"
+    r"|\bchc\w*\s+się\s+(?:nauczyć|uczyć|douczyć)"
+    r"|\bchciał\w*\s+(?:się\s+)?(?:nauczyć|uczyć|poznać)"
+    r"|\bchętnie\s+(?:się\s+)?(?:nauczy\w*|pozna\w*|douczy\w*)"
+    r"|\botwart\w*\s+na\s+(?:naukę|poznanie)",
     re.I,
 )
 
@@ -254,6 +266,11 @@ def is_negative_answer(answer: Optional[str]) -> bool:
 # Granica zdania: znak końca i odstęp albo nowa linia. Kropka w „.NET 8”,
 # „Node.js” i „3.5” nie dzieli zdania (przegląd PR 2, 13.10.2026).
 _SENTENCE_BREAK_RE = re.compile(r"(?<=[.!?;])\s+|\n+")
+# Część zdania po spójniku przeciwstawnym oceniamy osobno: „QTest nie używał,
+# ale za to Jira, Confluence jest” zostaje dowodem Jiry (28.10.2026).
+_CONTRAST_BREAK_RE = re.compile(
+    r"\s+(?=(?:ale|lecz|natomiast|jednak|za\s+to|but|however|whereas)\b)", re.I
+)
 
 
 def drop_negative_sentences(text: Optional[str]) -> str:
@@ -262,15 +279,17 @@ def drop_negative_sentences(text: Optional[str]) -> str:
     Całą odpowiedź ocenia ``is_negative_answer``; tu oceniamy zdania osobno,
     bo jedna odpowiedź niesie i fakt, i przeczenie: „Używała Grafany
     i Prometheusa. Nie zna Apache Iceberg.” ma zostać dowodem Grafany
-    (QC CV, 13.10.2026). Zdania zostają w oryginalnym zapisie, linie — w
-    osobnych liniach.
+    (QC CV, 13.10.2026). Od 28.10.2026 tak samo części zdania rozdzielone
+    „ale”, „natomiast”, „za to”. Zdania zostają w oryginalnym zapisie,
+    linie — w osobnych liniach.
     """
     lines: list[str] = []
     for line in (text or "").splitlines():
         kept = [
-            sentence.strip()
+            part.strip()
             for sentence in _SENTENCE_BREAK_RE.split(line)
-            if sentence.strip() and not is_negative_answer(sentence)
+            for part in _CONTRAST_BREAK_RE.split(sentence)
+            if part.strip() and not is_negative_answer(part)
         ]
         if kept:
             lines.append(" ".join(kept))
@@ -303,6 +322,38 @@ def evidence_note_text(kind: Optional[str], content: Optional[str]) -> str:
     return _card_evidence_text(content or "")
 
 
+# Nagłówek sekcji z listą w nawiasie: „Frontend (React / Angular)”. Tylko ta
+# postać — zwykły wiersz z przecinkami bywa zawiniętym zdaniem z listą.
+_HEADING_RE = re.compile(r"^([^():.!?;]{2,40}?)\s*\(([^()]{3,80})\)\s*:?$")
+_HEADING_SPLIT_RE = re.compile(r"\s*[/,|]\s*")
+_BODY_MIN_CHARS = 40
+
+
+def _named(item: str, text: str) -> bool:
+    # Bez granicy z prawej: „Reactem”, „Angularze” to ta sama pozycja.
+    return re.search(r"(?<![\wąćęłńóśźż])" + re.escape(item.lower()), text) is not None
+
+
+def _prune_heading_lists(text: str) -> str:
+    """Z nagłówka z listą zostają pozycje, które wymienia treść pod nim.
+
+    „Frontend (React / Angular)” i pod spodem „podstawy, bug fixing w React”
+    mówi o Reakcie, nie o Angularze (zgłoszenie DL-a 28.10.2026). Gdy treść
+    nie wymienia żadnej pozycji („8 lat komercyjnie”), nagłówek zostaje cały.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines[:-1]):
+        heading = _HEADING_RE.match(line)
+        body = lines[index + 1]
+        if heading is None or len(body) < _BODY_MIN_CHARS:
+            continue
+        items = [i for i in _HEADING_SPLIT_RE.split(heading.group(2)) if len(i) >= 2]
+        named = [item for item in items if _named(item, body.lower())]
+        if len(items) >= 2 and named and len(named) < len(items):
+            lines[index] = f"{heading.group(1)} ({' / '.join(named)})"
+    return "\n".join(lines)
+
+
 # Karta się nie zmienia, a Tablica (`/pipeline-scores`) parsowała przy każdym
 # odświeżeniu karty wszystkich osób: 467 kart = 0,5 s CPU bez oddania pętli
 # zdarzeń (pomiar 27.10.2026). Karta ma średnio 2,4 KB: 4096 kart to ok. 10 MB.
@@ -312,13 +363,16 @@ def _card_evidence_text(content: str) -> str:
 
     parsed = parse_card(content)
     negative = [a for a in parsed.answers if is_negative_answer(a.get("answer"))]
-    if not negative:
-        return content
-    text = to_text(content)
+    text = to_text(content, limit=len(content))
     for item in negative:
         text = _drop_fragment(text, str(item.get("question") or "").strip())
         text = _drop_fragment(text, str(item.get("answer") or "").strip())
-    return text
+    # 28.10.2026: także zdania spoza pytań („Open to expanding skills in
+    # Angular”, „Nie zna Kafki”) i pozycje nagłówka, o których treść milczy.
+    pruned = drop_negative_sentences(_prune_heading_lists(text))
+    if not negative and pruned == text:
+        return content
+    return pruned
 
 
 def cv_text(candidate) -> str:
