@@ -37,6 +37,7 @@ import { OpportunityContacts } from "./OpportunityContacts";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
+import { SalesMotionPanel } from "./mockups/SalesMotionPanel";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -191,8 +192,9 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
         )}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
+            <SalesMotionPanel opportunityId={data.id} />
             <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
-            <ActivityTimeline opportunityId={data.id} />
+            <ActivityTimeline opportunityId={data.id} mailCompanyId={data.company.id} />
           </div>
           <div className="space-y-4">
             <Card className="space-y-3 p-4">

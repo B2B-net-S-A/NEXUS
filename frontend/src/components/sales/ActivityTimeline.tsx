@@ -26,11 +26,15 @@ import { hasPermission } from "@/lib/permissions";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
 
+import { ActivityBody } from "./mockups/ActivityBody";
+
 const COMPOSER_KINDS: ActivityKind[] = ["note", "call", "meeting", "email", "task"];
 
 interface ActivityTimelineProps {
   companyId?: number;
   opportunityId?: number;
+  /** MAKIETA: firma szansy — jej maile i spotkania w historii szansy. */
+  mailCompanyId?: number;
 }
 
 /** Datetime z pola `datetime-local` (czas lokalny) jako ISO; puste → null. */
@@ -49,7 +53,7 @@ function when(activity: Activity): string {
 }
 
 /** Historia firmy albo szansy i szybki wpis: notatka, telefon, spotkanie, mail, zadanie. */
-export function ActivityTimeline({ companyId, opportunityId }: ActivityTimelineProps) {
+export function ActivityTimeline({ companyId, opportunityId, mailCompanyId }: ActivityTimelineProps) {
   const scope = opportunityId ? { opportunity_id: opportunityId } : { company_id: companyId };
   const activities = useSalesActivities(scope);
   const create = useCreateActivity();
@@ -64,7 +68,15 @@ export function ActivityTimeline({ companyId, opportunityId }: ActivityTimelineP
   const [body, setBody] = useState("");
   const [due, setDue] = useState("");
 
-  const items = activities.data ?? [];
+  // MAKIETA: na szansie dokładamy maile i spotkania firmy (w Atlasie: msgraph-* z firmy).
+  const companyMail = useSalesActivities({ company_id: mailCompanyId ?? 0 });
+  const [withCompanyMail, setWithCompanyMail] = useState(true);
+  const mailItems = (mailCompanyId ? companyMail.data ?? [] : []).filter(
+    (activity) => activity.opportunity === null && (activity.kind === "email" || activity.kind === "meeting"),
+  );
+  const items = [...(activities.data ?? []), ...(withCompanyMail ? mailItems : [])].sort((a, b) =>
+    (b.occurred_at ?? b.created_at).localeCompare(a.occurred_at ?? a.created_at),
+  );
   const state = resolveViewState({
     isLoading: activities.isLoading,
     error: activities.error,
@@ -113,7 +125,19 @@ export function ActivityTimeline({ companyId, opportunityId }: ActivityTimelineP
 
   return (
     <Card className="space-y-3 p-4">
-      <h2 className="text-base font-semibold text-foreground">Aktywności</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-foreground">Aktywności</h2>
+        {mailCompanyId ? (
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={withCompanyMail}
+              onChange={(event) => setWithCompanyMail(event.target.checked)}
+            />
+            Pokaż maile i spotkania firmy ({mailItems.length})
+          </label>
+        ) : null}
+      </div>
       {canEdit && (
         <div className="space-y-2 rounded-md border border-border p-3">
           <TabbedNav
@@ -167,8 +191,9 @@ export function ActivityTimeline({ companyId, opportunityId }: ActivityTimelineP
                   <span className="font-medium">{ACTIVITY_KIND_LABELS[activity.kind]}</span>
                   {activity.subject ? ` · ${activity.subject}` : ""}
                 </p>
-                {activity.body && (
-                  <p className="whitespace-pre-line text-muted-foreground">{activity.body}</p>
+                {activity.body && <ActivityBody body={activity.body} markdown={activity.kind === "note"} />}
+                {activity.opportunity === null && opportunityId && (
+                  <p className="text-xs text-info">z historii firmy</p>
                 )}
                 <p className={`text-xs ${activity.overdue ? "text-destructive" : "text-muted-foreground"}`}>
                   {when(activity)}

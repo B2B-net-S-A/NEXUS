@@ -31,6 +31,7 @@ import { useAuthStore } from "@/store/auth";
 import { CompanyFormDialog } from "./CompanyFormDialog";
 import { formatDealNumber } from "./format";
 import { SalesSelect } from "./SalesSelect";
+import { useCompanyOwnersMock, useOwnersMock } from "./mockups/useAtlasMock";
 
 const LIFECYCLE_OPTIONS = Object.entries(LIFECYCLE_LABELS).map(([value, label]) => ({
   value,
@@ -49,7 +50,13 @@ export function CompaniesList() {
   const lifecycle = (searchParams?.get("etap") ?? "") as CompanyLifecycle | "";
   const offset = Math.max(0, Number(searchParams?.get("od") ?? 0) || 0);
   const [creating, setCreating] = useState(false);
-  const companies = useSalesCompanies({ q, lifecycle, offset });
+  // MAKIETA: opiekun (konto albo historyczny z Atlasa) i archiwum.
+  const owner = searchParams?.get("opiekun") ?? "";
+  const archived = searchParams?.get("archiwum") === "1";
+  const owners = useOwnersMock();
+  const historical = useCompanyOwnersMock();
+  const ownerId = owner === "me" ? (user?.id ?? null) : owner.startsWith("acct:") ? Number(owner.slice(5)) : null;
+  const companies = useSalesCompanies({ q, lifecycle, offset, owner_id: ownerId, archived });
   const items = companies.data?.items ?? [];
   const total = companies.data?.total ?? 0;
 
@@ -83,14 +90,44 @@ export function CompaniesList() {
           ariaLabel: "Szukaj firmy",
         }}
         filters={
-          <SalesSelect
-            ariaLabel="Etap relacji"
-            className="w-48"
-            value={lifecycle}
-            onValueChange={(value) => writeParams({ etap: value || null, od: null })}
-            options={LIFECYCLE_OPTIONS}
-            anyLabel="Każdy etap relacji"
-          />
+          <>
+            <SalesSelect
+              ariaLabel="Etap relacji"
+              className="w-48"
+              value={lifecycle}
+              onValueChange={(value) => writeParams({ etap: value || null, od: null })}
+              options={LIFECYCLE_OPTIONS}
+              anyLabel="Każdy etap relacji"
+            />
+            <SalesSelect
+              ariaLabel="Opiekun"
+              className="w-56"
+              value={owner}
+              onValueChange={(value) => writeParams({ opiekun: value || null, od: null })}
+              options={[
+                { value: "me", label: "Moje firmy" },
+                ...(owners.data?.accounts ?? []).map((account) => ({
+                  value: `acct:${account.id}`,
+                  label: `${account.name} (${account.companies})`,
+                })),
+                ...(owners.data?.historical ?? []).map((entry) => ({
+                  value: `hist:${entry.name}`,
+                  label: `${entry.name} · z Atlasa, bez konta (${entry.companies})`,
+                })),
+              ]}
+              anyLabel="Każdy opiekun"
+            />
+            <Button
+              size="sm"
+              variant={archived ? "primary" : "outline"}
+              onClick={() => writeParams({ archiwum: archived ? null : "1", od: null })}
+            >
+              Archiwum
+            </Button>
+            <Button size="sm" variant="outline">
+              Do przejrzenia po imporcie ({owners.data?.review ?? "…"})
+            </Button>
+          </>
         }
         resultCount={companies.isSuccess ? total : undefined}
         actions={
@@ -155,7 +192,14 @@ export function CompaniesList() {
                     <TableCell className={CALM_AMOUNT}>
                       {company.open_opportunities ? formatDealNumber(company.open_value) : "—"}
                     </TableCell>
-                    <TableCell>{company.owner?.name ?? "—"}</TableCell>
+                    <TableCell>
+                      {company.owner?.name ?? (historical.data?.[String(company.id)] ? (
+                        <span className="text-muted-foreground">
+                          {historical.data[String(company.id)]}
+                          <span className={`${CALM_SUBLINE} block`}>z Atlasa · bez konta w NEXUSIE</span>
+                        </span>
+                      ) : "—")}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
