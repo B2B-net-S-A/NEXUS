@@ -41,7 +41,8 @@ function opportunity(
   lastActivityDaysAgo: number,
 ): Opportunity {
   const stage = STAGES.find((s) => s.key === stageKey) ?? STAGES[0];
-  const at = new Date(Date.UTC(2026, 9, 27) - lastActivityDaysAgo * 86_400_000).toISOString();
+  // Od dziś, nie od stałej daty: ekran liczy „bez kontaktu N dni” od Date.now().
+  const at = new Date(Date.now() - lastActivityDaysAgo * 86_400_000).toISOString();
   return {
     id,
     title,
