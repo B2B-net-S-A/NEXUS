@@ -1,7 +1,7 @@
 """Uprawnienie „Raporty godzin: akceptacja całej firmy”.
 
-Revision ID: 0610_timesheets_permission
-Revises: 0609_skill_catalog_identityiq
+Revision ID: 0611_timesheets_permission
+Revises: 0610_job_p0_request
 
 Decyzja Artura 28.10.2026: osoba z back office akceptuje timesheety całej
 firmy i rozlicza premie, ale nie dostaje reszty „Kadr” (e-teczki, rodzaju
@@ -31,8 +31,8 @@ ROLES_AT_0609: tuple[str, ...] = (
     "board",
 )
 
-revision = "0610_timesheets_permission"
-down_revision = "0609_skill_catalog_identityiq"
+revision = "0611_timesheets_permission"
+down_revision = "0610_job_p0_request"
 branch_labels = None
 depends_on = None
 
