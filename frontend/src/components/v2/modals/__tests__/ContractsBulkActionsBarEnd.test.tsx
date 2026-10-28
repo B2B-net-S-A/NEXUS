@@ -16,6 +16,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // wewnątrz `vi.hoisted` — inaczej fabryka sięga po niezainicjalizowaną stałą.
 const { bulkMarkEnded } = vi.hoisted(() => ({ bulkMarkEnded: vi.fn() }));
 
+// Okno „Zakończ współpracę” przechodzi routerem do generatora porozumienia
+// (tylko przy jednej umowie) — zbiorczo nie nawiguje, ale hook musi istnieć.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return {
