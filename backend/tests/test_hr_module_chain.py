@@ -88,7 +88,7 @@ CHAIN = (
     # Poprawka i anulowanie protokołu sprzętu (28.10.2026).
     (
         "0609_equipment_protocol_cancel",
-        "0608_linkedin_extension",
+        "0608_linkedin_extension",  # down_revision — przepina rechain_migration.py
         "equipment_protocol_cancel_schema",
     ),
 )

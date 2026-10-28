@@ -88,9 +88,7 @@ async def test_correction_changes_fields_keeps_number_and_revokes_link(
         )
     ).json()
     assert detail["lines"][0]["accessories"] == "zasilacz"
-    assert detail["lines"][0]["name"] == (
-        f"{detail['lines'][0]['base_name']} zasilacz"
-    )
+    assert detail["lines"][0]["name"] == (f"{detail['lines'][0]['base_name']} zasilacz")
 
     new_date = business_today() - timedelta(days=1)
     if new_date.year != business_today().year:
@@ -168,7 +166,8 @@ async def test_signed_protocol_cannot_be_corrected(
     protocol = await _issued_protocol(app_client, people)
     token = await _link_token(app_client, headers, protocol["id"])
     signed = await app_client.post(
-        f"{PUBLIC}/{token}/sign", json={"signer_name": "Anna Przykładowa", "accepted": True}
+        f"{PUBLIC}/{token}/sign",
+        json={"signer_name": "Anna Przykładowa", "accepted": True},
     )
     assert signed.status_code == 200, signed.text
     refused = await app_client.patch(

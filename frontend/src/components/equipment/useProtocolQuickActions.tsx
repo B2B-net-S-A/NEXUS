@@ -11,6 +11,7 @@ import {
   useCancelProtocol,
   useConfirmProtocol,
   useCreateProtocolLink,
+  type EquipmentHolderKind,
   type ProtocolKind,
 } from "@/lib/api/equipment";
 
@@ -23,13 +24,18 @@ export interface QuickProtocol {
 
 export interface CancellableProtocol extends QuickProtocol {
   kind: ProtocolKind;
+  holder: { kind: EquipmentHolderKind | null };
 }
 
 /** Co się stanie po anulowaniu — zdanie w oknie z powodem. */
-export function cancelEffect(kind: ProtocolKind): string {
-  return kind === "wydanie"
-    ? "Sprzęt z protokołu wróci na stan, a pozycje znikną z zakładki „Sprzęt” kontraktu. Link do podpisu przestanie działać. Numer zostaje w rejestrze jako anulowany."
-    : "Sprzęt wróci do osoby jako wydany, jakby zwrotu nie było. Link do podpisu przestanie działać. Numer zostaje w rejestrze jako anulowany.";
+export function cancelEffect(protocol: CancellableProtocol): string {
+  const tail = "Link do podpisu przestanie działać. Numer zostaje w rejestrze jako anulowany.";
+  if (protocol.kind === "zwrot") {
+    return `Sprzęt wróci do osoby jako wydany, jakby zwrotu nie było. ${tail}`;
+  }
+  return protocol.holder.kind === "contract"
+    ? `Sprzęt z protokołu wróci na stan, a pozycje znikną z zakładki „Sprzęt” kontraktu. ${tail}`
+    : `Sprzęt z protokołu wróci na stan. ${tail}`;
 }
 
 /**
@@ -92,7 +98,7 @@ export function useProtocolQuickActions(): {
   const cancelProtocol = async (protocol: CancellableProtocol, onDone?: () => void) => {
     const reason = await askReason({
       title: `Anulować protokół ${protocol.number}?`,
-      description: cancelEffect(protocol.kind),
+      description: cancelEffect(protocol),
       confirmLabel: "Anuluj protokół",
       cancelLabel: "Wróć",
       variant: "destructive",

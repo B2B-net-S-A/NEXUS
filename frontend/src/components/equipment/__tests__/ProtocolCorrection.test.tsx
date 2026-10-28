@@ -192,7 +192,9 @@ describe("Anuluj protokół", () => {
     await user.click(within(dialog).getByRole("button", { name: "Anuluj protokół…" }));
 
     const ask = await screen.findByRole("dialog", { name: "Anulować protokół PZO/2026/10/013?" });
-    expect(ask).toHaveTextContent("Sprzęt z protokołu wróci na stan");
+    expect(ask).toHaveTextContent("Sprzęt z protokołu wróci na stan.");
+    // Konto, nie kontrakt — bez zdania o zakładce kontraktu.
+    expect(ask).not.toHaveTextContent("zakładki „Sprzęt” kontraktu");
     const confirm = within(ask).getByRole("button", { name: "Anuluj protokół" });
     expect(confirm).toBeDisabled();
     await user.type(within(ask).getByLabelText("Powód anulowania"), "  Ćwiczenie recepcji ");
