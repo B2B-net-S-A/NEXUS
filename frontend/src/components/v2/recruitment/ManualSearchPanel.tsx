@@ -22,6 +22,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   CandidatesListV2,
   type CandidatesListAddedPerson,
+  type CandidatesListAiRequest,
 } from "@/components/v2/pages/CandidatesListV2";
 import {
   championSearchRequirements,
@@ -35,6 +36,7 @@ import {
   requirementLabels,
 } from "@/lib/matching-requirements";
 import { championApi } from "@/lib/api";
+import { aiAssessmentApi } from "@/lib/ai-assessment";
 
 import { ManualAddedStrip } from "./ManualAddedStrip";
 import { useUndoWindow } from "./useUndoWindow";
@@ -44,6 +46,10 @@ export interface ManualSearchPanelProps {
   job: ManualSearchJob;
   onBulkAdded?: () => void;
   readOnly?: boolean;
+  /** „✦ Oceń z AI” na zaznaczonych — panel oceny pokazuje okno (28.10.2026). */
+  onAssessWithAi?: (request: CandidatesListAiRequest) => void;
+  /** „Ostatnia ocena AI · Otwórz” — zapisana ocena bez ponownego wywołania. */
+  onOpenLatestAi?: () => void;
 }
 
 export function ManualSearchPanel({
@@ -51,6 +57,8 @@ export function ManualSearchPanel({
   job,
   onBulkAdded,
   readOnly = false,
+  onAssessWithAi,
+  onOpenLatestAi,
 }: ManualSearchPanelProps) {
   // Dodani w tym oknie (przeżywa przemontowanie listy po zmianie wymagań).
   const [added, setAdded] = useState<readonly CandidatesListAddedPerson[]>([]);
@@ -99,6 +107,13 @@ export function ManualSearchPanel({
   const critical = champion.isSuccess ? (champion.data?.critical_resolution ?? null) : null;
   const search = championSearchRequirements(source);
   const championSettled = champion.isSuccess || champion.isError;
+  // Ostatnia ocena AI tej osoby w rekrutacji (≤ 7 dni) — odczyt z bazy, bez modelu.
+  const latestAi = useQuery({
+    queryKey: ["ai-assessment-latest", jobId],
+    queryFn: () => aiAssessmentApi.latest(jobId),
+    enabled: Boolean(onOpenLatestAi),
+  });
+  const latestCount = latestAi.data?.rows.length ?? 0;
 
   if ((!savedReqs.isSuccess && !savedReqs.isError) || !championSettled) {
     return <p className="p-6 text-sm text-muted-foreground">Ładowanie…</p>;
@@ -115,6 +130,14 @@ export function ManualSearchPanel({
 
   return (
     <div className="space-y-3">
+      {onOpenLatestAi && latestCount > 0 ? (
+        <p className="text-xs text-muted-foreground" data-testid="ai-assessment-latest">
+          Ostatnia ocena AI: {latestCount} {latestCount === 1 ? "osoba" : "osób"}{" "}
+          <button type="button" className="font-medium text-primary underline" onClick={onOpenLatestAi}>
+            Otwórz
+          </button>
+        </p>
+      ) : null}
       <ManualAddedStrip
         jobId={jobId}
         people={added}
@@ -135,6 +158,7 @@ export function ManualSearchPanel({
           readOnly,
           onAdded,
           undone,
+          onAssessWithAi,
           mustRows: split.must,
           keywordsNote: hasRows
             ? `Wymagania z rekrutacji. ${mandatorySourceNote(split)} Zmiany tutaj nie zmieniają rekrutacji.`

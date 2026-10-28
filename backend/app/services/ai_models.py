@@ -59,6 +59,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F36 | client_form_fill                 | claude-sonnet-5 (z Opus) |
 | F37 | consent_screenshot_check         | claude-sonnet-5 (z Haiku)|
 | F38 | linkedin_message_draft           | claude-sonnet-5 (z Haiku)|
+| F39 | candidate_ai_assessment          | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -464,6 +465,17 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "rekrutację, z profilu otwartego na LinkedInie. Krótki tekst w tonie rekrutera — "
         "ta sama klasa zadania co frazowanie odpowiedzi (F29), ale bez JSON-a. Rekruter "
         "czyta i wysyła sam; awaria modelu daje szablon z rekrutacji.",
+    ),
+    AIFeatureKey.candidate_ai_assessment: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("CANDIDATE_AI_ASSESSMENT_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F39 (decyzja Artura 28.10.2026, POZA badaniem 16.09). „Oceń z AI” "
+        "na zaznaczonych osobach: to samo zadanie „znajdź i zacytuj” co przegląd "
+        "zgłoszeń (F27) i akademia (F23) — werdykt Dzwoń / Może / Nie pasuje z cytatem "
+        "z CV albo notatki, powód bez cytatu odrzuca kod. AI tylko układa kolejność: "
+        "niczego nie odrzuca i nie zmienia procentu; awaria = osoba bez werdyktu, "
+        "nadal do dodania. Jedno wywołanie na osobę, do 30 osób naraz.",
     ),
 }
 

@@ -186,6 +186,9 @@ class AIFeatureKey(str, enum.Enum):
     # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
     # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
     linkedin_message_draft = "linkedin_message_draft"
+    # 0609 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
+    # „Kandydaci do dodania” — Dzwoń / Może / Nie pasuje z cytatem z CV.
+    candidate_ai_assessment = "candidate_ai_assessment"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -229,6 +232,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
     AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
     AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
+    AIFeatureKey.candidate_ai_assessment: "„Oceń z AI” — kolejność dzwonienia do zaznaczonych osób w rekrutacji",
 }
 
 
@@ -411,6 +415,11 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Imię, nagłówek, stanowiska i umiejętności z otwartego profilu na LinkedInie",
         "Tytuł, klient, wymagania i tryb pracy rekrutacji",
         "(bez stawek, kontaktów i danych z bazy NEXUSA)",
+    ],
+    AIFeatureKey.candidate_ai_assessment: [
+        "Tekst CV zaznaczonych osób i ich notatki z rozmów i spotkań (bez maili)",
+        "Tytuł rekrutacji, umiejętności krytyczne, must-have, nice-to-have i opis projektu",
+        "(bez stawek, nazwy klienta i danych kontaktowych z profilu)",
     ],
 }
 
