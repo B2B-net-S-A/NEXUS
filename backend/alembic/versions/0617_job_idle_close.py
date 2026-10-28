@@ -1,7 +1,7 @@
 """Rekrutacje bez ruchu: powód ``no_activity``, „Jeszcze trwa”, dzwonek.
 
 Revision ID: 0617_job_idle_close
-Revises: 0613_timesheets_permission
+Revises: 0614_sales_atlas_gaps
 
 Decyzja Artura 28.10.2026: 14 dni bez CV do klienta i bez odpowiedzi klienta
 = przypomnienie do Delivery Leada, 21 dni = także Head of Recruitment, 28 dni
@@ -17,7 +17,7 @@ Lustro w safety-net ``entrypoint.sh`` — prod alembic bywa osierocony.
 from alembic import op
 
 revision = "0617_job_idle_close"
-down_revision = "0613_timesheets_permission"
+down_revision = "0614_sales_atlas_gaps"
 branch_labels = None
 depends_on = None
 
