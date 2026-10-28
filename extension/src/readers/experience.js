@@ -7,7 +7,7 @@ import { EMPLOYMENT_TYPES, LIST_ITEMS } from "./selectors.js";
 import { clean, safeQueryAll, textBlocks, topLevelItems } from "./dom.js";
 import { isDateLine, isDurationLine, parseDateRange } from "./dates.js";
 
-function companyFromLine(line) {
+export function companyFromLine(line) {
   if (!line || isDateLine(line) || isDurationLine(line)) return null;
   const c = clean(line).replace(EMPLOYMENT_TYPES, "").trim();
   if (EMPLOYMENT_TYPES.test(` · ${c}`)) return null; // sama forma zatrudnienia, bez firmy

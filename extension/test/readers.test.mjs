@@ -2,12 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { loadFixture, parse } from "./helpers.mjs";
-import { detectPage, readPage } from "../src/readers/index.js";
+import { detectPage, readPageDom } from "../src/readers/index.js";
 import { parseDateRange } from "../src/readers/dates.js";
 import { slugContradictsName } from "../src/readers/dom.js";
 import { splitTitleCompany } from "../src/readers/profile.js";
 
-const read = (fixture, url) => readPage(loadFixture(fixture), url);
+// Czytnik HTML starszego układu — zapas, gdy zrzut tekstu nie da pola.
+const read = (fixture, url) => readPageDom(loadFixture(fixture), url);
 
 test("detectPage rozpoznaje obsługiwane strony LinkedIna", () => {
   const cases = [
@@ -36,7 +37,7 @@ test("detectPage: klucz strony nie zależy od zapytania ani wielkości liter w s
   );
 });
 
-test("profil publiczny: wszystkie pola z selektorów", () => {
+test("HTML (zapas): profil publiczny, wszystkie pola z selektorów", () => {
   const r = read("profile-public.html", "https://www.linkedin.com/in/zofia-testowa-123/");
   assert.equal(r.kind, "profile");
   assert.deepEqual(r.missing, []);
@@ -115,11 +116,11 @@ test("Recruiter bez linku publicznego: public_url pusty, nie link z nawigacji an
 test("Recruiter: link „Profil publiczny” po etykiecie, odrzucony gdy slug przeczy nazwisku", () => {
   const ok = parse(`<main><div class="topcard"><h1>Ewa Przykładowa</h1></div>
     <a href="https://www.linkedin.com/in/ewa-przykladowa/">Profil publiczny</a></main>`);
-  assert.equal(readPage(ok, "https://www.linkedin.com/talent/profile/AEMA1").profile.public_url, "https://www.linkedin.com/in/ewa-przykladowa");
+  assert.equal(readPageDom(ok, "https://www.linkedin.com/talent/profile/AEMA1").profile.public_url, "https://www.linkedin.com/in/ewa-przykladowa");
 
   const wrong = parse(`<main><div class="topcard"><h1>Ewa Przykładowa</h1></div>
     <a href="https://www.linkedin.com/in/marek-zupelnie-ktos/">Profil publiczny</a></main>`);
-  assert.equal(readPage(wrong, "https://www.linkedin.com/talent/profile/AEMA1").profile.public_url, null);
+  assert.equal(readPageDom(wrong, "https://www.linkedin.com/talent/profile/AEMA1").profile.public_url, null);
 });
 
 test("wyniki wyszukiwania: osoby, linki publiczne, bez „Członka LinkedIn” i bez duplikatów", () => {
@@ -148,7 +149,7 @@ test("wyszukiwanie w Recruiterze w nieznanym układzie: heurystyka po linkach do
 
 test("lista: najwyżej 50 osób", () => {
   const items = Array.from({ length: 60 }, (_, i) => `<li class="reusable-search__result-container"><span class="entity-result__title-text"><a href="https://www.linkedin.com/in/osoba-fikcyjna-${i}/"><span aria-hidden="true">Osoba Fikcyjna ${i}</span></a></span><div class="entity-result__primary-subtitle">Tester</div></li>`).join("");
-  const r = readPage(parse(`<main><ul>${items}</ul></main>`), "https://www.linkedin.com/search/results/people/?keywords=x");
+  const r = readPageDom(parse(`<main><ul>${items}</ul></main>`), "https://www.linkedin.com/search/results/people/?keywords=x");
   assert.equal(r.people.length, 50);
   assert.equal(r.truncated, true);
 });

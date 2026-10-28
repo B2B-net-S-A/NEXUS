@@ -1,0 +1,16 @@
+{
+  "url": "https://www.linkedin.com/search/results/people/?keywords=java",
+  "heading": null,
+  "top": { "lines": [] },
+  "sections": [],
+  "listItems": [
+    { "lines": [ "Marta Fikcyjna", "• 2nd", "Frontend Developer | React", "Poznań, Wielkopolskie, Poland", "Connect", "Current: Senior Frontend Developer at Wymyślone Studio", "Jan Testowy is a mutual connection" ],
+      "links": [ "https://www.linkedin.com/in/marta-fikcyjna?miniProfileUrn=x", "https://www.linkedin.com/in/marta-fikcyjna?miniProfileUrn=x" ] },
+    { "lines": [ "Tomasz Testowy", "• 3rd+", "Backend Engineer at Nieistniejący Bank", "Łódź", "Follow" ],
+      "links": [ "https://www.linkedin.com/in/tomasz-testowy-77/" ] },
+    { "lines": [ "LinkedIn Member", "Data Scientist", "Connect" ], "links": [ "https://www.linkedin.com/search/results/people/headless" ] },
+    { "lines": [ "Olga Testerska", "• 2nd", "QA Engineer", "Message", "Anna Fikcyjna and 2 other mutual connections" ],
+      "links": [ "https://www.linkedin.com/in/olga-testerska/" ] }
+  ],
+  "links": []
+}

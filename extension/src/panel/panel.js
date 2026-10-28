@@ -271,7 +271,7 @@ async function handleActiveTab({ force = false } = {}) {
   let read = null;
   for (let attempt = 1; attempt <= READ_ATTEMPTS; attempt += 1) {
     try {
-      read = await readTab(tab.id);
+      read = await readTab(tab.id, tab.url);
     } catch (err) {
       console.warn("NEXUS: odczyt karty nie powiódł się", err);
       read = null;
@@ -305,7 +305,7 @@ async function checkList() {
   ls.error = null;
   render();
   try {
-    const read = await readTab(state.tab.id);
+    const read = await readTab(state.tab.id, state.tab.url);
     if (read.kind !== PAGE_KINDS.SEARCH_RESULTS) {
       ls.error = "Ta karta nie pokazuje już listy osób.";
       return;

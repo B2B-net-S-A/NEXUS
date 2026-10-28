@@ -70,33 +70,54 @@ Testy czytników działają na syntetycznych stronach w `test/fixtures/` —
 wymyślone osoby i firmy, bo repo jest publiczne. **Nie wklejaj tam zapisanych
 stron prawdziwych osób z LinkedIna.**
 
+## Jak wtyczka czyta stronę
+
+Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy wydaniach), nie ma
+`h1` ani list `ul/li` w sekcjach profilu. Dlatego główna ścieżka nie używa klas:
+
+1. Panel wstrzykuje do karty jedną funkcję (`capturePage` w `src/page.js`). Na
+   profilu przewija kontener strony krokami 600 px co 300 ms (razem najwyżej 4 s),
+   bo sekcje doładowują się dopiero po przewinięciu, i wraca na miejsce.
+2. Funkcja zbiera `innerText` żywej strony (podział na linie wynika z układu):
+   imię z pierwszego `h2` w `main`, linie karty górnej, każdą `section` z jej
+   nagłówkiem i pozycjami (doświadczenie: pozycje rozdzielone `hr[role=presentation]`),
+   pozycje listy wyników (`[role=list] [role=listitem]`) i linki `/in/`.
+3. Czytniki w `src/readers/text.js` rozpoznają pola po kolejności linii
+   i słowach stałych, np. miasto = linia przed „Contact info”, nagłówek =
+   pierwsza linia po imieniu, która nie jest szumem („She/Her”, „· 2nd”).
+4. Kopia HTML (bez skryptów, obrazków i bloków `<code>`) jedzie obok jako zapas:
+   czytniki starszego układu (`profile.js`, `recruiter-profile.js`,
+   `search-results.js`) uzupełniają tylko puste pola i tylko wtedy, gdy rozpoznały
+   tę samą osobę.
+
+Zmierzone na żywym LinkedInie 28.10.2026 (interfejs po angielsku): profil `/in/`
+i lista wyników wyszukiwania osób. **Recruiter (`/talent/…`) czeka na pomiar** —
+czytnik najpierw próbuje atrybutów `data-test-*` ze starszego układu, potem tego
+samego podejścia tekstowego (imię = pierwszy `h1`/`h2`, sekcje po nagłówkach,
+pozycje po `[role=listitem]`, `li`, `tr`, link „Public profile”/„Profil publiczny”).
+Przy pierwszym użyciu w Recruiterze sprawdź, czy pola się wypełniają.
+
 ## Gdy LinkedIn zmieni stronę
 
 Objaw: w panelu przy polu, które na stronie widać, stoi „nie odczytano — wpisz”,
 albo lista wyników jest pusta.
 
-1. Na tej stronie LinkedIna: prawy klik na brakującym polu → „Zbadaj”. Zapisz
-   tag, klasy i atrybuty `data-*` elementu i jego najbliższego kontenera.
-2. Otwórz `src/readers/selectors.js` — wszystkie selektory są tylko tam.
-   Dopisz nowy selektor **na początek** listy danego pola; starych nie usuwaj
-   (LinkedIn testuje układy A/B, różne osoby widzą różne wersje).
-   - profil publiczny: `PROFILE`, sekcje doświadczenia/umiejętności: `SECTIONS`
-     i `LIST_ITEMS`,
-   - Recruiter: `RECRUITER` (w tym `publicLinkLabels` — teksty linku do profilu
-     publicznego),
-   - listy wyników i projekt: `RESULTS`,
-   - daty i formy zatrudnienia: `MONTHS`, `PRESENT_WORDS`, `EMPLOYMENT_TYPES`.
-3. Dodaj fixture w `test/fixtures/` z **samą strukturą** nowego DOM-u i wymyśloną
-   treścią oraz test w `test/readers.test.mjs`.
+1. Na tej stronie LinkedIna otwórz DevTools (F12) → Console i wpisz
+   `document.querySelector("main section").innerText` (karta górna) albo
+   `[...document.querySelectorAll("main section")].map(s => s.innerText)`.
+   Zobaczysz linie dokładnie tak, jak widzi je czytnik.
+2. Otwórz `src/readers/selectors.js` — wszystko, co czytnik rozpoznaje, jest tam:
+   - nowa linia-przycisk albo plakietka myli nagłówek/miasto → dopisz wzorzec
+     do `NOISE_LINES`,
+   - sekcja ma inną nazwę → `SECTION_HEADINGS`,
+   - „Contact info” po nowemu → `CONTACT_INFO`,
+   - lista wyników ma inne role → `CAPTURE.listItems`,
+   - daty i formy zatrudnienia → `MONTHS`, `PRESENT_WORDS`, `EMPLOYMENT_TYPE_WORDS`.
+   Klasy CSS na dole pliku to tylko zapas starszego układu.
+3. Dodaj zrzut w `test/fixtures/text/` (JSON z liniami jak w kroku 1, ale
+   z **wymyślonymi** osobami i firmami) i test w `test/text-readers.test.mjs`.
 4. `node --test extension/test`, przeładuj wtyczkę w `chrome://extensions`,
    sprawdź na żywej stronie.
-
-Gdy żaden selektor nie trafi, czytnik próbuje heurystyk (imię = pierwszy `h1`
-w głównej treści, nagłówek = linia pod imieniem, miasto = linia przed „Dane
-kontaktowe”, doświadczenie = lista pod nagłówkiem „Doświadczenie”/„Experience”).
-Link do profilu publicznego w Recruiterze bierzemy tylko z karty osoby albo z linku
-„Profil publiczny” — nigdy pierwszy lepszy `/in/` ze strony, a slug sprzeczny
-z nazwiskiem jest odrzucany.
 
 ## Paczka do Web Store
 
@@ -116,10 +137,9 @@ Bez bundlera: moduły ES, HTML i CSS.
   i host API).
 - `src/panel/` — panel boczny (ekrany w `screen-*.js`).
 - `src/page.js` — odczyt aktywnej karty: `chrome.scripting.executeScript`
-  oddaje kopię DOM-u (bez skryptów, obrazków i `<code>`), czytniki parsują ją
-  w panelu.
-- `src/readers/` — czytniki (`profile`, `recruiter-profile`, `search-results`),
-  selektory w `selectors.js`.
+  z funkcją `capturePage`, która oddaje zrzut tekstu i kopię HTML (zapas).
+- `src/readers/` — czytniki zrzutu tekstu (`text.js`), czytniki HTML starszego
+  układu (zapas), łączenie w `index.js`, wszystkie wzorce w `selectors.js`.
 - `src/api.js` — klient API i mapowanie błędów (401 → połącz ponownie,
   403 → zdanie z NEXUSA, 409 off-limits → pytanie, 429 → limit dzienny).
 - `src/view/logic.js` — czysta logika ekranów (testowana w node).

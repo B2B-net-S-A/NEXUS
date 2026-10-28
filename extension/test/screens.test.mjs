@@ -6,7 +6,7 @@ import { parseHTML } from "linkedom";
 
 import { loadFixture } from "./helpers.mjs";
 
-let renderAdd, initialAddState, renderPerson, initialPersonState, renderList, initialListState, applyBatch, misc, readPage;
+let renderAdd, initialAddState, renderPerson, initialPersonState, renderList, initialListState, applyBatch, misc, readPageDom;
 
 before(async () => {
   const { window } = parseHTML("<!doctype html><html><body></body></html>");
@@ -16,7 +16,7 @@ before(async () => {
   ({ renderPerson, initialPersonState } = await import("../src/panel/screen-person.js"));
   ({ renderList, initialListState, applyBatch } = await import("../src/panel/screen-list.js"));
   misc = await import("../src/panel/screen-misc.js");
-  ({ readPage } = await import("../src/readers/index.js"));
+  ({ readPageDom } = await import("../src/readers/index.js"));
 });
 
 const text = (node) => node.textContent.replace(/\s+/g, " ");
@@ -42,7 +42,7 @@ function makeCtx(state, apiOverrides = {}) {
 const ME = { user: { id: 26, name: "Malwina Testowa", initials: "MT" }, usage: { reads_today: 34, reads_limit: 150 } };
 
 function profileState(lookup) {
-  const read = readPage(loadFixture("profile-public.html"), "https://www.linkedin.com/in/zofia-testowa-123/");
+  const read = readPageDom(loadFixture("profile-public.html"), "https://www.linkedin.com/in/zofia-testowa-123/");
   return { me: ME, read, lookup, add: initialAddState(read), person: initialPersonState(), tab: { id: 1, url: read.profile.page_url }, page: { kind: "profile", key: "in/zofia-testowa-123" } };
 }
 
@@ -207,7 +207,7 @@ test("ekran 5: wiadomość — szkic z /draft-message, kopiowanie, zapis kontakt
 });
 
 test("ekran 6: lista — przed sprawdzeniem tylko przycisk, po sprawdzeniu liczniki i zaznaczanie", () => {
-  const read = readPage(loadFixture("search-results.html"), "https://www.linkedin.com/search/results/people/?keywords=java");
+  const read = readPageDom(loadFixture("search-results.html"), "https://www.linkedin.com/search/results/people/?keywords=java");
   const state = { me: ME, list: initialListState(), page: { kind: "search_results", source: "search" }, tab: { id: 1, url: "https://www.linkedin.com/search/results/people/?keywords=java" } };
   let t = text(renderList(makeCtx(state)));
   assert.ok(t.includes("Sprawdź tę stronę"));
@@ -224,7 +224,7 @@ test("ekran 6: lista — przed sprawdzeniem tylko przycisk, po sprawdzeniu liczn
 });
 
 test("ekran 6: „Dodaj zaznaczone” wysyła POST /candidates z profilem z listy", async () => {
-  const read = readPage(loadFixture("search-results.html"), "https://www.linkedin.com/search/results/people/?keywords=java");
+  const read = readPageDom(loadFixture("search-results.html"), "https://www.linkedin.com/search/results/people/?keywords=java");
   const state = { me: ME, list: initialListState(), page: { kind: "search_results", source: "search" }, tab: { id: 1, url: "https://www.linkedin.com/search/results/people/?keywords=java" } };
   applyBatch(state.list, read, { items: [{ index: 0, status: "new" }, { index: 1, status: "new" }] });
   const ctx = makeCtx(state, { addCandidate: async () => ({ candidate_id: 5, created: true, assigned_job_ids: [], skipped: [] }) });

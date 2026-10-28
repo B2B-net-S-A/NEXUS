@@ -23,7 +23,7 @@ export function h(tag, props = {}, ...children) {
 function append(el, children) {
   for (const c of children.flat(Infinity)) {
     if (c === null || c === undefined || c === false || c === "") continue;
-    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    el.append(typeof c === "object" && c.nodeType ? c : document.createTextNode(String(c)));
   }
 }
 

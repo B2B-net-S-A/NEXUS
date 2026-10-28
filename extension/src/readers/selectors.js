@@ -1,13 +1,32 @@
-// WSZYSTKIE selektory i słowa-kotwice czytników w jednym miejscu.
+// WSZYSTKIE selektory, nagłówki sekcji i słowa szumu czytników w jednym miejscu.
 //
-// LinkedIn często zmienia DOM. Gdy panel zaczyna pokazywać „nie odczytano —
-// wpisz” przy polu, które na stronie widać, popraw tylko ten plik: dopisz nowy
-// selektor NA POCZĄTEK listy danego pola (stare zostaw — LinkedIn bywa w trakcie
-// testów A/B i różni ludzie widzą różne wersje). Instrukcja w README.md.
+// Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy każdym wydaniu),
+// więc główna ścieżka odczytu NIE opiera się na klasach. W karcie zbieramy
+// `innerText` żywej strony (podział na linie = układ), a czytniki rozpoznają
+// pola po kolejności linii, nagłówkach sekcji (h2), rolach ARIA i słowach
+// stałych („Contact info”, „Connect”…). Pomiar na żywym LinkedInie: 28.10.2026.
 //
-// Każda lista to kolejne próby; wygrywa pierwszy selektor, który daje tekst.
-// Gdy żaden nie trafi, czytnik przechodzi do heurystyki (np. imię = pierwszy
-// `h1` w głównej treści) i dopiero potem zgłasza pole jako nieodczytane.
+// Gdy panel pokazuje „nie odczytano — wpisz” przy polu widocznym na stronie:
+// najpierw sprawdź, czy LinkedIn nie dodał nowej linii szumu (przycisk, plakietka)
+// albo nowej nazwy nagłówka — dopisz ją tutaj. Klasy CSS na dole pliku to tylko
+// zapas dla starszego układu. Instrukcja w README.md.
+
+// ── Odczyt w karcie (przekazywane do funkcji wstrzykiwanej, więc tylko dane JSON) ──
+export const CAPTURE = Object.freeze({
+  main: ["main", "[role='main']"],
+  // Lista wyników: pozycje po rolach ARIA (zmierzone), potem zapas.
+  listItems: ["[role='list'] [role='listitem']", "li", "tr"],
+  // Pozycje sekcji (doświadczenie w Recruiterze, stary układ) gdy nie ma separatorów <hr>.
+  sectionItems: ["[role='listitem']", "li", "tr"],
+  personLinks: "a[href*='/in/'], a[href*='/talent/profile/'], a[href*='/talent/hire/']",
+  // Sekcje doładowują się po przewinięciu: kroki 600 px co 300 ms, razem ≤ 4 s.
+  scrollStepPx: 600,
+  scrollPauseMs: 300,
+  scrollBudgetMs: 4000,
+  maxSections: 40,
+  maxListItems: 80,
+  maxLinks: 200,
+});
 
 export const MAIN = ["main", "[role='main']", ".scaffold-layout__main", "#main", "body"];
 
@@ -16,7 +35,7 @@ export const MAIN = ["main", "[role='main']", ".scaffold-layout__main", "#main",
 export const FOREIGN_REGIONS = [
   "nav",
   "aside",
-  "header.global-nav",
+  "header",
   "[class*='global-nav']",
   "[class*='also-viewed']",
   "[class*='browsemap']",
@@ -25,6 +44,48 @@ export const FOREIGN_REGIONS = [
   "[data-view-name='profile-card-pymk']",
 ].join(", ");
 
+// ── Nagłówki sekcji (tekst h2/h3), EN i PL ──────────────────────────────────
+export const SECTION_HEADINGS = Object.freeze({
+  experience: ["Experience", "Doświadczenie", "Work experience", "Doświadczenie zawodowe"],
+  skills: ["Skills", "Umiejętności", "Top skills", "Najważniejsze umiejętności"],
+  about: ["About", "Informacje", "O mnie", "Summary", "Podsumowanie"],
+});
+
+// ── Linie stałe w karcie górnej profilu ─────────────────────────────────────
+export const CONTACT_INFO = /^(Contact info|Dane kontaktowe|Informacje kontaktowe)$/i;
+export const PRONOUNS = /^\(?(he\/him|she\/her|they\/them|on\/jego|ona\/jej|oni\/ich)\)?$/i;
+export const DEGREE = /^[·•]?\s*(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)$/i;
+export const CONNECTIONS = /^([\d.,\s]+\+?\s*(connections|followers|kontakt\w*|obserwuj\w*))$/i;
+
+// Linie, które nie są danymi osoby: przyciski, plakietki, liczniki, podpowiedzi.
+export const NOISE_LINES = [
+  /^[·•]$/,
+  DEGREE,
+  PRONOUNS,
+  CONNECTIONS,
+  /^(Connect|Message|Follow|Following|Save|Save in Recruiter|More|Pending|Edit|Add section|Resources|Enhance cover image|Open to|Add profile section|Visit my website|View in Sales Navigator)$/i,
+  /^(Nawiąż kontakt|Wiadomość|Obserwuj|Obserwujesz|Zapisz|Więcej|Oczekuje|Edytuj|Dodaj sekcję|Zasoby|Otwarty na|Otwarta na)$/i,
+  /^(Show all|Pokaż wszystk|See all|Zobacz wszystk)/i,
+  /^(Endorsed by|Potwierdzone przez|Poparte przez)/i,
+  /^\d+\s+(endorsements?|potwierdze\w*|rekomendac\w*)$/i,
+  /\band \d+ more\b|\bi \d+ (innych|inne)\b/i,
+  /\bmutual connections?\b|wspóln\w* kontakt/i,
+  /^(Status is|Status:)/i,
+  /^(…|\.\.\.)?\s*(see more|show more|zobacz więcej|pokaż więcej|więcej)$/i,
+  /^(View|Zobacz)\b.*(profile|profil)/i,
+  /\bexperiences? (across|at)\b|doświadcze\w* w\b/i,
+  /^Verified$|^Zweryfikowan/i,
+];
+
+// Prefiks „Current:” w wynikach wyszukiwania i „Past:” (pomijamy).
+export const CURRENT_PREFIX = /^(Current|Obecnie|Aktualnie|Bieżące)\s*:\s*/i;
+export const PAST_PREFIX = /^(Past|Wcześniej|Poprzednio)\s*:\s*/i;
+export const TITLE_COMPANY_SEPARATORS = [/\s+at\s+/i, /\s+@\s+/, /\s+w\s+(?=[A-ZŁŚŻŹĆŃÓ0-9])/];
+
+// Etykiety linku do profilu publicznego w Recruiterze.
+export const PUBLIC_LINK_LABELS = ["Public profile", "Profil publiczny", "View public profile", "Zobacz profil publiczny", "LinkedIn profile", "Profil na LinkedInie"];
+
+// ── Zapas: klasy i atrybuty starszego układu (czytnik z kopii HTML) ─────────
 // ── Profil publiczny: linkedin.com/in/<slug> ────────────────────────────────
 export const PROFILE = {
   topCard: [
@@ -66,17 +127,17 @@ export const PROFILE = {
 export const SECTIONS = {
   experience: {
     anchors: ["experience", "experience-section"],
-    headings: ["Experience", "Doświadczenie", "Work experience", "Doświadczenie zawodowe"],
+    headings: SECTION_HEADINGS.experience,
     dataAttrs: ["[data-test-expandable-stack-position-list]", "[data-test-experience-section]", "[data-live-test-profile-experience]"],
   },
   skills: {
     anchors: ["skills", "skills-section"],
-    headings: ["Skills", "Umiejętności", "Top skills", "Najważniejsze umiejętności"],
+    headings: SECTION_HEADINGS.skills,
     dataAttrs: ["[data-test-skills-section]", "[data-live-test-profile-skills]"],
   },
   about: {
     anchors: ["about", "summary"],
-    headings: ["About", "Informacje", "O mnie", "Summary", "Podsumowanie"],
+    headings: SECTION_HEADINGS.about,
     dataAttrs: ["[data-test-summary-section]", "[data-live-test-profile-summary]"],
   },
 };
@@ -130,7 +191,7 @@ export const RECRUITER = {
   },
   skill: ["[data-test-skill-entity-name]", "[data-test-expandable-skill] span", ".skill-entity__skill-name"],
   // Link do profilu publicznego — po tekście linku albo po etykiecie.
-  publicLinkLabels: ["Public profile", "Profil publiczny", "View public profile", "Zobacz profil publiczny", "LinkedIn profile", "Profil na LinkedInie"],
+  publicLinkLabels: PUBLIC_LINK_LABELS,
   publicLinkSelectors: ["a[data-test-public-profile-link]", "a[data-test-personal-info-profile-link]", "a.personal-info__link"],
 };
 
@@ -185,10 +246,8 @@ export const NOISE_TEXT = [
 
 export const UNKNOWN_MEMBER = /^(LinkedIn Member|Członek LinkedIn|Użytkownik LinkedIn)$/i;
 
-// Prefiks „Obecnie:” w wynikach i słowa łączące stanowisko z firmą w nagłówku.
-export const CURRENT_PREFIX = /^(Current|Obecnie|Aktualnie|Bieżące)\s*:\s*/i;
-export const TITLE_COMPANY_SEPARATORS = [/\s+at\s+/i, /\s+@\s+/, /\s+w\s+(?=[A-ZŁŚŻŹĆŃÓ])/];
 
+// ── Daty i formy zatrudnienia (EN/PL) ───────────────────────────────────────
 // Linia dat w doświadczeniu: „mar 2022 – obecnie · 2 lata 8 mies.”, „Jan 2020 - Dec 2021”.
 export const PRESENT_WORDS = ["present", "obecnie", "teraz", "now", "dziś", "dzisiaj"];
 export const MONTHS = {
@@ -206,4 +265,5 @@ export const MONTHS = {
   dec: 12, december: 12, gru: 12, grudnia: 12, grudzień: 12, grudzien: 12,
 };
 // Druga część linii firmy: „Comarch · Pełny etat” → typ zatrudnienia do odcięcia.
+export const EMPLOYMENT_TYPE_WORDS = /^(Full-time|Part-time|Contract|Contract full-time|Self-employed|Freelance|Internship|Apprenticeship|Seasonal|Pełny etat|Niepełny etat|Kontrakt|Umowa o pracę|Samozatrudnienie|Działalność na własny rachunek|Freelancer|Staż|Praktyki|B2B)$/i;
 export const EMPLOYMENT_TYPES = /\s*·\s*(Full-time|Part-time|Contract|Self-employed|Freelance|Internship|Apprenticeship|Seasonal|Pełny etat|Niepełny etat|Kontrakt|Umowa o pracę|Samozatrudnienie|Działalność na własny rachunek|Freelancer|Staż|Praktyki|B2B)\s*$/i;
