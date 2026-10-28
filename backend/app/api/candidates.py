@@ -81,7 +81,6 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import candidate_stage_column as stage_column_filter
-from app.services import client_off_limits
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
@@ -107,8 +106,6 @@ from app.schemas.candidate import (
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
-    CandidateFromLinkedInCreate,
-    CandidateFromLinkedInResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationDistance,
@@ -135,7 +132,6 @@ from app.schemas.candidate import (
     MatchStats,
     TalentPoolBrief,
 )
-from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
@@ -171,7 +167,6 @@ from app.services.dedup_service import (
 from app.schemas.pipeline import HiringManagerVetoBrief
 from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
-    load_manager_rejections,
 )
 from app.services.experience_end import sql_current_end_literals
 from app.services.polish_ilike import contains_pattern
@@ -4315,7 +4310,7 @@ async def create_candidate(
     return _candidate_to_response(full)
 
 
-# ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
+# ── LinkedIn profile helpers ─────────────────────────────────────────────
 
 
 _LINKEDIN_STALE_DAYS = 7
@@ -4461,233 +4456,6 @@ def _is_sync_stale(
     if synced_at.tzinfo is None:
         synced_at = synced_at.replace(tzinfo=timezone.utc)
     return synced_at < threshold
-
-
-@router.post(
-    "/from-linkedin",
-    response_model=CandidateFromLinkedInResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={200: {"model": CandidateFromLinkedInResponse}},
-)
-async def create_candidate_from_linkedin(
-    data: CandidateFromLinkedInCreate,
-    current_user: RecruiterPlus,
-    background_tasks: BackgroundTasks,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-):
-    """One-click "Dodaj z LinkedIn" from the NEXUS Chrome extension.
-
-    Flow:
-    1. Normalize LinkedIn URL (reject company/jobs/invalid).
-    2. Dedup against existing candidates via slug match.
-       - If found → return ``action="existing"``; opcjonalnie przypisz do job;
-         odpal resync gdy stary >7d.
-    3. Otherwise create a stub (``name``/``lastname`` from preview or fallback),
-       opcjonalnie przypisz do job (atomicznie), queue Proxycurl enrichment.
-    """
-    from app.services.proxycurl import normalize_linkedin_url
-
-    normalized = normalize_linkedin_url(data.linkedin_url)
-    if not normalized:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid LinkedIn profile URL. Expected a "
-                "'linkedin.com/in/<slug>' profile link."
-            ),
-        )
-
-    target_stage = data.stage or PipelineStage.new
-    # Wtyczka dodaje osobę WYŁĄCZNIE do kolumny „Nowi” albo „Screening” — ta
-    # sama reguła co bulk-add (`board_stage_badges.is_entry_column`). Dalsze
-    # etapy mają bramki (QC CV, stawka DL, debrief), które sprawdza tylko
-    # `/api/pipeline/move`; etap zamknięcia („rejected”) kończył się 500 na
-    # więzie bazy (audyt 25.09.2026, runda 3). Przed jakimkolwiek zapisem.
-    from app.services.board_stage_badges import is_entry_column
-
-    if not is_entry_column(None, target_stage.value):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Z LinkedIna dodaje się kandydata do kolumny „Nowi” albo "
-                "„Screening”. Dalsze etapy przesuwa się na Tablicy rekrutacji, "
-                "bo mają własne wymagania (QC CV, stawka, debrief)."
-            ),
-        )
-
-    # ── Dedup fast-path ────────────────────────────────────────────────────
-    duplicates = await find_candidate_duplicates(db, linkedin=normalized)
-    if duplicates:
-        match = duplicates[0]
-        existing_id: int = match["candidate_id"]
-        existing = await db.scalar(select(Candidate).where(Candidate.id == existing_id))
-        assert existing is not None  # find_candidate_duplicates just returned it
-
-        assigned_job: Optional[int] = None
-        assignment_skipped: Optional[str] = None
-        if data.job_id is not None:
-            already = await db.scalar(
-                select(CandidateStage).where(
-                    CandidateStage.candidate_id == existing_id,
-                    CandidateStage.job_id == data.job_id,
-                )
-            )
-            if already is None:
-                # Dedup landed on someone we already have — so they may already
-                # carry a rejection from this job's hiring manager. Skip the
-                # assignment rather than 409 the whole request: the candidate
-                # data is still worth saving, and the extension has no sensible
-                # way to recover from a hard failure here.
-                job_row = await db.scalar(select(Job).where(Job.id == data.job_id))
-                verdict = None
-                if job_row is not None:
-                    verdicts = await load_manager_rejections(
-                        db, job=job_row, candidate_ids=[existing_id]
-                    )
-                    verdict = verdicts.get(existing_id)
-                if verdict is not None:
-                    assignment_skipped = verdict.as_polish_detail()
-                else:
-                    try:
-                        await _assign_candidate_to_job(
-                            db=db,
-                            candidate_id=existing_id,
-                            job_id=data.job_id,
-                            stage=target_stage,
-                            user_id=current_user.id,
-                        )
-                    except HTTPException as exc:
-                        # 409 z bramki dopuszczalności (globalna czarna lista)
-                        # degradujemy tak samo jak weto managera:
-                        # dane kandydata zapisujemy, przypisania nie robimy,
-                        # a wtyczka pokazuje polski powód. Twarde 409 wywaliłoby
-                        # cały zapis, a wtyczka nie ma jak się z tego podnieść.
-                        if exc.status_code != status.HTTP_409_CONFLICT:
-                            raise
-                        assignment_skipped = str(exc.detail)
-                    except client_off_limits.OffLimitsConfirmationRequired as exc:
-                        # Off-limits (21.10.2026): wtyczka nie ma okna
-                        # potwierdzenia — osoba zostaje w bazie, a dodanie
-                        # do rekrutacji (z pytaniem) robi się w NEXUSIE.
-                        assignment_skipped = client_off_limits.extension_skip_reason(
-                            exc
-                        )
-            if assignment_skipped is None:
-                assigned_job = data.job_id
-
-        resync = _is_sync_stale(existing.linkedin_synced_at)
-        if resync:
-            background_tasks.add_task(_enrich_linkedin_background, existing_id)
-
-        await db.commit()
-
-        response.status_code = status.HTTP_200_OK
-        return CandidateFromLinkedInResponse(
-            action="existing",
-            candidate_id=existing_id,
-            name=f"{existing.name} {existing.lastname}".strip(),
-            linkedin_url=existing.linkedin or normalized,
-            linkedin_sync_status=existing.linkedin_sync_status
-            or LinkedinSyncStatus.disabled,
-            assigned_to_job_id=assigned_job,
-            assignment_skipped_reason=assignment_skipped,
-            profile_url_path=f"/candidates/{existing_id}",
-            resync_scheduled=resync,
-        )
-
-    # ── Create stub ────────────────────────────────────────────────────────
-    name, lastname = _derive_names_from_preview(data.preview, normalized)
-    preview_location: Optional[str] = (
-        data.preview.location if data.preview is not None else None
-    )
-    canonical_location = normalize_candidate_location(raw_location=preview_location)
-
-    candidate = Candidate(
-        name=name,
-        lastname=lastname,
-        linkedin=normalized,
-        city=canonical_location.city,
-        country=canonical_location.country,
-        location=canonical_location.projection,
-        source="linkedin_extension",
-        created_by=current_user.id,
-        tags=data.tags or None,
-        ai_summary=data.notes,
-    )
-    db.add(candidate)
-    await db.flush()
-
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate.id,
-            action="created",
-            user_id=current_user.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-                "linkedin_url": normalized,
-            },
-        )
-    )
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.candidate_added,
-            entity_type="candidate",
-            entity_id=candidate.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-            },
-        )
-    )
-
-    assigned_job_id: Optional[int] = None
-    assignment_skipped_reason: Optional[str] = None
-    if data.job_id is not None:
-        try:
-            await _assign_candidate_to_job(
-                db=db,
-                candidate_id=candidate.id,
-                job_id=data.job_id,
-                stage=target_stage,
-                user_id=current_user.id,
-            )
-            assigned_job_id = data.job_id
-        except client_off_limits.OffLimitsConfirmationRequired as exc:
-            # Jak w ścieżce istniejącej osoby: zapis zostaje, bez przypisania.
-            assignment_skipped_reason = client_off_limits.extension_skip_reason(exc)
-
-    await db.commit()
-    await db.refresh(candidate)
-
-    # Same gap as the manual create above: a candidate imported from LinkedIn
-    # was never indexed, so the extension could add someone the recruiter then
-    # could not find through matching.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate.id, db)
-    except Exception as exc:  # noqa: BLE001 — indexing is best-effort
-        logger.warning("Indexing LinkedIn candidate %s failed: %s", candidate.id, exc)
-
-    # Background enrichment — runs AFTER the response is returned to the client.
-    background_tasks.add_task(_enrich_linkedin_background, candidate.id)
-
-    return CandidateFromLinkedInResponse(
-        action="created",
-        candidate_id=candidate.id,
-        name=f"{candidate.name} {candidate.lastname}".strip(),
-        linkedin_url=normalized,
-        linkedin_sync_status=candidate.linkedin_sync_status
-        or LinkedinSyncStatus.disabled,
-        assigned_to_job_id=assigned_job_id,
-        profile_url_path=f"/candidates/{candidate.id}",
-        resync_scheduled=False,
-        assignment_skipped_reason=assignment_skipped_reason,
-    )
 
 
 async def _resolve_invite_source(
