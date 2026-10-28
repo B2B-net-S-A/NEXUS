@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import timedelta
 from urllib.parse import urlparse
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import select
 
@@ -17,6 +18,9 @@ from app.core.database import AsyncSessionLocal
 from app.core.scheduling import business_today
 from app.models.equipment import EquipmentTask
 from app.models.hr_ops import HrAuditEvent
+from app.models.user import User
+from app.services.equipment import protocol_changes, protocols
+from app.services.equipment.errors import EquipmentConflict
 from tests.test_equipment_api import (
     _contract,
     _drop_contract,
@@ -377,3 +381,74 @@ def _digits() -> str:
     import uuid
 
     return str(100_000 + uuid.uuid4().int % 899_999)
+
+
+async def test_confirm_after_concurrent_cancel_sees_the_cancelled_row(
+    app_client, modules_on, people
+) -> None:
+    """Przegląd 28.10: „Potwierdź” na starym odczycie nadpisywał anulowanie.
+
+    Sesja A czyta protokół, sesja B go anuluje, A potwierdza — A musi
+    zobaczyć stan z bazy (zamek), a nie swoją kopię sprzed anulowania.
+    """
+    protocol = await _issued_protocol(app_client, people)
+    async with AsyncSessionLocal() as first:
+        stale = await protocols.get_protocol(first, protocol["id"])
+        assert stale.status == "oczekuje"
+        async with AsyncSessionLocal() as second:
+            reception = await second.get(User, people["reception"].id)
+            await protocol_changes.cancel(
+                second, protocol["id"], reason="Pomyłka", actor=reception
+            )
+            await second.commit()
+        reception = await first.get(User, people["reception"].id)
+        with pytest.raises(EquipmentConflict):
+            await protocols.confirm(
+                first, stale, method="papier", signer_name=None, actor=reception
+            )
+        await first.rollback()
+    async with AsyncSessionLocal() as db:
+        row = await protocols.get_protocol(db, protocol["id"])
+        assert row.status == "anulowany"
+
+
+async def test_condition_fix_does_not_override_a_manual_item_status(
+    app_client, modules_on, people
+) -> None:
+    """Przegląd 28.10: poprawka stanu przy zwrocie przywracała wycofany egzemplarz."""
+    headers = _headers(people["reception"])
+    model = await _model(app_client, headers, "telefon", "900.00")
+    phone = await _item(app_client, headers, model["id"])
+    await _issue(
+        app_client,
+        headers,
+        {"holder_kind": "user", "holder_id": people["worker"].id},
+        [{"item_id": phone["id"]}],
+    )
+    mine = await app_client.get("/api/equipment/me", headers=_headers(people["worker"]))
+    returned = await app_client.post(
+        "/api/equipment/return",
+        json={
+            "lines": [
+                {
+                    "assignment_id": mine.json()["active"][0]["assignment_id"],
+                    "condition": "uszkodzony",
+                }
+            ]
+        },
+        headers=headers,
+    )
+    back = returned.json()["protocol"]
+    retired = await app_client.patch(
+        f"/api/equipment/items/{phone['id']}",
+        json={"status": "wycofany"},
+        headers=headers,
+    )
+    assert retired.status_code == 200, retired.text
+    refused = await app_client.patch(
+        f"/api/equipment/protocols/{back['id']}",
+        json={"lines": [{"position": 1, "condition": "sprawny"}]},
+        headers=headers,
+    )
+    assert refused.status_code == 409
+    assert await _item_status(app_client, headers, phone["id"]) == "wycofany"

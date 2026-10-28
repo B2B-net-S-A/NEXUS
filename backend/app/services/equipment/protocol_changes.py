@@ -46,7 +46,6 @@ from app.services.equipment import (
 from app.services.equipment.errors import (
     EquipmentConflict,
     EquipmentError,
-    EquipmentNotFound,
 )
 from app.services.hr import audit
 
@@ -58,14 +57,8 @@ LINE_FIELDS = ("unit_value", "accessories", "condition", "notes")
 
 
 async def _locked_protocol(db: AsyncSession, protocol_id: int) -> EquipmentProtocol:
-    protocol = await db.scalar(
-        select(EquipmentProtocol)
-        .where(EquipmentProtocol.id == protocol_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if protocol is None:
-        raise EquipmentNotFound("Nie ma takiego protokołu.")
+    protocol = await protocols.get_protocol(db, protocol_id)
+    await protocols.lock(db, protocol)
     return protocol
 
 
@@ -273,13 +266,21 @@ async def correct(
                 if condition not in schema.RETURN_CONDITIONS:
                     raise EquipmentError("Wybierz stan przy zwrocie.")
                 if condition != line.condition:
+                    label = issuing.item_label(*pair) if pair else f"#{line.item_id}"
                     if line.item_id in busy:
-                        label = (
-                            issuing.item_label(*pair) if pair else f"#{line.item_id}"
-                        )
                         raise EquipmentConflict(
                             f"Pozycja {label} jest już wydana ponownie — stanu "
                             "przy zwrocie nie da się poprawić."
+                        )
+                    after_return = issuing._STATUS_AFTER_RETURN.get(  # noqa: SLF001
+                        line.condition or ""
+                    )
+                    if pair and pair[0].status != after_return:
+                        # Egzemplarz zmieniono w rejestrze po zwrocie (serwis →
+                        # na stanie, wycofanie) — poprawka zwrotu by to nadpisała.
+                        raise EquipmentConflict(
+                            f"Pozycja {label} zmieniła stan w rejestrze po zwrocie — "
+                            "stanu przy zwrocie nie da się poprawić."
                         )
                     diff["condition"] = [line.condition, condition]
                     line.condition = condition

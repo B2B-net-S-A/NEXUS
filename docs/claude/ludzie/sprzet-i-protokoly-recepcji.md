@@ -63,7 +63,8 @@ osobie z kartoteki i uczestniku Akademii.
   samym roku — numer jest z roku), imię i nazwisko w protokole (nazwa konta
   nie), per pozycja wartość (wydanie, bez SIM i karty dostępu — D6), dodatki
   w nazwie (wydanie, kontrola D10 jak notatki) oraz stan i uwagi (zwrot; stan
-  przestawia egzemplarz jak przy zwrocie, a ponownie wydanego nie rusza).
+  przestawia egzemplarz jak przy zwrocie; egzemplarz ponownie wydany albo
+  zmieniony ręcznie w rejestrze po zwrocie = 409).
   Pozycji nie dodaje się ani nie usuwa. Numer zostaje, `total_value` się
   przelicza, aktywny link przestaje działać (osoba nie podpisze starej treści),
   różnice idą do audytu (`protocol_corrected`). `POST /protocols/{id}/cancel`
@@ -73,7 +74,11 @@ osobie z kartoteki i uczestniku Akademii.
   zwrot przywraca wydania (egzemplarz ponownie wydany albo wycofany = 409).
   Link unieważniony, zadanie „podpis” → `anulowane`, kto/kiedy/dlaczego
   w `cancelled_at`, `cancelled_by`, `cancel_reason` (0609). Stan `anulowany` nie
-  liczy się do „Czeka na podpis” ani „Bez podpisu”. Ekran: „Popraw” w oknie
+  liczy się do „Czeka na podpis” ani „Bez podpisu”. Każda zmiana stanu protokołu
+  (poprawka, anulowanie, link, skan, potwierdzenie) bierze zamek
+  `protocols.lock`: najpierw linki, potem protokół — ta sama kolejność co podpis
+  linkiem, więc bez zakleszczeń i bez nadpisania anulowania starą kopią
+  (przegląd 28.10.2026). Ekran: „Popraw” w oknie
   protokołu (z „Anuluj protokół…” w stopce), te same akcje w ⋯ wiersza listy.
 
 ## Zadania recepcji („Do zrobienia”)
