@@ -20,6 +20,7 @@ import {
   fieldKeysForLabels,
   groupedFields,
   intentOpensWizard,
+  intentValueKeys,
   invalidListFields,
   invalidMoneyFields,
   isFieldVisible,
@@ -232,13 +233,18 @@ describe("adres kreatora", () => {
 
   it("?new=<typ>&parent=<id>", () => {
     const intent = parseDocumentsIntent(params("tab=documents&new=annex_rate_change&parent=42"));
-    expect(intent).toEqual({ newType: "annex_rate_change", parentId: 42, contractId: null });
+    expect(intent).toEqual({
+      newType: "annex_rate_change",
+      parentId: 42,
+      contractId: null,
+      values: {},
+    });
     expect(intentOpensWizard(intent)).toBe(true);
   });
 
   it("śmieci w adresie nie otwierają kreatora z dziwnym typem", () => {
     const intent = parseDocumentsIntent(params("new=<script>&parent=-3&contract=abc"));
-    expect(intent).toEqual({ newType: null, parentId: null, contractId: null });
+    expect(intent).toEqual({ newType: null, parentId: null, contractId: null, values: {} });
     expect(intentOpensWizard(intent)).toBe(false);
   });
 
@@ -252,6 +258,38 @@ describe("adres kreatora", () => {
     expect(documentsHref({ newType: "termination_agreement", contractId: 7 })).toBe(
       "/contracts/b2b-generator?tab=documents&new=termination_agreement&contract=7",
     );
+  });
+
+  it("wartości startowe z okna „Zakończ współpracę” przechodzą przez adres", () => {
+    const href = documentsHref({
+      newType: "termination_agreement",
+      contractId: 7,
+      values: {
+        termination_date: "2026-10-31",
+        release_non_compete: true,
+        non_compete_client_name: "Nordea Bank Abp",
+        last_service_date: "",
+      },
+    });
+    const intent = parseDocumentsIntent(params(href.split("?")[1]));
+    // Puste pole nie trafia do adresu — kreator zostawia podpowiedź serwera.
+    expect(intent.values).toEqual({
+      termination_date: "2026-10-31",
+      release_non_compete: true,
+      non_compete_client_name: "Nordea Bank Abp",
+    });
+    expect(parseDocumentsIntent(params("v_release_non_compete=0")).values).toEqual({
+      release_non_compete: false,
+    });
+  });
+
+  it("dziwne klucze wartości z adresu są pomijane, a wartość przycięta", () => {
+    const intent = parseDocumentsIntent(
+      params(`v_Bad-Key=1&v_=x&v_note=${"a".repeat(300)}`),
+    );
+    expect(Object.keys(intent.values)).toEqual(["note"]);
+    expect((intent.values.note as string).length).toBe(255);
+    expect(intentValueKeys(params("tab=documents&v_a=1&v_b=2"))).toEqual(["v_a", "v_b"]);
   });
 });
 
