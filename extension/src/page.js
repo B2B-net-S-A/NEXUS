@@ -16,6 +16,7 @@ import { PAGE_KINDS, detectPage } from "./readers/kinds.js";
 /* Ta funkcja jest serializowana i uruchamiana w karcie — nie może używać
    niczego spoza swojego ciała i argumentu `cfg` (dane JSON). */
 export async function capturePage(cfg) {
+  const captureUrl = location.href;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const linesOf = (el) =>
     String((el && (el.innerText ?? el.textContent)) || "")
@@ -31,13 +32,59 @@ export async function capturePage(cfg) {
     }
   };
   const topLevel = (els) => els.filter((el) => !els.some((o) => o !== el && o.contains(el)));
+  const isHidden = (el) => {
+    for (let p = el; p; p = p.parentElement) {
+      if (p.hasAttribute("hidden") || p.getAttribute("aria-hidden") === "true") return true;
+      if (/(?:^|;)\s*display\s*:\s*none\s*(?:;|$)/i.test(p.getAttribute("style") || "")) return true;
+    }
+    return false;
+  };
+
+  let main = null;
+  let profileScopeInvalid = false;
+  if (cfg.recruiterProfile) {
+    for (const sel of cfg.recruiterRoots) {
+      const all = [...document.querySelectorAll(sel)];
+      if (!all.length) continue;
+      const active = all.filter((el) => !isHidden(el));
+      if (active.length === 1) main = active[0];
+      else profileScopeInvalid = true;
+      break;
+    }
+  }
+  if (!main && !profileScopeInvalid) {
+    for (const sel of cfg.main) main = main || document.querySelector(sel);
+    main = main || document.body;
+    if (cfg.recruiterProfile && main.querySelector("[data-test-paginated-list-item], article.profile-list-item") && !cfg.recruiterTopCards.some((sel) => main.querySelector(sel))) profileScopeInvalid = true;
+  }
+  if (profileScopeInvalid) main = document.createElement("div");
+
+  // Public-profile links can be rendered in a tooltip portal. Only portals
+  // explicitly bound to the selected profile belong to this capture.
+  let scopes = [main];
+  if (cfg.recruiterProfile) {
+    for (const trigger of main.querySelectorAll("[aria-controls], [aria-describedby]")) {
+      const ids = `${trigger.getAttribute("aria-controls") || ""} ${trigger.getAttribute("aria-describedby") || ""}`.split(/\s+/).filter(Boolean);
+      for (const id of ids) {
+        const portal = document.getElementById(id);
+        if (portal && portal.querySelector("a[href*='/in/']") && !isHidden(portal) && !scopes.includes(portal) && !main.contains(portal)) scopes.push(portal);
+      }
+    }
+  }
 
   // Sekcje doładowują się dopiero po przewinięciu. Przewijamy kontener strony
   // (u LinkedIna to nie window) krokami, potem wracamy tam, gdzie był użytkownik.
-  if (cfg.scroll) {
-    let scroller = document.scrollingElement || document.documentElement;
+  if (cfg.scroll && !profileScopeInvalid) {
+    let scroller = cfg.recruiterProfile ? main : document.scrollingElement || document.documentElement;
     let best = scroller.scrollHeight - scroller.clientHeight;
-    for (const el of document.querySelectorAll("body *")) {
+    const candidates = cfg.recruiterProfile ? [main, ...main.querySelectorAll("*")] : [...document.querySelectorAll("body *")];
+    if (cfg.recruiterProfile) {
+      for (let p = main.parentElement; p && p !== document.body; p = p.parentElement) {
+        candidates.push(p);
+        if (p.matches(".profile-slidein__container")) break;
+      }
+    }
+    for (const el of candidates) {
       const extra = el.scrollHeight - el.clientHeight;
       if (extra <= best || extra < 200) continue;
       const oy = getComputedStyle(el).overflowY;
@@ -59,9 +106,13 @@ export async function capturePage(cfg) {
     scroller.scrollTop = start;
   }
 
-  let main = null;
-  for (const sel of cfg.main) main = main || document.querySelector(sel);
-  main = main || document.body;
+  // A recruiter may change the selected person while lazy sections load.
+  // Never pair the previous DOM identity with the next profile's address.
+  if (cfg.recruiterProfile && (location.href !== captureUrl || !document.documentElement.contains(main))) {
+    profileScopeInvalid = true;
+    main = document.createElement("div");
+    scopes = [main];
+  }
 
   // Profil: imię to pierwszy h2 w main (zmierzone — h1 nie ma); Recruiter: h1 albo h2.
   let heading = null;
@@ -69,7 +120,8 @@ export async function capturePage(cfg) {
     heading = heading || [...main.querySelectorAll(sel)].find((h) => !isForeign(h) && textOf(h)) || null;
   }
   const firstSection = main.querySelector("section");
-  const topEl = (heading && heading.closest("section")) || firstSection || (heading && heading.parentElement);
+  const recruiterTop = cfg.recruiterProfile && cfg.recruiterTopCards.map((sel) => main.querySelector(sel)).find(Boolean);
+  const topEl = recruiterTop || (heading && heading.closest("section")) || firstSection || (heading && heading.parentElement);
 
   // Pozycje sekcji: separatory <hr> (zmierzone w doświadczeniu), potem role/listy.
   const itemsOf = (sec) => {
@@ -136,27 +188,34 @@ export async function capturePage(cfg) {
     }
   }
 
-  const links = [...main.querySelectorAll("a[href*='/in/']")].slice(0, cfg.maxLinks).map((a) => ({
+  const links = [...new Set(scopes.flatMap((scope) => [...scope.querySelectorAll("a[href*='/in/']")]))].slice(0, cfg.maxLinks).map((a) => ({
     href: a.href,
     text: textOf(a),
-    label: [a.getAttribute("aria-label"), a.getAttribute("title")].filter(Boolean).join(" "),
+    label: [a.getAttribute("aria-label"), a.getAttribute("title"), a.matches(cfg.publicLinkSelectors) ? "Public profile" : ""].filter(Boolean).join(" "),
     foreign: isForeign(a),
     inTop: Boolean(topEl && topEl.contains(a)),
   }));
 
-  const clone = document.documentElement.cloneNode(true);
+  let clone;
+  if (cfg.recruiterProfile) {
+    clone = document.documentElement.cloneNode(false);
+    const body = document.createElement("body");
+    for (const scope of scopes) body.appendChild(scope.cloneNode(true));
+    clone.appendChild(body);
+  } else clone = document.documentElement.cloneNode(true);
   clone
     .querySelectorAll("script, style, code, svg, img, picture, video, iframe, noscript, link, meta, template, canvas")
     .forEach((n) => n.remove());
 
   return {
     url: location.href,
-    heading: heading ? { text: textOf(heading), level: Number(heading.tagName.slice(1)) } : null,
+    heading: heading ? { text: textOf(heading), level: /^H[1-6]$/.test(heading.tagName) ? Number(heading.tagName.slice(1)) : null } : null,
     top: { lines: linesOf(topEl) },
     sections,
     listItems,
     links,
     html: `<!doctype html>${clone.outerHTML}`,
+    profileScopeInvalid,
   };
 }
 
@@ -165,8 +224,9 @@ export function captureConfig(url) {
   return {
     ...CAPTURE,
     foreign: FOREIGN_REGIONS,
+    recruiterProfile: kind === PAGE_KINDS.RECRUITER_PROFILE,
     scroll: kind === PAGE_KINDS.PROFILE || kind === PAGE_KINDS.RECRUITER_PROFILE,
-    headingSelectors: kind === PAGE_KINDS.PROFILE ? ["h2", "h1"] : ["h1, h2"],
+    headingSelectors: kind === PAGE_KINDS.PROFILE ? ["h2", "h1"] : kind === PAGE_KINDS.RECRUITER_PROFILE ? [...CAPTURE.recruiterNames, "h1, h2"] : ["h1, h2"],
   };
 }
 
