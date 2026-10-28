@@ -84,8 +84,12 @@ import {
   decodeNavContext,
   decodeJobBackRef,
   decodeTalentRadarBackRef,
+  decodeJobSearchBackRef,
   encodeNavContext,
+  listBackHref,
+  withJobSearchBackRef,
 } from "@/lib/url-filters";
+import { readJobSearchReturn, writeJobSearchReturn, writeListSearch } from "@/lib/search-memory";
 import { useTabsStore } from "@/store/tabs";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
@@ -222,6 +226,23 @@ export function CandidateDetailV2({
       embedded ? false : decodeTalentRadarBackRef(new URLSearchParams(searchString)),
     [embedded, searchString],
   );
+  // `?from=job-search&jobId=N` — profil z „Szukaj ręcznie” w oknie rekrutacji.
+  const backJobSearchId = React.useMemo(
+    () => (embedded ? null : decodeJobSearchBackRef(new URLSearchParams(searchString))),
+    [embedded, searchString],
+  );
+  const backJobSearchQuery = useQuery({
+    queryKey: ["job", String(backJobSearchId)],
+    queryFn: () => api.get(`/api/jobs/${backJobSearchId}`).then((r) => r.data),
+    enabled: backJobSearchId != null,
+    staleTime: 5 * 60_000,
+  });
+  // „Wybieram” na profilu z „Szukaj ręcznie” — osoba wraca zaznaczona w oknie.
+  // Czytane po montowaniu: pamięć karty nie istnieje przy renderze serwera.
+  const [pickedIds, setPickedIds] = useState<number[]>([]);
+  useEffect(() => {
+    setPickedIds(backJobSearchId != null ? readJobSearchReturn(backJobSearchId).picked : []);
+  }, [backJobSearchId]);
   const openTabsList = useTabsStore((s) => s.tabs);
   const backJobTitle =
     backJobId != null
@@ -336,14 +357,23 @@ export function CandidateDetailV2({
       if (urlNav) {
         setUrlPosition(next.position);
         let sp = encodeNavContext(urlNav.filters, next.position);
+        if (backJobSearchId != null) {
+          sp = withJobSearchBackRef(sp, backJobSearchId);
+          writeJobSearchReturn(backJobSearchId, { lastOpenedId: next.candidateId });
+        } else {
+          // Lista „Kandydaci” po powrocie wyróżnia ostatnio oglądaną osobę.
+          writeListSearch({ lastOpenedId: next.candidateId });
+        }
         sp = withCandidateProfileView(sp, profileView);
         const messageId = searchParams?.get("msg");
         if (messageId) sp.set("msg", messageId);
-        router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
+        // `replace`: „Wstecz” przeglądarki wraca do wyszukiwania jednym
+        // kliknięciem, nie po kolei przez każdy przejrzany profil.
+        router.replace(`/candidates/${next.candidateId}?${sp.toString()}`);
         router.refresh();
       }
     },
-    [navContext, profileView, searchParams, urlNav, router],
+    [backJobSearchId, navContext, profileView, searchParams, urlNav, router],
   );
 
   const candidateNav = useCandidateNavigation(
@@ -614,6 +644,31 @@ export function CandidateDetailV2({
       }
     : null;
 
+  // Powrót do wyszukiwania: okno „Szukaj ręcznie” rekrutacji albo lista z filtrami.
+  const backJobSearchTitle: string | null = backJobSearchQuery.data?.title ?? null;
+  const backSearch =
+    backJobSearchId != null
+      ? {
+          href: `/jobs/${backJobSearchId}?win=add&wintab=manual`,
+          context: backJobSearchTitle,
+        }
+      : urlNav && backJobId == null && !backToTalentRadar
+        ? { href: listBackHref(urlNav.filters), context: null }
+        : null;
+  const pick =
+    backJobSearchId != null
+      ? {
+          picked: pickedIds.includes(candidateNumericId),
+          count: pickedIds.length,
+          onToggle: () => {
+            const next = pickedIds.includes(candidateNumericId)
+              ? pickedIds.filter((x) => x !== candidateNumericId)
+              : [...pickedIds, candidateNumericId];
+            setPickedIds(writeJobSearchReturn(backJobSearchId, { picked: next }).picked);
+          },
+        }
+      : null;
+
   return (
     // Laptop z Windows (1280–1536 px): mniejsze odstępy nad zakładkami, żeby
     // zaczynały się w górnych 80% okna — pilnuje `e2e/responsive-preview.spec.ts`.
@@ -628,6 +683,8 @@ export function CandidateDetailV2({
         backJobId={backJobId}
         backJobTitle={backJobTitle}
         backToTalentRadar={backToTalentRadar}
+        backSearch={backSearch}
+        pick={pick}
         candidateId={candidateNumericId}
       />
 

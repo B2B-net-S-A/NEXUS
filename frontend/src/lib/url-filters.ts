@@ -689,6 +689,30 @@ export function decodeJobBackRef(sp: URLSearchParams): number | null {
 }
 
 /**
+ * Profil otwarty z „Szukaj ręcznie” w oknie rekrutacji (`?from=job-search&jobId=N`):
+ * powrót prowadzi do tego okna, nie do ogólnej listy kandydatów (zgłoszenie
+ * Marka G., 28.10.2026). Filtry wyszukiwania okno odtwarza samo ze swojej pamięci.
+ */
+export function withJobSearchBackRef(sp: URLSearchParams, jobId: number): URLSearchParams {
+  const p = new URLSearchParams(sp);
+  p.set("from", "job-search");
+  p.set("jobId", String(jobId));
+  return p;
+}
+
+export function decodeJobSearchBackRef(sp: URLSearchParams): number | null {
+  if (sp.get("from") !== "job-search") return null;
+  const jid = Number.parseInt(sp.get("jobId") ?? "", 10);
+  return Number.isFinite(jid) && jid > 0 ? jid : null;
+}
+
+/** Link powrotny z profilu do listy, z której przyszedł (filtry + strona). */
+export function listBackHref(filters: CandidateFilters): string {
+  const qs = encodeFilters(filters).toString();
+  return qs ? `/candidates?${qs}` : "/candidates";
+}
+
+/**
  * Encode a "came from Talent Radar" back-reference (`?from=talent-radar`) so a
  * candidate profile opened from radar results offers "back to Talent Radar"
  * instead of the default "back to candidates".
