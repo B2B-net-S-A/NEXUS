@@ -14,6 +14,9 @@ Kontrakty:
   „Propozycje" z dowodami bez tekstu z CV (bez limitu, 07.10.2026); nowszy,
   kompletny przegląd wygasza (`expired`) propozycje, których już nie ma;
   awaria publikacji nie psuje przeglądu i jest domykana później;
+- najlepsze 40 (28.10.2026): mniej osób od progu = dopełnienie najlepszymi
+  spod progu do `AUTO_FULL_REVIEW_MIN_COUNT`; dzwonek i liczniki liczą tylko
+  osoby od progu, a dopełnieni nie wygasają, dopóki są w najlepszych N;
 - wyłącznik OFF = pętla nie robi nic.
 
 Baza testowa jest wspólna i nieczyszczona: asercje dotyczą własnych wierszy,
@@ -43,6 +46,13 @@ from app.models.user import User, UserRole
 from app.services import auto_full_review as afr
 from app.services import candidate_search_store as store
 from app.tasks import candidate_search_retention as retention
+
+
+@pytest.fixture(autouse=True)
+def _threshold_only(monkeypatch):
+    """Testy progu sprzed 28.10.2026 bez dopełniania spod progu — najlepsze N
+    mają własne testy niżej (ustawiają `AUTO_FULL_REVIEW_MIN_COUNT` same)."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 0)
 
 
 @pytest.fixture(autouse=True)
@@ -1034,6 +1044,130 @@ async def test_newer_complete_review_expires_people_it_no_longer_proposes(monkey
     await _publish(third)
     statuses = await _statuses(world["job_id"])
     assert statuses[leaves] == "proposed" and statuses[stays] == "proposed"
+
+
+async def test_best_n_tops_up_below_the_threshold_and_counts_only_from_it(
+    monkeypatch,
+):
+    """Najlepsze N (28.10.2026): mniej osób od progu → dopełnienie najlepszymi
+    spod progu; reguła „musi mieć” i pominięcia dalej obowiązują, a liczniki,
+    kafel i dzwonek liczą wyłącznie osoby od progu."""
+    from app.services import job_proposals as proposals
+
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 3)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=6)
+    top, near, lower, lowest, gap, dismissed = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, world["job_id"], [{"candidate_id": dismissed, "score": 50}], "full_base"
+        )
+        await proposals.dismiss(
+            db, job_id=world["job_id"], candidate_id=dismissed, user_id=owner_id
+        )
+        await db.commit()
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {top: 90, dismissed: 69, near: 66, lower: 61, lowest: 55},
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(_result(run_id, gap, 68, met=False))
+        await db.commit()
+    await _publish(run_id)
+
+    # Od progu: 1 osoba; dopełnienie do 3 bez pominiętej i bez braku „musi mieć”.
+    assert await _statuses(world["job_id"]) == {
+        top: "proposed",
+        near: "proposed",
+        lower: "proposed",
+        dismissed: "dismissed",
+    }
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert run.metrics[afr.PROPOSALS_METRIC] == 3
+        rows, total = await proposals.list_for_job(db, job_id=world["job_id"])
+        counts = await proposals.open_counts_for_jobs(db, [world["job_id"]])
+        split = await proposals.open_split_counts(
+            db,
+            job_id=world["job_id"],
+            since=datetime.now(timezone.utc) - timedelta(days=7),
+        )
+        fresh = await proposals.fresh_open_pairs(
+            db,
+            since=datetime.now(timezone.utc) - timedelta(hours=1),
+            sources=("full_base", "new_cv"),
+            job_ids_subquery=[world["job_id"]],
+        )
+        top_open = await proposals.top_open_by_job(db, [world["job_id"]])
+    assert total == 3
+    assert [(r.candidate_id, r.below_threshold) for r in rows] == [
+        (top, False),
+        (near, True),
+        (lower, True),
+    ]
+    assert counts == {world["job_id"]: 1}
+    assert split == {"postings_recent": 0, "base": 1, "below_threshold": 2}
+    assert fresh == [(world["job_id"], top)]
+    assert [p.candidate_id for p in top_open] == [top]
+
+
+async def test_best_n_never_cuts_people_from_the_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=4)
+    first, second, third, below = world["candidate_ids"]
+    run_id = await _run_with(
+        world, owner_id, {first: 90, second: 85, third: 80, below: 69}
+    )
+    await _publish(run_id)
+    assert await _statuses(world["job_id"]) == {
+        first: "proposed",
+        second: "proposed",
+        third: "proposed",
+    }
+
+
+async def test_person_below_the_threshold_stays_while_in_the_best_n(monkeypatch):
+    """`expire_full_base` gasi osobę spod progu dopiero wtedy, gdy wypadła
+    z najlepszych N — nie za to, że jest poniżej progu."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=4)
+    top, near, newcomer, other = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    first = await _run_with(
+        world,
+        owner_id,
+        {top: 90, near: 65, other: 50},
+        created_at=now - timedelta(days=2),
+    )
+    await _publish(first)
+    assert await _statuses(world["job_id"]) == {top: "proposed", near: "proposed"}
+
+    second = await _run_with(
+        world,
+        owner_id,
+        {top: 91, near: 64, other: 50},
+        created_at=now - timedelta(days=1),
+    )
+    await _publish(second)
+    assert await _statuses(world["job_id"]) == {top: "proposed", near: "proposed"}
+
+    # Nowa osoba od progu wypycha dopełnienie z najlepszych 2.
+    third = await _run_with(
+        world, owner_id, {top: 91, newcomer: 75, near: 64, other: 50}, created_at=now
+    )
+    await _publish(third)
+    assert await _statuses(world["job_id"]) == {
+        top: "proposed",
+        newcomer: "proposed",
+        near: "expired",
+    }
 
 
 async def test_incomplete_review_does_not_expire(monkeypatch):
