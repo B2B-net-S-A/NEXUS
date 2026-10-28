@@ -1061,7 +1061,9 @@ export function ScreeningFullFormView({
           </div>
           {termsKeys.length > 0 ? (
             <div className="@container">
-              <div className="grid gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
+              {/* grid-cols-1 (minmax(0,1fr)), nie niejawna kolumna `auto`: ta rosła
+                  do pełnej długości podpowiedzi „Z notatek” i przesuwała panel w bok. */}
+              <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
             </div>
           ) : null}
         </section>
