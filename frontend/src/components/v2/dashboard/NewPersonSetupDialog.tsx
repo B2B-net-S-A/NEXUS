@@ -116,11 +116,11 @@ export function NewPersonSetupDialog({ person, presetKeep = false, isAdmin, onCl
     setSaving(true);
     try {
       await applyPeopleSetup(person.user_id, payload);
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: COMPETENCE_TEAM_QUERY_KEY }),
-        queryClient.invalidateQueries({ queryKey: ["admin-users"] }),
-      ]);
+      // Bez czekania: „Czeka na Ciebie” liczy się kilka sekund, a okno
+      // wisiałoby z wyszarzonym „Zapisz” (staging 28.10.2026).
+      void queryClient.invalidateQueries({ queryKey: BOARD_TASKS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: COMPETENCE_TEAM_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["admin-users"] });
       showSuccess(
         decision === "employee"
           ? `${person.name} zostaje Konsultantem/Kontraktorem.`
