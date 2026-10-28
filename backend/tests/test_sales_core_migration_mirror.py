@@ -76,7 +76,7 @@ def test_migration_reads_the_shared_module() -> None:
         encoding="utf-8"
     )
     assert "for stmt in schema.GAPS_DDL:" in gaps
-    history = (ROOT / "alembic/versions/0615_sales_opportunity_events.py").read_text(
+    history = (ROOT / "alembic/versions/0616_sales_opportunity_events.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.HISTORY_DDL:" in history

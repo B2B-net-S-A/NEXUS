@@ -49,7 +49,7 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   ustawia się raz** (cofnięcie jej nie czyści), wartość = MRR + jednorazowa
   (jak w Atlasie — nie mnożymy przez miesiące bez decyzji).
 - Ruch po etapach wyłącznie przez `POST /api/sales/opportunities/{id}/move`.
-- **Historia zmian** (jak w Atlasie): `sales_opportunity_events` (0615), jeden
+- **Historia zmian** (jak w Atlasie): `sales_opportunity_events` (0616), jeden
   wiersz na zmienione pole — kto, kiedy, stara i nowa wartość jako tekst (id
   etapu/opiekuna/firmy; nazwy dokłada odczyt `GET …/{id}/history`). Każda nowa
   ścieżka, która zmienia szansę, woła `services/sales/history.py`
