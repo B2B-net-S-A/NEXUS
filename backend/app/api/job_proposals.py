@@ -443,6 +443,7 @@ async def list_hidden_by_critical(
             {
                 "candidate": _candidate_brief(person.candidate),
                 "critical": person.critical,
+                "row": section.rows.get(person.critical),
                 "word": person.word,
                 "snippet": person.snippet,
                 "source": person.source,
@@ -457,12 +458,24 @@ async def list_hidden_by_critical(
         "items": items,
         "total": len(items),
         "truncated": section.truncated,
+        # `row` = etykieta wiersza Championa (pisownia DL-a), do którego
+        # przycisk dopisuje wariant; `None` = krytyczna bez wiersza.
         "searched": [
-            {"critical": label, "words": list(words)}
+            {
+                "critical": label,
+                "row": section.rows.get(label),
+                "words": list(words),
+            }
             for label, words in section.searched.items()
         ],
         "variants": [
-            {"critical": v.critical, "word": v.word, "people": v.people}
+            {
+                "critical": v.critical,
+                "row": section.rows.get(v.critical),
+                "word": v.word,
+                "people": v.people,
+                "in_row": v.in_row,
+            }
             for v in section.variants
         ],
         "can_add_variant": await job_edit_level(db, user, job) is not None,

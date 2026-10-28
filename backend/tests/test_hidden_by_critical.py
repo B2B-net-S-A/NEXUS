@@ -9,9 +9,10 @@ Kontrakty (``services/hidden_by_critical.py``):
   notatce — osoba bez śladu, ukryta innym powodem, pominięta albo już
   w rekrutacji nie wchodzi;
 - cytat liczy się przy odczycie i ma najwyżej ``SNIPPET_CHARS`` znaków;
+- brakujące krytyczne liczą się na wymaganiach zamrożonych w przeglądzie;
 - „wariant = krytyczna” to zwykły zapis Championa: wolno go temu, komu wolno
-  ``PUT …/champion-profile`` (``can_add_variant``), a po zapisie osoba
-  przechodzi bramkę i wypada z sekcji.
+  ``PUT …/champion-profile`` (``can_add_variant``); osoby zostają w sekcji do
+  następnego przeglądu, a wariant ma ``in_row``.
 """
 
 from __future__ import annotations
@@ -146,8 +147,14 @@ async def _people(cvs: list[str]) -> list[int]:
 
 
 async def _auto_run(world: dict, owner_id: int, excluded: dict[int, str]) -> str:
+    from app.models.job import Job
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import DEFAULT_PROFILE
+
     run_id = str(uuid.uuid4())
     async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        context = build_request_context(job, DEFAULT_PROFILE).as_dict()
         db.add(
             CandidateSearchRun(
                 id=run_id,
@@ -156,7 +163,7 @@ async def _auto_run(world: dict, owner_id: int, excluded: dict[int, str]) -> str
                 job_id=world["job_id"],
                 state="complete",
                 request_fingerprint="h" * 64,
-                request_context={},
+                request_context=context,
                 version_trace={"origin": "auto"},
                 population_size=len(excluded),
                 metrics={},
@@ -242,15 +249,24 @@ async def test_section_lists_only_people_hidden_by_must_with_a_trace(
     assert "Sailpoint IdentityIQ" in by_id[in_cv]["snippet"]
     assert len(by_id[in_cv]["snippet"].strip("…")) <= SNIPPET_CHARS
     assert by_id[in_note]["source"] == "note"
-    assert body["searched"] == [{"critical": _GATE_LABEL, "words": ["sailpoint"]}]
+    assert body["searched"] == [
+        {"critical": _GATE_LABEL, "row": _CRITICAL, "words": ["sailpoint"]}
+    ]
+    assert by_id[in_cv]["row"] == _CRITICAL
     # Dwie pisownie po jednej osobie: remis wygrywa pisownia producenta.
     assert body["variants"] == [
-        {"critical": _GATE_LABEL, "word": "SailPoint", "people": 2}
+        {
+            "critical": _GATE_LABEL,
+            "row": _CRITICAL,
+            "word": "SailPoint",
+            "people": 2,
+            "in_row": False,
+        }
     ]
     assert body["can_add_variant"] is True
 
 
-async def test_variant_goes_through_the_champion_save_and_clears_the_section(
+async def test_variant_goes_through_the_champion_save_and_waits_for_the_night(
     app_client: AsyncClient, app_auth_headers: dict, offline_matching
 ):
     world = await _job_with_critical(app_client, app_auth_headers)
@@ -285,11 +301,28 @@ async def test_variant_goes_through_the_champion_save_and_clears_the_section(
     assert saved.status_code == 200, saved.text
     assert saved.json()["champion_profile"]["stack"]["critical"] == [_CRITICAL]
 
-    # Bramka liczy wariant od razu — osoba przechodzi i znika z sekcji.
+    # Sekcja mówi o ostatnim przeglądzie: osoba zostaje do następnej nocy,
+    # a przycisk wie, że wariant już stoi w wierszu.
     after = (await app_client.get(url, headers=recruiter_headers)).json()
-    assert after["items"] == []
-    # „SailPoint” jest już słowem wiersza, więc nie jest „bliski”.
-    assert after["searched"] == []
+    assert [i["candidate"]["id"] for i in after["items"]] == [person]
+    assert [(v["word"], v["in_row"]) for v in after["variants"]] == [
+        ("SailPoint", True)
+    ]
+    # Bramka bieżącej rekrutacji (następny przegląd) już tę osobę przepuszcza.
+    from app.models.job import Job
+    from app.services.dealbreaker_filters import missing_must_skills
+    from app.services.requirement_contract import search_dealbreaker_inputs
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        candidate = await db.get(Candidate, person)
+        inputs = search_dealbreaker_inputs(job)
+        assert (
+            missing_must_skills(
+                candidate, inputs.must_skills, options=inputs.gate_options
+            )
+            == []
+        )
 
 
 async def test_read_only_role_sees_the_section_without_the_variant_button(

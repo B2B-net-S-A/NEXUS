@@ -17,6 +17,9 @@ const countsApi = vi.fn();
 const openedApi = vi.fn();
 const matchScores = vi.fn();
 const championGet = vi.fn();
+const hiddenApi = vi.fn();
+const apiGet = vi.fn();
+const apiPut = vi.fn();
 const listPage = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
@@ -103,6 +106,7 @@ vi.mock("@/lib/job-proposals-api", async (importOriginal) => {
       facts: (...a: unknown[]) => factsApi(...a),
       counts: (...a: unknown[]) => countsApi(...a),
       opened: (...a: unknown[]) => openedApi(...a),
+      hiddenByCritical: (...a: unknown[]) => hiddenApi(...a),
     },
   };
 });
@@ -112,7 +116,7 @@ vi.mock("@/lib/matching-requirements", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   default: { get: vi.fn() },
-  api: { get: vi.fn() },
+  api: { get: (...a: unknown[]) => apiGet(...a), put: (...a: unknown[]) => apiPut(...a) },
   championApi: { get: (...a: unknown[]) => championGet(...a) },
   candidatesApi: { removeFromRecruitment: (...a: unknown[]) => removeFromRecruitment(...a) },
 }));
@@ -175,6 +179,43 @@ vi.mock("@/components/talent-radar/FullCandidateSearchStatus", () => ({
 
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
 
+/** Odpowiedź `…/hidden-by-critical` (fikcyjne osoby, krytyczna „SailPoint IIQ”). */
+function hiddenPayload(
+  ids: number[],
+  { canAddVariant = true, inRow = false }: { canAddVariant?: boolean; inRow?: boolean } = {},
+) {
+  return {
+    job_id: 5,
+    run_id: ids.length ? "run-1" : null,
+    total: ids.length,
+    truncated: false,
+    can_add_variant: canAddVariant,
+    searched: ids.length ? [{ critical: "sailpoint iiq", row: "SailPoint IIQ", words: ["sailpoint"] }] : [],
+    variants: ids.length
+      ? [{ critical: "sailpoint iiq", row: "SailPoint IIQ", word: "SailPoint", people: ids.length, in_row: inRow }]
+      : [],
+    items: ids.map((id) => ({
+      candidate: {
+        id,
+        name: "Ukryta",
+        lastname: `Osoba ${id}`,
+        title: "IAM Engineer",
+        city: "Łódź",
+        availability_status: null,
+        availability_date: null,
+        expected_rate_hourly: null,
+        expected_rate_redacted: false,
+      },
+      critical: "sailpoint iiq",
+      row: "SailPoint IIQ",
+      word: "Sailpoint",
+      snippet: "…applications to Sailpoint IdentityIQ…",
+      source: "cv",
+      eligibility: null,
+    })),
+  };
+}
+
 const JOB = { id: 5, title: "Analityk KYC", remote_policy: "remote", champion_profile: null };
 // „Szukaj w bazie” to trzy zapytania po kolei (Champion → rodzaje wierszy →
 // lista) — domyślna sekunda `findBy` bywa za krótka na obciążonym runnerze.
@@ -233,6 +274,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       not_searchable_must: [],
     });
     championGet.mockResolvedValue({ data: { champion_profile: null } });
+    hiddenApi.mockResolvedValue(hiddenPayload([]));
     listPage.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20 });
   });
 
@@ -363,7 +405,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     );
     expect(submit).toHaveTextContent("Dodaj 1 do Nowych");
     await userEvent.click(submit);
-    expect(addToJob).toHaveBeenCalledWith([1], {}, expect.anything());
+    expect(addToJob).toHaveBeenCalledWith([1], { unlistedSource: "proposal_inbox" }, expect.anything());
     expect(bulkAdd).not.toHaveBeenCalled();
   });
 
@@ -382,7 +424,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
     expect(screen.getByTestId("add-candidates-submit")).toHaveTextContent("Dodaj 0 do Nowych");
     await userEvent.click(within(postings).getByRole("checkbox", { name: "Zaznacz Piotr Ogłoszenie" }));
     await userEvent.click(screen.getByTestId("add-candidates-submit"));
-    expect(addToJob).toHaveBeenCalledWith([2], {}, expect.anything());
+    expect(addToJob).toHaveBeenCalledWith([2], { unlistedSource: "proposal_inbox" }, expect.anything());
 
     // Zaznaczenie z drugiej zakładki czeka tam, gdzie je zostawiono.
     rerender({ tab: "base" });
@@ -769,7 +811,7 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       const { rerender } = renderPanel();
       const list = await screen.findByRole("list", { name: "Propozycje z bazy" });
       await userEvent.click(within(list).getByRole("button", { name: "Dodaj do „Nowych”: Anna Pierwsza" }));
-      expect(addToJob).toHaveBeenCalledWith([1], {}, expect.anything());
+      expect(addToJob).toHaveBeenCalledWith([1], { unlistedSource: "proposal_inbox" }, expect.anything());
       rerender();
 
       const row = within(screen.getByRole("list", { name: "Propozycje z bazy" }))
@@ -1336,6 +1378,122 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
       const alert = await screen.findByRole("alert", undefined, SLOW);
       expect(alert).toHaveTextContent("Nie udało się wyszukać w bazie.");
       expect(screen.queryByRole("list", { name: "Wyniki wyszukiwania" })).toBeNull();
+    });
+  });
+
+  describe("najlepsze 40 i ukryci przez „musi mieć” (28.10.2026)", () => {
+    const below = (id: number, name: string, fitScore: number) => {
+      const e = entry(id, name, ["inbox"], { sources: ["full_base"], fitScore });
+      Object.assign(e.detail, { belowThreshold: true });
+      return e;
+    };
+
+    it("osoby spod progu stoją pod separatorem „Poniżej 70%” i nie liczą się do zakładki", async () => {
+      proposalsState.entries = [
+        below(2, "Bartek Spod", 65),
+        entry(1, "Anna Nad", ["inbox"], { sources: ["full_base"], fitScore: 81 }),
+        below(3, "Celina Spod", 61),
+      ];
+      renderPanel();
+      const above = await screen.findByRole("list", { name: "Propozycje z bazy" });
+      expect(within(above).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Anna Nad",
+      ]);
+      expect(screen.getByTestId("proposals-below-threshold")).toHaveTextContent("Poniżej 70% · 2 osób");
+      const under = screen.getByRole("list", { name: "Propozycje z bazy poniżej 70%" });
+      expect(within(under).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Bartek Spod",
+        "Zaznacz Celina Spod",
+      ]);
+      expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveTextContent("Propozycje z bazy· 1");
+    });
+
+    it("bez nikogo od progu lista mówi to wprost, a najlepsi spod progu dalej są", async () => {
+      proposalsState.entries = [below(2, "Bartek Spod", 65)];
+      renderPanel();
+      await screen.findByRole("list", { name: "Propozycje z bazy poniżej 70%" });
+      expect(screen.getByText("Nikt nie ma 70% lub więcej — poniżej najlepsi spod progu.")).toBeInTheDocument();
+      expect(screen.queryByText("Nikt nie czeka w propozycjach z bazy.")).toBeNull();
+    });
+
+    it("sekcja ukrytych: cytat z CV, wynik „?”, zwinięta do 3 i „Dodaj” jak propozycja", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101, 102, 103, 104, 105]));
+      renderPanel();
+      const section = await screen.findByTestId("hidden-by-critical");
+      expect(within(section).getByRole("heading")).toHaveTextContent(
+        "Ukryci przez „musi mieć”, choć w CV jest coś bliskiego · 5",
+      );
+      expect(section).toHaveTextContent("Bramka szukała „SailPoint IIQ”");
+      const list = within(section).getByRole("list", { name: "Ukryci przez „musi mieć”" });
+      expect(within(list).getAllByRole("checkbox")).toHaveLength(3);
+      expect(within(list).getAllByTestId("hidden-trace")[0]).toHaveTextContent(
+        "≈ SailPoint IIQ · w CV: „…applications to Sailpoint IdentityIQ…”",
+      );
+      expect(within(list).getAllByText("?")).toHaveLength(3);
+      await userEvent.click(within(section).getByTestId("hidden-show-all"));
+      expect(within(list).getAllByRole("checkbox")).toHaveLength(5);
+
+      await userEvent.click(within(list).getByRole("button", { name: "Dodaj do „Nowych”: Ukryta Osoba 101" }));
+      expect(addToJob).toHaveBeenCalledWith([101], { unlistedSource: "proposal_inbox" }, expect.anything());
+    });
+
+    it("„„SailPoint” = SailPoint IIQ” dopisuje wariant do wiersza zapisem Championa", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101]));
+      apiGet.mockResolvedValue({
+        data: {
+          job_id: 5,
+          profile_hash: "hash-1",
+          champion_profile: {
+            stack: {
+              must: [],
+              nice: [],
+              notes: "",
+              critical: ["SailPoint IIQ"],
+              rows: [
+                { level: "must", words: ["SailPoint IIQ"] },
+                { level: "must", words: ["Python"] },
+              ],
+            },
+          },
+        },
+      });
+      apiPut.mockResolvedValue({ data: {} });
+      renderPanel();
+      await userEvent.click(await screen.findByTestId("hidden-variant-add"));
+      await userEvent.click(await screen.findByRole("button", { name: "Dopisz wariant" }));
+      await waitFor(() => expect(apiPut).toHaveBeenCalledTimes(1));
+      expect(apiGet).toHaveBeenCalledWith("/api/jobs/5/champion-profile", { params: { mark_read: false } });
+      const [url, body] = apiPut.mock.calls[0] as [string, { stack: { rows: unknown[] }; expected_profile_hash: string }];
+      expect(url).toBe("/api/jobs/5/champion-profile");
+      expect(body.expected_profile_hash).toBe("hash-1");
+      expect(body.stack.rows).toEqual([
+        { level: "must", words: ["SailPoint IIQ", "SailPoint"] },
+        { level: "must", words: ["Python"] },
+      ]);
+      await waitFor(() => expect(showSuccess).toHaveBeenCalled());
+    });
+
+    it("bez prawa zapisu Championa nie ma przycisku; dopisany wariant mówi „od następnej nocy”", async () => {
+      hiddenApi.mockResolvedValue(hiddenPayload([101], { canAddVariant: false }));
+      const { rerender } = renderPanel();
+      await screen.findByTestId("hidden-by-critical");
+      expect(screen.queryByTestId("hidden-variant-add")).toBeNull();
+      hiddenApi.mockResolvedValue(hiddenPayload([101], { inRow: true }));
+      rerender({ jobId: 6 });
+      expect(await screen.findByTestId("hidden-variant-done")).toHaveTextContent(
+        "„SailPoint” = SailPoint IIQ · od następnej nocy",
+      );
+    });
+
+    it("awaria sekcji to komunikat z „Ponów”, nie pusta lista; pusta odpowiedź = brak sekcji", async () => {
+      hiddenApi.mockRejectedValueOnce({ response: { status: 500 } });
+      renderPanel();
+      const alert = await screen.findByTestId("hidden-by-critical-error");
+      expect(alert).toHaveTextContent("Ponów");
+      hiddenApi.mockResolvedValue(hiddenPayload([]));
+      await userEvent.click(within(alert).getByRole("button", { name: "Ponów" }));
+      await waitFor(() => expect(screen.queryByTestId("hidden-by-critical-error")).toBeNull());
+      expect(screen.queryByTestId("hidden-by-critical")).toBeNull();
     });
   });
 });

@@ -29,6 +29,12 @@
  * ludzie” mają własny panel w pasku górnym, dodanie po nazwisku i z pliku CV
  * jest pod kaflami i w menu „⋯”, a ręczny start przeglądu bazy — w menu „⋯”.
  *
+ * 28.10.2026 (makiety A i B, https://claude.ai/artifact/TBHtexa3vvyK76HW2vkSMS):
+ * „Propozycje z bazy” kończą się separatorem „Poniżej N%” z najlepszymi spod
+ * progu (najlepsze 40 nocnego przeglądu — liczba na zakładce i kaflu ich nie
+ * liczy), a pod listą stoi sekcja „Ukryci przez »musi mieć«”
+ * (`HiddenByCriticalSection`).
+ *
  * Dodanie idzie przez `proposals/bulk` jak dotąd (źródło z pochodzenia
  * wiersza). Serwer zakłada blokadę 12 h dla dodającego. Ostrzeżenia (NDA,
  * konkurent, ponad budżet) zostają widoczne; weto hiring managera blokuje
@@ -65,8 +71,11 @@ import type { ManualSearchJob } from "@/lib/job-search-filters";
 import {
   CITY_MISMATCH_WARNING_PL,
   DEFAULT_PROPOSAL_FILTERS,
+  DEFAULT_PROPOSAL_THRESHOLD,
   EMPLOYMENT_ONLY_WARNING_PL,
   WORK_TIME_FIT_WARNING_PL,
+  isBelowThreshold,
+  proposalFullName,
   splitByPostings,
   type ProposalEntry,
 } from "@/lib/proposals-merge";
@@ -75,6 +84,7 @@ import {
   jobProposalsKeys,
   PROPOSAL_FACTS_MAX_IDS,
   talkChecksOf,
+  type HiddenByCriticalItem,
   type ProposalFacts,
 } from "@/lib/job-proposals-api";
 import { unmeasuredReason } from "@/lib/match-breakdown";
@@ -94,6 +104,12 @@ import { cn, formatRelativeTime } from "@/lib/utils";
 import { useVisibleMatchScores } from "@/hooks/useVisibleMatchScores";
 
 import { useDismissReasonPrompt } from "./DismissReasonDialog";
+import {
+  HiddenByCriticalSection,
+  HiddenTraceBadge,
+  criticalName,
+  useHiddenByCritical,
+} from "./HiddenByCriticalSection";
 import { ManualSearchPanel } from "./ManualSearchPanel";
 import { PersonPreview } from "./PersonPreview";
 import { alsoFitsSlot } from "./also-fits-block";
@@ -251,6 +267,25 @@ function mustCoverage(entry: ProposalEntry): PickRow["mustCoverage"] {
   return { met: must.filter((r) => r.status === "met").length, total: must.length };
 }
 
+/** Wiersz sekcji „Ukryci przez »musi mieć«” — jak propozycja, bez wyniku. */
+function hiddenRow(item: HiddenByCriticalItem, budgetHourly: number | null): PickRow {
+  const c = item.candidate;
+  const elig = eligibilityWarning(item.eligibility);
+  return {
+    candidateId: c.id,
+    fullName: proposalFullName(c.name, c.lastname, c.id),
+    fitScore: null,
+    rateLabel: null,
+    availabilityLabel: null,
+    note: null,
+    facts: [c.title, c.city].filter(Boolean).join(" · ") || null,
+    sourceLabel: "Ukryty przez bramkę",
+    warnings: elig ? [elig] : [],
+    extra: <HiddenTraceBadge item={item} />,
+    rateBadge: rateBudgetBadge({ rateHourly: c.expected_rate_hourly, currency: "PLN", budgetHourly }),
+  };
+}
+
 const TAB_LABEL: Record<CandidateWindowTab, string> = {
   similar: "Podobne rekrutacje",
   postings: "Nowi z ogłoszeń",
@@ -283,6 +318,12 @@ interface KeptEntry {
   value: ProposalEntry;
   index: number;
   tab: ListTab;
+}
+
+/** Osoba z sekcji ukrytych dodana w tym oknie — wiersz zostaje z „Cofnij”. */
+interface KeptHidden {
+  value: HiddenByCriticalItem;
+  index: number;
 }
 
 /** „Z portalu (JJIT/RocketJobs) · 2 dni temu”. */
@@ -334,6 +375,7 @@ function AddCandidatesPanelOpen({
   // liście z „Cofnij” — `kept` trzyma jej wiersz, bo źródła już jej nie zwracają.
   const [addedIds, setAddedIds] = useState<ReadonlySet<number>>(() => new Set(initialAddedIds ?? []));
   const [kept, setKept] = useState<ReadonlyMap<number, KeptEntry>>(() => new Map());
+  const [keptHidden, setKeptHidden] = useState<ReadonlyMap<number, KeptHidden>>(() => new Map());
   const undoWindow = useUndoWindow();
   const [rowAdding, setRowAdding] = useState<ReadonlySet<number>>(() => new Set());
   const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
@@ -405,8 +447,12 @@ function AddCandidatesPanelOpen({
   // z żywym przeglądem i podobnymi projektami, więc bywa dłuższa niż licznik
   // samej skrzynki. Publikujemy dopiero, gdy każde źródło się rozstrzygnęło.
   const queryClient = useQueryClient();
+  // Najlepsze 40 (28.10.2026): osoby spod progu stoją na liście pod
+  // separatorem, ale kafel i zakładka liczą tylko od progu — jak dzwonek.
+  const threshold =
+    counts.data?.threshold ?? proposals.status.threshold ?? DEFAULT_PROPOSAL_THRESHOLD;
   const postingsCount = split.postings.length;
-  const baseCount = split.base.length;
+  const baseCount = split.base.filter((e) => !isBelowThreshold(e, threshold)).length;
   const sourcesSettled = proposals.status.settled;
   // Skrzynka ma kolejne strony (od 07.10.2026 nocny przegląd publikuje każdego
   // powyżej progu, więc bywa ich kilkaset): wczytana część zaniżyłaby liczbę
@@ -441,6 +487,20 @@ function AddCandidatesPanelOpen({
     () => withKeptRows(liveEntries, keptHere, (e) => e.row.candidateId),
     [liveEntries, keptHere],
   );
+  // Sekcja „Ukryci przez »musi mieć«” (28.10.2026) — tylko w „Propozycjach z bazy”.
+  const hiddenQuery = useHiddenByCritical(jobId, visited.has("base"));
+  const hiddenItems = useMemo(() => {
+    const listed = new Set(liveEntries.map((e) => e.row.candidateId));
+    return withKeptRows(
+      (hiddenQuery.data?.items ?? []).filter((item) => !listed.has(item.candidate.id)),
+      keptHidden,
+      (item) => item.candidate.id,
+    );
+  }, [hiddenQuery.data, keptHidden, liveEntries]);
+  const hiddenById = useMemo(
+    () => new Map(hiddenItems.map((item) => [item.candidate.id, item] as const)),
+    [hiddenItems],
+  );
 
   // Klucz ze zbioru id — odświeżenie listy z tymi samymi osobami nie gubi
   // faktów ani policzonych dopasowań.
@@ -448,6 +508,13 @@ function AddCandidatesPanelOpen({
   const listIds = useMemo(
     () => (listIdsKey ? listIdsKey.split(",").map(Number) : []),
     [listIdsKey],
+  );
+  const belowIds = useMemo(
+    () =>
+      new Set(
+        listEntries.filter((e) => isBelowThreshold(e, threshold)).map((e) => e.row.candidateId),
+      ),
+    [listEntries, threshold],
   );
   const factsQuery = useQuery({
     queryKey: jobProposalsKeys.facts(jobId, listIds),
@@ -557,14 +624,43 @@ function AddCandidatesPanelOpen({
       const score = matchScores.scores[String(row.candidateId)];
       return typeof score === "number" ? { ...row, fitScore: score } : row;
     });
-    const sorted =
-      sortMode === "client_first"
-        ? sortByClientHistory(shown, factsById)
-        : sortByShownScore(shown, (row) => row.fitScore);
-    // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
-    // z roli rekrutacji, niezależnie od procentu.
-    return [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
-  }, [sortMode, unsortedRows, factsById, matchScores.scores]);
+    const order = (rows: PickRow[]) => {
+      const sorted =
+        sortMode === "client_first"
+          ? sortByClientHistory(rows, factsById)
+          : sortByShownScore(rows, (row) => row.fitScore);
+      // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
+      // z roli rekrutacji, niezależnie od procentu.
+      return [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
+    };
+    // Najlepsze 40 (28.10.2026): osoby spod progu zawsze pod separatorem.
+    return [
+      ...order(shown.filter((r) => !belowIds.has(r.candidateId))),
+      ...order(shown.filter((r) => belowIds.has(r.candidateId))),
+    ];
+  }, [sortMode, unsortedRows, factsById, matchScores.scores, belowIds]);
+  const belowStart = listRows.findIndex((r) => belowIds.has(r.candidateId));
+  const aboveRows = belowStart < 0 ? listRows : listRows.slice(0, belowStart);
+  const belowRows = belowStart < 0 ? [] : listRows.slice(belowStart);
+  const hiddenRows = useMemo(
+    () =>
+      hiddenItems.map((item): PickRow => {
+        const id = item.candidate.id;
+        return {
+          ...hiddenRow(item, budgetHourly),
+          addState: undoing.has(id)
+            ? "undoing"
+            : addedIds.has(id)
+              ? "added"
+              : rowAdding.has(id)
+                ? "adding"
+                : null,
+          undoable: !undoWindow.expired.has(id),
+          alsoFits: alsoFitsSlot(alsoFits, id, proposalFullName(item.candidate.name, item.candidate.lastname, id), readOnly),
+        };
+      }),
+    [hiddenItems, budgetHourly, undoing, addedIds, rowAdding, undoWindow.expired, alsoFits, readOnly],
+  );
   const renderProposalScore = (row: PickRow): ReactNode => {
     if (row.fitScore != null) return <ScoreBadge score={row.fitScore} boardScore={row.boardScore} />;
     const key = String(row.candidateId);
@@ -619,8 +715,13 @@ function AddCandidatesPanelOpen({
   );
   const selected = listTab != null ? selectedByTab[listTab] : undefined;
   const selectedIds = useMemo(
-    () => new Set([...(selected ?? [])].filter((id) => entryIds.has(id) && !addedIds.has(id))),
-    [selected, entryIds, addedIds],
+    () =>
+      new Set(
+        [...(selected ?? [])].filter(
+          (id) => (entryIds.has(id) || (listTab === "base" && hiddenById.has(id))) && !addedIds.has(id),
+        ),
+      ),
+    [selected, entryIds, addedIds, listTab, hiddenById],
   );
   const count = selectedIds.size;
   /**
@@ -633,18 +734,32 @@ function AddCandidatesPanelOpen({
     if (readOnly || ids.length === 0 || listTab == null) return;
     const tabNow = listTab;
     const snapshot = new Map<number, KeptEntry>();
+    const hiddenSnapshot = new Map<number, KeptHidden>();
     for (const id of ids) {
       const index = listEntries.findIndex((e) => e.row.candidateId === id);
       if (index >= 0) snapshot.set(id, { value: listEntries[index], index, tab: tabNow });
+      const hiddenIndex = hiddenItems.findIndex((item) => item.candidate.id === id);
+      if (index < 0 && hiddenIndex >= 0) {
+        hiddenSnapshot.set(id, { value: hiddenItems[hiddenIndex], index: hiddenIndex });
+      }
     }
     if (perRow) setRowAdding((prev) => new Set([...prev, ...ids]));
-    proposals.addToJob([...ids], {}, {
+    // Osoby z sekcji ukrytych źródła okna nie znają — idą jak propozycje.
+    proposals.addToJob([...ids], { unlistedSource: "proposal_inbox" }, {
       onSuccess: (response) => {
-        const added = response.added.filter((id) => snapshot.has(id));
+        const added = response.added.filter((id) => snapshot.has(id) || hiddenSnapshot.has(id));
         setKept((prev) => {
           const next = new Map(prev);
           for (const id of added) {
             const row = snapshot.get(id);
+            if (row) next.set(id, row);
+          }
+          return next;
+        });
+        setKeptHidden((prev) => {
+          const next = new Map(prev);
+          for (const id of added) {
+            const row = hiddenSnapshot.get(id);
             if (row) next.set(id, row);
           }
           return next;
@@ -671,6 +786,11 @@ function AddCandidatesPanelOpen({
       if (!undone) return;
       setAddedIds((prev) => new Set([...prev].filter((id) => id !== candidateId)));
       setKept((prev) => {
+        const next = new Map(prev);
+        next.delete(candidateId);
+        return next;
+      });
+      setKeptHidden((prev) => {
         const next = new Map(prev);
         next.delete(candidateId);
         return next;
@@ -710,9 +830,15 @@ function AddCandidatesPanelOpen({
     () => new Map(listEntries.map((e) => [e.row.candidateId, e] as const)),
     [listEntries],
   );
-  const previewIndex = previewId == null ? -1 : listRows.findIndex((r) => r.candidateId === previewId);
-  const previewRow = previewIndex >= 0 ? listRows[previewIndex] : null;
+  // Podgląd chodzi po liście i dalej po sekcji ukrytych („Propozycje z bazy”).
+  const previewRows = useMemo(
+    () => (listTab === "base" ? [...listRows, ...hiddenRows] : listRows),
+    [listTab, listRows, hiddenRows],
+  );
+  const previewIndex = previewId == null ? -1 : previewRows.findIndex((r) => r.candidateId === previewId);
+  const previewRow = previewIndex >= 0 ? previewRows[previewIndex] : null;
   const previewEntry = previewRow ? (entryById.get(previewRow.candidateId) ?? null) : null;
+  const previewHidden = previewRow && !previewEntry ? (hiddenById.get(previewRow.candidateId) ?? null) : null;
   const closePreview = () => {
     setPreviewId(null);
     const trigger = previewTrigger.current;
@@ -733,7 +859,7 @@ function AddCandidatesPanelOpen({
     postings: proposals.status.settled
       ? listCount(split.postings.length, counts.data?.postings_recent)
       : null,
-    base: proposals.status.settled ? listCount(split.base.length, counts.data?.base) : null,
+    base: proposals.status.settled ? listCount(baseCount, counts.data?.base) : null,
     search: searchTab.total != null ? String(searchTab.total) : null,
     // Wyszukiwarka liczy dopiero po filtrach — liczby nie znamy.
     manual: "—",
@@ -819,6 +945,23 @@ function AddCandidatesPanelOpen({
     </div>
   );
 
+  const pickListProps = {
+    selected: selectedIds,
+    onToggle: (row: PickRow) => toggle(row.candidateId),
+    readOnly,
+    renderScore: renderProposalScore,
+    activeId: previewRow?.candidateId ?? null,
+    onPreview: (row: PickRow, trigger: HTMLElement) => {
+      previewTrigger.current = trigger;
+      setPreviewId(row.candidateId);
+    },
+    onClosePreview: closePreview,
+    onDismiss: (row: PickRow) => dismissPrompt.ask([row.candidateId]),
+    onAdd: (row: PickRow) => addIds([row.candidateId], true),
+    onUndo: (row: PickRow) => undoAdd(row.candidateId),
+    onRowVisible,
+  };
+
   const proposalsList = (label: string, emptyText: string) =>
     proposals.status.inbox.isError ? (
       <p role="alert" className="text-sm text-destructive">
@@ -870,25 +1013,35 @@ function AddCandidatesPanelOpen({
             </button>
           </p>
         )}
-        <PickList
-          label={label}
-          rows={listRows}
-          selected={selectedIds}
-          onToggle={(row) => toggle(row.candidateId)}
-          readOnly={readOnly}
-          emptyText={emptyText}
-          renderScore={renderProposalScore}
-          activeId={previewRow?.candidateId ?? null}
-          onPreview={(row, trigger) => {
-            previewTrigger.current = trigger;
-            setPreviewId(row.candidateId);
-          }}
-          onClosePreview={closePreview}
-          onDismiss={(row) => dismissPrompt.ask([row.candidateId])}
-          onAdd={(row) => addIds([row.candidateId], true)}
-          onUndo={(row) => undoAdd(row.candidateId)}
-          onRowVisible={onRowVisible}
-        />
+        {aboveRows.length > 0 || belowRows.length === 0 ? (
+          <PickList label={label} rows={aboveRows} emptyText={emptyText} {...pickListProps} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Nikt nie ma {Math.round(threshold)}% lub więcej — poniżej najlepsi spod progu.
+          </p>
+        )}
+        {belowRows.length > 0 ? (
+          <>
+            <div
+              role="separator"
+              aria-label={`Poniżej ${Math.round(threshold)}%`}
+              className="rounded-md bg-muted px-3 py-1.5 text-xs text-muted-foreground"
+              data-testid="proposals-below-threshold"
+            >
+              <span className="font-semibold text-foreground">
+                Poniżej {Math.round(threshold)}% · {belowRows.length}{" "}
+                {belowRows.length === 1 ? "osoba" : "osób"}
+              </span>{" "}
+              — najlepsi spod progu z nocnego przeglądu. Tu też bywają trafienia.
+            </div>
+            <PickList
+              label={`${label} poniżej ${Math.round(threshold)}%`}
+              rows={belowRows}
+              emptyText=""
+              {...pickListProps}
+            />
+          </>
+        ) : null}
         {proposals.status.inbox.hasMore ? (
           <Button
             size="sm"
@@ -935,6 +1088,20 @@ function AddCandidatesPanelOpen({
         </section>
       ) : null}
       {proposalsList("Propozycje z bazy", "Nikt nie czeka w propozycjach z bazy.")}
+      <HiddenByCriticalSection
+        jobId={jobId}
+        query={hiddenQuery}
+        rows={hiddenRows}
+        readOnly={readOnly}
+        selected={selectedIds}
+        onToggle={pickListProps.onToggle}
+        activeId={pickListProps.activeId}
+        onPreview={pickListProps.onPreview}
+        onClosePreview={closePreview}
+        onDismiss={pickListProps.onDismiss}
+        onAdd={pickListProps.onAdd}
+        onUndo={pickListProps.onUndo}
+      />
       {onOpenFullList ? (
         <button
           type="button"
@@ -961,21 +1128,31 @@ function AddCandidatesPanelOpen({
   );
 
   const listSidePane =
-    previewRow && previewEntry ? (
+    previewRow && (previewEntry || previewHidden) ? (
       <PersonPreview
         key={previewRow.candidateId}
         jobId={jobId}
         candidateId={previewRow.candidateId}
         name={previewRow.fullName}
-        source={{
-          title: "Skąd ta osoba",
-          line: sourceLine(previewEntry),
-          // Historię u klienta karta pokazuje w „Profilu” — tu sam powód propozycji.
-          subline: previewEntry.row.reason,
-        }}
-        position={{ index: previewIndex, total: listRows.length }}
-        onPrev={() => setPreviewId(listRows[previewIndex - 1]?.candidateId ?? previewRow.candidateId)}
-        onNext={() => setPreviewId(listRows[previewIndex + 1]?.candidateId ?? previewRow.candidateId)}
+        source={
+          previewEntry
+            ? {
+                title: "Skąd ta osoba",
+                line: sourceLine(previewEntry),
+                // Historię u klienta karta pokazuje w „Profilu” — tu sam powód propozycji.
+                subline: previewEntry.row.reason,
+              }
+            : {
+                title: "Skąd ta osoba",
+                line: "Nocny przegląd bazy ukrył ją przez „musi mieć”",
+                subline: previewHidden
+                  ? `Bramka szukała „${criticalName(previewHidden)}”, a jest „${previewHidden.word}”: ${previewHidden.snippet}`
+                  : null,
+              }
+        }
+        position={{ index: previewIndex, total: previewRows.length }}
+        onPrev={() => setPreviewId(previewRows[previewIndex - 1]?.candidateId ?? previewRow.candidateId)}
+        onNext={() => setPreviewId(previewRows[previewIndex + 1]?.candidateId ?? previewRow.candidateId)}
         onClose={closePreview}
         canOpenProfile={canOpenProfile}
         talkChecks={talkChecks}

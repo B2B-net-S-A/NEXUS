@@ -14,11 +14,13 @@ Reguły, które łatwo cofnąć „przy okazji”:
   (ten, z którego idą propozycje ``full_base``): wiersze ``eligible = false``
   z powodem ``missing_must``. Inne powody (budżet, biuro, tylko UoP) tu nie
   wchodzą — wariant nazwy by ich nie odblokował.
-* **Brakujące krytyczne liczymy dziś** tą samą bramką co przegląd
-  (``search_dealbreaker_inputs`` + ``missing_must_skills`` z dowodem z notatek),
-  na bieżących wierszach Championa. Osoba, która po dopisaniu wariantu już
-  przechodzi, wypada z sekcji od razu; do propozycji trafi z najbliższym
-  przeglądem.
+* **Brakujące krytyczne liczymy tak, jak widział je ten przegląd**: tą samą
+  bramką (``search_dealbreaker_inputs`` + ``missing_must_skills`` z dowodem
+  z notatek) na wymaganiach zamrożonych w żądaniu przeglądu
+  (``RequestMatchingContext.as_job``). Wariant dopisany dziś nie zdejmuje
+  nikogo z sekcji — osoby zostają do następnej nocy, kiedy przegląd ich oceni
+  i trafią do propozycji. Wariant, który już stoi w wierszu, ma
+  ``CloseVariant.in_row`` (przycisk mówi „dopisano”).
 * **Bliskie słowo** (:func:`close_words`) to człon nazwy krytycznej albo jej
   wariantu z wiersza, który sam nie jest pełną nazwą: co najmniej
   ``CLOSE_WORD_MIN_LETTERS`` znaki, zaczyna się literą, nie jest ogólnym
@@ -155,6 +157,8 @@ class CloseVariant:
     critical: str
     word: str
     people: int
+    # Słowo stoi już w bieżącym wierszu krytycznej (dopisane po przeglądzie).
+    in_row: bool = False
 
 
 @dataclass
@@ -164,15 +168,20 @@ class HiddenSection:
     variants: list[CloseVariant] = field(default_factory=list)
     # Krytyczne z bliskimi słowami — tym szukaliśmy w CV.
     searched: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # Etykieta bramki („sailpoint iiq”) → etykieta wiersza Championa w pisowni
+    # DL-a („SailPoint IIQ”): tam przycisk dopisuje wariant.
+    rows: dict[str, str] = field(default_factory=dict)
     truncated: bool = False
 
 
-async def _newest_auto_run(db: AsyncSession, job_id: int) -> Optional[str]:
+async def _newest_auto_run(
+    db: AsyncSession, job_id: int
+) -> Optional[CandidateSearchRun]:
     """Najnowszy przegląd automatyczny z wynikami (jak publikacja propozycji)."""
     from app.services import candidate_search_store as store
 
     return await db.scalar(
-        select(CandidateSearchRun.id)
+        select(CandidateSearchRun)
         .where(
             CandidateSearchRun.job_id == job_id,
             store.auto_origin_clause(),
@@ -257,6 +266,33 @@ def _find(
     return None
 
 
+def _rows_of(job, labels: Sequence[str]) -> dict[str, tuple[str, list[str]]]:
+    """Etykieta bramki → (etykieta wiersza wymagań, jego słowa) w BIEŻĄCYM
+    profilu (jak ``critical_skills.critical_gate_options``). Bez wiersza —
+    brak wpisu."""
+    from app.services.critical_skills import _row_words_by_label, match_must_labels
+
+    rows = _row_words_by_label(job)
+    out: dict[str, tuple[str, list[str]]] = {}
+    for label in labels:
+        for row_label, words in rows:
+            if match_must_labels([row_label], [label]):
+                out[label] = (row_label, words)
+                break
+    return out
+
+
+def _review_target(run: CandidateSearchRun, job):
+    """Rekrutacja tak, jak widział ją przegląd (zamrożone żądanie)."""
+    from app.services.request_matching_context import RequestMatchingContext
+
+    try:
+        return RequestMatchingContext(**(run.request_context or {})).as_job()
+    except (TypeError, ValueError):
+        # Przegląd sprzed zapisu żądania — bieżąca rekrutacja.
+        return job
+
+
 def _spelling_rank(spelling: str, spellings: Mapping[str, int]) -> tuple:
     """Najczęstsza pisownia; przy remisie ta z większą liczbą wielkich liter
     („SailPoint” przed „Sailpoint” — tak piszą nazwę producenci)."""
@@ -278,16 +314,18 @@ async def hidden_by_critical(db: AsyncSession, job) -> HiddenSection:
     from app.services.requirement_contract import search_dealbreaker_inputs
 
     section = HiddenSection()
-    run_id = await _newest_auto_run(db, job.id)
-    if run_id is None:
+    run = await _newest_auto_run(db, job.id)
+    if run is None:
         return section
-    section.run_id = run_id
-    inputs = search_dealbreaker_inputs(job)
+    run_id = section.run_id = run.id
+    inputs = search_dealbreaker_inputs(_review_target(run, job))
     labels = tuple(inputs.must_skills or ())
     options = inputs.gate_options
     section.searched = {
         label: words for label in labels if (words := close_words(label, options))
     }
+    current_rows = _rows_of(job, list(section.searched))
+    section.rows = {label: row for label, (row, _words) in current_rows.items()}
     all_words = sorted(
         {w for words in section.searched.values() for w in words}, key=str.casefold
     )
@@ -352,8 +390,10 @@ async def hidden_by_critical(db: AsyncSession, job) -> HiddenSection:
                 critical=label,
                 word=max(spellings, key=lambda s: _spelling_rank(s, spellings)),
                 people=sum(spellings.values()),
+                in_row=key
+                in {w.casefold() for w in current_rows.get(label, ("", []))[1]},
             )
-            for (label, _key), spellings in variant_people.items()
+            for (label, key), spellings in variant_people.items()
         ),
         key=lambda v: (-v.people, v.critical, v.word.casefold()),
     )
