@@ -143,8 +143,9 @@ type OrdersPill = UnifiedOrderPill | "decision";
 
 // Etykiety krótkie, żeby pigułki mieściły się w jednym rzędzie na laptopie
 // 1280 px (menu 240 px) — pełne brzmienie niesie `title`.
+// Kolejność od tego, co trwa, do historii; „Wszystkie” na końcu, bo widok
+// aktywnych i nieaktywnych razem mylił finanse (prośba Anny, 28.10.2026).
 const PILLS: Array<{ key: OrdersPill; label: string; title?: string }> = [
-  { key: "all", label: "Wszystkie" },
   { key: "active", label: "Aktywne" },
   { key: "ending_30d", label: "Bez kontynuacji 30 dni" },
   { key: "completed", label: "Zakończeni" },
@@ -152,6 +153,7 @@ const PILLS: Array<{ key: OrdersPill; label: string; title?: string }> = [
   { key: "cancelled", label: "Anulowane" },
   { key: "draft", label: "Draft", title: "Szkice do uzupełnienia" },
   { key: "decision", label: "Wymaga decyzji" },
+  { key: "all", label: "Wszystkie" },
 ];
 
 const TYPE_FILTERS: Array<{ key: OrderType | "all"; label: string }> = [
@@ -233,7 +235,7 @@ export function MultiConsultantOrdersTab({
   const canExport = canViewFinance;
   const allowedOrderTypes = ALL_ORDER_TYPES;
 
-  const [pill, setPill] = useState<OrdersPill>("all");
+  const [pill, setPill] = useState<OrdersPill>("active");
   const [typeFilter, setTypeFilter] = useState<OrderType | "all">("all");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState<OrderListFilters>({
@@ -1526,14 +1528,14 @@ export function MultiConsultantOrdersTab({
           title={
             search.trim()
               ? "Nie znaleziono zamówienia pasującego do wyszukiwania"
-              : pill === "all"
+              : counts.all === 0
                 ? "Brak zamówień"
                 : "Brak wyników dla tego filtra"
           }
           description={
             search.trim()
               ? "Zmień wyszukiwaną frazę albo wyczyść aktywne filtry."
-              : pill === "all"
+              : counts.all === 0
                 ? "Ten klient nie ma jeszcze zamówień."
                 : "Zmień filtr, żeby zobaczyć pozostałe zamówienia."
           }

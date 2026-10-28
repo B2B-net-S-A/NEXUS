@@ -382,6 +382,12 @@ async function row(anchorId: string): Promise<HTMLElement> {
   });
 }
 
+/** Ekran otwiera się na „Aktywne” — zakończone, wyczerpane i szkice są
+ *  w „Wszystkie”. */
+async function showAll() {
+  await userEvent.click(await screen.findByRole("button", { name: /^Wszystkie \(/ }));
+}
+
 async function openRow(anchorId: string, user = userEvent.setup()) {
   await user.click(await row(anchorId));
 }
@@ -1085,6 +1091,7 @@ describe("MultiConsultantOrdersTab — wariant mieszany CP/Lotte Wedel", () => {
     } as never);
 
     renderTab();
+    await showAll();
 
     expect((await screen.findAllByText("MD")).length).toBeGreaterThanOrEqual(1);
     // Tabela: linia nie ma własnej puli, nagłówek zamówienia mówi tylko o wyczerpaniu.
@@ -1313,6 +1320,54 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     expect(screen.queryByText(/Zamówienie nr 445/)).not.toBeInTheDocument();
   });
 
+  it("otwiera się na „Aktywne”, a „Wszystkie” stoi na końcu (prośba finansów)", async () => {
+    vi.mocked(orderGroupsApi.list).mockResolvedValue({
+      data: {
+        groups: [
+          group(),
+          group({
+            id: 11,
+            order_number: "446",
+            status: "completed",
+            status_label: "Zakończone",
+            closure_date: "2026-06-30",
+            lines: [],
+            active_consultants: 0,
+          }),
+        ],
+        total_groups: 2,
+        total_consultants: 1,
+      },
+    } as never);
+
+    renderTab();
+
+    const active = await screen.findByRole("button", { name: "Aktywne (1)" });
+    expect(active).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Wszystkie (2)" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByText(/Zamówienie nr 445/)).toBeInTheDocument();
+    expect(screen.queryByText(/Zamówienie nr 446/)).not.toBeInTheDocument();
+
+    const pills = Array.from(
+      document.querySelectorAll('[data-help="client.orders.pills"] button'),
+    ).map((button) => button.textContent?.replace(/\s*\(\d+\)\s*$/, "").trim());
+    expect(pills).toEqual([
+      "Aktywne",
+      "Bez kontynuacji 30 dni",
+      "Zakończeni",
+      "Wyczerpane",
+      "Anulowane",
+      "Draft",
+      "Wszystkie",
+    ]);
+
+    await userEvent.click(screen.getByRole("button", { name: "Wszystkie (2)" }));
+    expect(screen.getByText(/Zamówienie nr 446/)).toBeInTheDocument();
+  });
+
   it("usunięcie konsultanta otwiera dialog skutków (bez window.confirm) i NIE rusza reszty zamówienia", async () => {
     vi.mocked(orderGroupsApi.list).mockResolvedValue({
       data: { groups: [group()], total_groups: 1, total_consultants: 1 },
@@ -1447,6 +1502,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     const user = userEvent.setup();
 
     renderTab();
+    await showAll();
 
     await openRow("order-group-anchor-12", user);
     await user.click(
@@ -1509,6 +1565,7 @@ describe("MultiConsultantOrdersTab — cykl życia", () => {
     } as never);
 
     renderTab();
+    await showAll();
     expect(
       within(await row("order-group-anchor-10")).getByText("Budżet wyczerpany"),
     ).toBeInTheDocument();
@@ -2280,6 +2337,7 @@ describe("MultiConsultantOrdersTab — połączona lista", () => {
     } as never);
 
     renderTab();
+    await showAll();
 
     expect(await screen.findByText("Draft bez grupy")).toBeInTheDocument();
     expect(screen.queryByText("Robert Łuszczyński")).not.toBeInTheDocument();

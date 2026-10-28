@@ -476,7 +476,7 @@
     "title": "Zamówienia klienta",
     "section": "delivery",
     "roles": ["delivery_lead", "finance", "admin"],
-    "what": "Tu masz wszystkie zamówienia klienta w sekcjach MD, Kosztowe i Okresowe. Zamówienie MD albo kosztowe to szary pas z numerem, a pod nim osoby. Kliknij wiersz, a po prawej otworzy się panel ze szczegółami i akcjami.",
+    "what": "Zamówienia klienta w sekcjach MD, Kosztowe i Okresowe. Zakładka otwiera się na aktywnych; resztę pokazuje „Wszystkie” na końcu. Zamówienie MD albo kosztowe to szary pas z numerem, pod nim osoby. Kliknij wiersz, by otworzyć panel z akcjami.",
     "tasks": [
       {
         "q": "Jak dodać zamówienie z PDF-a od klienta?",
