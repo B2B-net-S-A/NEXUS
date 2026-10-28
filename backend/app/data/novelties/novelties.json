@@ -55,8 +55,8 @@
     "steps": [
       {
         "anchor": "contracts.list.row",
-        "text": "Otwórz dowolny kontrakt z listy.",
-        "hint": "Nic nie zmienisz — przeklikanie kończy się przed zapisem."
+        "text": "Kliknij wiersz dowolnego kontraktu.",
+        "hint": "Kliknij w wierszu poza nazwiskiem — otworzy się panel kontraktu. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
       },
       {
         "anchor": "contract.panel.end",
