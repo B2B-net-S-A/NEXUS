@@ -7,7 +7,7 @@ import type { CareerJobResponse } from "@/lib/career/api";
 /** Publiczna odpowiedź `/api/public/career/r/<slug>` rekrutacji AMLR (28.10.2026). */
 const AMLR: CareerJobResponse = {
   status: "open",
-  recruiter: { first_name: "Urszula", slug: null },
+  recruiter: { first_name: "Marta", slug: null },
   theme: "grafit",
   published_at: "2026-10-28",
   canonical_slug: "pl-eu-amlr-package-kyc-delivery-lead-lyy3",
@@ -89,7 +89,7 @@ describe("GrafitJob", () => {
     const process = screen.getByRole("region", { name: "Proces rekrutacji" });
     const steps = within(process).getAllByRole("listitem");
     expect(steps).toHaveLength(4);
-    expect(steps[0]).toHaveTextContent("Rozmowa z Urszulą");
+    expect(steps[0]).toHaveTextContent("Rozmowa z Martą");
     const apply = screen.getByRole("region", { name: "Aplikuj" });
     expect(apply).toHaveAttribute("id", "aplikuj");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
@@ -123,7 +123,7 @@ describe("GrafitJob", () => {
     renderJob();
     const tile = screen.getByRole("heading", { name: "Czym się zajmiesz" }).closest("article") as HTMLElement;
     expect(within(tile).getAllByRole("listitem")).toHaveLength(7);
-    expect(screen.getByText("Rozmowa z Urszulą")).toBeInTheDocument();
+    expect(screen.getByText("Rozmowa z Martą")).toBeInTheDocument();
     expect(screen.getByText("Umowa B2B")).toBeInTheDocument();
   });
 
@@ -158,10 +158,10 @@ describe("GrafitJob", () => {
   });
 
   it("stały link rekrutera daje odesłanie „Nie ten projekt?”", () => {
-    renderJob({ ...AMLR, recruiter: { first_name: "Urszula", slug: "urszula-k" } });
+    renderJob({ ...AMLR, recruiter: { first_name: "Marta", slug: "marta-k" } });
     expect(screen.getByRole("link", { name: /Nie ten projekt\?/ })).toHaveAttribute(
       "href",
-      "/kariera/p/urszula-k",
+      "/kariera/p/marta-k",
     );
   });
 });

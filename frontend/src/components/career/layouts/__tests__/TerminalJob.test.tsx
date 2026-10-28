@@ -8,7 +8,7 @@ import { TerminalJob } from "../TerminalJob";
 /** Publiczna odpowiedź `/api/public/career/r/<slug>` rekrutacji AMLR (28.10.2026). */
 const AMLR: CareerJobResponse = {
   status: "open",
-  recruiter: { first_name: "Urszula", slug: null },
+  recruiter: { first_name: "Marta", slug: null },
   theme: "terminal",
   published_at: "2026-10-28",
   canonical_slug: "pl-eu-amlr-package-kyc-delivery-lead-lyy3",
@@ -135,7 +135,7 @@ describe("TerminalJob", () => {
     expect(screen.getByRole("region", { name: "Aplikuj" }).id).toBe("aplikuj");
     const steps = within(screen.getByRole("region", { name: "Proces rekrutacji" })).getAllByRole("listitem");
     expect(steps).toHaveLength(4);
-    expect(steps[0].textContent).toContain("Rozmowa z Urszulą");
+    expect(steps[0].textContent).toContain("Rozmowa z Martą");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
   });
 

@@ -7,7 +7,7 @@ import type { CareerJobResponse } from "@/lib/career/api";
 /** Odpowiedź `/api/public/career/r/pl-eu-amlr-package-kyc-delivery-lead-lyy3` (28.10.2026). */
 const AMLR = {
   status: "open",
-  recruiter: { first_name: "Urszula", slug: null },
+  recruiter: { first_name: "Marta", slug: null },
   theme: "jasny",
   published_at: "2026-10-28",
   canonical_slug: "pl-eu-amlr-package-kyc-delivery-lead-lyy3",
@@ -84,7 +84,7 @@ describe("JasnyJob", () => {
     const steps = within(screen.getByRole("region", { name: "Proces rekrutacji" }));
     const items = within(steps.getByRole("list")).getAllByRole("listitem");
     expect(items).toHaveLength(4);
-    expect(items[0]).toHaveTextContent("Rozmowa z Urszulą");
+    expect(items[0]).toHaveTextContent("Rozmowa z Martą");
     const apply = screen.getByRole("region", { name: "Aplikuj" });
     expect(apply).toHaveAttribute("id", "aplikuj");
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
@@ -114,9 +114,9 @@ describe("JasnyJob", () => {
 
   it("kroki procesu stoją raz — karta „Prowadzi” ma tylko imię i zdanie", () => {
     renderJob();
-    expect(screen.getAllByText("Rozmowa z Urszulą")).toHaveLength(1);
+    expect(screen.getAllByText("Rozmowa z Martą")).toHaveLength(1);
     const lead = within(screen.getByRole("complementary", { name: "Kto prowadzi rekrutację" }));
-    expect(lead.getByText("Prowadzi: Urszula")).toBeInTheDocument();
+    expect(lead.getByText("Prowadzi: Marta")).toBeInTheDocument();
     expect(lead.queryByRole("list")).toBeNull();
     expect(screen.getByText("Umowa B2B")).toBeInTheDocument();
   });
@@ -152,10 +152,10 @@ describe("JasnyJob", () => {
   });
 
   it("ze stałym linkiem rekrutera formularz odsyła do jego strony", () => {
-    renderJob({ ...AMLR, recruiter: { ...AMLR.recruiter, slug: "urszula-k" } });
+    renderJob({ ...AMLR, recruiter: { ...AMLR.recruiter, slug: "marta-k" } });
     expect(screen.getByRole("link", { name: /Nie ten projekt\?/ })).toHaveAttribute(
       "href",
-      expect.stringContaining("urszula-k"),
+      expect.stringContaining("marta-k"),
     );
   });
 });
