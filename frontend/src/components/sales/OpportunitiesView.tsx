@@ -263,13 +263,13 @@ export function OpportunitiesView() {
           ) : null
         }
       />
-      {state === "ready" && (opportunities.data?.total ?? 0) > items.length && (
+      {state === "ready" && (opportunities.data?.total ?? 0) > (opportunities.data?.items.length ?? 0) && (
         <p role="status" className="text-xs text-warning">
-          Pokazujemy {items.length} z {opportunities.data?.total} szans — zawęź wyszukiwanie albo
+          Pokazujemy {opportunities.data?.items.length} z {opportunities.data?.total} szans — zawęź wyszukiwanie albo
           przejdź do „Moje”, żeby liczby lejka były pełne.
         </p>
       )}
-      {state === "ready" && (
+      {state === "ready" && !archived && (
         <InlineStats
           stats={[
             { id: "open", label: "otwartych szans", value: summary.open },

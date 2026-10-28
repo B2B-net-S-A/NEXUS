@@ -81,7 +81,7 @@ export function SalesMotionPanel({ motion }: { motion: AtlasMotion | null }) {
         <h2 className="text-base font-semibold text-foreground">Mapa decyzyjna i proces zakupowy</h2>
         <p className="text-xs text-muted-foreground">
           {map.length} os. na mapie · kamienie milowe {milestonesDone}/5
-          {factory?.decision_map_completeness != null ? ` · mapa ${factory.decision_map_completeness}%` : ""}
+          {map.length > 0 && map.length < 3 ? " · za mało osób (min. 3)" : ""}
           {factory?.updated_at ? ` · z Atlasa, ${formatIsoDatePl(factory.updated_at.slice(0, 10))}` : ""}
         </p>
       </div>
