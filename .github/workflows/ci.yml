@@ -576,6 +576,56 @@ jobs:
       - name: Wtyczka LinkedIn — testy (node --test)
         working-directory: extension
         run: npm ci --no-audit --no-fund && npm test
+      # E2E wtyczki w prawdziwym Chromium (29.10.2026): podstawione strony
+      # LinkedIna i fikcyjne `/api/extension/*`, bez backendu i bez danych.
+      # Łapie błędy czytników `innerText` żywej strony, których linkedom w
+      # `npm test` nie widzi („InformacjeInformacje”, „JavaJava”, #2798).
+      # W tym jobie, nie w osobnym: job zbiorczy `frontend-gate` robi z niego
+      # wymagany kontekst (osobny job trzeba by dopisać do ochrony gałęzi,
+      # inaczej czerwony nie blokuje merge'a), a nowy runner to kolejny
+      # checkout i minuta zaokrąglenia rozliczenia. `playwright-core` jest
+      # w devDependencies wtyczki, bo `npm ci` frontendu bywa pominięte
+      # filtrem niżej. Tylko gdy zmiana dotyka `extension/` albo tego pliku
+      # (~40 s z pobraniem Chromium); niepewna lista plików = bieg.
+      - name: Czy zmiana dotyka wtyczki?
+        id: extension-scope
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          case "$EVENT" in
+            pull_request)
+              files=$(gh api --paginate "/repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename') || files="" ;;
+            merge_group)
+              files=$(gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" \
+                --jq 'if (.files | length) >= 300 then "LIMIT" else .files[].filename end') || files="" ;;
+            *)
+              echo "run=true" >> "$GITHUB_OUTPUT"; echo "Zdarzenie $EVENT — E2E wtyczki biegnie."; exit 0 ;;
+          esac
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qx LIMIT; then
+            echo "::warning::Nie udało się ustalić listy zmienionych plików — E2E wtyczki biegnie."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if hit=$(printf '%s\n' "$files" | grep -E '^extension/|^\.github/workflows/ci\.yml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "E2E wtyczki: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Zmiana nie dotyka extension/ — E2E wtyczki pominięte."
+          fi
+      - name: Wtyczka LinkedIn — E2E w Chromium
+        if: steps.extension-scope.outputs.run == 'true'
+        working-directory: extension
+        run: |
+          npx playwright-core install --no-shell chromium
+          npm run test:e2e
       # Filtr ścieżek (2026-09-20). Do tej zmiany KAŻDY przebieg płacił za pełny
       # frontend — ESLint, type-check, Vitest z pokryciem i `next build`, 17 min
       # billable — także dla PR-a, który tknął wyłącznie backend albo
