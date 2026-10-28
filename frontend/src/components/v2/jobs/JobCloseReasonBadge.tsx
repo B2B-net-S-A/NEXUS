@@ -49,10 +49,12 @@ export function JobCloseReasonBadge({
     <Badge
       variant={group ? VARIANT[group] : "warning"}
       title={title}
-      className="whitespace-nowrap"
+      // W wąskiej kolumnie nagłówka skraca się z wielokropkiem (pełny powód
+      // w dymku), zamiast wychodzić pod zakładki (28.10.2026).
+      className="max-w-full whitespace-nowrap"
       data-testid="job-close-reason-badge"
     >
-      Zamknięta · {short}
+      <span className="min-w-0 truncate">Zamknięta · {short}</span>
     </Badge>
   );
 }
