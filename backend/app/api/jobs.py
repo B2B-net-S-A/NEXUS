@@ -2412,6 +2412,12 @@ async def get_job(
 
     payload["p0_set_by_name"] = await job_p0.set_by_name(db, job)
     payload["can_set_p0"] = pipeline_writer and job_p0.can_set_p0(current_user)
+    # 0609: Delivery Lead tej rekrutacji prosi o P0 (HoR i admin ustawiają od razu).
+    payload["can_request_p0"] = (
+        pipeline_writer
+        and not payload["can_set_p0"]
+        and job_p0.can_request_p0(current_user, job)
+    )
     # 0341: status requestu — ta sama reguła co wiersz listy.
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 

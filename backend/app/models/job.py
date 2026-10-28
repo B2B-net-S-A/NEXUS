@@ -162,6 +162,18 @@ class Job(Base, TimestampMixin):
     p0_set_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # 0609: prośba Delivery Leada o P0 (decyzja Artura 28.10.2026) — DL prosi,
+    # Head of Recruitment albo admin zatwierdza; jedna oczekująca naraz.
+    p0_request_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    p0_request_duration: Mapped[Optional[str]] = mapped_column(
+        String(16), nullable=True
+    )
+    p0_requested_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    p0_requested_by: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # 0341: Delivery Lead oznacza „Mamy championa" — kandydat jest, dalej nie
     # szukamy. Do tej chwili status requestu na liście to „Szukamy".

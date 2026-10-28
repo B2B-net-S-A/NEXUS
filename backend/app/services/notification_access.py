@@ -169,6 +169,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_ad_backlog: ProductSection.pipeline,
     NotificationType.job_ad_nudge: ProductSection.pipeline,
     NotificationType.job_p0_set: ProductSection.pipeline,
+    NotificationType.job_p0_requested: ProductSection.pipeline,
     # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
     NotificationType.job_closed_people_waiting: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
