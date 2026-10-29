@@ -9,9 +9,13 @@ Liczymy od 12.10.2026 — od tego dnia zespół pracuje w NEXUSIE.
 * **Punkty pracy** — każda akcja osoby ma wagę swojego rodzaju (``KINDS``).
   Screening waży najwięcej, bo za notatką stoi rozmowa; klikanie kart mało,
   żeby nie opłacało się „nabijać”. Importy, automaty i autozapisy nie liczą się.
+* **Ochrona przed nabijaniem** (29.10.2026) — CV z automatu, ponowne zapisy
+  i podglądy tej samej rzeczy, masowe akcje, powrót karty na ten sam etap
+  i „nie odbiera” ponad dzienny limit nie dają punktów (``classify_events``).
 * **Poziom godziny** — suma punktów w godzinie wobec progów ``hour_levels``.
 * **Godzina pracy** — co najmniej ``work_hour_min_points`` albo prep
   ustawiony z NEXUSA trwający ≥ 30 min w tej godzinie; liczona 8:00–18:00.
+  Godzina z samych drobnych akcji przy jednym kandydacie się nie liczy.
 * **Intensywność dnia (0–100)** — ½ × godziny pracy / norma godzin + ½ ×
   punkty dnia / norma punktów, każda część najwyżej 1. Pół dnia urlopu
   obniża obie normy o połowę, cały dzień urlopu nie liczy się wcale.
@@ -40,6 +44,7 @@ from app.core.scheduling import DEFAULT_TZ, local_day_start_utc
 from app.models.app_setting import AppSetting
 from app.models.oauth_client import OAuthClient
 from app.models.user import User, UserRole
+from app.schemas.pipeline import STAGE_LABELS, PipelineStage
 from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.person_workdays import absence_by_user, business_days
 
@@ -51,7 +56,18 @@ HOURS: tuple[int, ...] = tuple(range(7, 20))
 WORK_HOURS: frozenset[int] = frozenset(range(8, 18))
 
 # Rodzaje akcji — klucze wag w ustawieniach (kolejność = kolejność na ekranie).
-KINDS: tuple[str, ...] = ("screening", "client_step", "cv", "note", "action", "view")
+KINDS: tuple[str, ...] = (
+    "screening",
+    "client_step",
+    "cv",
+    "note",
+    "contact",
+    "action",
+    "view",
+)
+# Rodzaje, z których jedna akcja wystarcza na godzinę pracy (za nimi stoi rozmowa
+# albo dokument); reszta musi dotyczyć kilku kandydatów.
+STRONG_KINDS = frozenset({"screening", "client_step", "cv"})
 
 DEFAULT_RULES: dict[str, Any] = {
     "weights": {
@@ -59,6 +75,7 @@ DEFAULT_RULES: dict[str, Any] = {
         "client_step": 3,
         "cv": 3,
         "note": 2,
+        "contact": 1,
         "action": 1,
         "view": 0.5,
     },
@@ -71,7 +88,27 @@ DEFAULT_RULES: dict[str, Any] = {
     "level_mid": 50,
     "diag_intensity": 60,
     "diag_results_pct": 80,
+    # Ochrona przed nabijaniem (decyzja Artura 29.10.2026). Limit 0 = bez limitu.
+    "auto_cv_points": 0,
+    "screening_per_candidate_day": 1,
+    "repeats_per_hour": 1,
+    "views_per_hour": 4,
+    "bulk_per_minute": 10,
+    "stage_return_points": 0,
+    "contacts_per_day": 10,
+    "thin_hour_candidates": 2,
 }
+GUARD_FIELDS: tuple[str, ...] = (
+    "auto_cv_points",
+    "screening_per_candidate_day",
+    "repeats_per_hour",
+    "views_per_hour",
+    "bulk_per_minute",
+    "stage_return_points",
+    "contacts_per_day",
+    "thin_hour_candidates",
+)
+_FLOAT_GUARDS = frozenset({"auto_cv_points", "stage_return_points"})
 
 # Każdy z rolą rekrutera, także DL z dopisanym rekruterem; sam TCM nie
 # (decyzja Artura 29.10.2026). HoR i admin oglądają, nie są wierszami.
@@ -94,6 +131,14 @@ class Rules:
     level_mid: int
     diag_intensity: int
     diag_results_pct: int
+    auto_cv_points: float = 0
+    screening_per_candidate_day: int = 1
+    repeats_per_hour: int = 1
+    views_per_hour: int = 4
+    bulk_per_minute: int = 10
+    stage_return_points: float = 0
+    contacts_per_day: int = 10
+    thin_hour_candidates: int = 2
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -106,6 +151,7 @@ class Rules:
             "level_mid": self.level_mid,
             "diag_intensity": self.diag_intensity,
             "diag_results_pct": self.diag_results_pct,
+            **{k: getattr(self, k) for k in GUARD_FIELDS},
         }
 
 
@@ -124,6 +170,10 @@ def rules_from_json(raw: Mapping[str, Any] | None) -> Rules:
         level_mid=int(data["level_mid"]),
         diag_intensity=int(data["diag_intensity"]),
         diag_results_pct=int(data["diag_results_pct"]),
+        **{
+            k: float(data[k]) if k in _FLOAT_GUARDS else int(data[k])
+            for k in GUARD_FIELDS
+        },
     )
 
 
@@ -166,14 +216,24 @@ def hour_level(points: float, rules: Rules) -> int:
 
 
 def work_hours(
-    points: Mapping[int, float], meetings: Iterable[int], rules: Rules
+    points: Mapping[int, float],
+    meetings: Iterable[int],
+    rules: Rules,
+    *,
+    thin: Iterable[int] = (),
 ) -> int:
-    """Godziny pracy w 8:00–18:00: dość punktów albo prep z NEXUSA ≥ 30 min."""
+    """Godziny pracy w 8:00–18:00: dość punktów albo prep z NEXUSA ≥ 30 min.
+
+    ``thin`` = godziny z samych drobnych akcji przy zbyt małej liczbie
+    kandydatów — punkty zostają, ale godziną pracy nie są.
+    """
     met = set(meetings)
+    skip = set(thin)
     return sum(
         1
         for hour in WORK_HOURS
-        if points.get(hour, 0.0) >= rules.work_hour_min_points or hour in met
+        if hour in met
+        or (points.get(hour, 0.0) >= rules.work_hour_min_points and hour not in skip)
     )
 
 
@@ -183,11 +243,12 @@ def day_index(
     rules: Rules,
     *,
     available: float = 1.0,
+    thin: Iterable[int] = (),
 ) -> int | None:
     """Intensywność dnia 0–100; ``available`` = część dnia bez urlopu (1, 0,5, 0)."""
     if available <= 0:
         return None
-    hours = work_hours(points, meetings, rules)
+    hours = work_hours(points, meetings, rules, thin=thin)
     day_points = sum(points.values())
     coverage = min(1.0, hours / (rules.norm_work_hours * available))
     volume = min(1.0, day_points / (rules.norm_day_points * available))
@@ -224,6 +285,114 @@ def diagnose(index: int | None, results_pct: float | None, rules: Rules) -> str 
     if good:
         return "more_volume"
     return "more_work"
+
+
+@dataclass(frozen=True)
+class Event:
+    """Jedna akcja osoby: ``ts`` w czasie firmy (bez strefy), ``src``/``act`` —
+    skąd pochodzi i co to było, ``ent`` — czego dotyczy (kandydat, karta, plik)."""
+
+    uid: int
+    ts: datetime
+    kind: str
+    src: str
+    act: str
+    ent: str
+
+
+# Powody, dla których akcja nie dała punktów (klucze w „skipped” i rozkładzie dnia).
+SKIP_REASONS: tuple[str, ...] = (
+    "automat",
+    "powtorka",
+    "limit_podgladow",
+    "masowa",
+    "powrot",
+    "limit_kontaktu",
+)
+
+
+def classify_events(
+    events: Iterable[Event], rules: Rules
+) -> list[tuple[Event, float, str | None]]:
+    """Punkty każdej akcji po ochronie przed nabijaniem: ``(akcja, pkt, powód)``.
+
+    Powód ``None`` = akcja liczy się w pełni. Kolejność ma znaczenie: pierwsza
+    z serii zostaje, kolejne odpadają, więc akcje sortujemy po czasie.
+    """
+    ordered = sorted(events, key=lambda e: (e.uid, e.ts))
+    per_minute: dict[tuple, int] = defaultdict(int)
+    for e in ordered:
+        per_minute[(e.uid, e.src, e.act, e.ts.replace(second=0, microsecond=0))] += 1
+    seen: dict[tuple, int] = defaultdict(int)
+    out: list[tuple[Event, float, str | None]] = []
+    for e in ordered:
+        weight = rules.weights.get(e.kind, 0.0)
+        day, hour = e.ts.date(), e.ts.hour
+        minute = (e.uid, e.src, e.act, e.ts.replace(second=0, microsecond=0))
+        reason: str | None = None
+        points = weight
+        if e.src == "cv" and e.act == "auto":
+            points = rules.auto_cv_points
+            reason = "automat" if points < weight else None
+        elif rules.bulk_per_minute and per_minute[minute] >= rules.bulk_per_minute:
+            seen[("bulk", *minute)] += 1
+            if seen[("bulk", *minute)] > 1:
+                reason = "masowa"
+        if reason is None and e.src == "stage":
+            seen[("stage", e.uid, e.ent, e.act, day)] += 1
+            if seen[("stage", e.uid, e.ent, e.act, day)] > 1:
+                points = rules.stage_return_points
+                reason = "powrot" if points < weight else None
+        if reason is None and e.kind == "screening":
+            seen[("scr", e.uid, e.ent, day)] += 1
+            limit = rules.screening_per_candidate_day
+            if limit and seen[("scr", e.uid, e.ent, day)] > limit:
+                reason = "powtorka"
+        elif reason is None and e.src in ("act", "cv"):
+            seen[("rep", e.uid, e.src, e.act, e.ent, day, hour)] += 1
+            limit = rules.repeats_per_hour
+            if limit and seen[("rep", e.uid, e.src, e.act, e.ent, day, hour)] > limit:
+                reason = "powtorka"
+        if reason is None and e.kind == "view":
+            seen[("view", e.uid, day, hour)] += 1
+            limit = rules.views_per_hour
+            if limit and seen[("view", e.uid, day, hour)] > limit:
+                reason = "limit_podgladow"
+        if reason is None and e.kind == "contact":
+            seen[("contact", e.uid, day)] += 1
+            limit = rules.contacts_per_day
+            if limit and seen[("contact", e.uid, day)] > limit:
+                reason = "limit_kontaktu"
+        if reason is not None and reason not in ("automat", "powrot"):
+            points = 0.0
+        out.append((e, points, reason))
+    return out
+
+
+def thin_hours(
+    classified: Iterable[tuple[Event, float, str | None]], rules: Rules
+) -> set[int]:
+    """Godziny „podtrzymane” drobiazgami: punkty z samych drobnych akcji przy
+    mniej niż ``thin_hour_candidates`` kandydatach (4 ruchy jednej karty)."""
+    if rules.thin_hour_candidates <= 1:
+        return set()
+    strong: set[int] = set()
+    entities: dict[int, set[str]] = defaultdict(set)
+    points_by_hour: dict[int, float] = defaultdict(float)
+    for e, points, _ in classified:
+        if points <= 0:
+            continue
+        points_by_hour[e.ts.hour] += points
+        if e.kind in STRONG_KINDS:
+            strong.add(e.ts.hour)
+        entities[e.ts.hour].add(e.ent.split(":")[0])
+    return {
+        h
+        for h, ents in entities.items()
+        if h not in strong
+        and len(ents) < rules.thin_hour_candidates
+        and points_by_hour[h] >= rules.work_hour_min_points
+    }
 
 
 # ── Dane ────────────────────────────────────────────────────────────────────
@@ -264,18 +433,23 @@ BURST_MIN_USERS = 5
 
 _EVENTS_SQL = """
 WITH ev AS (
-    SELECT cs.moved_by AS uid, cs.moved_at AS ts, 'action' AS kind, false AS burstable
+    SELECT cs.moved_by AS uid, cs.moved_at AS ts, 'action' AS kind, false AS burstable,
+           'stage' AS src, cs.stage::text AS act,
+           cs.candidate_id || ':' || cs.job_id AS ent
     FROM candidate_stages cs
     WHERE cs.moved_by = ANY(:ids) AND cs.stage::text <> 'posting'
       AND cs.moved_at >= :start AND cs.moved_at < :end
     UNION ALL
-    SELECT r.removed_by, r.removed_at, 'action', false
+    SELECT r.removed_by, r.removed_at, 'action', false,
+           'removal', '', r.candidate_id || ':' || r.job_id
     FROM candidate_stage_removals r
     WHERE r.removed_by = ANY(:ids) AND r.removed_at >= :start AND r.removed_at < :end
     UNION ALL
     SELECT n.author_id, n.created_at,
-           CASE WHEN n.kind IN ('card', 'screening_facts') THEN 'screening' ELSE 'note' END,
-           false
+           CASE WHEN n.kind IN ('card', 'screening_facts') THEN 'screening'
+                WHEN n.kind = 'contact_attempt' THEN 'contact'
+                ELSE 'note' END,
+           false, 'note', COALESCE(n.kind, ''), COALESCE(n.candidate_id::text, 'n' || n.id)
     FROM notes n
     WHERE n.author_id = ANY(:ids) AND n.created_at >= :start AND n.created_at < :end
       AND COALESCE(n.kind, '') <> ALL(:skipped_note_kinds)
@@ -288,43 +462,50 @@ WITH ev AS (
                WHEN a.action IN ('document_downloaded', 'cv_file_downloaded') THEN 'view'
                ELSE 'action'
            END,
-           false
+           false, 'act', a.action,
+           CASE WHEN a.entity_type = 'candidate' THEN a.entity_id::text
+                ELSE a.entity_type || '/' || COALESCE(a.entity_id::text, '') END
     FROM activities a
     WHERE a.user_id = ANY(:ids) AND a.created_at >= :start AND a.created_at < :end
       AND a.action <> ALL(:skipped_actions) AND a.action NOT LIKE 'traffit:%'
     UNION ALL
-    SELECT c.created_by, c.created_at, 'note', true
+    SELECT c.created_by, c.created_at, 'note', true, 'candidate', '', c.id::text
     FROM candidates c
     WHERE c.created_by = ANY(:ids) AND c.created_at >= :start AND c.created_at < :end
     UNION ALL
-    SELECT g.created_by, g.created_at, 'cv', false
+    SELECT g.created_by, g.created_at, 'cv', false,
+           'cv', COALESCE(g.origin, ''),
+           COALESCE(g.candidate_id || ':' || COALESCE(g.job_id, 0), 'g' || g.id)
     FROM cv_generated_documents g
     WHERE g.created_by = ANY(:ids) AND g.created_at >= :start AND g.created_at < :end
     UNION ALL
-    SELECT m.user_id, m.sent_at, 'action', false
+    SELECT m.user_id, m.sent_at, 'action', false,
+           'email', '', COALESCE(m.candidate_id::text, 'm' || m.id)
     FROM emails m
     WHERE m.user_id = ANY(:ids) AND m.direction::text = 'sent'
       AND m.sent_at >= :start AND m.sent_at < :end
     UNION ALL
-    SELECT q.created_by_user_id, q.created_at, 'action', false
+    SELECT q.created_by_user_id, q.created_at, 'action', false, 'qc', '', 'q' || q.id
     FROM cv_qc_runs q
     WHERE q.created_by_user_id = ANY(:ids) AND q.created_at >= :start AND q.created_at < :end
     UNION ALL
-    SELECT ce.created_by, ce.created_at, 'client_step', true
+    SELECT ce.created_by, ce.created_at, 'client_step', true,
+           'interview', '', COALESCE(ce.candidate_id::text, 'e' || ce.id)
     FROM calendar_events ce
     WHERE ce.created_by = ANY(:ids) AND ce.event_type::text = 'client_interview'
       AND COALESCE(ce.external_source, 'manual') = 'manual'
       AND ce.created_at >= :start AND ce.created_at < :end
     UNION ALL
-    SELECT f.author_id, f.created_at, 'client_step', true
+    SELECT f.author_id, f.created_at, 'client_step', true, 'feedback', '', 'f' || f.id
     FROM interview_feedback f
     WHERE f.author_id = ANY(:ids) AND f.created_at >= :start AND f.created_at < :end
     UNION ALL
-    SELECT p.scheduled_by_user_id, p.created_at, 'client_step', false
+    SELECT p.scheduled_by_user_id, p.created_at, 'client_step', false,
+           'prep', '', p.candidate_id::text
     FROM prep_meetings p
     WHERE p.scheduled_by_user_id = ANY(:ids) AND p.created_at >= :start AND p.created_at < :end
     UNION ALL
-    SELECT sr.created_by, sr.created_at, 'client_step', false
+    SELECT sr.created_by, sr.created_at, 'client_step', false, 'slots', '', 's' || sr.id
     FROM client_interview_slot_requests sr
     WHERE sr.created_by = ANY(:ids) AND sr.created_at >= :start AND sr.created_at < :end
 ),
@@ -334,22 +515,13 @@ bursts AS (
     WHERE burstable
     GROUP BY 1, 2
     HAVING count(DISTINCT uid) >= :burst_min_users
-),
-local_ev AS (
-    SELECT ev.uid, ev.kind, ev.ts AT TIME ZONE 'Europe/Warsaw' AS local_ts
-    FROM ev
-    LEFT JOIN bursts b ON b.kind = ev.kind AND b.minute = date_trunc('minute', ev.ts)
-    WHERE b.minute IS NULL
 )
-SELECT uid,
-       local_ts::date AS day,
-       extract(hour FROM local_ts)::int AS hour,
-       kind,
-       count(*) AS n,
-       min(local_ts) AS first_ts,
-       max(local_ts) AS last_ts
-FROM local_ev
-GROUP BY 1, 2, 3, 4
+SELECT ev.uid, ev.ts AT TIME ZONE 'Europe/Warsaw' AS local_ts,
+       ev.kind, ev.src, ev.act, ev.ent
+FROM ev
+LEFT JOIN bursts b ON b.kind = ev.kind AND b.minute = date_trunc('minute', ev.ts)
+WHERE b.minute IS NULL
+ORDER BY ev.uid, ev.ts
 """
 
 # Spotkanie = tylko prep ustawiony z NEXUSA (decyzja Artura 29.10.2026):
@@ -433,14 +605,19 @@ def account_start(user: User) -> date | None:
 
 @dataclass
 class DayCell:
-    counts: dict[int, dict[str, int]] = field(default_factory=lambda: defaultdict(dict))
+    """Dzień osoby po ochronie przed nabijaniem."""
+
+    points: dict[int, float] = field(default_factory=lambda: defaultdict(float))
+    counts: dict[int, int] = field(default_factory=lambda: defaultdict(int))
+    skipped: dict[str, float] = field(default_factory=lambda: defaultdict(float))
+    thin: set[int] = field(default_factory=set)
     first: datetime | None = None
     last: datetime | None = None
 
 
-async def _events(
+async def _raw_events(
     db: AsyncSession, ids: Sequence[int], start: date, end: date
-) -> dict[tuple[int, date], DayCell]:
+) -> list[Event]:
     rows = (
         await db.execute(
             text(_EVENTS_SQL),
@@ -454,14 +631,34 @@ async def _events(
             },
         )
     ).all()
-    cells: dict[tuple[int, date], DayCell] = defaultdict(DayCell)
-    for row in rows:
-        cell = cells[(int(row.uid), row.day)]
-        cell.counts[int(row.hour)][row.kind] = int(row.n)
-        cell.first = (
-            row.first_ts if cell.first is None else min(cell.first, row.first_ts)
-        )
-        cell.last = row.last_ts if cell.last is None else max(cell.last, row.last_ts)
+    return [
+        Event(int(r.uid), r.local_ts, r.kind, r.src, r.act or "", str(r.ent))
+        for r in rows
+    ]
+
+
+def build_cells(
+    classified: Iterable[tuple[Event, float, str | None]], rules: Rules
+) -> dict[tuple[int, date], DayCell]:
+    by_day: dict[tuple[int, date], list[tuple[Event, float, str | None]]] = defaultdict(
+        list
+    )
+    for item in classified:
+        by_day[(item[0].uid, item[0].ts.date())].append(item)
+    cells: dict[tuple[int, date], DayCell] = {}
+    for key, items in by_day.items():
+        cell = DayCell()
+        for e, points, reason in items:
+            hour = e.ts.hour
+            cell.points[hour] += points
+            if reason is None:
+                cell.counts[hour] += 1
+            else:
+                cell.skipped[reason] += rules.weights.get(e.kind, 0.0) - points
+            cell.first = e.ts if cell.first is None else min(cell.first, e.ts)
+            cell.last = e.ts if cell.last is None else max(cell.last, e.ts)
+        cell.thin = thin_hours(items, rules)
+        cells[key] = cell
     return cells
 
 
@@ -575,7 +772,9 @@ async def build_rhythm(
             "team_cv_per_day_median": None,
         }
 
-    cells = await _events(db, ids, start, end)
+    cells = build_cells(
+        classify_events(await _raw_events(db, ids, start, end), rules), rules
+    )
     meetings = await _meetings(db, ids, start, end)
     absence = await absence_by_user(db, ids, start, end)
     cv_end = end - timedelta(days=1) if today is not None and end >= today else end
@@ -593,7 +792,7 @@ async def build_rhythm(
         for day in days:
             cell = cells.get((user.id, day), DayCell())
             met = meetings.get((user.id, day), set())
-            points = {h: hour_points(cell.counts.get(h, {}), rules) for h in range(24)}
+            points = {h: cell.points.get(h, 0.0) for h in range(24)}
             before_start = started is not None and day < started
             available = (
                 0.0 if before_start else max(0.0, 1.0 - min(1.0, absent.get(day, 0.0)))
@@ -606,15 +805,19 @@ async def build_rhythm(
                     "leave": 0.0 if before_start else round(1.0 - available, 2),
                     "points": [round(points[h], 1) for h in HOURS],
                     "levels": [hour_level(points[h], rules) for h in HOURS],
-                    "counts": [sum(cell.counts.get(h, {}).values()) for h in HOURS],
+                    "counts": [cell.counts.get(h, 0) for h in HOURS],
+                    "thin": [h in cell.thin for h in HOURS],
+                    "skipped": {k: round(v, 1) for k, v in cell.skipped.items()},
                     "meetings": [h in met for h in HOURS],
                     "first": cell.first.strftime("%H:%M") if cell.first else None,
                     "last": cell.last.strftime("%H:%M") if cell.last else None,
-                    "work_hours": work_hours(points, met, rules)
+                    "work_hours": work_hours(points, met, rules, thin=cell.thin)
                     if available > 0
                     else None,
                     "day_points": round(sum(points.values()), 1),
-                    "index": day_index(points, met, rules, available=available),
+                    "index": day_index(
+                        points, met, rules, available=available, thin=cell.thin
+                    ),
                 }
             )
         entry: dict[str, Any] = {
@@ -650,4 +853,117 @@ async def build_rhythm(
         "rules": rules.as_json(),
         "people": out_people,
         "team_cv_per_day_median": team_median,
+    }
+
+
+# ── Rozkład dnia osoby (kliknięcie w dzień) ─────────────────────────────────
+
+_SRC_LABELS = {
+    "removal": "Usunięcie z rekrutacji",
+    "candidate": "Dodany kandydat",
+    "email": "Wysłany mail",
+    "qc": "QC CV",
+    "interview": "Rozmowa u klienta umówiona",
+    "feedback": "Feedback z rozmowy u klienta",
+    "prep": "Prep umówiony",
+    "slots": "Prośba o terminy rozmowy",
+}
+_NOTE_LABELS = {
+    "card": "Karta screeningu",
+    "screening_facts": "Fakty z rozmowy (screening)",
+    "contact_attempt": "Próba kontaktu („nie odbiera”)",
+    "scheduling": "Notatka: umówienie",
+    "status": "Notatka: status",
+    "contractor": "Notatka kontraktora",
+}
+_ACTION_LABELS = {
+    "document_downloaded": "Podgląd dokumentu",
+    "cv_file_downloaded": "Podgląd CV",
+    "screening_form_saved": "Formularz screeningu",
+    "recommendation_card_updated": "Karta rekomendacji",
+    "candidate_rate_change_requested": "Prośba o zmianę stawki",
+    "branded_cv_finalized": "Finalizacja CV",
+    "candidate_claimed": "Przejęcie kandydata",
+    "cv_uploaded": "Wgranie CV",
+    "cv_qc_confirmed": "QC CV potwierdzone",
+    "removed_from_recruitment": "Usunięcie z rekrutacji",
+    "proposal_inbox_opened": "Otwarcie propozycji z bazy",
+    "cv_qc_fix_applied": "Poprawka po QC CV",
+    "cv_command_ai": "Poprawka CV z AI",
+    "document_uploaded": "Wgranie dokumentu",
+    "branded_cv_new_version": "Nowa wersja CV",
+    "client_rate_changed": "Zmiana stawki dla klienta",
+    "champion_profile_updated": "Profil Championa",
+}
+
+
+def event_label(src: str, act: str) -> str:
+    """Nazwa akcji w rozkładzie dnia."""
+    if src == "stage":
+        try:
+            stage = STAGE_LABELS.get(PipelineStage(act), act)
+        except ValueError:
+            stage = act
+        return f"Ruch karty → {stage}"
+    if src == "note":
+        return _NOTE_LABELS.get(act, "Notatka")
+    if src == "act":
+        return _ACTION_LABELS.get(act, f"Inny zapis ({act})")
+    if src == "cv":
+        return "CV z automatu" if act == "auto" else "Wygenerowane CV"
+    return _SRC_LABELS.get(src, src)
+
+
+def candidate_id_of(src: str, ent: str) -> int | None:
+    """Kandydat, którego dotyczy akcja (``kandydat:rekrutacja`` albo samo id)."""
+    head = ent.split(":", 1)[0] if src in ("stage", "removal", "cv") else ent
+    return int(head) if head.isdigit() else None
+
+
+async def build_day(db: AsyncSession, user_id: int, day: date) -> dict[str, Any] | None:
+    """Akcje osoby z jednego dnia: co się liczy, a co odpadło i dlaczego.
+
+    ``None`` = osoby nie ma w Rytmie dnia. Import wielu osób naraz rozpoznajemy
+    po całym zespole, więc zdarzenia bierzemy dla wszystkich i zawężamy potem.
+    """
+    rules = await load_rules(db)
+    people = await rhythm_people(db)
+    person = next((u for u in people if u.id == user_id), None)
+    if person is None:
+        return None
+    raw = await _raw_events(db, [u.id for u in people], day, day)
+    classified = [c for c in classify_events(raw, rules) if c[0].uid == user_id]
+    cell = build_cells(classified, rules).get((user_id, day), DayCell())
+    met = (await _meetings(db, [user_id], day, day)).get((user_id, day), set())
+    cand_ids = {cid for e, _, _ in classified if (cid := candidate_id_of(e.src, e.ent))}
+    names: dict[int, str] = {}
+    if cand_ids:
+        rows = await db.execute(
+            text("SELECT id, name, lastname FROM candidates WHERE id = ANY(:ids)"),
+            {"ids": sorted(cand_ids)},
+        )
+        names = {
+            int(r.id): " ".join(p for p in (r.name, r.lastname) if p) for r in rows
+        }
+    return {
+        "user_id": user_id,
+        "name": person.name,
+        "date": day,
+        "points": [round(cell.points.get(h, 0.0), 1) for h in HOURS],
+        "meetings": [h in met for h in HOURS],
+        "thin": [h in cell.thin for h in HOURS],
+        "skipped": {k: round(v, 1) for k, v in cell.skipped.items()},
+        "events": [
+            {
+                "time": e.ts.strftime("%H:%M"),
+                "hour": e.ts.hour,
+                "kind": e.kind,
+                "label": event_label(e.src, e.act),
+                "candidate": names.get(candidate_id_of(e.src, e.ent) or 0),
+                "points": round(points, 2),
+                "weight": rules.weights.get(e.kind, 0.0),
+                "reason": reason,
+            }
+            for e, points, reason in classified
+        ],
     }

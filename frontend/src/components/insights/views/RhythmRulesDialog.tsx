@@ -22,6 +22,29 @@ import {
 
 type Draft = Record<string, string>;
 
+const GUARD_KEYS = [
+  "auto_cv_points",
+  "stage_return_points",
+  "screening_per_candidate_day",
+  "repeats_per_hour",
+  "views_per_hour",
+  "bulk_per_minute",
+  "contacts_per_day",
+  "thin_hour_candidates",
+] as const;
+
+/** Ochrona przed nabijaniem (decyzja Artura 29.10.2026); limit 0 = bez limitu. */
+const GUARD_FIELDS: { key: (typeof GUARD_KEYS)[number]; label: string; suffix?: string }[] = [
+  { key: "auto_cv_points", label: "CV wygenerowane przez automat", suffix: "pkt" },
+  { key: "stage_return_points", label: "Powrót karty na ten sam etap tego dnia", suffix: "pkt" },
+  { key: "screening_per_candidate_day", label: "Screening tego samego kandydata liczy się", suffix: "× / d." },
+  { key: "repeats_per_hour", label: "Inny zapis tej samej rzeczy liczy się", suffix: "× / h" },
+  { key: "views_per_hour", label: "Podglądów liczonych w godzinie najwyżej" },
+  { key: "bulk_per_minute", label: "Masowa akcja od (ten sam zapis w minutę)", suffix: "szt." },
+  { key: "contacts_per_day", label: "Prób kontaktu liczonych dziennie najwyżej" },
+  { key: "thin_hour_candidates", label: "Godzina z drobnych akcji wymaga kandydatów" },
+];
+
 function toDraft(rules: WorkRhythmRules): Draft {
   const draft: Draft = {};
   for (const kind of WORK_RHYTHM_KINDS) draft[`w_${kind}`] = String(rules.weights[kind]);
@@ -34,6 +57,7 @@ function toDraft(rules: WorkRhythmRules): Draft {
     "level_mid",
     "diag_intensity",
     "diag_results_pct",
+    ...GUARD_KEYS,
   ] as const) {
     draft[key] = String(rules[key]);
   }
@@ -58,6 +82,14 @@ export function draftToRules(draft: Draft): WorkRhythmRules {
     level_mid: Math.round(num(draft.level_mid)),
     diag_intensity: Math.round(num(draft.diag_intensity)),
     diag_results_pct: Math.round(num(draft.diag_results_pct)),
+    auto_cv_points: num(draft.auto_cv_points),
+    stage_return_points: num(draft.stage_return_points),
+    screening_per_candidate_day: Math.round(num(draft.screening_per_candidate_day)),
+    repeats_per_hour: Math.round(num(draft.repeats_per_hour)),
+    views_per_hour: Math.round(num(draft.views_per_hour)),
+    bulk_per_minute: Math.round(num(draft.bulk_per_minute)),
+    contacts_per_day: Math.round(num(draft.contacts_per_day)),
+    thin_hour_candidates: Math.round(num(draft.thin_hour_candidates)),
   };
 }
 
@@ -69,8 +101,10 @@ export function draftProblem(rules: WorkRhythmRules): string | null {
     rules.work_hour_min_points,
     rules.norm_work_hours,
     rules.norm_day_points,
+    ...GUARD_KEYS.map((key) => rules[key]),
   ];
   if (values.some((v) => !Number.isFinite(v))) return "Wpisz liczby we wszystkich polach.";
+  if (GUARD_KEYS.some((key) => rules[key] < 0)) return "Limity i punkty ochrony nie mogą być ujemne.";
   const [low, mid, high] = rules.hour_levels;
   if (!(low > 0 && low < mid && mid < high)) {
     return "Progi godziny muszą rosnąć: robocza < intensywna < bardzo intensywna.";
@@ -179,6 +213,15 @@ export function RhythmRulesDialog({
           <Field id="rytm-mid" label="Średnia intensywność od" value={draft.level_mid} onChange={set("level_mid")} />
           <Field id="rytm-diag-i" label="„Dużo pracy” od intensywności" value={draft.diag_intensity} onChange={set("diag_intensity")} />
           <Field id="rytm-diag-r" label="„Dobre wyniki” od mediany CV" value={draft.diag_results_pct} onChange={set("diag_results_pct")} suffix="%" />
+        </section>
+        <section className="space-y-2 md:col-span-2" aria-label="Ochrona przed nabijaniem">
+          <p className="text-sm font-semibold text-foreground">Ochrona przed nabijaniem</p>
+          <p className="text-xs text-muted-foreground">Limit 0 = bez limitu. Akcje ponad limit zostają w rozkładzie dnia z powodem, ale nie dają punktów.</p>
+          <div className="grid gap-x-6 gap-y-2 md:grid-cols-2">
+            {GUARD_FIELDS.map((f) => (
+              <Field key={f.key} id={`rytm-g-${f.key}`} label={f.label} value={draft[f.key]} onChange={set(f.key)} suffix={f.suffix} />
+            ))}
+          </div>
         </section>
       </div>
     </AppModal>

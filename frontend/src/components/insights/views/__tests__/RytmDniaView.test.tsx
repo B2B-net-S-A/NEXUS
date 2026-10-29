@@ -1,11 +1,12 @@
 /**
  * Insights → „Rytm dnia” (28.10.2026): urlop zamiast godzin, wyniki
  * i podpowiedź tylko gdy serwer je przysłał (liderzy), awaria nie udaje
- * pustki, progi reguł muszą rosnąć.
+ * pustki, progi reguł muszą rosnąć. 29.10.2026: ochrona przed nabijaniem
+ * i rozkład dnia po kliknięciu (co się liczyło, a co odpadło i dlaczego).
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ get: vi.fn(), params: new URLSearchParams() }));
@@ -21,11 +22,12 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { DayBreakdown } from "@/components/insights/views/RhythmDayDialog";
 import { draftProblem } from "@/components/insights/views/RhythmRulesDialog";
-import type { WorkRhythmDay, WorkRhythmResponse, WorkRhythmRules } from "@/lib/work-rhythm-api";
+import type { WorkRhythmDay, WorkRhythmDayDetail, WorkRhythmResponse, WorkRhythmRules } from "@/lib/work-rhythm-api";
 
 const RULES: WorkRhythmRules = {
-  weights: { screening: 5, client_step: 3, cv: 3, note: 2, action: 1, view: 0.5 },
+  weights: { screening: 5, client_step: 3, cv: 3, note: 2, contact: 1, action: 1, view: 0.5 },
   hour_levels: [4, 11, 25],
   work_hour_min_points: 4,
   norm_work_hours: 7,
@@ -34,6 +36,14 @@ const RULES: WorkRhythmRules = {
   level_mid: 50,
   diag_intensity: 60,
   diag_results_pct: 80,
+  auto_cv_points: 0,
+  screening_per_candidate_day: 1,
+  repeats_per_hour: 1,
+  views_per_hour: 4,
+  bulk_per_minute: 10,
+  stage_return_points: 0,
+  contacts_per_day: 10,
+  thin_hour_candidates: 2,
 };
 
 function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
@@ -46,6 +56,8 @@ function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
     levels: Array(13).fill(2),
     counts: Array(13).fill(3),
     meetings: Array(13).fill(false),
+    thin: Array(13).fill(false),
+    skipped: {},
     first: "09:00",
     last: "17:00",
     work_hours: 8,
@@ -140,6 +152,26 @@ describe("RytmDniaView", () => {
     expect(screen.getByRole("button", { name: /Zmień reguły/ })).toBeInTheDocument();
   });
 
+  it("kliknięcie osoby otwiera rozkład dnia z serwera", async () => {
+    const detail: WorkRhythmDayDetail = {
+      user_id: 1,
+      name: "Anna Testowa",
+      date: "2026-10-27",
+      points: Array(13).fill(0),
+      meetings: Array(13).fill(false),
+      thin: Array(13).fill(false),
+      skipped: {},
+      events: [],
+    };
+    mocks.get.mockImplementation((url: string) =>
+      Promise.resolve({ data: url.endsWith("/day") ? detail : body() }),
+    );
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: /Anna Testowa/ }));
+    expect(await screen.findByText("Tego dnia nie ma żadnej akcji w NEXUSIE.")).toBeInTheDocument();
+    expect(mocks.get).toHaveBeenCalledWith("/api/insights/work-rhythm/day", { params: { user_id: 1, day: "2026-10-27" } });
+  });
+
   it("awaria nie wygląda jak pusta lista", async () => {
     mocks.get.mockRejectedValue(Object.assign(new Error("boom"), { response: { status: 500 } }));
     renderView();
@@ -154,5 +186,44 @@ describe("draftProblem", () => {
     expect(draftProblem({ ...RULES, hour_levels: [11, 4, 25] })).toMatch(/muszą rosnąć/);
     expect(draftProblem({ ...RULES, level_mid: 80 })).toMatch(/niższy niż/);
     expect(draftProblem({ ...RULES, norm_day_points: Number.NaN })).toMatch(/liczby/);
+  });
+});
+
+describe("DayBreakdown", () => {
+  it("pokazuje, co się liczyło, a co odpadło i dlaczego", () => {
+    const points = Array(13).fill(0);
+    points[3] = 2.5;
+    const thin = Array(13).fill(false);
+    thin[3] = true;
+    render(
+      <DayBreakdown
+        data={{
+          user_id: 1,
+          name: "Anna Testowa",
+          date: "2026-10-27",
+          points,
+          meetings: Array(13).fill(false),
+          thin,
+          skipped: { limit_podgladow: 1.5 },
+          events: [
+            { time: "10:05", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: "Jan Próbny", points: 0.5, weight: 0.5, reason: null },
+            { time: "10:06", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: null, points: 0, weight: 0.5, reason: "limit_podgladow" },
+            { time: "10:20", hour: 10, kind: "action", label: "Ruch karty → Screening", candidate: null, points: 2, weight: 1, reason: null },
+          ],
+        }}
+      />,
+    );
+    expect(screen.getByText(/1,5 pkt: ponad limit podglądów w godzinie/)).toBeInTheDocument();
+    expect(screen.getAllByText("2,5 pkt").length).toBe(2);
+    expect(screen.getByText("0 — ponad limit podglądów w godzinie")).toBeInTheDocument();
+    expect(screen.getByText(/nie jest godziną pracy/)).toBeInTheDocument();
+    expect(screen.getByText(/Jan Próbny/)).toBeInTheDocument();
+  });
+});
+
+describe("draftProblem — ochrona", () => {
+  it("odrzuca ujemne limity, 0 = bez limitu przechodzi", () => {
+    expect(draftProblem({ ...RULES, views_per_hour: 0 })).toBeNull();
+    expect(draftProblem({ ...RULES, contacts_per_day: -1 })).toMatch(/ujemne/);
   });
 });

@@ -11,7 +11,7 @@ import logging
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,9 +22,12 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.user import User
 from app.services.work_rhythm import (
+    DEFAULT_RULES,
     KINDS,
     RULES_EDITOR_ROLES,
     VIEWER_ROLES,
+    RHYTHM_START,
+    build_day,
     build_rhythm,
     clamp_window,
     load_rules,
@@ -56,6 +59,21 @@ class WorkRhythmRulesIn(BaseModel):
     level_mid: int = Field(ge=1, le=100)
     diag_intensity: int = Field(ge=1, le=100)
     diag_results_pct: int = Field(ge=1, le=300)
+    # Ochrona przed nabijaniem (29.10.2026); limit 0 = bez limitu.
+    auto_cv_points: float = Field(DEFAULT_RULES["auto_cv_points"], ge=0, le=20)
+    screening_per_candidate_day: int = Field(
+        DEFAULT_RULES["screening_per_candidate_day"], ge=0, le=50
+    )
+    repeats_per_hour: int = Field(DEFAULT_RULES["repeats_per_hour"], ge=0, le=50)
+    views_per_hour: int = Field(DEFAULT_RULES["views_per_hour"], ge=0, le=200)
+    bulk_per_minute: int = Field(DEFAULT_RULES["bulk_per_minute"], ge=0, le=200)
+    stage_return_points: float = Field(
+        DEFAULT_RULES["stage_return_points"], ge=0, le=20
+    )
+    contacts_per_day: int = Field(DEFAULT_RULES["contacts_per_day"], ge=0, le=500)
+    thin_hour_candidates: int = Field(
+        DEFAULT_RULES["thin_hour_candidates"], ge=0, le=10
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> "WorkRhythmRulesIn":
@@ -101,6 +119,22 @@ async def insights_work_rhythm(
         "can_edit_rules": can_edit_rules(current_user),
         "with_results": True,
     }
+
+
+@router.get("/work-rhythm/day")
+async def insights_work_rhythm_day(
+    current_user: Viewer,
+    user_id: int = Query(...),
+    day: date = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rozkład dnia osoby: każda akcja, ile dała punktów, a jeśli nic — dlaczego."""
+    if day < RHYTHM_START or day > business_today():
+        raise HTTPException(status_code=422, detail="Ten dzień jest poza Rytmem dnia.")
+    out = await build_day(db, user_id, day)
+    if out is None:
+        raise HTTPException(status_code=404, detail="Tej osoby nie ma w Rytmie dnia.")
+    return out
 
 
 @router.get("/work-rhythm/rules")

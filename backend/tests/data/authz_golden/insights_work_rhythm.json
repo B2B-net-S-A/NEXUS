@@ -29,6 +29,7 @@
  ],
  "routes": {
   "GET /api/insights/work-rhythm": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/insights/work-rhythm/day": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "GET /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PUT /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }

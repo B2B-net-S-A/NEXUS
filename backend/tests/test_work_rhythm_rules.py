@@ -271,3 +271,190 @@ def test_everyone_with_recruiter_role_is_shown(roles, shown):
     from app.services.work_rhythm import is_rhythm_person
 
     assert is_rhythm_person(_user(*roles)) is shown
+
+
+# ── Ochrona przed nabijaniem (decyzja Artura 29.10.2026) ────────────────────
+
+
+def _ev(minute, kind="action", src="act", act="x", ent="1", hour=10, day=20, second=0):
+    from app.services.work_rhythm import Event
+
+    return Event(
+        uid=7,
+        ts=datetime(2026, 10, day, hour, minute, second),
+        kind=kind,
+        src=src,
+        act=act,
+        ent=ent,
+    )
+
+
+def _classify(events, **over):
+    from app.services.work_rhythm import classify_events
+
+    rules = rules_from_json(over or None)
+    return [(round(p, 2), r) for _, p, r in classify_events(events, rules)]
+
+
+def test_guard_defaults():
+    r = RULES
+    assert r.weights["contact"] == 1
+    assert (r.auto_cv_points, r.stage_return_points) == (0, 0)
+    assert (r.screening_per_candidate_day, r.repeats_per_hour) == (1, 1)
+    assert (r.views_per_hour, r.bulk_per_minute) == (4, 10)
+    assert (r.contacts_per_day, r.thin_hour_candidates) == (10, 2)
+
+
+def test_auto_generated_cv_scores_nothing():
+    out = _classify(
+        [
+            _ev(1, kind="cv", src="cv", act="auto"),
+            _ev(2, kind="cv", src="cv", act="manual", ent="2"),
+        ]
+    )
+    assert out == [(0, "automat"), (3, None)]
+
+
+def test_same_candidate_screening_counts_once_a_day():
+    evs = [
+        _ev(1, kind="screening", act="screening_form_saved", ent="5"),
+        _ev(30, kind="screening", src="note", act="card", ent="5", hour=14),
+        _ev(31, kind="screening", act="screening_form_saved", ent="6", hour=14),
+    ]
+    assert _classify(evs) == [(5, None), (0, "powtorka"), (5, None)]
+
+
+def test_same_save_counts_once_per_hour():
+    evs = [
+        _ev(1, act="recommendation_card_updated", ent="5"),
+        _ev(40, act="recommendation_card_updated", ent="5"),
+        _ev(5, act="recommendation_card_updated", ent="5", hour=11),
+    ]
+    assert _classify(evs) == [(1, None), (0, "powtorka"), (1, None)]
+
+
+def test_views_dedupe_and_cap_per_hour():
+    evs = [_ev(i, kind="view", act="document_downloaded", ent=str(i)) for i in range(6)]
+    evs.append(_ev(10, kind="view", act="document_downloaded", ent="0"))
+    out = _classify(evs)
+    assert [r for _, r in out] == [None] * 4 + ["limit_podgladow"] * 2 + ["powtorka"]
+    assert sum(p for p, _ in out) == 2
+
+
+def test_bulk_action_counts_as_one():
+    evs = [
+        _ev(3, kind="action", src="stage", act="new", ent=f"{i}:1", second=i)
+        for i in range(12)
+    ]
+    out = _classify(evs)
+    assert out[0] == (1, None)
+    assert all(r == "masowa" for _, r in out[1:])
+
+
+def test_below_bulk_threshold_counts_each():
+    evs = [
+        _ev(3, kind="action", src="stage", act="new", ent=f"{i}:1", second=i)
+        for i in range(9)
+    ]
+    assert all(r is None for _, r in _classify(evs))
+
+
+def test_card_back_to_same_stage_same_day_scores_nothing():
+    evs = [
+        _ev(1, src="stage", act="screening", ent="5:1"),
+        _ev(2, src="stage", act="new", ent="5:1"),
+        _ev(3, src="stage", act="screening", ent="5:1"),
+    ]
+    assert _classify(evs) == [(1, None), (1, None), (0, "powrot")]
+
+
+def test_contact_attempts_capped_per_day():
+    evs = [
+        _ev(i, kind="contact", src="note", act="contact_attempt", ent=str(i))
+        for i in range(12)
+    ]
+    out = _classify(evs)
+    assert sum(p for p, _ in out) == 10
+    assert [r for _, r in out][-2:] == ["limit_kontaktu", "limit_kontaktu"]
+
+
+def test_zero_limit_means_no_limit():
+    evs = [_ev(i, kind="view", act="document_downloaded", ent=str(i)) for i in range(8)]
+    assert all(r is None for _, r in _classify(evs, views_per_hour=0))
+
+
+def test_thin_hour_is_not_a_work_hour():
+    """4 ruchy jednej karty to 4 pkt, ale nie godzina pracy (furtka „podtrzymywania”)."""
+    from app.services.work_rhythm import thin_hours
+
+    evs = [_ev(i, src="stage", act=f"s{i}", ent="5:1") for i in range(4)]
+    counted = [(e, p, r) for e, (p, r) in zip(evs, _classify(evs))]
+    assert thin_hours(counted, RULES) == {10}
+    assert work_hours({10: 4.0}, [], RULES, thin={10}) == 0
+
+
+def test_screening_alone_makes_a_work_hour():
+    from app.services.work_rhythm import classify_events, thin_hours
+
+    evs = [_ev(1, kind="screening", act="screening_form_saved", ent="5")]
+    assert thin_hours(classify_events(evs, RULES), RULES) == set()
+
+
+def test_guard_payload_validated():
+    from pydantic import ValidationError
+
+    from app.api.insights_work_rhythm import WorkRhythmRulesIn
+
+    WorkRhythmRulesIn(**_payload(views_per_hour=0, bulk_per_minute=20))
+    for bad in (
+        {"views_per_hour": -1},
+        {"auto_cv_points": 30},
+        {"thin_hour_candidates": 50},
+    ):
+        with pytest.raises(ValidationError):
+            WorkRhythmRulesIn(**_payload(**bad))
+
+
+@pytest.mark.parametrize(
+    ("src", "act", "label"),
+    [
+        ("stage", "cv_sent", "Ruch karty → CV Wysłane"),
+        ("note", "contact_attempt", "Próba kontaktu („nie odbiera”)"),
+        ("act", "document_downloaded", "Podgląd dokumentu"),
+        ("act", "cos_nowego", "Inny zapis (cos_nowego)"),
+        ("cv", "auto", "CV z automatu"),
+    ],
+)
+def test_event_labels_for_day_breakdown(src, act, label):
+    from app.services.work_rhythm import event_label
+
+    assert event_label(src, act) == label
+
+
+def test_candidate_id_from_entity():
+    from app.services.work_rhythm import candidate_id_of
+
+    assert candidate_id_of("stage", "15:7") == 15
+    assert candidate_id_of("act", "42") == 42
+    assert candidate_id_of("act", "candidate_stage_cv/9") is None
+    assert candidate_id_of("email", "m3") is None
+
+
+def test_light_hour_is_not_marked_thin():
+    """Godzina poniżej progu i tak nie jest godziną pracy — bez znacznika."""
+    from app.services.work_rhythm import classify_events, thin_hours
+
+    evs = [
+        _ev(1, src="stage", act="a", ent="5:1"),
+        _ev(2, src="stage", act="b", ent="5:1"),
+    ]
+    assert thin_hours(classify_events(evs, RULES), RULES) == set()
+
+
+def test_cv_without_candidate_is_its_own_entity():
+    """CV z wgranego pliku nie ma kandydata — nie może zlepiać się z innymi
+    w „ponowny zapis” (przegląd 29.10.2026)."""
+    from app.services.work_rhythm import _EVENTS_SQL
+
+    sql = " ".join(_EVENTS_SQL.split())
+    assert "'g' || g.id" in sql
