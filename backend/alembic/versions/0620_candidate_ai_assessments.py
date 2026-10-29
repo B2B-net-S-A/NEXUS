@@ -1,7 +1,7 @@
 """„Oceń z AI” na zaznaczonych osobach: tabela ocen i klucz AI F39.
 
-Revision ID: 0619_candidate_ai_assessments
-Revises: 0618_sales_opportunity_events
+Revision ID: 0620_candidate_ai_assessments
+Revises: 0619_announcements
 
 Decyzja Artura 28.10.2026 (makieta C): rekruter zaznacza osoby w oknie
 „Kandydaci do dodania” i dostaje Dzwoń / Może / Nie pasuje z cytatem z CV,
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import candidate_ai_assessment_schema as schema
 
-revision = "0619_candidate_ai_assessments"
-down_revision = "0618_sales_opportunity_events"
+revision = "0620_candidate_ai_assessments"
+down_revision = "0619_announcements"
 branch_labels = None
 depends_on = None
 
@@ -41,7 +41,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0619 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0620 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
