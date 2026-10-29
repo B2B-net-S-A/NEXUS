@@ -740,7 +740,7 @@
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
-        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na przełożonego; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
+        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Wrzucasz do Cpro? Wskaż zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na przełożonego; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
         "anchor": "hr.my_time.leave_submit"
       },
       {
