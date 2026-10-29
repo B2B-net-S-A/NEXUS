@@ -32,6 +32,8 @@ export interface JobBackgroundEvent {
   proposals?: number | null;
   eligible?: number | null;
   count?: number | null;
+  /** `autofill_withdrawn`: dlaczego system wycofał osoby. */
+  why?: "budget" | "client" | "not_looking" | (string & {}) | null;
   trigger?: string | null;
   /** Kod powodu (pominięcie albo awaria). */
   reason?: string | null;
@@ -129,8 +131,17 @@ export function backgroundEventMessage(event: JobBackgroundEvent): string {
     }
     case "autofill":
       return `System dodał do „Nowych” ${countPl(event.count ?? 0, "osobę", "osoby", "osób")} — kolumna trzyma się na 20.`;
-    case "autofill_withdrawn":
-      return `System wycofał z „Nowych” ${countPl(event.count ?? 0, "swoją osobę", "swoje osoby", "swoich osób")} — stawka ponad 25% nad budżetem.`;
+    case "autofill_withdrawn": {
+      const people = countPl(event.count ?? 0, "swoją osobę", "swoje osoby", "swoich osób");
+      // `why` (28.10.2026): budżet, cały klient albo „Nie szuka pracy”.
+      const why =
+        event.why === "client"
+          ? "odrzucenie na cały klient w innej rekrutacji"
+          : event.why === "not_looking"
+            ? "„Nie szuka pracy” z innej rekrutacji"
+            : "stawka ponad budżetem";
+      return `System wycofał z „Nowych” ${people} — ${why}.`;
+    }
     case "new_cv_proposals": {
       const source =
         event.trigger === "job_publish" ? "Po publikacji rekrutacji" : "Nowe CV w bazie";
