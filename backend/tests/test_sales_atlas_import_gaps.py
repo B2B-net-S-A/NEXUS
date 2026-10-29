@@ -34,6 +34,7 @@ from app.services.sales.atlas_import import (
     ImportReport,
     company_merge_targets,
     is_candidate_prep_note,
+    is_candidate_prep_title,
     run_import,
 )
 
@@ -127,6 +128,25 @@ def _sales_pipeline(tag: str) -> dict[str, list[dict[str, Any]]]:
             {"id": "stage-proposal", "pipeline_id": "sales", "position": 3},
         ],
     }
+
+
+def test_candidate_prep_recognised_by_meeting_title_with_client_name() -> None:
+    # Na produkcji 146 ze 153 przygotowań miało nazwę klienta w tytule
+    # („…z Bankiem Przykładowym – kandydat”), a nie słowo „Klientem”.
+    note = (
+        "📝 **Podsumowanie spotkania (Fireflies.ai)**\n\n"
+        "**Spotkanie:** Przygotowanie do spotkania z Bank Przykładowy - Kandydat Testowy\n"
+        "**Uczestnicy:** kandydat@example.com\n\n**Overview:** stawka, dostępność"
+    )
+    assert is_candidate_prep_note(note)
+    assert is_candidate_prep_title("przygotowanie do spotkania z Firmą Testową")
+    assert not is_candidate_prep_title("Spotkanie z Bank Przykładowy — oferta")
+    # Fraza w treści, ale tytuł handlowy — to nie przygotowanie kandydata.
+    sales = (
+        "📝 **Podsumowanie spotkania (Fireflies.ai)**\n\n"
+        "**Spotkanie:** Przegląd oferty\n\n**Overview:** przygotowanie do spotkania z zarządem"
+    )
+    assert not is_candidate_prep_note(sales)
 
 
 def test_candidate_prep_needs_both_markers_case_insensitive() -> None:

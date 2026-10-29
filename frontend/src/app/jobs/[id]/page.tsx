@@ -58,6 +58,9 @@ import {
 import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { fetchJobIdle, jobIdleKey, snoozeJobIdle } from "@/lib/job-idle-api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
 import {
   ManagedInNexusChip,
@@ -737,6 +740,30 @@ export default function JobDetailPage() {
     }
   }, [job, id, openTab]);
 
+  // Rekrutacja bez ruchu (28.10.2026): pasek z „Zamknij…” i „Jeszcze trwa”
+  // dla tych, którzy mogą ją zamknąć; serwer liczy dni i odmawia reszcie.
+  const idleEnabled = Boolean(job && job.status === "published" && canManageRecruitment);
+  const { data: jobIdle } = useQuery({
+    queryKey: jobIdleKey(jobId),
+    queryFn: () => fetchJobIdle(jobId),
+    enabled: idleEnabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const [idleSnoozing, setIdleSnoozing] = useState(false);
+  const onIdleSnooze = useCallback(async () => {
+    setIdleSnoozing(true);
+    try {
+      const next = await snoozeJobIdle(jobId);
+      queryClient.setQueryData(jobIdleKey(jobId), next);
+      showSuccess("Odłożone o 14 dni. NEXUS zapyta znowu, jeśli nic się nie ruszy.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się odłożyć przypomnienia."));
+    } finally {
+      setIdleSnoozing(false);
+    }
+  }, [jobId, queryClient, showError, showSuccess]);
+
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
   // danych (audyt F-20).
@@ -1310,6 +1337,14 @@ export default function JobDetailPage() {
       {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
+          {canCloseJob && job.status === "published" ? (
+            <JobIdleBanner
+              idle={jobIdle}
+              onClose={() => setShowCloseJob(true)}
+              onSnooze={() => void onIdleSnooze()}
+              snoozing={idleSnoozing}
+            />
+          ) : null}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}

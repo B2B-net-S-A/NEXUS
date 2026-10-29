@@ -120,6 +120,7 @@ from app.api.integrations_v1.common import (
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_work_rhythm
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -274,6 +275,7 @@ from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
 from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
+from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -821,6 +823,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.job_idle import job_idle_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -969,6 +972,8 @@ async def lifespan(app: FastAPI):
         "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
+        "job_idle": asyncio.create_task(job_idle_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
         # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
         "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
@@ -1742,6 +1747,13 @@ app.include_router(
     prefix="/api/insights",
     tags=["insights"],
 )
+# Rytm dnia (28.10.2026): rytm i intensywność rekruterów widzi cały zespół;
+# CV do klienta i podpowiedź tylko liderzy, reguły zmienia HoR i admin.
+app.include_router(
+    insights_work_rhythm.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
 # Raport „Propozycje AI" (30.09.2026): decyzje o propozycjach z bazy.
 # Admin/HoR — cała firma, Delivery Lead — swoje rekrutacje i portfel.
 app.include_router(
@@ -2154,6 +2166,7 @@ app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
+app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
