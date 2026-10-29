@@ -1,4 +1,4 @@
-"""Nowości do przeklikania (0616) — kropki, przeklikanie i panel „kto już umie”.
+"""Nowości do przeklikania (0617) — kropki, przeklikanie i panel „kto już umie”.
 
 Treść nowości to rejestr ``app/data/novelties/novelties.json`` (bez danych
 domenowych); tabela ``novelty_progress`` trzyma tylko stan osoby przy nowości.
