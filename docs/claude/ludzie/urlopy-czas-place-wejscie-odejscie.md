@@ -127,6 +127,9 @@ decyduje o słowach i o przebiegu nieobecności.
 - Nowy wniosek: powiadomienie do przełożonego i do zastępcy („w zastępstwie
   za …”); L4 — zastępca dostaje „do wiadomości” bez rodzaju.
 - Ślad decyzji: `details.as_substitute_for` = „w zastępstwie za …” (+ id).
+- Osoba od Cpro wskazuje we wniosku osobnego zastępcę do Cpro
+  (`cpro_substitute_user_id`, 29.10.2026) — reguła w
+  `rekrutacja-tablica/cpro-zastepca-z-wniosku-urlopowego.md`.
 - Plakietka przy osobie poza „Ludźmi” (lista „@”, kolumna „Rekruter” na
   `/jobs`) bierze `GET /api/hr/leave/absence` raz na listę i tylko przy
   otwartym module urlopów; awaria = brak plakietki, nie błąd ekranu. Po

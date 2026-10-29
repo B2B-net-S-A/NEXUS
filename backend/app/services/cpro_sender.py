@@ -21,6 +21,13 @@ wraca ``fallback_user_id`` — osoba, która wysyłała, zanim ustawiono
 zastępstwo. Wygaśnięcie liczy się przy ODCZYCIE (``effective``), bez pętli:
 nikt nie musi pamiętać, żeby „oddać" kolejkę po urlopie.
 
+Urlop osoby od Cpro (29.10.2026, decyzja Artura): we własnym wniosku osoba
+od Cpro wskazuje, kto w tym czasie wrzuca (``leave_requests.cpro_substitute_user_id``).
+Zatwierdzony urlop obejmujący cały dzisiejszy dzień podmienia osobę przy
+ODCZYCIE (``effective_sender``), tak jak ``until`` — ustawienie firmy się nie
+zmienia, więc anulowany albo skrócony urlop niczego nie zostawia. Zmiana
+z „Zmień” w trakcie urlopu wygrywa: dotyczy innej osoby niż urlopowicz.
+
 Stan żyje w ``app_settings['cpro_sender']``:
 ``{user_id, until, fallback_user_id, set_by_user_id, set_at}``. Stare kolumny
 (``jobs.cpro_sender_id``, ``task_assignee_id``) zostają w bazie i są zapasem
@@ -40,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_today
 from app.models.app_setting import AppSetting
+from app.models.hr_leave import LeaveRequest
 from app.models.user import User, UserRole
 
 SETTING_KEY = "cpro_sender"
@@ -176,15 +184,71 @@ async def load_state(db: AsyncSession, *, for_update: bool = False) -> CproSende
     return parse_state(await db.scalar(query))
 
 
+def _today(now: Optional[datetime]) -> date:
+    return (
+        now.astimezone(_business_tz()).date() if now is not None else business_today()
+    )
+
+
 async def effective_sender(
     db: AsyncSession, now: Optional[datetime] = None
 ) -> CproSenderState:
-    """Kto dziś wysyła do Cpro (stan po wygaśnięciu zastępstwa)."""
+    """Kto dziś wysyła do Cpro: ustawienie firmy po wygaśnięciu zastępstwa,
+    a w dzień urlopu osoby od Cpro — zastępca z jej wniosku."""
 
-    today = (
-        now.astimezone(_business_tz()).date() if now is not None else business_today()
+    state = await firm_sender(db, now)
+    cover = await leave_cover(db, state.user_id, _today(now))
+    if cover is None:
+        return state
+    substitute_id, until = cover
+    # Zastępcę wskazała osoba od Cpro we wniosku — nie ten, kto ustawił firmę.
+    return replace(
+        state,
+        user_id=substitute_id,
+        until=until,
+        fallback_user_id=state.user_id,
+        set_by_user_id=state.user_id,
+        set_at=None,
     )
-    state = effective(await load_state(db), today)
+
+
+async def leave_cover(
+    db: AsyncSession, sender_id: Optional[int], today: date
+) -> Optional[tuple[int, date]]:
+    """Zastępca do Cpro (aktywne konto) z urlopu ``sender_id`` na dziś i ostatni
+    dzień urlopu. Jak u zastępcy przełożonego (``leave_substitute``): tylko
+    zatwierdzony wniosek na cały dzień — przy pół dnia osoba od Cpro pracuje."""
+
+    if sender_id is None:
+        return None
+    substitute = User.__table__.alias("cpro_substitute")
+    row = (
+        await db.execute(
+            select(LeaveRequest.cpro_substitute_user_id, LeaveRequest.end_date)
+            .join(substitute, substitute.c.id == LeaveRequest.cpro_substitute_user_id)
+            .where(
+                LeaveRequest.user_id == sender_id,
+                LeaveRequest.status == "approved",
+                LeaveRequest.half_day.is_(None),
+                LeaveRequest.start_date <= today,
+                LeaveRequest.end_date >= today,
+                LeaveRequest.cpro_substitute_user_id != sender_id,
+                substitute.c.is_active.is_(True),
+            )
+            .order_by(LeaveRequest.end_date)
+            .limit(1)
+        )
+    ).first()
+    return (row[0], row[1]) if row is not None else None
+
+
+async def firm_sender(
+    db: AsyncSession, now: Optional[datetime] = None
+) -> CproSenderState:
+    """Osoba ustawiona na firmę (po wygaśnięciu zastępstwa z „Zmień”), bez
+    urlopu — od niej wniosek urlopowy wie, że pyta o zastępcę do Cpro."""
+
+    state = effective(await load_state(db), _today(now))
     wanted = {i for i in (state.user_id, state.fallback_user_id) if i is not None}
     if not wanted:
         return state
@@ -393,6 +457,8 @@ __all__ = [
     "describe",
     "effective",
     "effective_sender",
+    "firm_sender",
+    "leave_cover",
     "load_state",
     "next_state",
     "notify_new_sender",
