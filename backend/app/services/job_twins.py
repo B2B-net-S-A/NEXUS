@@ -47,9 +47,8 @@ KIND_TWIN = "twin"
 # (`JOINT_MAX_OTHERS`, trasa grup pytań przyjmuje 2–4 rekrutacje).
 MAX_TWINS = 3
 LINK_ALL_ROLES = ("admin", "head_of_recruitment")
-# Propozycje dla HoR: kosinus wektorów rekrutacji. Na stagingu 28.10.2026
-# przy 0,80 było 46 par u tego samego klienta i 7 między klientami.
-SUGGESTION_MIN_COSINE = 0.80
+# Propozycje dla HoR: próg i reszta warunków są w „Zasadach bliźniaków”
+# (`job_twin_rules`, Ustawienia → Rekrutacja, od 29.10.2026).
 SUGGESTION_LIMIT = 40
 _SUGGESTION_TTL_SECONDS = 300
 OPEN_SIMILAR_LIMIT = 8
@@ -149,7 +148,9 @@ def question_texts(job: Job) -> dict[str, str]:
 
 
 def suggest_question_pairs(
-    own: Mapping[str, str], other: Mapping[str, str]
+    own: Mapping[str, str],
+    other: Mapping[str, str],
+    min_score: float = QUESTION_PAIR_MIN_SCORE,
 ) -> list[dict[str, Any]]:
     """Podpowiedź par „to samo pytanie” — DL ją potwierdza albo poprawia.
 
@@ -175,7 +176,7 @@ def suggest_question_pairs(
             if has_own_layer(own_text) or has_own_layer(other_text):
                 continue
             score = jaccard(content_words(own_text), content_words(other_text))
-            if score >= QUESTION_PAIR_MIN_SCORE:
+            if score >= min_score:
                 scored.append((score, own_id, other_id))
     scored.sort(key=lambda item: (-item[0], item[1], item[2]))
     used_own: set[str] = set()
@@ -300,16 +301,20 @@ async def link(
         raise _refuse(
             422, "twin_closed", "Bliźniakiem może być tylko otwarta rekrutacja."
         )
+    from app.services import job_twin_rules  # noqa: PLC0415
+
+    limit = min(MAX_TWINS, (await job_twin_rules.load(db)).max_twins)
     links = await twin_links(db, [job_id, other_id])
     already = any(row.similar_job_id == other_id for row in links.get(job_id, []))
     if not already:
         for side, jid in ((job, job_id), (other, other_id)):
-            if len(links.get(jid, [])) >= MAX_TWINS:
+            if len(links.get(jid, [])) >= limit:
                 raise _refuse(
                     422,
                     "twin_limit",
-                    f"Rekrutacja {side.reference_number or side.id} ma już "
-                    f"{MAX_TWINS} bliźniaki — tyle mieści jedna rozmowa.",
+                    f"Rekrutacja {side.client_reference or side.reference_number or side.id} "
+                    f"ma już {limit} {'bliźniaka' if limit == 1 else 'bliźniaki'} — "
+                    "tyle pozwalają zasady bliźniaków w Ustawieniach.",
                 )
     pairs = validate_question_pairs(
         question_pairs, question_texts(job), question_texts(other)
@@ -480,7 +485,9 @@ async def _nearest(
         return None
 
 
-async def open_similar(db: AsyncSession, job: Job) -> list[tuple[int, int]]:
+async def open_similar(
+    db: AsyncSession, job: Job, limit: int = OPEN_SIMILAR_LIMIT
+) -> list[tuple[int, int]]:
     """Otwarte rekrutacje podobne do ``job``: ``[(job_id, podobieństwo %)]``.
 
     Kolejność: P1 na górze, potem podobieństwo. Bez wektora albo przy awarii
@@ -490,7 +497,7 @@ async def open_similar(db: AsyncSession, job: Job) -> list[tuple[int, int]]:
     open_ids = [jid for jid in await _open_job_ids(db) if jid != job.id]
     if not open_ids:
         return []
-    hits = await _nearest([job.id], open_ids, limit=OPEN_SIMILAR_LIMIT * 3)
+    hits = await _nearest([job.id], open_ids, limit=limit * 3)
     ranked: list[tuple[int, int]]
     if hits is not None and job.id in hits:
         ranked = [
@@ -504,7 +511,7 @@ async def open_similar(db: AsyncSession, job: Job) -> list[tuple[int, int]]:
             for item in sim._lexical_ranked(pool, sim._as_pool_job(job), ())  # noqa: SLF001
             if item[0] in allowed
         ]
-    ranked = ranked[:OPEN_SIMILAR_LIMIT]
+    ranked = ranked[:limit]
     if not ranked:
         return []
     p1 = set(
@@ -541,14 +548,16 @@ async def _raw_suggestions(db: AsyncSession) -> list[Suggestion]:
         and time.monotonic() - _suggestion_cache["at"] < _SUGGESTION_TTL_SECONDS
     ):
         return _suggestion_cache["items"]
+    from app.services import job_twin_rules  # noqa: PLC0415
+
     open_ids = await _open_job_ids(db)
-    hits = await _nearest(open_ids, open_ids, limit=10)
+    hits = await _nearest(open_ids, open_ids, limit=15)
     if hits is None:
         return []
     best: dict[tuple[int, int], float] = {}
     for ref, neighbours in hits.items():
         for other, cosine in neighbours:
-            if cosine < SUGGESTION_MIN_COSINE or other == ref:
+            if cosine * 100 < job_twin_rules.MIN_SIMILARITY_FLOOR or other == ref:
                 continue
             key = (min(ref, other), max(ref, other))
             best[key] = max(best.get(key, 0.0), cosine)
@@ -561,18 +570,20 @@ async def _raw_suggestions(db: AsyncSession) -> list[Suggestion]:
     return items
 
 
-async def suggestions(db: AsyncSession) -> list[Suggestion]:
-    """Możliwe bliźniaki dla HoR: otwarte pary z różnymi Delivery Leadami
-    (DL nie widzi cudzych requestów), jeszcze nie połączone jako bliźniaki
-    i nie odrzucone („To nie bliźniak”)."""
+async def _candidate_pairs(db: AsyncSession) -> list[Suggestion]:
+    """Otwarte pary od progu podłogi (70%), bez połączonych jako bliźniaki
+    i odrzuconych („To nie bliźniak”) — wspólna pula listy i podglądu zasad."""
     raw = await _raw_suggestions(db)
     if not raw:
         return []
     ids = sorted({s.job_id for s in raw} | {s.other_id for s in raw})
-    jobs = {
-        job.id: job
-        for job in (await db.execute(select(Job).where(Job.id.in_(ids)))).scalars()
-    }
+    open_ids = set(
+        (
+            await db.execute(
+                select(Job.id).where(Job.id.in_(ids), Job.status != JobStatus.closed)
+            )
+        ).scalars()
+    )
     twins = {
         (row.job_id, row.similar_job_id)
         for rows in (await twin_links(db, ids)).values()
@@ -586,22 +597,121 @@ async def suggestions(db: AsyncSession) -> list[Suggestion]:
             )
         ).scalars()
     }
-    out: list[Suggestion] = []
-    for item in raw:
-        a, b = jobs.get(item.job_id), jobs.get(item.other_id)
-        if a is None or b is None or not is_open(a) or not is_open(b):
+    return [
+        item
+        for item in raw
+        if item.job_id in open_ids
+        and item.other_id in open_ids
+        and (item.job_id, item.other_id) not in twins
+        and (item.job_id, item.other_id) not in dismissed
+    ]
+
+
+async def suggestions(db: AsyncSession) -> list[tuple[Suggestion, list[Any]]]:
+    """Możliwe bliźniaki dla HoR według zasad z Ustawień (``job_twin_rules``):
+    od progu podobieństwa, z różnymi DL-ami (gdy ta zasada jest wymagana)
+    i bez par łamiących zasadę wymaganą. Ostrzeżenia idą z parą."""
+    from app.services import job_twin_rules as rules_mod  # noqa: PLC0415
+
+    rules = await rules_mod.load(db)
+    pairs = await _candidate_pairs(db)
+    facts = await rules_mod.facts_for(
+        db, [p.job_id for p in pairs] + [p.other_id for p in pairs]
+    )
+    out: list[tuple[Suggestion, list[Any]]] = []
+    for item in pairs:
+        a, b = facts.get(item.job_id), facts.get(item.other_id)
+        if (
+            a is None
+            or b is None
+            or not rules_mod.similarity_ok(rules, item.similarity)
+        ):
             continue
-        if (item.job_id, item.other_id) in twins or (
-            item.job_id,
-            item.other_id,
-        ) in dismissed:
+        if not rules_mod.dl_ok(rules, a, b):
             continue
-        if a.delivery_lead_id is not None and a.delivery_lead_id == b.delivery_lead_id:
+        checks = rules_mod.evaluate(rules, a, b)
+        if rules_mod.required_failures(checks):
             continue
-        out.append(item)
+        out.append((item, rules_mod.warnings(checks)))
         if len(out) >= SUGGESTION_LIMIT:
             break
     return out
+
+
+async def rules_preview(db: AsyncSession, draft: Any) -> dict[str, Any]:
+    """Podgląd panelu „Zasady bliźniaków”: ile par przejdzie przy ``draft``
+    i co zmieni się względem zapisanych zasad (na tej samej puli)."""
+    from app.services import job_twin_rules as rules_mod  # noqa: PLC0415
+
+    saved = await rules_mod.load(db)
+    pairs = await _candidate_pairs(db)
+    facts = await rules_mod.facts_for(
+        db, [p.job_id for p in pairs] + [p.other_id for p in pairs]
+    )
+
+    def verdict(rules: Any, item: Suggestion) -> tuple[str, list[Any], list[Any]]:
+        a, b = facts[item.job_id], facts[item.other_id]
+        if not rules_mod.similarity_ok(rules, item.similarity):
+            return "below", [], []
+        checks = rules_mod.evaluate(rules, a, b)
+        failed = rules_mod.required_failures(checks)
+        return ("drop" if failed else "keep"), failed, rules_mod.warnings(checks)
+
+    base = [p for p in pairs if p.job_id in facts and p.other_id in facts]
+    in_scope = [p for p in base if rules_mod.similarity_ok(draft, p.similarity)]
+    per_rule: dict[str, int] = {}
+    keep = with_warnings = keep_diff_dl = 0
+    saved_keep_diff_dl = 0
+    examples: list[dict[str, Any]] = []
+    for item in base:
+        a, b = facts[item.job_id], facts[item.other_id]
+        now, failed, warns = verdict(draft, item)
+        before, _f, _w = verdict(saved, item)
+        if before == "keep" and rules_mod.dl_ok(saved, a, b):
+            saved_keep_diff_dl += 1
+        if now == "below":
+            continue
+        for check in rules_mod.evaluate(draft, a, b):
+            per_rule[check.key] = per_rule.get(check.key, 0) + int(check.ok)
+        per_rule["different_dl"] = per_rule.get("different_dl", 0) + int(
+            a.delivery_lead_id is None or a.delivery_lead_id != b.delivery_lead_id
+        )
+        if now == "keep":
+            keep += 1
+            with_warnings += int(bool(warns))
+            keep_diff_dl += int(rules_mod.dl_ok(draft, a, b))
+        status = None
+        if now == "drop" and before == "keep":
+            status, reason = (
+                "drop",
+                "; ".join(f"{c.as_dict()['label']}: {c.detail}" for c in failed),
+            )
+        elif now == "keep" and before != "keep":
+            status, reason = "add", ""
+        elif now == "keep" and warns and len(examples) < 2:
+            status, reason = (
+                "warn",
+                "; ".join(f"{c.as_dict()['label']}: {c.detail}" for c in warns),
+            )
+        if status and len(examples) < 6:
+            examples.append(
+                {
+                    "status": status,
+                    "similarity": item.similarity,
+                    "job": {"id": a.id, "title": a.title},
+                    "other": {"id": b.id, "title": b.title},
+                    "reason": reason,
+                }
+            )
+    return {
+        "pairs_in_scope": len(in_scope),
+        "pass_required": keep,
+        "with_warnings": with_warnings,
+        "suggestions": keep_diff_dl,
+        "suggestions_saved": saved_keep_diff_dl,
+        "per_rule": per_rule,
+        "examples": examples,
+    }
 
 
 # ── Bramka ruchu i stawka ──────────────────────────────────────────────────

@@ -21,6 +21,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   budgetLabel,
   type OpenSimilarItem,
+  type TwinRuleCheck,
   twinRef,
   useOpenSimilarJobs,
   useUnlinkTwin,
@@ -33,6 +34,31 @@ export interface OpenSimilarListProps {
   items: readonly OpenSimilarItem[];
   onTwin: (item: OpenSimilarItem) => void;
   onUnlink: (item: OpenSimilarItem) => void;
+}
+
+/** Zasady bliźniaków przy pozycji: ✕ niespełnione wymagane, ⚠ ostrzeżenia. */
+export function RuleChips({
+  failures = [],
+  warnings = [],
+}: {
+  failures?: readonly TwinRuleCheck[];
+  warnings?: readonly TwinRuleCheck[];
+}) {
+  if (failures.length === 0 && warnings.length === 0) return null;
+  return (
+    <span className="mt-1 flex flex-wrap gap-1" data-testid="twin-rule-chips">
+      {failures.map((c) => (
+        <span key={`f-${c.key}`} title={c.detail} className="rounded bg-destructive/10 px-1.5 text-[11px] font-semibold text-destructive">
+          ✕ {c.label.toLowerCase()}
+        </span>
+      ))}
+      {warnings.map((c) => (
+        <span key={`w-${c.key}`} title={c.detail} className="rounded bg-warning-muted px-1.5 text-[11px] font-semibold text-warning-muted-foreground">
+          ⚠ {c.label.toLowerCase()}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** Sam wygląd listy — test i harness bez zapytań. */
@@ -61,6 +87,7 @@ export function OpenSimilarList({ items, onTwin, onUnlink }: OpenSimilarListProp
               {item.delivery_lead_name ? ` · DL ${item.delivery_lead_name}` : ""} · {workModeLabel(item)} ·{" "}
               {budgetLabel(item)}
             </p>
+            <RuleChips failures={item.rule_failures} warnings={item.rule_warnings} />
           </div>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">≈ {item.similarity}%</span>
           {item.twin ? (

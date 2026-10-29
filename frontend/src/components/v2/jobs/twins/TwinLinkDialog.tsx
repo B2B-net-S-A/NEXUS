@@ -36,6 +36,7 @@ import {
   jobTwinsApi,
   jobTwinsKeys,
   type QuestionPair,
+  type TwinRuleCheck,
   twinRef,
   type TwinJobBrief,
   useLinkTwin,
@@ -43,6 +44,7 @@ import {
   workModeLabel,
 } from "@/lib/job-twins-api";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { cn } from "@/lib/utils";
 
 interface SearchRow {
   id: number;
@@ -65,6 +67,47 @@ function plural(n: number, one: string, few: string, many: string): string {
   const last = n % 10;
   const lastTwo = n % 100;
   return last >= 2 && last <= 4 && (lastTwo < 12 || lastTwo > 14) ? `${n} ${few}` : `${n} ${many}`;
+}
+
+/**
+ * Zgodność pary z „Zasadami bliźniaków” z Ustawień (29.10.2026). Niespełniona
+ * zasada wymagana nie blokuje łączenia — para tylko nie trafia na listę
+ * „Możliwe bliźniaki” (decyzja Artura).
+ */
+export function TwinRulesCompliance({ checks }: { checks: readonly TwinRuleCheck[] }) {
+  const failedRequired = checks.filter((c) => c.mode === "required" && !c.ok);
+  return (
+    <section className="space-y-1.5" aria-label="Zgodność z zasadami bliźniaków" data-testid="twin-rules-compliance">
+      <h3 className="text-sm font-semibold">Zgodność z zasadami bliźniaków</h3>
+      <ul className="divide-y divide-border rounded-lg border border-border">
+        {checks.map((check) => (
+          <li key={check.key} className="flex items-start gap-2 px-3 py-1.5 text-sm">
+            <span
+              aria-hidden="true"
+              className={cn(
+                "w-4 shrink-0 font-bold",
+                check.ok ? "text-success" : check.mode === "required" ? "text-destructive" : "text-warning",
+              )}
+            >
+              {check.ok ? "✓" : check.mode === "required" ? "✕" : "⚠"}
+            </span>
+            <span className="min-w-0 flex-1">
+              {check.label} <span className="text-xs text-muted-foreground">· {check.detail}</span>
+            </span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {check.mode === "required" ? "wymagane" : "ostrzeżenie"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {failedRequired.length > 0 ? (
+        <p className="rounded-md bg-warning-muted px-3 py-2 text-xs text-warning-muted-foreground" role="note">
+          Para nie spełnia zasady wymaganej ({failedRequired.map((c) => c.label.toLowerCase()).join(", ")}), więc nie
+          trafia na listę „Możliwe bliźniaki”. Połączyć ją możesz — sprawdź, czy to naprawdę ten sam profil kandydata.
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 function sameMode(a: TwinJobBrief, b: TwinJobBrief): boolean {
@@ -302,6 +345,7 @@ function PreviewStep({
             </tbody>
           </table>
         </div>
+        {data.rules && data.rules.length > 0 ? <TwinRulesCompliance checks={data.rules} /> : null}
         <p className="text-sm text-muted-foreground" data-testid="twin-rate-rule">
           {sameMode(job, other)
             ? "Ten sam tryb pracy — w screeningu jedna stawka dla obu, najwyżej do niższego budżetu."

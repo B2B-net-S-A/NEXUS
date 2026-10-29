@@ -228,6 +228,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Zasady bliźniaków (29.10.2026): odczyt DL, HoR, admin; zapis — backend.
+    prefix: "/settings/twin-rules",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
