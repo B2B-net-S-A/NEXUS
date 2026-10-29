@@ -793,7 +793,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
-    # 0619: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
+    # 0620: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'departed_pairs_care'",
     # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
@@ -1191,7 +1191,7 @@ except Exception as _linkedin_extension_err:  # noqa: BLE001
     print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
     _LINKEDIN_EXTENSION_DDL = []
 
-# Opieka po odejściu (migracja 0619) — JEDNO źródło z migracją
+# Opieka po odejściu (migracja 0620) — JEDNO źródło z migracją
 # (`app/services/departure_care_schema.py`).
 try:
     from app.services import departure_care_schema as _departure_care_schema
