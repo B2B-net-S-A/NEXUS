@@ -14,14 +14,22 @@ mają `env_file: .env` (przegląd bezpieczeństwa PR #2252).
 
 Funkcje powłoki są wycinane z PRAWDZIWEGO ``loop.sh`` i uruchamiane w ``sh``
 z podstawionymi ``curl``/``sleep`` — test na kopii dowodziłby tylko kopii.
+
+Alarm „slot bez dispatchu” (29.10.2026): od 15.10 do 29.10 budzik nie wysłał
+ani jednego dispatchu, bo na serwerze nie było pliku z tokenem. Log kontenera
+ginie przy każdym deployu, a wieczorne wdrożenia robiono ręcznie, więc alarm
+„noc bez wdrożenia” milczał. Sonda `uptime-probe` (job `deploy-window-slot`)
+sprawdza teraz, czy od ostatniego 18:05 przyszedł bieg Deploy z budzika.
 """
 
 from __future__ import annotations
 
+import importlib.util
 import os
 import re
 import stat
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -34,6 +42,9 @@ _DIR = _REPO / "deploy-window"
 _LOOP_SH = _DIR / "loop.sh"
 _DOCKERFILE = _DIR / "Dockerfile"
 _TOKEN_MOUNT = "/etc/nexus-deploy-window:/run/deploy-window:ro"
+_WORKFLOWS = _REPO / ".github" / "workflows"
+_SLOT_CHECK = _REPO / ".github" / "scripts" / "deploy_window_slot_check.py"
+_SLOT_MARKER = "Budzik okna wdrożeń — slot bez dispatchu"
 
 
 def _service() -> dict:
@@ -248,3 +259,150 @@ def test_slots_sit_inside_the_deploy_window() -> None:
         hour = int(slot.split(":")[0])
         assert hour >= 18 or hour < 8, slot
     assert re.search(r"^export TZ=Europe/Warsaw$", src, re.M)
+
+
+# ── Alarm „slot bez dispatchu” (29.10.2026) ──────────────────────────────
+
+
+def _slot_check():
+    spec = importlib.util.spec_from_file_location(
+        "deploy_window_slot_check", _SLOT_CHECK
+    )
+    assert spec and spec.loader, "brak .github/scripts/deploy_window_slot_check.py"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _utc(text: str) -> datetime:
+    return datetime.fromisoformat(text).replace(tzinfo=timezone.utc)
+
+
+def _runs(*titles: str) -> dict:
+    return {
+        "workflow_runs": [
+            {"display_title": t, "html_url": f"u/{i}"} for i, t in enumerate(titles)
+        ]
+    }
+
+
+def test_slot_check_looks_back_to_the_last_evening() -> None:
+    """Przed 18:20 dzisiejszy slot jeszcze nie jest oceniany — liczy się
+    wczorajszy wieczór. Godziny w czasie warszawskim, także po zmianie czasu."""
+    since = _slot_check().slots_since
+    # 29.10 czas zimowy (UTC+1): 18:30 → dziś od 18:00, 18:10 → wczoraj od 18:00.
+    assert since(_utc("2026-10-29T17:30:00")) == _utc("2026-10-29T17:00:00")
+    assert since(_utc("2026-10-29T17:10:00")) == _utc("2026-10-28T17:00:00")
+    assert since(_utc("2026-10-30T07:00:00")) == _utc("2026-10-29T17:00:00")
+    # 20.10 czas letni (UTC+2).
+    assert since(_utc("2026-10-20T16:30:00")) == _utc("2026-10-20T16:00:00")
+
+
+def test_slot_check_alarms_when_only_manual_deploys_ran(tmp_path: Path) -> None:
+    """15–29.10: ręczne „Run workflow” wdrażały co wieczór, a budzik milczał."""
+    module = _slot_check()
+    paths: list[str] = []
+
+    def fetch(path: str) -> object:
+        paths.append(path)
+        return _runs("Deploy", "Deploy")
+
+    out = tmp_path / "out"
+    os.environ["GITHUB_OUTPUT"] = str(out)
+    try:
+        rc = module.main(
+            ["--repo", "B2B-net-S-A/NEXUS"],
+            fetch=fetch,
+            now=_utc("2026-10-29T19:00:00"),
+        )
+    finally:
+        del os.environ["GITHUB_OUTPUT"]
+    assert rc == 0
+    assert len(paths) == 1
+    assert paths[0].startswith(
+        "repos/B2B-net-S-A/NEXUS/actions/workflows/deploy.yml/runs?"
+    )
+    assert "event=workflow_dispatch" in paths[0]
+    assert "created=%3E%3D2026-10-29T17%3A00%3A00Z" in paths[0]
+    lines = out.read_text(encoding="utf-8").splitlines()
+    assert "checked=true" in lines
+    alert = next(line for line in lines if line.startswith("slot_alert="))
+    assert "29.10 18:00" in alert and "token" in alert
+
+
+def test_slot_check_is_quiet_when_the_wakeup_dispatched(tmp_path: Path) -> None:
+    module = _slot_check()
+    out = tmp_path / "out"
+    os.environ["GITHUB_OUTPUT"] = str(out)
+    try:
+        rc = module.main(
+            ["--repo", "B2B-net-S-A/NEXUS"],
+            fetch=lambda _path: _runs("Deploy", module.SLOT_RUN_NAME),
+            now=_utc("2026-10-29T19:00:00"),
+        )
+    finally:
+        del os.environ["GITHUB_OUTPUT"]
+    assert rc == 0
+    assert out.read_text(encoding="utf-8").splitlines() == [
+        "checked=true",
+        "slot_alert=",
+    ]
+
+
+def test_slot_check_api_error_gives_no_verdict(tmp_path: Path) -> None:
+    """Błąd API nie otwiera alarmu i nie zamyka otwartego."""
+    module = _slot_check()
+
+    def fetch(_path: str) -> object:
+        raise TimeoutError
+
+    out = tmp_path / "out"
+    os.environ["GITHUB_OUTPUT"] = str(out)
+    try:
+        rc = module.main(
+            ["--repo", "B2B-net-S-A/NEXUS"],
+            fetch=fetch,
+            now=_utc("2026-10-29T19:00:00"),
+        )
+    finally:
+        del os.environ["GITHUB_OUTPUT"]
+    assert rc == 0
+    assert out.read_text(encoding="utf-8").splitlines() == [
+        "checked=false",
+        "slot_alert=",
+    ]
+
+
+def test_deploy_run_from_the_wakeup_is_named_for_the_check() -> None:
+    """API GitHuba nie zwraca inputów biegu — bieg z budzika rozpoznajemy po
+    tytule. Pozostałe biegi zostają z domyślnym tytułem (pusty `run-name`)."""
+    deploy = yaml.safe_load((_WORKFLOWS / "deploy.yml").read_text(encoding="utf-8"))
+    assert deploy["run-name"] == (
+        "${{ github.event_name == 'workflow_dispatch' && "
+        "(inputs.window_slot == true || inputs.window_slot == 'true') && "
+        f"'{_slot_check().SLOT_RUN_NAME}' || '' }}}}"
+    )
+
+
+def test_uptime_probe_opens_and_closes_the_slot_alarm() -> None:
+    probe = yaml.safe_load(
+        (_WORKFLOWS / "uptime-probe.yml").read_text(encoding="utf-8")
+    )
+    job = probe["jobs"]["deploy-window-slot"]
+    assert job["if"] == "${{ github.event_name == 'schedule' }}"
+    assert job["permissions"] == {
+        "contents": "read",
+        "actions": "read",
+        "issues": "write",
+    }
+    steps = {step.get("name"): step for step in job["steps"]}
+    check = steps["Czy budzik uruchomił Deploy od ostatniego 18:05?"]
+    assert "deploy_window_slot_check.py" in check["run"]
+    alarm = steps["Alarm — slot budzika bez dispatchu"]
+    assert alarm["if"] == "${{ steps.slot.outputs.slot_alert != '' }}"
+    assert f'open "{_SLOT_MARKER}"' in alarm["run"]
+    resolve = steps["Zamknij alarm budzika"]
+    assert resolve["if"] == (
+        "${{ steps.slot.outputs.checked == 'true' && steps.slot.outputs.slot_alert == '' }}"
+    )
+    assert f'resolve "{_SLOT_MARKER}"' in resolve["run"]
