@@ -229,7 +229,8 @@ export function JointScreeningPicker({
                 onChange={() => onToggle(pair.job_id)}
                 aria-describedby={locked ? `${id}-twin` : undefined}
               />
-              <label htmlFor={id} className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1">
+              <label htmlFor={id} className="block">
                 <span className="block font-semibold text-foreground">
                   <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={pair.client_reference} />
                   {pair.title}
@@ -248,9 +249,6 @@ export function JointScreeningPicker({
                     ? [COLUMN_LABEL[pair.board_column ?? ""] ?? pair.board_column, claim].filter(Boolean).join(" · ")
                     : (pair.reason_message ?? "Nie do wyboru")}
                 </span>
-                {pair.twin && pair.selectable ? (
-                  <TwinSkipControl jobId={pair.job_id} title={pair.title} reason={skipped} onTwinSkip={onTwinSkip} />
-                ) : null}
                 {remembered?.any ? (
                   <span className="mt-1 flex w-fit rounded-full bg-info-muted px-2 py-0.5 text-[11px] font-semibold text-info-muted-foreground">
                     {memoryChipLabel(remembered.answers)}
@@ -258,6 +256,12 @@ export function JointScreeningPicker({
                   </span>
                 ) : null}
               </label>
+              {/* Poza etykietą: wybór powodu w etykiecie zablokowanego pola
+                  nie dawał się kliknąć (przeklikanie na stagingu 29.10). */}
+              {pair.twin && pair.selectable ? (
+                <TwinSkipControl jobId={pair.job_id} title={pair.title} reason={skipped} onTwinSkip={onTwinSkip} />
+              ) : null}
+              </div>
             </li>
           );
         })}
