@@ -1,4 +1,4 @@
-"""DDL „Ogłoszeń” na pulpicie (0618) — jedno źródło dla migracji, modelu i entrypointu.
+"""DDL „Ogłoszeń” na pulpicie (0619) — jedno źródło dla migracji, modelu i entrypointu.
 
 Propozycja Olafa z 28.10.2026, decyzja Artura: panel „Ogłoszenia” nad
 kafelkami pulpitu każdej osoby. Publikują Head of Recruitment i admin; własnego

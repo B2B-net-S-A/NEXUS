@@ -297,7 +297,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.automation_failing: _C.system,
     _T.candidate_data_access_alert: _C.system,
     _T.new_person_signed_in: _C.system,
-    # 0618: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
+    # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
     _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
 }

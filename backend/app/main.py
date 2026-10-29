@@ -2215,7 +2215,7 @@ app.include_router(
     prefix="/api/people-setup",
     tags=["people-setup"],
 )
-# 0618: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
+# 0619: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
 app.include_router(
     announcements_api.router,
     prefix="/api/announcements",
