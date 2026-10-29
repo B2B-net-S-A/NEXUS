@@ -2118,6 +2118,7 @@ async def apply_move(
         reason=data.autofill_reason,
         learned_from=data.autofill_learned_from,
         note=data.notes,
+        not_looking_until=data.autofill_not_looking_until,
     )
     # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
     # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
@@ -2357,6 +2358,32 @@ async def apply_move(
                 candidate_id=data.candidate_id,
                 client_id=job.client_id,
                 except_job_id=job.id,
+            )
+        # „Nie szuka pracy” z datą (28.10.2026): profil + zdjęcie nietkniętych
+        # kart od systemu z innych rekrutacji, silnik pomija do tej daty.
+        if data.autofill_not_looking_until is not None:
+            from app.services import autofill_withdraw
+
+            change = await autofill_feedback.mark_not_looking(
+                db,
+                candidate_id=data.candidate_id,
+                until=data.autofill_not_looking_until,
+            )
+            if change is not None:
+                candidate_audit.record_candidate_audit(
+                    db,
+                    action=candidate_audit.AVAILABILITY_CHANGED,
+                    user_id=policy.actor_id,
+                    entity_id=data.candidate_id,
+                    details={
+                        **change,
+                        "source": "autofill_rejection",
+                        "job_id": job.id,
+                        "stage_id": stage.id,
+                    },
+                )
+            await autofill_withdraw.withdraw_elsewhere(
+                db, candidate_id=data.candidate_id, except_job_id=job.id
             )
         # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
         # z okna „Zweryfikowany”.

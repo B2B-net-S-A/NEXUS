@@ -90,6 +90,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "api-integration": "Integracja z API",
   "api-keys": "Klucze API",
   extension: "Wtyczka LinkedIn",
+  wtyczka: "Wtyczka LinkedIn",
   connect: "Połącz",
   "linkedin-extension": "Wtyczka LinkedIn",
   chats: "Audyt czatów",

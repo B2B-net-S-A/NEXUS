@@ -359,6 +359,15 @@ async def test_every_consumer_counts_the_same_as_the_full_cte():
             start=datetime(2027, 7, 1, tzinfo=timezone.utc),
             end=datetime(2027, 8, 1, tzinfo=timezone.utc),
         )
+        # Rytm dnia (28.10.2026): CV do klienta per osoba w oknie dni.
+        from app.services import work_rhythm
+
+        await work_rhythm._cv_sent(
+            db,
+            [people["first"].id, people["second"].id, people["lead"].id],
+            date(2027, 7, 1),
+            date(2027, 7, 31),
+        )
 
         head = people["head"]
         for metric in ("verification", "recommendation", "acceptance", "placement"):

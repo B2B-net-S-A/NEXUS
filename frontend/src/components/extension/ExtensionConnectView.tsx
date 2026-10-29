@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, Loader2, PlugZap, TriangleAlert } from "lucide-react";
 
@@ -105,7 +106,7 @@ export function ExtensionConnectView({
       setState({
         status: "error",
         message:
-          "Nie widzę wtyczki NEXUS w tej przeglądarce. Zainstaluj ją z linku od administratora (albo włącz w chrome://extensions) i kliknij „Połącz ponownie”.",
+          "Nie widzę wtyczki NEXUS w tej przeglądarce. Zainstaluj ją ze strony NEXUS → Wtyczka LinkedIn (/wtyczka) albo włącz w chrome://extensions i kliknij „Połącz ponownie”.",
       });
       return;
     }
@@ -193,8 +194,12 @@ export function ExtensionConnectView({
       ) : null}
 
       <p className="text-xs text-muted-foreground">
-        Odłączenie: Ustawienia → Wtyczka LinkedIn. Zmiana roli albo hasła odłącza
-        wtyczkę sama.
+        Nie masz jeszcze wtyczki?{" "}
+        <Link href="/wtyczka" className="text-primary underline underline-offset-4">
+          Pobierz i zainstaluj
+        </Link>
+        . Odłączenie: Ustawienia → Wtyczka LinkedIn. Zmiana roli albo hasła
+        odłącza wtyczkę sama.
       </p>
     </div>
   );

@@ -19,24 +19,32 @@ Kontrakt z backendem: [`API.md`](API.md) (trasy `/api/extension/*`, klucz w nag�
 
 ## Instalacja
 
-**Zespół:** docelowa dystrybucja to Chrome Web Store jako niepubliczna (Unlisted).
-Publikacja i przydzielenie identyfikatora sklepu są jeszcze do wykonania;
-po publikacji link dostaniesz od administratora NEXUSA. Wtedy wybierz
-„Dodaj do Chrome” i przypnij ikonę NEXUSA na pasku.
+Dwie drogi, ta sama wtyczka:
+
+**Zespół — ZIP z NEXUSA (działa od 29.10.2026, bez Chrome Web Store):**
+NEXUS → `/wtyczka` (za logowaniem): „Pobierz wtyczkę (ZIP)” i instrukcja krok
+po kroku — rozpakuj do stałego folderu, `chrome://extensions` → „Tryb
+dewelopera” → „Wczytaj rozpakowane” → folder z `manifest.json` → przypnij
+ikonę → „Zaloguj przez NEXUS”. ZIP ma w manifeście pole `key`, więc wtyczka ma
+na każdym laptopie to samo id **`pmnonjpommkjblgacmpaclgacjmipplm`** — to id
+musi być na `LINKEDIN_EXTENSION_IDS` produkcji. Bez `key` id zależałoby od
+ścieżki folderu i NEXUS odmówiłby połączenia („Ta wtyczka nie jest wtyczką
+NEXUSA”). Wersja z ZIP-a nie aktualizuje się sama: panel porównuje swoją wersję
+z `latest_version` z `/api/extension/me` i pokazuje „Jest nowa wersja”
+z linkiem do `/wtyczka`.
+
+**Chrome Web Store (niepubliczna):** zgłoszona 28.10.2026, id sklepu
+`iaajabmhhcchodnkkgdffclgihdeipmo`. Po akceptacji Google link do sklepu
+zastępuje ZIP (aktualizacje same, bez trybu dewelopera). Osoba z wersją z ZIP-a
+usuwa ją przed instalacją ze sklepu — to inne id, więc połączy się od nowa.
 
 Polityka prywatności: [NEXUS — wtyczka](https://nexus.b2bnetwork.pl/wtyczka/prywatnosc).
-Strona jest przygotowywana w tym samym wydaniu co materiały sklepu;
-przed publikacją administrator sprawdza jej dostępność bez logowania.
 
-**Wersja deweloperska („Wczytaj rozpakowane”):**
-
-1. `chrome://extensions` → włącz „Tryb dewelopera” (prawy górny róg).
-2. „Wczytaj rozpakowane” → wskaż katalog `extension/` z repo.
-3. Skopiuj identyfikator wtyczki z karty (32 litery). Backend przekaże klucz
-   tylko wtyczce z listy `LINKEDIN_EXTENSION_IDS` — dopisz tam ten identyfikator
-   (na produkcji przez workflow „Coolify set env”, lokalnie w `.env` stagingu).
-4. Po zmianie plików: ikona odświeżenia na karcie wtyczki w `chrome://extensions`.
-   Panel zamknij i otwórz ponownie.
+**Praca nad kodem („Wczytaj rozpakowane” z repo):** wskaż katalog `extension/`.
+Manifest w repo ma to samo pole `key`, więc id jest takie jak w ZIP-ie zespołu
+i staging z `LINKEDIN_EXTENSION_IDS=pmnonjpommkjblgacmpaclgacjmipplm` od razu
+przyjmie połączenie. Po zmianie plików: ikona odświeżenia na karcie wtyczki
+w `chrome://extensions`, panel zamknij i otwórz ponownie.
 
 Wymaga Chrome 116 lub nowszego (panel boczny).
 
@@ -134,23 +142,31 @@ albo lista wyników jest pusta.
 4. `node --test extension/test`, przeładuj wtyczkę w `chrome://extensions`,
    sprawdź na żywej stronie.
 
-## Paczka do Web Store
+## Wydanie nowej wersji
 
 ```sh
-sh extension/scripts/pack.sh   # → extension/dist/nexus-linkedin-<wersja>.zip
+cd extension && npm ci && cd ..
+# 1. podbij "version" w extension/manifest.json i package.json,
+#    LATEST_EXTENSION_VERSION w backend/app/services/linkedin_extension_auth.py
+#    i EXTENSION_VERSION w frontend/src/components/extension/ExtensionInstallView.tsx
+sh extension/scripts/pack.sh
 ```
 
-ZIP zawiera tylko `manifest.json`, `icons/` i `src/`. Przed wysłaniem podbij
-`version` w `manifest.json`, jeśli sklep otrzymał już tę wersję.
-Skrypt wymaga zainstalowanych zależności testów i zielonego wyniku testów;
-zapisuje też sumę SHA-256 ZIP-a.
+Skrypt (po zielonych testach) robi dwie paczki z tych samych plików:
 
-Gotowe teksty formularza, uzasadnienia uprawnień i instrukcje do recenzji:
-[`docs/linkedin-extension-webstore.md`](../docs/linkedin-extension-webstore.md).
-Zrzuty sklepu na fikcyjnych danych: `node extension/scripts/store-screenshots.mjs`
-(z katalogu repozytorium; wymaga istniejącej zależności Playwright frontendu).
-Generator renderuje rzeczywiste komponenty panelu w rozmiarze 1280×800;
-nie zastępuje sprawdzenia czytnika na żywym Recruiterze.
+- `frontend/public/wtyczka/nexus-linkedin.zip` — **zespół**, z polem `key`,
+  commitowana w repo i pobierana z `/wtyczka`. Test `team-zip.test.mjs` pada,
+  gdy ZIP nie zgadza się z `extension/` (zapomniane `pack.sh`).
+- `extension/dist/nexus-linkedin-<wersja>-webstore.zip` — **Chrome Web Store**,
+  bez `key` (sklep nadaje własne id). Nie commitujemy.
+
+Wersję pilnują testy: manifest = stała backendu (`test_linkedin_extension_unit.py`)
+= stała strony `/wtyczka` (`ExtensionInstallView.test.tsx`). Testy wtyczki biegną
+w CI (krok „Wtyczka LinkedIn — testy” w `ci.yml`).
+
+Klucz prywatny do pola `key` (`~/.config/nexus/linkedin-extension-team.pem`
+na laptopie Artura) nie jest potrzebny do ZIP-a — tylko do podpisanego `.crx`,
+gdyby wtyczka miała iść przez politykę Chrome (Intune). Nie commitujemy go.
 
 ## Budowa
 

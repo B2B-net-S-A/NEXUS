@@ -58,7 +58,7 @@ const user = (
   } as NonNullable<AuthUser>;
 };
 
-const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "firma", "raporty"];
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "raporty"];
 
 describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
@@ -66,6 +66,13 @@ describe("widoki Insights per rola", () => {
     expect(tabs).toEqual(expect.arrayContaining(["rywalizacja", "zespol", "raporty"]));
     // Rada nadzorcza: Rywalizacja zostaje, ale ostatnia (decyzja 22.10.2026).
     expect(tabs[0]).toBe(role === "board" ? "firma" : "rywalizacja");
+  });
+
+  it("Rytm dnia widzą tylko Head of Recruitment i admin (29.10.2026)", () => {
+    for (const role of ALL_ROLES) {
+      const sees = getVisibleInsightTabIds(user(role)).includes("rytm");
+      expect(sees, role).toBe(role === "admin" || role === "head_of_recruitment");
+    }
   });
 
   it("Rada nadzorcza bez widoku w adresie ląduje na Firmie", () => {

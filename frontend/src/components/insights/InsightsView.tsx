@@ -5,6 +5,7 @@ import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import {
+  Activity,
   FileText,
   Landmark,
   Lock,
@@ -29,8 +30,15 @@ import { MojMiesiacView } from "@/components/insights/views/MojMiesiacView";
 import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
+import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
 
-export type TabId = "rywalizacja" | "moj-miesiac" | "zespol" | "firma" | "raporty";
+export type TabId =
+  | "rywalizacja"
+  | "moj-miesiac"
+  | "zespol"
+  | "rytm"
+  | "firma"
+  | "raporty";
 
 type TabDef = {
   id: TabId;
@@ -73,6 +81,9 @@ export const PERSONAL_ROLES: UserRole[] = [
   "delivery_lead",
 ];
 
+/** Kto widzi „Rytm dnia” — lustro `VIEWER_ROLES` z `services/work_rhythm.py`. */
+export const RHYTHM_ROLES: UserRole[] = ["head_of_recruitment", "admin"];
+
 // Pięć widoków zamiast dwóch zakładek z rozdziałami (24.09.2026). Kolejność =
 // kolejność pytań: kto wygrywa → jak mi idzie → jak idzie zespołowi → ile
 // zarabia firma → reszta. Rywalizacja jest pierwsza dla każdego (Artur:
@@ -81,6 +92,10 @@ const TABS: TabDef[] = [
   { id: "rywalizacja", label: "Rywalizacja", icon: Trophy, roles: null },
   { id: "moj-miesiac", label: "Mój miesiąc", icon: UserRound, roles: PERSONAL_ROLES },
   { id: "zespol", label: "Zespół", icon: Users, roles: null },
+  // „Rytm dnia” (decyzje Artura 28–29.10.2026): kiedy i jak intensywnie pracują
+  // rekruterzy. Na razie tylko Head of Recruitment i admin — lustro
+  // `VIEWER_ROLES` w `backend/app/services/work_rhythm.py`.
+  { id: "rytm", label: "Rytm dnia", icon: Activity, roles: RHYTHM_ROLES },
   {
     id: "firma",
     label: "Firma",
@@ -383,6 +398,7 @@ export function InsightsView() {
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}
+        {location.tab === "rytm" && <RytmDniaView />}
         {location.tab === "firma" && <FirmaView />}
         {location.tab === "raporty" && <RaportyView reportId={location.report} />}
       </div>

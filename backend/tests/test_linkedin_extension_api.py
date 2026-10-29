@@ -22,6 +22,7 @@ from app.models.job import Job, JobStatus
 from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage
 from app.services import client_off_limits
+from app.services import linkedin_extension_auth as auth
 
 EXT_ID = "abcdefghijklmnopabcdefghijklmnop"
 
@@ -108,6 +109,8 @@ async def test_key_works_only_on_extension_routes(app_client, app_auth_headers) 
     me = await app_client.get("/api/extension/me", headers=key)
     assert me.status_code == 200, me.text
     assert me.json()["usage"]["reads_limit"] == 150
+    # Wersja z ZIP-a nie aktualizuje się sama — panel porównuje się z tą.
+    assert me.json()["latest_version"] == auth.LATEST_EXTENSION_VERSION
 
     # Klucz wtyczki nie otwiera reszty API…
     other = await app_client.get("/api/candidates", headers=key)
