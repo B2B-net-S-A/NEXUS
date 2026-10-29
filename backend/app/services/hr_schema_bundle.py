@@ -67,7 +67,7 @@ MODULES = (
     care_board,
     # 0611: poprawka i anulowanie protokołu sprzętu (28.10.2026).
     equipment_cancel,
-    # 0619: zastępca do Cpro we wniosku urlopowym (29.10.2026).
+    # 0620: zastępca do Cpro we wniosku urlopowym (29.10.2026).
     leave_cpro,
 )
 

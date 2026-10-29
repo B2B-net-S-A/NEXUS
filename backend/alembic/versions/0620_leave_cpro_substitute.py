@@ -1,7 +1,7 @@
 """Zastępca do Cpro we wniosku urlopowym osoby od Cpro.
 
-Revision ID: 0619_leave_cpro_substitute
-Revises: 0618_sales_opportunity_events
+Revision ID: 0620_leave_cpro_substitute
+Revises: 0619_announcements
 
 Decyzja Artura 29.10.2026: osoba od Cpro wskazuje we wniosku, kto w tym
 czasie wrzuca kandydatów Nordei do Cpro. SQL ma jedno źródło
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import hr_leave_cpro_schema as schema
 
-revision = "0619_leave_cpro_substitute"
-down_revision = "0618_sales_opportunity_events"
+revision = "0620_leave_cpro_substitute"
+down_revision = "0619_announcements"
 branch_labels = None
 depends_on = None
 

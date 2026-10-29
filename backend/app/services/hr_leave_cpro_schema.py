@@ -1,6 +1,6 @@
-"""Zastępca do Cpro we wniosku urlopowym: SQL migracji ``0619_leave_cpro_substitute`` i lustra entrypointu.
+"""Zastępca do Cpro we wniosku urlopowym: SQL migracji ``0620_leave_cpro_substitute`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0619_leave_cpro_substitute.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0620_leave_cpro_substitute.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 
