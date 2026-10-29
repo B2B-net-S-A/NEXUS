@@ -44,3 +44,26 @@ Head of Recruitment w panelu, po pomiarze).
   18 miesięcy (1,5%) dostałoby oznaczenie — to osoby, które zespół przyjął mimo
   innej roli, dlatego okno tylko oznacza i przesuwa, a nie ukrywa. Zmiana
   reguł klasyfikatora = ten sam pomiar przed i po.
+
+## Dopisek 29.10.2026 — DevSecOps i pula „Nowych” bez wyjątku
+
+Zgłoszenie rekrutera: w „Nowych” rekrutacji „DevSecOps - inżynier (ZOB-3104)”
+karta „Od systemu · 68%” z analitykiem systemowym / architektem. Dwie przyczyny:
+słowo „DevSecOps” nie zawiera „devops”, więc rekrutacja nie miała rodziny
+i nic nie porównywało ról; a nawet z rodziną osoba przeszłaby wyjątkiem 80%,
+bo lista technologii w CV architekta dała 7 z 8 „musi mieć” (same narzędzia:
+GitLab CI, OpenShift, Argo CD, Docker, Kubernetes…). Decyzja Artura 29.10.2026:
+
+- **DevOps** rozpoznaje też „DevSecOps”, „Dev-Ops”, „SecOps”.
+- **Pula dopełniania „Nowych”** (`refresh_autofill_pool`) pomija każdą osobę
+  z inną rolą, bez wyjątku `KEEP_MUST_SHARE`: karta stamtąd ląduje na
+  tablicy bez człowieka. Wyjątek 80% zostaje tylko dla propozycji nocnego
+  przeglądu (okno, z plakietką „Inna rola”), gdzie decyduje rekruter.
+- **Historia roli** pomija karty wstawione przez dopełnianie „Nowych”
+  (`entry_source = "system"`), tak jak karty scrapera — inaczej silnik
+  utwierdzałby się we własnych wyborach.
+- **Skala** (pula z produkcji 29.10.2026, 22 916 wierszy w 159 rekrutacjach):
+  844 wiersze z inną rolą w 60 rekrutacjach odpadają przy następnym
+  przeglądzie, 232 z nich przechodziły dotąd wyjątkiem 80% (najczęściej
+  tester → programista 102, analityk → programista 38). Karty już wstawione
+  do „Nowych” zostają.

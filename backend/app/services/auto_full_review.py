@@ -832,9 +832,15 @@ async def _handled_candidate_ids(db, job_id: int) -> list[int]:
 
 
 async def _off_role_ids(
-    db, job: Optional[Job], pairs: list[tuple[int, list]], candidates: dict
+    db,
+    job: Optional[Job],
+    pairs: list[tuple[int, list]],
+    candidates: dict,
+    *,
+    keep_strong: bool = True,
 ) -> set[int]:
-    """Osoby z innej roli niż rekrutacja bez `KEEP_MUST_SHARE` „musi mieć”."""
+    """Osoby z innej roli niż rekrutacja bez `KEEP_MUST_SHARE` „musi mieć”;
+    z ``keep_strong=False`` — wszystkie osoby z innej roli."""
     from app.services.role_family import keeps_despite_role, mismatches_for_job
 
     if job is None:
@@ -843,7 +849,8 @@ async def _off_role_ids(
     return {
         candidate_id
         for candidate_id, requirements in pairs
-        if candidate_id in mismatched and not keeps_despite_role(requirements)
+        if candidate_id in mismatched
+        and not (keep_strong and keeps_despite_role(requirements))
     }
 
 
@@ -859,6 +866,8 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
 
     Ten sam filtr co propozycje (dopuszczony, oceniony, zmierzony), bez progu
     i bez ``is_good_match``. Dowody = same nazwy wymagań, jak w propozycjach.
+    Inna rola niż rekrutacja odpada zawsze, także z ≥ 80% „musi mieć” —
+    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026).
     """
     from sqlalchemy import delete, insert
 
@@ -901,6 +910,7 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
         await db.get(Job, run.job_id),
         [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
         candidates,
+        keep_strong=False,
     )
     payload = []
     for candidate_id, score, evidence in rows:
