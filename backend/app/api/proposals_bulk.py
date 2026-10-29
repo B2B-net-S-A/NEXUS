@@ -105,6 +105,10 @@ BulkAddSource = Literal[
     # 14.10.2026: „Pasuje też do” pod osobą właśnie dodaną do innej rekrutacji
     # (okno „Kandydaci do dodania”). Ręczne dodanie + dzwonek do rekrutera.
     "also_fits",
+    # 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” — rekrutacja
+    # wskazana ręcznie, gdy „Pasuje też do” jej nie podsunął. Wpis i dzwonek
+    # jak przy `also_fits`, inne słowa; osobny kod w telemetrii podpowiedzi.
+    "also_manual",
     # 22.10.2026: zakładka „Podobni” na profilu kandydata. Osoba bez
     # umiejętności krytycznej rekrutacji wchodzi tylko ze zdaniem „dlaczego
     # mimo to” (``reasons``), które trafia na kartę jako notatka.
@@ -158,7 +162,8 @@ class BulkProposalsRequest(BaseModel):
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
     # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
-    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`.
+    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`
+    # i `also_manual`.
     origin_job_id: Optional[int] = Field(default=None, gt=0)
     # „Podobni” (22.10.2026): zdanie „dlaczego mimo to” dla osoby bez
     # umiejętności krytycznej tej rekrutacji. Czytane tylko przy
@@ -1291,7 +1296,7 @@ async def bulk_add_proposals(
     if added:
         # Live kanban: the rest of the team re-reads the board (best-effort).
         await broadcast_pipeline_changed(db, job_id, actor_id)
-    if added and body.source == "also_fits" and not from_integration:
+    if added and body.source in ("also_fits", "also_manual") and not from_integration:
         from app.services.also_fits import record_also_fits_added
 
         await record_also_fits_added(
@@ -1300,6 +1305,7 @@ async def bulk_add_proposals(
             candidate_ids=added,
             actor_id=actor_id,
             origin_job_id=body.origin_job_id,
+            manual=body.source == "also_manual",
         )
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one

@@ -69,6 +69,21 @@ def test_bell_message_names_who_whom_where_and_origin() -> None:
         actor_name="A", candidate_name="B", job_title="C", origin_title=None
     )
     assert "Znaleziony przy" not in no_origin
+    assert "podpowiedź „Pasuje też do”" in msg
+
+
+def test_bell_message_says_manual_add_instead_of_suggestion() -> None:
+    """„+ Dodaj inną rekrutację” (29.10.2026): rekruter B nie czyta „podpowiedź”."""
+    msg = bell_message(
+        actor_name="A",
+        candidate_name="B",
+        job_title="Backend Java",
+        origin_title="Fullstack",
+        manual=True,
+    )
+    assert "dodane ręcznie przy rozmowie" in msg
+    assert "Pasuje też do" not in msg
+    assert "„Fullstack”" in msg
 
 
 class _Rows:

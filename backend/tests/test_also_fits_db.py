@@ -9,6 +9,9 @@ Kontrakty:
 - „+ Dodaj” ze źródłem ``also_fits`` = ręczne dodanie (rezerwacja jak zawsze),
   wpis w historii z rekrutacją źródłową i dzwonek do rekrutera rekrutacji B —
   nie do osoby, która dodała;
+- „+ Dodaj inną rekrutację” (29.10.2026): wyszukiwarka tej samej puli po
+  numerze u klienta i nazwie, zespół patrzącego na górze; źródło
+  ``also_manual`` = ten sam wpis i dzwonek, słowa „dodane ręcznie”;
 - karta Tablicy niesie inne rekrutacje, w których osoba stoi w „Nowych”/
   „Screeningu” — bez bieżącej, bez zamkniętych i bez późniejszych etapów.
 
@@ -270,3 +273,120 @@ async def test_kanban_card_lists_other_jobs_waiting_in_new_or_screening(
     others = cards[0]["other_open_jobs"]
     assert [o["job_id"] for o in others] == [screening_id, waiting_id]
     assert [o["column"] for o in others] == ["screening", "new"]
+
+
+async def _with_reference(db, reference, **kw):
+    job = await _in_work(db, **kw)
+    job.client_reference = reference
+    await db.flush()
+    return job
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_manual_search_same_pool_team_first(app_client):
+    import uuid
+
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+
+    token = f"Q{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as db:
+        me = await _user(db)
+        other = await _user(db)
+        cand = await _candidate(db)
+        origin = await _with_reference(db, f"{token}-0", recruiter=me)
+        foreign = await _with_reference(db, f"{token}-1", recruiter=other)
+        mine = await _with_reference(db, f"{token}-2", recruiter=me)
+        rejected_there = await _with_reference(db, f"{token}-3", recruiter=me)
+        closed = await _with_reference(db, f"{token}-4", status="closed", recruiter=me)
+        finished = await _with_reference(
+            db, f"{token}-5", work_state="finished", recruiter=me
+        )
+        await _stage(db, cand=cand, job=origin, stage="screening", by=me, at=T0)
+        await _stage(db, cand=cand, job=rejected_there, stage="rejected", by=me, at=T0)
+        await db.commit()
+        uid, cid, origin_id = me.id, cand.id, origin.id
+        foreign_id, mine_id = foreign.id, mine.id
+        hidden = {origin.id, rejected_there.id, closed.id, finished.id}
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=uid, role='recruiter')}"
+    }
+    resp = await app_client.get(
+        f"/api/candidates/{cid}/also-fits/search",
+        params={"from_job_id": origin_id, "q": token.lower()},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert [r["job_id"] for r in rows] == [mine_id, foreign_id]
+    assert [r["joinable"] for r in rows] == [True, False]
+    assert not hidden & {r["job_id"] for r in rows}
+    assert rows[0]["client_reference"] == f"{token}-2"
+
+    short = await app_client.get(
+        f"/api/candidates/{cid}/also-fits/search",
+        params={"from_job_id": origin_id, "q": "Q"},
+        headers=headers,
+    )
+    assert short.status_code == 200 and short.json() == []
+
+
+@needs_db
+@pytest.mark.asyncio
+async def test_manual_add_rings_with_manual_wording(app_client):
+    from app.core.database import AsyncSessionLocal
+    from app.core.security import create_access_token
+    from app.models.activity import Activity
+    from app.models.notification import Notification, NotificationType
+
+    async with AsyncSessionLocal() as db:
+        actor = await _user(db)
+        owner = await _user(db)
+        cand = await _candidate(db)
+        origin = await _in_work(db, recruiter=actor)
+        target = await _in_work(db, recruiter=owner)
+        await _stage(db, cand=cand, job=origin, stage="screening", by=actor, at=T0)
+        await db.commit()
+        actor_id, owner_id, cid = actor.id, owner.id, cand.id
+        origin_id, target_id = origin.id, target.id
+
+    headers = {
+        "Authorization": f"Bearer {create_access_token(subject=actor_id, role='recruiter')}"
+    }
+    resp = await app_client.post(
+        f"/api/jobs/{target_id}/proposals/bulk",
+        json={
+            "candidate_ids": [cid],
+            "initial_stage_legacy": "new",
+            "source": "also_manual",
+            "origin_job_id": origin_id,
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["added"] == [cid]
+
+    async with AsyncSessionLocal() as db:
+        bell = await db.scalar(
+            select(Notification).where(
+                Notification.notification_type == NotificationType.also_fits_added,
+                Notification.user_id == owner_id,
+                Notification.link == f"/jobs/{target_id}?candidate={cid}",
+            )
+        )
+        assert bell is not None
+        assert "dodane ręcznie przy rozmowie" in bell.message
+        trail = await db.scalar(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == cid,
+                Activity.action == "also_fits_added",
+            )
+        )
+        assert trail.details == {
+            "job_id": target_id,
+            "from_job_id": origin_id,
+            "via": "manual",
+        }
