@@ -678,8 +678,8 @@ def test_deploy_waits_for_the_evening_window() -> None:
     assert "github.ref == 'refs/heads/main'" in select["if"]
     step = _step(select["steps"], "Wybierz wydanie")
     freeze = step["env"]["FREEZE_WINDOW"]
-    assert freeze == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}", (
-        "Okno ciszy obowiązuje bez zmiennej repo i dla ręcznego dispatchu."
+    assert freeze == "8-18", (
+        "Okno ciszy 18:00–08:00 obowiązuje bez zmiennej repo i dla ręcznego dispatchu."
     )
     quiet = _step(select["steps"], "Poczekaj na ciszę na mainie (grupowanie deployów)")
     assert quiet["env"]["FREEZE_WINDOW"] == freeze
@@ -703,6 +703,19 @@ def test_deploy_waits_for_the_evening_window() -> None:
     assert step["env"]["DEPLOY_REASON"] == "${{ inputs.reason }}"
     assert '--reason "$DEPLOY_REASON"' in step["run"]
     assert "inputs.reason" not in step["run"]
+
+
+def test_freeze_window_hours_live_only_in_code() -> None:
+    """29.10.2026: okno przesunięte 22.10 na 18:00–08:00 dalej działało do 19:00,
+    bo `vars.DEPLOY_FREEZE_WINDOW` (stare `7-19`) miało pierwszeństwo przed
+    wartością w kodzie. Godziny okna stoją wyłącznie w workflowach."""
+    for path in sorted(_WORKFLOWS.glob("*.yml")):
+        raw = path.read_text(encoding="utf-8")
+        assert "vars.DEPLOY_FREEZE_WINDOW" not in raw, (
+            f"{path.name}: godziny okna z kodu, nie ze zmiennej repo"
+        )
+        for value in re.findall(r"FREEZE_WINDOW:\s*(.+)", raw):
+            assert value.strip() == '"8-18"', f"{path.name}: okno {value.strip()}"
 
 
 def test_window_slot_dispatch_behaves_like_the_evening_schedule() -> None:
@@ -739,7 +752,7 @@ def test_uptime_probe_alerts_on_a_night_without_deploy() -> None:
     assert job["permissions"]["issues"] == "write"
     check = _step(job["steps"], "Czy noc wdrożyła merge'e sprzed 08:00?")
     assert "select_release_sha.py night-check" in check["run"]
-    assert check["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}"
+    assert check["env"]["FREEZE_WINDOW"] == "8-18"
     marker = "Deploy NEXUS — noc bez wdrożenia"
     assert marker in _step(job["steps"], "Alarm — noc bez wdrożenia")["run"]
     assert marker in _step(job["steps"], "Zamknij alarm nocy")["run"]
@@ -759,7 +772,7 @@ def test_queue_maintenance_redeploy_respects_the_window() -> None:
         "Cancel stuck deployments"
     )
     assert gate["if"] == "${{ inputs.mode == 'redeploy' }}"
-    assert gate["env"]["FREEZE_WINDOW"] == "${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}"
+    assert gate["env"]["FREEZE_WINDOW"] == "8-18"
     assert "select_release_sha.py in-freeze" in gate["run"]
     assert "inputs.reason" not in gate["run"]
     assert gate["env"]["REASON"] == "${{ inputs.reason }}"

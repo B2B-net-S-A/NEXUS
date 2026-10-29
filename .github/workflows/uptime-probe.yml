@@ -462,7 +462,7 @@ jobs:
         id: night
         env:
           GH_TOKEN: ${{ github.token }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
+          FREEZE_WINDOW: "8-18"
         run: |
           set -u
           live=$(curl -sS --max-time 15 https://api.nexus.dynaminds.pl/api/health | jq -r '.version // ""' 2>/dev/null || echo "")
