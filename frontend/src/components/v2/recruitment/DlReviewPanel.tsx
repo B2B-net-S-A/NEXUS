@@ -76,6 +76,7 @@ import {
   type CvView,
 } from "@/components/v2/recruitment/dl-review/CvColumn";
 import { DecisionPanel, type DecisionAction } from "@/components/v2/recruitment/dl-review/DecisionPanel";
+import { ClientCoverSheet, CoverSheetDecisionNote } from "@/components/v2/recruitment/dl-review/ClientCoverSheet";
 import {
   DlMatchSection,
   matchTargets,
@@ -95,6 +96,8 @@ import {
   type DlReviewClientRateHint,
 } from "@/lib/api/dlReview";
 import { useScreeningFormState } from "@/lib/api/screeningForm";
+import { useCoverSheet } from "@/lib/api/coverSheet";
+import { canViewClientRate } from "@/lib/client-rate-access";
 import {
   screeningDealBreakerWarning,
   screeningFormHref,
@@ -414,6 +417,12 @@ export function DlReviewBody({
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnInput, setReturnInput] = useState<{ fields: string[]; remark: string } | null>(null);
   const [cvView, setCvView] = useState<CvView>("company");
+  // „Karta przed CV” (29.10.2026): pigułka tylko u klienta z wzorem karty —
+  // decyduje serwer (`enabled`), nie nazwa klienta. Karta ma stawkę do
+  // klienta, więc rola bez niej w ogóle o kartę nie pyta.
+  const coverSheetQuery = useCoverSheet(task.candidate_id, task.job_id, canViewClientRate(me as never));
+  const coverSheet = coverSheetQuery.data?.enabled ? coverSheetQuery.data : null;
+  const shownCvView: CvView = cvView === "client_sheet" && !coverSheet ? "company" : cvView;
   // Tylko układ `tabs`: wymagania w miejscu CV (trzecia pigułka paska).
   const [showRequirements, setShowRequirements] = useState(false);
   // Klik w wymaganie (tabela, braki w skrócie) szuka go w CV na ekranie —
@@ -819,7 +828,8 @@ export function DlReviewBody({
         <CvToolbar
           className={TOOLBAR_CLASS[mode]}
           task={task}
-          view={cvView}
+          view={shownCvView}
+          coverSheet={coverSheet != null}
           onViewChange={(view) => {
             setCvView(view);
             setShowRequirements(false);
@@ -839,11 +849,22 @@ export function DlReviewBody({
         <CvColumn
           className={CV_CLASS[mode]}
           task={task}
-          view={cvView}
+          view={shownCvView}
           fill={sideBySide}
           hidden={mode === "tabs" && showRequirements}
           previewLoaders={previewLoaders}
           searchRequest={cvSearch}
+          coverSheet={
+            coverSheet ? (
+              <ClientCoverSheet
+                candidateId={task.candidate_id}
+                jobId={task.job_id}
+                sheet={coverSheet}
+                rate={{ raw: rateRaw, unit: rateUnit, currency }}
+                canEdit={canSend}
+              />
+            ) : null
+          }
         />
 
         <div
@@ -973,6 +994,16 @@ export function DlReviewBody({
             ) : null
           }
         >
+          {coverSheet ? (
+            <CoverSheetDecisionNote sheet={coverSheet} rate={{ raw: rateRaw, unit: rateUnit, currency }} />
+          ) : coverSheetQuery.isError ? (
+            <p role="alert" data-testid="cover-sheet-error" className="text-xs text-destructive">
+              {apiErrorMessage(coverSheetQuery.error, "Nie udało się sprawdzić, czy klient chce karty przed CV.")}{" "}
+              <button type="button" className="font-medium underline" onClick={() => void coverSheetQuery.refetch()}>
+                Ponów
+              </button>
+            </p>
+          ) : null}
           {canSend ? (
             <DlMatchSection model={match} fallbackRate={rateRaw} disabled={busy !== null} />
           ) : null}

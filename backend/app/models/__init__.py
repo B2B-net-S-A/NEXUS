@@ -825,6 +825,9 @@ from app.models.job_intake_form import JobIntakeForm  # noqa: F401
 from app.models.job_file import JobFile  # noqa: F401
 from app.models.candidate_client_form import CandidateClientForm  # noqa: F401
 
+# 0626: wzór „Karty przed CV” klienta (Credit Agricole).
+from app.models.client_cover_sheet_template import ClientCoverSheetTemplate  # noqa: F401
+
 # 0430: ogłoszenie rekrutacji do wklejenia na portale.
 from app.models.job_ad import JobAd  # noqa: F401
 from app.models.job_ad_publication import JobAdPublication  # noqa: F401
