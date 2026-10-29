@@ -30,6 +30,7 @@ import type {
   ReviewResponse,
   TeamPerson,
 } from "@/lib/api/requestAllocation";
+import { DEFAULT_TEAM_RULES } from "@/lib/allocation-rules";
 import { EMPTY_FILTERS, type BoardFilters } from "@/lib/request-board";
 import type { VisibleState } from "@/lib/request-work-state";
 
@@ -115,7 +116,8 @@ const TEAM: CompetenceTeam = {
     person(people.darek, ["recruiter"], null),
     person(people.ewa, ["recruiter"], null),
   ],
-  rules: { review_time: "08:30" },
+  rules: DEFAULT_TEAM_RULES,
+  mode: "auto",
 };
 
 const REVIEW: ReviewResponse = {
@@ -219,7 +221,7 @@ export default function RequestAllocationPreview() {
           <h1 className="text-2xl font-bold">Kategorie kompetencji zespołu</h1>
           <CompetenceTeamView
             team={TEAM}
-            actions={{ assign: noop, remove: noop, exclude: noop, saveRules: noop }}
+            actions={{ assign: noop, remove: noop, exclude: noop }}
           />
         </section>
       )}

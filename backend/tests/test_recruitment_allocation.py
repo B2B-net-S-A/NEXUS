@@ -438,24 +438,32 @@ def test_cover_scope_requires_open_work_and_the_same_owners_membership():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("compass_enabled", "fresh", "allowed"),
+    ("compass_enabled", "fresh", "leave_policy", "allowed"),
     [
         # Urlopy z Compassa wyłączone: danych nie będzie, automat rusza bez nich.
-        (False, False, True),
+        (False, False, "wait", True),
         # Włączone, ale nieaktualne: request mógłby dostać ktoś na urlopie.
-        (True, False, False),
-        (True, True, True),
+        (True, False, "wait", False),
+        (True, True, "wait", True),
+        # Zasada „Przydzielaj” z Ustawień (29.10.2026): nie czeka na urlopy.
+        (True, False, "ignore", True),
     ],
 )
 async def test_auto_mode_waits_for_compass_only_when_compass_is_enabled(
-    monkeypatch, compass_enabled: bool, fresh: bool, allowed: bool
+    monkeypatch, compass_enabled: bool, fresh: bool, leave_policy: str, allowed: bool
 ):
     from unittest.mock import AsyncMock, MagicMock
 
     from fastapi import HTTPException
 
     from app.api import recruitment_allocation as api
+    from app.services.request_allocation_rules import AllocationRules
 
+    monkeypatch.setattr(
+        api,
+        "load_rules",
+        AsyncMock(return_value=AllocationRules(leave_policy=leave_policy)),
+    )
     monkeypatch.setattr(api.settings, "RECRUITMENT_ALLOCATION_ENABLED", True)
     monkeypatch.setattr(api.settings, "COMPASS_AVAILABILITY_ENABLED", compass_enabled)
     monkeypatch.setattr(api, "allocation_lock", AsyncMock())

@@ -31,7 +31,12 @@ from app.services.auto_cc_collaborators import (
     operator_clause,
     sync_cc_participants,
 )
+from app.models.recruitment_priority import RecruitmentPriorityAuditEvent
+from app.services.priority_work_service import audit_event
+from app.services.recruitment_allocation import effective_allocation_mode
+from app.services.request_allocation import preview_allocation
 from app.services.request_allocation_rules import (
+    changed_fields,
     load_rules,
     save_rules,
     validate_rules,
@@ -62,7 +67,17 @@ class TeamCategory(BaseModel):
 
 
 class TeamRules(BaseModel):
+    """Zasady automatu (``request_allocation_rules``). Pola poza godziną
+    mają wartości domyślne, więc stary front z samym ``review_time`` działa."""
+
     review_time: str
+    include_p2: bool = False
+    people_per_p1: int = 1
+    max_load: Optional[int] = None
+    overflow: int = 1
+    outsiders: bool = True
+    order: str = "sent_first"
+    leave_policy: str = "wait"
 
 
 class CompetenceTeamResponse(BaseModel):
@@ -71,6 +86,8 @@ class CompetenceTeamResponse(BaseModel):
     excluded: list[TeamPerson]
     people: list[TeamPerson]
     rules: TeamRules
+    # Tryb automatu (off / shadow / auto) — zakładka „Automat przydziału”.
+    mode: str = "shadow"
 
 
 class AssignmentPayload(BaseModel):
@@ -180,6 +197,7 @@ async def get_competence_team(
         excluded=[_person(p) for p in people if p.allocation_excluded],
         people=[_person(p) for p in people],
         rules=TeamRules(**rules.as_dict()),
+        mode=await effective_allocation_mode(db),
     )
 
 
@@ -335,6 +353,73 @@ async def put_rules(
         rules = validate_rules(payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    before = await load_rules(db)
     await save_rules(db, rules, user_id=current_user.id)
+    changed = changed_fields(before, rules)
+    if changed:
+        # Historia zmian w Ustawieniach — ta sama tabela co zmiana trybu.
+        audit_event(
+            db,
+            "allocation_rules_changed",
+            actor_user_id=current_user.id,
+            payload={"changed": changed},
+        )
     await db.commit()
     return TeamRules(**rules.as_dict())
+
+
+HISTORY_EVENTS = ("allocation_rules_changed", "allocation_mode_changed")
+
+
+@router.get("/rules/history")
+async def rules_history(
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Kto, kiedy i co zmienił w zasadach albo trybie automatu (30 ostatnich)."""
+    rows = (
+        await db.execute(
+            select(RecruitmentPriorityAuditEvent, User.name)
+            .outerjoin(User, User.id == RecruitmentPriorityAuditEvent.actor_user_id)
+            .where(RecruitmentPriorityAuditEvent.event_type.in_(HISTORY_EVENTS))
+            .order_by(
+                RecruitmentPriorityAuditEvent.occurred_at.desc(),
+                RecruitmentPriorityAuditEvent.id.desc(),
+            )
+            .limit(30)
+        )
+    ).all()
+    out = []
+    for event, name in rows:
+        payload = event.payload or {}
+        if event.event_type == "allocation_mode_changed":
+            changed = {"mode": [payload.get("previous"), payload.get("mode")]}
+        else:
+            changed = payload.get("changed") or {}
+        out.append(
+            {
+                "at": event.occurred_at,
+                "actor_name": name,
+                "changed": changed,
+            }
+        )
+    return out
+
+
+@router.post("/rules/preview")
+async def rules_preview(
+    payload: TeamRules,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Co zasady zrobią przy następnym przebiegu — dziś zapisane i szkic.
+
+    Przebieg „na sucho”: nic nie zapisuje, przydziały, które już są, zostają.
+    """
+    try:
+        draft = validate_rules(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    current = await load_rules(db)
+    today, after = await preview_allocation(db, [current, draft])
+    return {"today": today, "draft": after}
