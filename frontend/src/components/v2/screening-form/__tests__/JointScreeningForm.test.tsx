@@ -214,6 +214,40 @@ describe("JointScreeningForm", () => {
     expect(putFor(201)?.card?.fields ?? {}).not.toHaveProperty("recommendation");
   });
 
+  // Zgłoszenie rekrutera 29.10.2026: tekst wpisany w jednej zakładce oceny stał
+  // też w drugiej (to samo pole tekstowe dostawało nową nazwę), a w formularzu
+  // miała go tylko jedna rekrutacja — „Zapisz i przekaż dalej” wołało o brak.
+  it("each assessment tab shows and saves its own text after switching back and forth", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.type(await screen.findByLabelText(/· dla Programista Frontend/), "Mocny w Angularze");
+    await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
+    expect(screen.getByLabelText(/· dla Angular Developer/)).toHaveValue("");
+    await user.type(screen.getByLabelText(/· dla Angular Developer/), "Mocny w RxJS");
+    await user.click(screen.getByRole("tab", { name: /Programista Frontend/ }));
+    expect(screen.getByLabelText(/· dla Programista Frontend/)).toHaveValue("Mocny w Angularze");
+    await user.click(screen.getByRole("tab", { name: /Angular Developer/ }));
+    expect(screen.getByLabelText(/· dla Angular Developer/)).toHaveValue("Mocny w RxJS");
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(putFor(202)).toBeDefined());
+    expect(putFor(201)?.card?.fields?.recommendation).toBe("Mocny w Angularze");
+    expect(putFor(202)?.card?.fields?.recommendation).toBe("Mocny w RxJS");
+  });
+
+  // Zgłoszenie rekrutera 29.10.2026: w jednym projekcie 1 dzień z biura, w drugim 2.
+  it("work mode is asked per recruitment in the terms and saved only there", async () => {
+    const user = userEvent.setup();
+    mount();
+    await user.type(await screen.findByLabelText("Tryb pracy · Programista Frontend"), "1 dzień z biura");
+    await user.type(screen.getByLabelText("Tryb pracy · Angular Developer"), "2 dni z biura");
+    // Tryb pracy nie siedzi w zakładkach oceny.
+    expect(screen.queryByLabelText(/Tryb pracy · dla/)).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Zapisz w 2" }));
+    await waitFor(() => expect(putFor(202)).toBeDefined());
+    expect(putFor(201)?.card?.fields?.work_mode).toBe("1 dzień z biura");
+    expect(putFor(202)?.card?.fields?.work_mode).toBe("2 dni z biura");
+  });
+
   it("a shared question shows another recruitment's saved answer that stays unless edited", async () => {
     const sheet = (question_id: string, response: string) =>
       ({ answers: [{ question_id, response, deal_breaker_hit: false }], overall_fit: "uncertain", notes: "" }) as never;

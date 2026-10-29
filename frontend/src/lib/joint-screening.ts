@@ -38,7 +38,13 @@ import {
 } from "@/lib/screening-form";
 
 /** Warunki o samej osobie — wpisywane raz dla wszystkich rekrutacji. */
-export const SHARED_TERMS_KEYS = ["availability", "work_mode", "location", "nationality", "english"] as const;
+export const SHARED_TERMS_KEYS = ["availability", "location", "nationality", "english"] as const;
+/**
+ * Warunki per rekrutacja, w sekcji „Warunki” obok wspólnych: tryb pracy bywa
+ * inny w każdym projekcie (1 dzień z biura w jednym, 2 w drugim — zgłoszenie
+ * rekrutera 29.10.2026). Do tej daty był wspólny.
+ */
+export const PER_JOB_TERMS_KEYS = ["work_mode"] as const;
 /** Pole o osobie w ocenie — wspólne (makieta B3: „Red flags są wspólne”). */
 export const SHARED_ASSESSMENT_KEYS = ["red_flags"] as const;
 /** Pole o kliencie — jedno na klienta, nie na rekrutację. */
