@@ -48,6 +48,7 @@ export type SettingsItemId =
   | "ranking"
   | "prep-review"
   | "kpi-targets"
+  | "novelties"
   | "mail"
   | "skills"
   | "skills-review"
@@ -154,6 +155,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
     // „Ludzie w NEXUSIE” (16.10.2026): dni wolne firmy (Kadry) i przełączniki
     // modułów (admin) — trasy `/api/hr/admin/*` stoją za uprawnieniem Kadry.
+    id: "novelties", area: "team", title: "Nowości — kto już umie", group: "Zespół rekrutacji",
+    description: "Kto przeklikał albo używa nowych funkcji NEXUSA, a komu przypomnieć.",
+    keywords: "nowosci co nowego wdrozenia przeklikanie adopcja przypomnij funkcje",
+    route: "/settings/nowosci",
+    // Lustro `HeadOfRecruitmentPlus` w `api/novelties.py` (decyzja Artura 28.10.2026).
+    gate: { roles: ["admin", "head_of_recruitment"] },
+  },
+  {
     id: "hr", area: "team", title: "Kadry", group: "Ludzie w NEXUSIE",
     description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",

@@ -260,6 +260,7 @@ from app.services.hr.program import require_hr_program
 from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
+from app.api import novelties as novelties_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -2142,6 +2143,7 @@ app.include_router(
 app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
+app.include_router(novelties_api.router, prefix="/api", tags=["novelties"])
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
@@ -3419,6 +3421,7 @@ async def api_health_deep_check():
         PreContractWatcher,
     )
     from app.services.care.board_state import CARE_BOARD_STATES
+    from app.models.novelty import NoveltyProgress
     from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.pair_departure_care import PairDepartureCare
     from app.models.job_board_connection import JobBoardConnection
@@ -3821,6 +3824,9 @@ async def api_health_deep_check():
         ("candidate_job_owners", CandidateJobOwner),
         # 0621: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
         ("pair_departure_care", PairDepartureCare),
+        # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
+        # przy każdym wejściu.
+        ("novelty_progress", NoveltyProgress),
     ]
 
     checks: dict[str, str] = {}

@@ -1284,6 +1284,16 @@ except Exception as _hr_bundle_err:  # noqa: BLE001
     _HR_DATA_DDL = []
     _HR_CONSTRAINT_DDL = []
 
+# Nowości do przeklikania (0625): postęp osoby przy nowości — JEDNO źródło
+# z migracją (`app/services/novelty_schema.py`).
+try:
+    from app.services import novelty_schema as _novelty_schema
+
+    _NOVELTY_TABLE_DDL = list(_novelty_schema.TABLE_DDL)
+except Exception as _novelty_schema_err:  # noqa: BLE001
+    print(f"novelty schema unavailable: {_novelty_schema_err!r}")
+    _NOVELTY_TABLE_DDL = []
+
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
     *_JOB_PROPOSAL_FEEDBACK_COLUMNS,
@@ -6899,6 +6909,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
+    # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
+    *_NOVELTY_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

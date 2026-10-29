@@ -117,6 +117,7 @@ export function ProfileTopBar({
       {backSearch ? (
         <Link
           href={backSearch.href}
+          data-tour="candidate.profile.back-to-search"
           className={`${backClass} min-w-0 flex-1 basis-0 font-medium text-primary`}
           title={backSearch.context ?? undefined}
         >
@@ -151,6 +152,7 @@ export function ProfileTopBar({
             variant="outline"
             onClick={pick.onToggle}
             aria-pressed={pick.picked}
+            data-tour="candidate.profile.pick"
             title={`Osoba wróci zaznaczona w oknie wyszukiwania. Wybrani: ${pick.count}`}
             className={`min-h-11 ${pick.picked ? "border-primary bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
           >

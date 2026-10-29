@@ -28,6 +28,7 @@ vi.mock("@/components/hr/approvals/ConsentsTopbarButton", () => ({
   ConsentsTopbarButton: () => null,
 }));
 vi.mock("@/components/v2/jobs/p0/P0TopbarButton", () => ({ P0TopbarButton: () => null }));
+vi.mock("@/components/novelties/NoveltiesTopbarButton", () => ({ NoveltiesTopbarButton: () => null }));
 
 import { TopbarV2 } from "../TopbarV2";
 

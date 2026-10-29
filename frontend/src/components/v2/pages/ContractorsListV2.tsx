@@ -487,6 +487,7 @@ export function ContractorsListV2({
  )}
  aria-selected={openContractId === c.contract_id}
  data-selected={openContractId === c.contract_id || undefined}
+ data-tour="contracts.list.row"
  className={cn(
  "h-[50px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
  openContractId === c.contract_id &&

@@ -603,7 +603,12 @@ export function ContractSidePanel({
         </DropdownMenuContent>
       </DropdownMenu>
       {access.canEditContractStatus && live && (
-        <Button size="sm" variant="quiet" onClick={() => setDialog("terminate")}>
+        <Button
+          size="sm"
+          variant="quiet"
+          onClick={() => setDialog("terminate")}
+          data-tour="contract.panel.end"
+        >
           Zakończ współpracę…
         </Button>
       )}

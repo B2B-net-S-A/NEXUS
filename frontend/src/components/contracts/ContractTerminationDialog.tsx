@@ -492,7 +492,10 @@ export function ContractTerminationDialog({
         </label>
 
         {!bulk && (
-          <fieldset className="rounded-md border border-border p-3 space-y-2">
+          <fieldset
+            className="rounded-md border border-border p-3 space-y-2"
+            data-tour="contract.end.b2b-question"
+          >
             <legend className="px-1 text-sm font-medium">Co z umową B2B? *</legend>
             {AGREEMENT_PLANS.map((plan) => (
               <div key={plan.value}>

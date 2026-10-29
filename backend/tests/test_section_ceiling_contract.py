@@ -128,6 +128,10 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/jarvis/gaps/{gap_id}/report": "Jarvis: „Zgłoś, że tego potrzebuję” na własnej karcie braku (bez danych domenowych)",
     "GET /api/help/screens": "przewodniki ekranów — treść pomocy czyta każda rola",
     "GET /api/help/screens/{key}": "przewodnik ekranu — treść pomocy czyta każda rola",
+    "GET /api/novelties/mine": "nowości do przeklikania — własny stan przy nowościach swojej roli, bez danych domenowych",
+    "POST /api/novelties/{novelty_id}/events": "nowości do przeklikania — zapis własnego kliknięcia (id nowości, bez danych domenowych)",
+    "GET /api/novelties/adoption": "panel „kto już umie” — imiennie, kto zaliczył nowość, bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
+    "POST /api/novelties/{novelty_id}/remind": "przypomnienie nowości (wraca karta przy kropce), bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
     "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",

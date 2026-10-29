@@ -2719,6 +2719,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                             <div className="min-w-0">
                               <div className="flex min-w-0 items-center gap-1.5">
                                 <Link
+                                  data-tour="candidates.list.name"
                                   href={`/candidates/${candidate.id}?${(embed
                                     ? withJobSearchBackRef(encodeNavContext(queryFilters, position), embed.jobId)
                                     : encodeNavContext(queryFilters, position)
