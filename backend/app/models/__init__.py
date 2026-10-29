@@ -891,3 +891,6 @@ from app.models import academy_logistics as _academy_logistics_models  # noqa: F
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
 from app.models import sales as _sales_models  # noqa: F401,E402
+
+# 0619: „Ogłoszenia” na pulpicie (HoR i admin publikują, przeczytane per osoba).
+from app.models import announcement as _announcement_models  # noqa: F401,E402

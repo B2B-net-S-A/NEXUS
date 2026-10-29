@@ -111,6 +111,8 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
             "job",
             "job_closed",
         ),
+        # 28.10.2026: ważne ogłoszenie na pulpicie — mail obowiązkowy do odbiorców.
+        ("announcement_important", "Piątek: Daily o 9:30", "announcement", "announcement"),
         ("stage_rule", "CV wysłane: Jan", "candidate_stage", None),
         ("job_chat_message", "Czat", "job", None),
     ],
