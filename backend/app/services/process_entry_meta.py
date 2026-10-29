@@ -82,7 +82,8 @@ def _zl(value: Any) -> Optional[str]:
 
 
 def _caution(raw: Any) -> Optional[dict]:
-    """Ostrzeżenie z migawki (27.10.2026) → napis karty i dymek; zły kształt = ``None``."""
+    """Ostrzeżenie z migawki (27.10.2026, km od 29.10.2026) → napis karty i dymek;
+    zły kształt = ``None``."""
     if not isinstance(raw, dict):
         return None
     key = raw.get("key")
@@ -99,6 +100,26 @@ def _caution(raw: Any) -> Optional[dict]:
             "key": key,
             "label": f"+{pct}% budżetu",
             "title": f"„Stawka od” {rate} zł/h, budżet {budget} zł/h.",
+        }
+    if key == "office_city":
+        city = raw.get("city") if isinstance(raw.get("city"), str) else None
+        office = raw.get("office") if isinstance(raw.get("office"), str) else None
+        km = _int(raw.get("km"))
+        if km is None and not required:
+            return None
+        if km is not None:
+            label = f"{city} · {km} km" if city else f"{km} km od biura"
+            lives = (
+                f"Mieszka: {city or 'inne miasto'}, ok. {km} km od najbliższego biura."
+            )
+        else:
+            label = f"Inne miasto: {city}" if city else "Inne miasto"
+            lives = f"Mieszka: {city or 'inne miasto'}."
+        days = f", {_days(required)} w tygodniu." if required else "."
+        return {
+            "key": key,
+            "label": label,
+            "title": f"{lives} Biuro klienta: {office or 'inne miasto'}{days}",
         }
     if not required:
         return None
@@ -121,17 +142,6 @@ def _caution(raw: Any) -> Optional[dict]:
             "title": (
                 "Według profilu albo notatek chce pracować wyłącznie zdalnie, "
                 f"klient chce {_days(required)} w biurze w tygodniu."
-            ),
-        }
-    if key == "office_city":
-        city = raw.get("city") if isinstance(raw.get("city"), str) else None
-        office = raw.get("office") if isinstance(raw.get("office"), str) else None
-        return {
-            "key": key,
-            "label": f"Inne miasto: {city}" if city else "Inne miasto",
-            "title": (
-                f"Mieszka: {city or 'inne miasto'}. "
-                f"Biuro klienta: {office or 'inne miasto'}, {_days(required)} w tygodniu."
             ),
         }
     return None

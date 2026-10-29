@@ -31,7 +31,7 @@ from app.core.security import hash_password
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_proposal import JobProposal
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -412,28 +412,31 @@ async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
 
 
 async def test_office_and_city_cautions_go_last_with_a_note(monkeypatch):
-    """Mniej dni w biurze, niż chce klient, „tylko zdalnie” albo inne miasto
-    przy pracy z biurem = za resztą, z ostrzeżeniem w migawce (27.10.2026).
-    Zgoda na więcej dni w biurze znosi ostrzeżenie o dniach."""
-    monkeypatch.setattr(autofill, "TARGET", 5)
-    world = await _world(5)
-    fewer, remote, krakow, consents, ok = world["ids"]
+    """Mniej dni w biurze, niż chce klient, „tylko zdalnie” albo miasto
+    50–100 km od biura przy pracy z biurem = za resztą, z ostrzeżeniem
+    w migawce (27.10.2026, km od 29.10.2026). Zgoda na więcej dni w biurze
+    znosi ostrzeżenie o dniach, miasto bliżej niż 50 km — o mieście."""
+    monkeypatch.setattr(autofill, "TARGET", 6)
+    world = await _world(6)
+    fewer, remote, elblag, consents, ok, rumia = world["ids"]
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, world["job_id"])
         job.onsite_days_per_week = 3
         job.location = "Gdynia"
         (await db.get(Candidate, fewer)).max_onsite_days_per_week = 1
         (await db.get(Candidate, remote)).preferences = {"remote_modes": ["remote"]}
-        (await db.get(Candidate, krakow)).city = "Kraków"
+        (await db.get(Candidate, elblag)).city = "Elbląg"
+        (await db.get(Candidate, rumia)).city = "Rumia"
         person = await db.get(Candidate, consents)
         person.max_onsite_days_per_week = 1
         person.accepts_more_office_days = True
         await db.commit()
     await _pool(
-        world["job_id"], {fewer: 95, remote: 90, krakow: 85, consents: 80, ok: 50}
+        world["job_id"],
+        {fewer: 95, remote: 90, elblag: 85, consents: 80, ok: 50, rumia: 40},
     )
 
-    assert await _fill(world["job_id"]) == [consents, ok, fewer, remote, krakow]
+    assert await _fill(world["job_id"]) == [consents, ok, rumia, fewer, remote, elblag]
     processes = await _processes(world["job_id"])
     assert processes[fewer].entry_meta["cautions"] == [
         {"key": "office_days", "candidate_days": 1, "required_days": 3}
@@ -441,10 +444,67 @@ async def test_office_and_city_cautions_go_last_with_a_note(monkeypatch):
     assert processes[remote].entry_meta["cautions"] == [
         {"key": "remote_only", "required_days": 3}
     ]
-    assert processes[krakow].entry_meta["cautions"] == [
-        {"key": "office_city", "city": "Kraków", "office": "Gdynia", "required_days": 3}
+    assert processes[elblag].entry_meta["cautions"] == [
+        {
+            "key": "office_city",
+            "city": "Elbląg",
+            "office": "Gdynia",
+            "required_days": 3,
+            "km": 70,
+        }
     ]
     assert processes[consents].entry_meta["cautions"] == []
+    assert processes[rumia].entry_meta["cautions"] == []
+
+
+async def test_skips_people_living_far_from_every_office(monkeypatch):
+    """Miasto dalej niż 100 km od każdego biura rekrutacji = system nie dodaje
+    (decyzja Artura 29.10.2026: 23–29.10 takich osób było 102 w 115
+    rekrutacjach z biurem w Warszawie). Liczy się najbliższe biuro; osoba,
+    która sama wskazała miasto biura (notatki, relokacja), wchodzi; rekrutacja
+    zdalna i miasto spoza słownika — bez zmian."""
+    monkeypatch.setattr(autofill, "TARGET", 6)
+    world = await _world(6)
+    krakow, gdansk, moving, abroad, unknown, siedlce = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        # Hybryda bez liczby dni — reguła km i tak działa.
+        job.remote_policy = RemotePolicy.hybrid
+        job.location = "Warszawa, Gdańsk"
+        (await db.get(Candidate, krakow)).city = "Kraków"
+        (await db.get(Candidate, gdansk)).city = "Sopot"
+        person = await db.get(Candidate, moving)
+        person.city = "Wrocław"
+        person.cv_extracted_data = {
+            "_notes_insights": {
+                "relocation": {"willing": True, "targets": ["Warszawa"]}
+            }
+        }
+        (await db.get(Candidate, abroad)).city = "Bucharest"
+        (await db.get(Candidate, siedlce)).city = "Siedlce"
+        await db.commit()
+    await _pool(
+        world["job_id"],
+        {krakow: 95, gdansk: 90, moving: 85, abroad: 80, unknown: 70, siedlce: 60},
+    )
+
+    assert await _fill(world["job_id"]) == [gdansk, moving, abroad, unknown, siedlce]
+
+
+async def test_far_rule_needs_an_office(monkeypatch):
+    """Rekrutacja zdalna — miasto nie ma znaczenia."""
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    world = await _world(2)
+    krakow, ok = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.location = "Warszawa"
+        job.remote_policy = RemotePolicy.remote
+        (await db.get(Candidate, krakow)).city = "Kraków"
+        await db.commit()
+    await _pool(world["job_id"], {krakow: 90, ok: 50})
+
+    assert await _fill(world["job_id"]) == [krakow, ok]
 
 
 async def test_budget_rules_need_a_budget(monkeypatch):
@@ -581,6 +641,65 @@ def test_other_city_with_office_days():
     ]
 
 
+def test_office_km_counts_to_the_nearest_office():
+    offices = frozenset(location_tokens("Warszawa (priorytet), Gdynia, Gdańsk"))
+    assert autofill.office_km(_person(city="Wrocław"), offices) == 302
+    assert autofill.office_km(_person(city="Siedlce"), offices) == 87
+    assert autofill.office_km(_person(location="Lodz, PL"), offices) == 117
+    assert autofill.office_km(_person(city="Sopot"), offices) == 9
+    # Trójmiasto to trzy miasta — Sopot jest w nim, nie „9 km od Gdańska”.
+    trojmiasto = frozenset(location_tokens("Trójmiasto"))
+    assert autofill.office_km(_person(city="Sopot"), trojmiasto) is None
+    assert autofill.office_km(_person(city="Elbląg"), trojmiasto) == 54
+
+
+def test_office_km_is_unknown_without_a_place_or_when_the_person_names_the_office():
+    warsaw = frozenset(location_tokens("Warszawa, ul. Chmielna 89"))
+    assert autofill.office_km(_person(), warsaw) is None
+    assert autofill.office_km(_person(city="Bucharest"), warsaw) is None
+    assert autofill.office_km(_person(city="Kraków"), frozenset()) is None
+    notes = {"_notes_insights": {"preferences": {"locations": ["Warszawa"]}}}
+    assert (
+        autofill.office_km(_person(city="Kraków", cv_extracted_data=notes), warsaw)
+        is None
+    )
+    assert (
+        autofill.office_km(
+            _person(city="Kraków", preferences={"office_cities": ["Warszawa"]}), warsaw
+        )
+        is None
+    )
+
+
+def test_city_caution_carries_km_and_skips_near_towns():
+    warsaw = frozenset(location_tokens("Warszawa"))
+    assert autofill.office_cautions(
+        _person(city="Płock"),
+        office_days=None,
+        office_tokens=warsaw,
+        office_label="Warszawa",
+        km=95,
+    ) == [
+        {
+            "key": "office_city",
+            "city": "Płock",
+            "office": "Warszawa",
+            "required_days": None,
+            "km": 95,
+        }
+    ]
+    assert (
+        autofill.office_cautions(
+            _person(city="Pruszków"),
+            office_days=2,
+            office_tokens=warsaw,
+            office_label="Warszawa",
+            km=15,
+        )
+        == []
+    )
+
+
 def test_unknown_or_remote_job_is_no_caution():
     assert (
         autofill.office_cautions(
@@ -648,6 +767,42 @@ def test_badge_turns_cautions_into_labels():
             "key": "office_city",
             "label": "Inne miasto: Kraków",
             "title": "Mieszka: Kraków. Biuro klienta: Warszawa, 2 dni w tygodniu.",
+        },
+    ]
+
+
+def test_badge_city_with_km():
+    badge = process_entry_meta.autofill_badge(
+        _meta(
+            [
+                {
+                    "key": "office_city",
+                    "city": "Płock",
+                    "office": "Warszawa",
+                    "required_days": None,
+                    "km": 95,
+                },
+                {
+                    "key": "office_city",
+                    "city": "Elbląg",
+                    "office": "Gdynia",
+                    "required_days": 3,
+                    "km": 70,
+                },
+            ]
+        ),
+        waiting_days=None,
+    )
+    assert badge["cautions"] == [
+        {
+            "key": "office_city",
+            "label": "Płock · 95 km",
+            "title": "Mieszka: Płock, ok. 95 km od najbliższego biura. Biuro klienta: Warszawa.",
+        },
+        {
+            "key": "office_city",
+            "label": "Elbląg · 70 km",
+            "title": "Mieszka: Elbląg, ok. 70 km od najbliższego biura. Biuro klienta: Gdynia, 3 dni w tygodniu.",
         },
     ]
 
