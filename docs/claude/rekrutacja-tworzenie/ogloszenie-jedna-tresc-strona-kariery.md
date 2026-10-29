@@ -20,8 +20,19 @@ Harness `/preview/job-ad?state=ready|published`.
   ogłoszenia: podtytuł = wstęp (`lead`, przycięty jak szkic), opis =
   „O projekcie” + akapit „Czym się zajmiesz: …; ….” (EN: „What you will do”).
   Opis tnie się na granicy akapitu (`ABOUT_MAX`), nigdy w pół zdania.
-  Wymagania, miasto, tryb i start strona bierze z rekrutacji (migawka
-  zatwierdzenia) — bez zmian.
+  Miasto, tryb i start strona bierze z rekrutacji (migawka zatwierdzenia).
+- **„Wymagane” i „Mile widziane” = punkty ogłoszenia (29.10.2026, uwaga
+  rekruterki).** Słowa do szukania wycięte ze zdań klienta („bankowości”,
+  „dostawców zewnętrznych”, 789181) nic kandydatowi nie mówiły. „Opublikuj na
+  stronie” zapisuje w migawce (`jpp.APPROVED_POINTS_KEY`, do 15 punktów po 300
+  znaków) „Nasze wymagania” i „Mile widziane” ogłoszenia; kontrola strony
+  czyta słowa i punkty. Punkty pokazuje tylko strona rekrutacji
+  (`public_career`, `points=jpp.approved_points(...)`) — tablica, plakat,
+  portale API i `approved_content_stale` dalej czytają słowa z migawki.
+  Ogłoszenie bez punktów i zatwierdzenie w „Udostępnij” = słowa jak dotąd.
+  Zmiana samych punktów w ogłoszeniu = stan `outdated`; strony opublikowane
+  przed 29.10.2026 mają `outdated`, dopóki ktoś nie kliknie „Zaktualizuj na
+  stronie”.
 - **Tytuł strony zostaje tytułem publicznym rekrutacji.** Ogłoszenie i tak od
   niego zaczyna, a tytuł wchodzi do odcisku materiału
   (`material._HASH_FIELDS`): przepisanie go z ogłoszenia zapalałoby w oknie
