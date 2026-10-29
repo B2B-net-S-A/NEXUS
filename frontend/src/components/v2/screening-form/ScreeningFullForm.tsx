@@ -1679,7 +1679,7 @@ export function ScreeningFullForm({
 
   const footer = (
     <div
-      className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 [[data-compact]_&]:gap-y-1 [[data-compact]_&]:py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
       data-testid="screening-form-footer"
     >
       {pendingMemory.length > 0 ? (
@@ -1690,7 +1690,7 @@ export function ScreeningFullForm({
       {minimumRequired ? (
         <p
           className={cn(
-            "basis-full text-[11px]",
+            "basis-full text-[11px] [[data-compact]_&]:truncate",
             minimumGaps.length > 0 ? "text-warning-muted-foreground" : "text-muted-foreground",
           )}
           data-testid="screening-form-minimum"
@@ -1700,7 +1700,14 @@ export function ScreeningFullForm({
             : "Minimum dla Delivery Leada: komplet"}
         </p>
       ) : null}
-      <p className="mr-auto flex items-center gap-1 text-[11px] text-muted-foreground" role="status">
+      <p
+        className={cn(
+          "mr-auto flex items-center gap-1 text-[11px] text-muted-foreground",
+          // Tryb rozmowy: „Wersja N” / „jeszcze niezapisany” ustępuje przyciskom, „Niezapisane zmiany” zostaje.
+          !dirty && "[[data-compact]_&]:hidden",
+        )}
+        role="status"
+      >
         {dirty ? (
           <>
             <Clock className="h-3 w-3" aria-hidden /> Niezapisane zmiany

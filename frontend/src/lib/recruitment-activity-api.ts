@@ -32,6 +32,7 @@ export interface RecruitmentActivityPerson {
 export interface RecruitmentActivityMetricCounts {
   metric: RecruitmentActivityMetric
   day: number | null
+  /** Liczba okresu `period_start`–`period_end`: miesiąc albo wybrane od–do. */
   month: number
 }
 
@@ -56,6 +57,9 @@ export interface RecruitmentActivitySummaryResponse {
   generated_at: string
   day: string
   month: string
+  /** Dni liczone w `metrics[].month` (włącznie); brak = serwer sprzed 29.10.2026. */
+  period_start?: string | null
+  period_end?: string | null
   scope: "person" | "team"
   can_view_team_details: boolean
   subject: RecruitmentActivityPerson | null
@@ -135,11 +139,22 @@ function activityParams(filters: RecruitmentActivityFilters) {
 }
 
 export async function getRecruitmentActivitySummary(
-  filters: RecruitmentActivityFilters,
+  filters: RecruitmentActivityFilters & {
+    /** Okres od–do (włącznie) zamiast miesiąca w liczbach kafli. */
+    dateFrom?: string | null
+    dateTo?: string | null
+  },
 ): Promise<RecruitmentActivitySummaryResponse> {
   const response = await api.get<RecruitmentActivitySummaryResponse>(
     "/api/dashboard/v2/recruitment-activity",
-    { params: activityParams(filters) },
+    {
+      params: {
+        ...activityParams(filters),
+        ...(filters.dateFrom && filters.dateTo
+          ? { date_from: filters.dateFrom, date_to: filters.dateTo }
+          : {}),
+      },
+    },
   )
   return response.data
 }

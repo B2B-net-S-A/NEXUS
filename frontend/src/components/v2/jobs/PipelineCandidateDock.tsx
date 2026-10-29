@@ -52,6 +52,7 @@ import {
   Pencil,
   PhoneOff,
   Plus,
+  Rows3,
   Undo2,
   Send,
   Sparkles,
@@ -62,6 +63,7 @@ import {
 } from "lucide-react";
 
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
+import { usePersonPanelConversationMode } from "@/components/v2/person/PersonPanelSide";
 import { invalidatePreContract, preContractReadOnly } from "@/lib/api/preContracts";
 import api, {
   candidatesApi,
@@ -180,7 +182,13 @@ import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { useCapability } from "@/hooks/useCapability";
-import { CvFileDropTarget, StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
+import {
+  CvFileDropTarget,
+  StageCvUploadButton,
+  StageCvUploadTile,
+  useStageCvUpload,
+} from "@/components/v2/person/StageCvUpload";
+import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
 import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
 import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
@@ -261,6 +269,7 @@ function DockSection({
   isNow,
   open,
   onToggle,
+  action,
   children,
 }: {
   id: DockTab;
@@ -269,6 +278,8 @@ function DockSection({
   isNow: boolean;
   open: boolean;
   onToggle: () => void;
+  /** Przycisk obok nagłówka, widoczny także po zwinięciu (np. „Wgraj nowe CV”). */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -279,27 +290,30 @@ function DockSection({
       )}
       aria-labelledby={`dock-section-${id}`}
     >
-      <button
-        type="button"
-        id={`dock-section-${id}`}
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-      >
-        <span className="text-xs font-semibold text-foreground">{label}</span>
-        {isNow ? (
-          <span className="rounded bg-primary px-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
-            Teraz
+      <div className="flex items-center gap-1.5 pr-2">
+        <button
+          type="button"
+          id={`dock-section-${id}`}
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+        >
+          <span className="text-xs font-semibold text-foreground">{label}</span>
+          {isNow ? (
+            <span className="rounded bg-primary px-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+              Teraz
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+            {open ? null : summary}
           </span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-          {open ? null : summary}
-        </span>
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-          aria-hidden="true"
-        />
-      </button>
+          <ChevronDown
+            className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+        {action}
+      </div>
       {open ? <div className="px-3 pb-3">{children}</div> : null}
     </section>
   );
@@ -921,6 +935,8 @@ export function PipelineCandidateDock({
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
   const userId = useAuthStore((s) => s.user?.id);
+  // „Tryb rozmowy” (29.10.2026): tylko w rozwiniętym panelu od 1024 px okna.
+  const conversationMode = usePersonPanelConversationMode();
   const [noteText, setNoteTextState] = useState(() =>
     readNoteDraft(userId, jobId, item.candidate_id),
   );
@@ -993,7 +1009,13 @@ export function PipelineCandidateDock({
   // z portfela; prawo to samo co wysyłka CV do klienta.
   const canSendAlso =
     !readOnly && hasPermission(dockUser, "recruitment_manage") && SEND_ALSO_STAGES.has(item.stage ?? "");
-  const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
+  const cvUpload = useStageCvUpload({
+    candidateId: item.candidate_id,
+    stageId: item.id,
+    jobId,
+    // Wgranie z nagłówka zwiniętej sekcji: blok „Nowe CV” ma być widoczny.
+    onUploaded: () => setOpenSections((prev) => (prev.has("cv") ? prev : new Set(prev).add("cv"))),
+  });
   // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
   // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
   const queueTag = queueLabel ? (
@@ -1716,13 +1738,34 @@ export function PipelineCandidateDock({
               Panel osoby
             </span>
           )}
+          {expanded && conversationMode ? (
+            <button
+              type="button"
+              onClick={conversationMode.toggle}
+              aria-pressed={conversationMode.on}
+              data-testid="person-conversation-mode"
+              title="Tryb rozmowy: nagłówek osoby w jednej linii, „Screening dla” zwinięte — więcej miejsca na formularz"
+              className={cn(
+                "ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                conversationMode.on
+                  ? "bg-primary/10 text-primary hover:bg-primary/15"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <Rows3 className="h-3.5 w-3.5" aria-hidden="true" />
+              Tryb rozmowy
+            </button>
+          ) : null}
           {onToggleExpanded ? (
             <button
               type="button"
               onClick={onToggleExpanded}
               aria-pressed={expanded}
               data-help="jobs.person.expand"
-              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                !(expanded && conversationMode) && "ml-auto",
+                "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
             >
               {expanded ? (
                 <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1768,10 +1811,10 @@ export function PipelineCandidateDock({
         ) : null}
 
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground [[data-compact]_&]:hidden">
             {initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 [[data-compact]_&>*:not(:first-child)]:hidden">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold text-foreground">
                 {fullName}
@@ -2307,8 +2350,10 @@ export function PipelineCandidateDock({
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
+          action={canUploadCv ? <StageCvUploadButton upload={cvUpload} /> : undefined}
         >
           <div className="space-y-3">
+            <NewCvProgress candidateId={item.candidate_id} jobId={jobId} readOnly={!canUploadCv} />
             {/* 0521: klient bierze swój formularz CV zamiast CV firmowego —
                 formularz pierwszy, CV firmowe tylko na żądanie (decyzja D2). */}
             {item.client_form ? (

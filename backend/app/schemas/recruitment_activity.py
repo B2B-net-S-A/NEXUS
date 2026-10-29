@@ -46,6 +46,7 @@ class RecruitmentActivityPerson(RecruitmentActivityModel):
 class RecruitmentActivityMetricCounts(RecruitmentActivityModel):
     metric: RecruitmentActivityMetric
     day: int | None
+    # Liczba okresu `period_start`–`period_end`: miesiąc albo wybrane od–do.
     month: int
 
 
@@ -70,6 +71,9 @@ class RecruitmentActivitySummaryResponse(RecruitmentActivityModel):
     generated_at: datetime
     day: date
     month: date
+    # Dni, które liczy `metrics[].month` (włącznie) — miesiąc albo od–do.
+    period_start: date | None = None
+    period_end: date | None = None
     scope: RecruitmentActivityScope
     can_view_team_details: bool
     subject: RecruitmentActivityPerson | None = None

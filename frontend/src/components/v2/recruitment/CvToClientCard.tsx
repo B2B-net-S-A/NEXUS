@@ -119,6 +119,7 @@ import { readCvRewriteDraft, writeCvRewriteDraft } from "@/lib/cv-rewrite-drafts
 import { useAuthStore } from "@/store/auth";
 import { useCvToClientRows } from "@/hooks/useCvToClientRows";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
+import { useCapability } from "@/hooks/useCapability";
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -131,7 +132,9 @@ import {
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
+import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
@@ -139,7 +142,6 @@ import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
-import { useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
 // Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
@@ -395,6 +397,10 @@ export function CvToClientCard({
   const jobLabel = jobTitle?.trim() || `Rekrutacja #${jobId}`;
   // Podmiana CV (inne CV, generacja, nowa wersja z generatora) — nie po wysyłce.
   const canReplace = !readOnly && !lockedAfterSend;
+  // Nowe CV kandydata z karty (29.10.2026) — prawo jak kafelek w panelu osoby.
+  const canManageDocuments = useCapability("candidate.document.manage");
+  const canUploadCv = !readOnly && canManageDocuments;
+  const cvUpload = useStageCvUpload({ candidateId, stageId, jobId });
 
   // Panel „Z czego powstało” (generacja w karcie, bez okna generatora).
   const [generateOpen, setGenerateOpen] = useState(initialGenerateOpen);
@@ -1239,6 +1245,8 @@ export function CvToClientCard({
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
       {confirmDialog}
+      {cvUpload.confirmDialog}
+      <NewCvProgress candidateId={candidateId} jobId={jobId} readOnly={!canUploadCv} />
       {progress ? (
         <ForwardProgressBlock {...progress} next={nextInScreening} onOpenPerson={onOpenPerson} />
       ) : null}
@@ -1291,6 +1299,15 @@ export function CvToClientCard({
           <span>Brak pliku CV w momencie zgłoszenia.</span>
         )}
       </div>
+      {canUploadCv ? (
+        // 29.10.2026 (D2): nowe CV od kandydata (LinkedIn, mail) bez wracania
+        // do profilu — główne CV profilu, oryginał tej rekrutacji i CV do klienta.
+        <StageCvUploadTile
+          upload={cvUpload}
+          label={original?.has_snapshot ? "Mam nowsze CV — np. z LinkedIna" : "Wgraj CV kandydata"}
+          className="w-full text-left"
+        />
+      ) : null}
 
       {editorOpen && !readOnly ? (
         <CVBrandedEditModal

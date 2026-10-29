@@ -80,19 +80,12 @@ function response(rows: TeamPeopleRow[], extra: Partial<TeamPeopleResponse> = {}
   }
 }
 
-const DAY = response(
+const PERIOD = response(
   [
-    row(1, "Anna Nowak", { verifications: 2, recommendations: 1 }),
-    row(2, "Bartek Zieliński", { verifications: 5 }),
-    row(9, "Były Pracownik", { verifications: 1 }, false),
-  ],
-  { unattributed: { verifications: 1, recommendations: 0, interviews: 0, placements: 0 } },
-)
-const MONTH = response(
-  [
-    row(1, "Anna Nowak", { verifications: 40, recommendations: 12, placements: 2 }),
-    row(2, "Bartek Zieliński", { verifications: 30, recommendations: 9 }),
+    row(1, "Anna Nowak", { verifications: 30, recommendations: 12, placements: 2 }),
+    row(2, "Bartek Zieliński", { verifications: 40, recommendations: 9 }),
     row(3, "Celina Wójcik", { verifications: 10 }),
+    row(4, "Dorota Nowicka", {}),
     row(9, "Były Pracownik", { verifications: 4 }, false),
   ],
   {
@@ -120,17 +113,24 @@ const METRICS = [
   { metric: "placement" as const, day: null, month: 3 },
 ]
 
-function mockPeople(day: TeamPeopleResponse, month: TeamPeopleResponse) {
-  people.mockImplementation(async (p) => (p.date_from === p.date_to ? day : month))
-}
+const RANGE = { start: "2026-10-13", end: "2026-10-24" }
 
 function wrap(ui: React.ReactNode) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 
-function renderTable(metrics = METRICS) {
-  return wrap(<TeamDayTable day="2026-10-21" month="2026-10" metrics={metrics} compact />)
+function renderTable(metrics = METRICS, range = RANGE) {
+  return wrap(
+    <TeamDayTable range={range} rangeLabel="13–24 października 2026" metrics={metrics} compact />,
+  )
+}
+
+function bodyRows(table: HTMLElement) {
+  return within(table)
+    .getAllByRole("row")
+    .slice(1)
+    .filter((tr) => !tr.closest("tfoot"))
 }
 
 describe("TeamDayTable", () => {
@@ -139,43 +139,45 @@ describe("TeamDayTable", () => {
     getSummary.mockReset()
   })
 
-  it("asks for the day and the whole month", async () => {
-    mockPeople(DAY, MONTH)
+  it("asks once, for the selected period", async () => {
+    people.mockResolvedValue(PERIOD)
     renderTable()
     await screen.findByTestId("team-day-table")
-    expect(people).toHaveBeenCalledWith({ period: "custom", date_from: "2026-10-21", date_to: "2026-10-21" })
-    expect(people).toHaveBeenCalledWith({ period: "custom", date_from: "2026-10-01", date_to: "2026-10-31" })
+    expect(people).toHaveBeenCalledTimes(1)
+    expect(people).toHaveBeenCalledWith({ period: "custom", date_from: "2026-10-13", date_to: "2026-10-24" })
+    expect(screen.getByText("13–24 października 2026 · od najwięcej weryfikacji")).toBeInTheDocument()
   })
 
-  it("sorts active people by the day's verifications and skips former staff", async () => {
-    mockPeople(DAY, MONTH)
+  it("shows one number per cell, sorted by the period's verifications, without former staff", async () => {
+    people.mockResolvedValue(PERIOD)
     renderTable()
     const table = await screen.findByTestId("team-day-table")
-    const names = within(table)
-      .getAllByRole("row")
-      .slice(1, -1)
-      .map((tr) => within(tr).getAllByRole("cell")[0].textContent)
-    expect(names).toEqual([
-      expect.stringContaining("Bartek"),
-      expect.stringContaining("Anna"),
-      expect.stringContaining("Celina"),
+    const rows = bodyRows(table)
+    expect(rows.map((tr) => within(tr).getAllByRole("cell")[0].textContent)).toEqual([
+      "Bartek Z.",
+      "Anna N.",
+      "Celina W.",
+      "Dorota N.",
     ])
-    expect(names[2]).toContain("bez ruchu w tym dniu")
+    const anna = within(rows[1]).getAllByRole("cell")
+    expect(anna[1]).toHaveTextContent(/^30$/)
+    expect(anna[5]).toHaveTextContent(/^2$/)
     expect(within(table).queryByText(/Były/)).toBeNull()
-    expect(within(table).getByText("3 osób", { exact: false })).toBeInTheDocument()
+    expect(within(table).queryByText(/\//)).toBeNull()
+    expect(within(table).getByText("4 osób", { exact: false })).toBeInTheDocument()
   })
 
   it("adds a reconciling row so the table sums to the card", async () => {
-    mockPeople(DAY, MONTH)
+    people.mockResolvedValue(PERIOD)
     renderTable()
     const rest = await screen.findByTestId("team-day-table-rest")
     const cells = within(rest).getAllByRole("cell")
-    // Weryfikacje: dzień 1 były; miesiąc 4 były + 3 konta administracyjne.
-    expect(cells[1]).toHaveTextContent("1 / 7")
-    expect(cells[5]).toHaveTextContent("1")
+    // Weryfikacje: 4 byłego + 3 konta administracyjnego.
+    expect(cells[1]).toHaveTextContent(/^7$/)
+    expect(cells[5]).toHaveTextContent(/^1$/)
     expect(screen.queryByTestId("team-day-table-mismatch")).toBeNull()
     expect(screen.getByTestId("team-day-table-unattributed")).toHaveTextContent(
-      "Do tego w miesiącu bez osoby z zasługą: weryfikacje 1",
+      "Do tego w okresie bez osoby z zasługą: weryfikacje 1",
     )
     expect(screen.getByRole("link", { name: /Pełna tabela w Insights/ })).toHaveAttribute(
       "href",
@@ -184,27 +186,25 @@ describe("TeamDayTable", () => {
   })
 
   it("names both numbers when the table does not match the card", async () => {
-    mockPeople(DAY, MONTH)
+    people.mockResolvedValue(PERIOD)
     renderTable(METRICS.map((m) => (m.metric === "verification" ? { ...m, month: 90 } : m)))
     expect(await screen.findByTestId("team-day-table-mismatch")).toHaveTextContent(
-      "Weryfikacje w miesiącu: 90 nad tabelą, 87 w tabeli",
+      "Weryfikacje w okresie: 90 nad tabelą, 87 w tabeli",
     )
   })
 
   it("shows a dash, not zero, when the API does not report acceptances yet", async () => {
-    const strip = (data: TeamPeopleResponse): TeamPeopleResponse => ({
-      ...data,
-      rows: data.rows.map(({ acceptances: _, ...rest }) => rest),
+    people.mockResolvedValue({
+      ...PERIOD,
+      rows: PERIOD.rows.map(({ acceptances: _, ...rest }) => rest),
     })
-    mockPeople(strip(DAY), strip(MONTH))
     renderTable(METRICS.map((m) => (m.metric === "acceptance" ? { ...m, month: 16 } : m)))
     const table = await screen.findByTestId("team-day-table")
-    const firstRow = within(table).getAllByRole("row")[1]
-    expect(within(firstRow).getAllByRole("cell")[4]).toHaveTextContent("—")
+    expect(within(bodyRows(table)[0]).getAllByRole("cell")[4]).toHaveTextContent("—")
     expect(screen.queryByTestId("team-day-table-mismatch")).toBeNull()
   })
 
-  it("shows a failure, not an empty table, when a query fails", async () => {
+  it("shows a failure, not an empty table, when the query fails", async () => {
     people.mockRejectedValue(new Error("500"))
     renderTable()
     expect(await screen.findByText("Nie udało się pobrać wyników osób.")).toBeInTheDocument()
@@ -212,20 +212,25 @@ describe("TeamDayTable", () => {
     expect(screen.getByRole("button", { name: "Ponów" })).toBeInTheDocument()
   })
 
-  it("shows the empty state only after both queries succeed", async () => {
-    let resolveMonth: (value: TeamPeopleResponse) => void = () => {}
-    people.mockImplementation((p) =>
-      p.date_from === p.date_to
-        ? Promise.resolve(response([]))
-        : new Promise((resolve) => {
-            resolveMonth = resolve
-          }),
+  it("shows the empty state only after the query succeeds", async () => {
+    let resolve: (value: TeamPeopleResponse) => void = () => {}
+    people.mockImplementation(
+      () =>
+        new Promise((done) => {
+          resolve = done
+        }),
     )
     renderTable()
     expect(await screen.findByTestId("team-day-table-loading")).toBeInTheDocument()
     expect(screen.queryByText(/Nikt z zespołu/)).toBeNull()
-    resolveMonth(response([]))
-    expect(await screen.findByText(/Nikt z zespołu nie ma jeszcze wyników/)).toBeInTheDocument()
+    resolve(response([]))
+    expect(await screen.findByText("Nikt z zespołu nie ma wyników w tym okresie.")).toBeInTheDocument()
+  })
+
+  it("does not ask for a reversed period", async () => {
+    renderTable(METRICS, { start: "2026-10-24", end: "2026-10-13" })
+    expect(await screen.findByTestId("team-day-table-loading")).toBeInTheDocument()
+    expect(people).not.toHaveBeenCalled()
   })
 })
 
@@ -243,7 +248,7 @@ describe("RecruitmentActivityDashboard team table", () => {
   beforeEach(() => {
     people.mockReset()
     getSummary.mockReset()
-    mockPeople(DAY, MONTH)
+    people.mockResolvedValue(PERIOD)
   })
 
   it("shows the table after picking the whole team", async () => {

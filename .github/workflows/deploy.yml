@@ -216,7 +216,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           QUIET: ${{ vars.DEPLOY_QUIET_SECONDS || '0' }}
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
+          FREEZE_WINDOW: "8-18"
         run: |
           set -u
           # PROD-04: w oknie ciszy wybór wydania i tak odroczy deploy — nie
@@ -253,9 +253,10 @@ jobs:
           SCHEDULED: ${{ (github.event_name == 'schedule' || env.WINDOW_SLOT == 'true') && '--scheduled' || '' }}
           # Okno wdrożeń 18:00–08:00 (14.10.2026): `8-18` = cisza 08:00–17:59
           # czasu warszawskiego pon–pt (weekend bez ciszy, 17.10.2026), dla
-          # KAŻDEGO zdarzenia, także ręcznego biegu. Zmienna repo nadpisuje
-          # godziny (`off` = brak okna).
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
+          # KAŻDEGO zdarzenia, także ręcznego biegu. Godziny tylko tutaj, bez
+          # zmiennej repo: 22.10 zmiana na 8-18 w kodzie nie zadziałała, bo
+          # stara zmienna `DEPLOY_FREEZE_WINDOW=7-19` ją nadpisywała (29.10).
+          FREEZE_WINDOW: "8-18"
           EMERGENCY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency && '--emergency' || '' }}
           # Tekst od człowieka tylko przez `env:` — interpolacja `${{ }}` w `run`
           # wkleiłaby go do skryptu powłoki.

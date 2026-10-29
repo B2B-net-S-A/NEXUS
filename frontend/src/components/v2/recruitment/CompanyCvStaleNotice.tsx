@@ -31,6 +31,7 @@ import { candidateStageCvApi, type CVBrandedState, type CVOriginalSnapshot } fro
 import { apiErrorMessage } from "@/lib/api-error";
 import { cvToClientRowsQueryKey, resolveCvToClient, stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { companyCvStale, companyDraftSince, dockOriginalCv, type DockOriginalCv } from "@/lib/dock-cv-summary";
+import { newCvUploadKey } from "@/lib/new-cv-upload";
 import { formatDate } from "@/lib/utils";
 
 const POLL_MS = 4000;
@@ -47,6 +48,11 @@ function readDismissed(stageId: number): string | null {
   } catch {
     return null;
   }
+}
+
+/** „Zostaw obecne” z bloku „Nowe CV” — ta sama pamięć co przycisk ramki. */
+export function dismissCompanyCvStale(stageId: number, snapshotAt: string): void {
+  writeDismissed(stageId, snapshotAt);
 }
 
 function writeDismissed(stageId: number, snapshotAt: string): void {
@@ -175,12 +181,21 @@ export function CompanyCvStaleNotice({
       ),
   });
 
+  // Blok „Nowe CV” mówi już o CV do klienta po wgraniu — bez drugiej ramki obok.
+  const newCvQuery = useQuery<unknown>({
+    queryKey: newCvUploadKey(candidateId, jobId),
+    queryFn: () => null,
+    enabled: false,
+    staleTime: Infinity,
+  });
+  const newCvShown = Boolean(newCvQuery.data);
   const stale = companyCvStale({
     brandedStatus: draft?.status,
     original: copy,
     draftSince: companyDraftSince(draft, rowsQuery.data),
   });
-  if (!stale || !snapshotAt || (dismissed === snapshotAt && !waiting && !freshVersion)) return null;
+  if (!stale || !snapshotAt || (newCvShown && !waiting && !freshVersion)) return null;
+  if (dismissed === snapshotAt && !waiting && !freshVersion) return null;
 
   return (
     <div

@@ -251,7 +251,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",
-    description: "Dzienne i miesięczne liczby: weryfikacje, CV, rozmowy.",
+    description: "Liczby za wybrany okres: weryfikacje, CV, rozmowy.",
     category: "recruitment",
     defaultSize: { w: 12, h: 5 },
     minSize: { w: 6, h: 3 },
