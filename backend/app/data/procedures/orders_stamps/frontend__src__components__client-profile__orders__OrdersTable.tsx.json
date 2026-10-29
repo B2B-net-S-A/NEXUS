@@ -1,4 +1,4 @@
 {
-  "sha256": "d8a2a68616ad982e92f45e6602dda625117b994ce2a0a5144e7cc96d39b7d1c8",
+  "sha256": "1ca3fd58df7c5d0d2dc26d61580367c7b14fde77dbe3593d7b9faf8d2ed86cb7",
   "source": "frontend/src/components/client-profile/orders/OrdersTable.tsx"
 }

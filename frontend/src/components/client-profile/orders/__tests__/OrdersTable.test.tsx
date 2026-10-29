@@ -94,6 +94,23 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     expect(tiles[1]).toContainElement(rowOf(5));
   });
 
+  it("każde zamówienie ma własną kartę z odstępem — bez wspólnej karty, w której się zlewały (29.10.2026)", () => {
+    renderTable([
+      group({ id: 30, order_number: "4500030845", lines: [line()] }),
+      group({ id: 31, order_number: "4500030744", lines: [line({ id: 5, consultant_name: "Robert Drugi" })] }),
+    ]);
+
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>('[data-order-tile="group"]'));
+    tiles.forEach((tile) => expect(tile).toHaveClass("rounded-lg", "border", "bg-card"));
+    // Karty stoją w kolumnie z odstępem, a ich wspólny rodzic nie jest kartą.
+    const stack = tiles[0].parentElement!;
+    expect(stack).toHaveClass("flex-col", "gap-2.5");
+    expect(stack.parentElement).not.toHaveClass("border");
+    // `overflow-hidden` zrobiłoby z karty kontener przewijania i zepsuło
+    // przyklejoną kolumnę osoby przy przewijaniu w bok.
+    tiles.forEach((tile) => expect(tile).not.toHaveClass("overflow-hidden"));
+  });
+
   it("nagłówek MD per osoba pokazuje budżet zamówienia — te same liczby co panel", () => {
     renderTable([
       group({
