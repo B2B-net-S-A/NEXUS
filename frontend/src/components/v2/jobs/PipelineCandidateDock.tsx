@@ -51,6 +51,7 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneOff,
+  Plus,
   Undo2,
   Send,
   Sparkles,
@@ -97,6 +98,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { hasPermission } from "@/lib/permissions";
 import { DlMatchDialog } from "@/components/v2/recruitment/dl-review/DlMatchDialog";
+import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import type { ClientRateUnit } from "@/lib/person-facts";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
@@ -574,6 +576,7 @@ function PersonMoreMenu({
   onBlacklist,
   onPreContract,
   onSendAlso,
+  onAddAlso,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
@@ -585,6 +588,12 @@ function PersonMoreMenu({
   onPreContract?: () => void;
   /** Match (22.10.2026): DL wysyła osobę także do innych swoich rekrutacji. */
   onSendAlso?: () => void;
+  /**
+   * „Dodaj też do rekrutacji…” (decyzja Artura 29.10.2026, wariant B): osoba
+   * na dowolnym etapie trafia do „Nowych” innej rekrutacji — to samo okno co
+   * „Przypisz do rekrutacji” na profilu.
+   */
+  onAddAlso?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
@@ -605,6 +614,11 @@ function PersonMoreMenu({
             <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
           </Link>
         </DropdownMenuItem>
+        {onAddAlso && (
+          <DropdownMenuItem onSelect={() => deferMenuAction(onAddAlso)} data-testid="dock-add-also">
+            <Plus className="h-3.5 w-3.5" /> Dodaj też do rekrutacji…
+          </DropdownMenuItem>
+        )}
         {onSendAlso && (
           <DropdownMenuItem onSelect={() => deferMenuAction(onSendAlso)} data-testid="dock-send-also">
             <Send className="h-3.5 w-3.5" /> Wyślij też do…
@@ -901,6 +915,7 @@ export function PipelineCandidateDock({
   const [openBlacklist, setOpenBlacklist] = useState(false);
   const [openPreContract, setOpenPreContract] = useState(false);
   const [openSendAlso, setOpenSendAlso] = useState(false);
+  const [openAddAlso, setOpenAddAlso] = useState(false);
   // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
@@ -1994,6 +2009,7 @@ export function PipelineCandidateDock({
                 onUndoClientAcceptance={onUndoClientAcceptance}
                 onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
                 onSendAlso={canSendAlso ? () => setOpenSendAlso(true) : undefined}
+                onAddAlso={canWriteCandidate && !readOnly ? () => setOpenAddAlso(true) : undefined}
                 onPreContract={
                   canRequestPreContract
                     ? () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
@@ -2717,6 +2733,14 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           candidateName={fullName}
           alreadyBlacklisted={candidate?.status === "blacklisted"}
+        />
+      )}
+      {openAddAlso && (
+        <QuickAssignV2
+          open
+          onOpenChange={setOpenAddAlso}
+          candidateId={item.candidate_id}
+          candidateName={fullName}
         />
       )}
       {openSendAlso && (

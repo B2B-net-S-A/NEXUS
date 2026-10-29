@@ -200,6 +200,7 @@ export function ScreeningWorkbench({
   const intent = useJointScreeningIntent((s) => s.intent);
   const queryClient = useQueryClient();
   const [jointError, setJointError] = useState<string | null>(null);
+  const [manualAddedNote, setManualAddedNote] = useState<string | null>(null);
   // Trwający zapis wspólny: ten sam wybór do zamknięcia karty wyniku, choć
   // kotwica przeszła dalej, a lista rekrutacji się odświeżyła.
   const [jointSession, setJointSession] = useState<JointSelection | null>(null);
@@ -428,15 +429,25 @@ export function ScreeningWorkbench({
     ];
   });
   // „+ Dodaj i dołącz”: dodanie jak w oknie „Kandydaci do dodania” (źródło
-  // `also_fits`), potem rekrutacja wchodzi do rozmowy.
-  const addAndJoin = (otherJobId: number) => {
+  // `also_fits`), potem rekrutacja wchodzi do rozmowy. „+ Dodaj inną
+  // rekrutację” (29.10.2026) idzie tą samą drogą ze źródłem `also_manual`;
+  // rekrutacja spoza zespołu trafia tylko do „Nowych” (`join: false`).
+  const addAndJoin = (
+    otherJobId: number,
+    {
+      source = "also_fits",
+      join = true,
+      addedNote,
+    }: { source?: "also_fits" | "also_manual"; join?: boolean; addedNote?: string } = {},
+  ) => {
     setAddingJobId(otherJobId);
     setJointError(null);
+    setManualAddedNote(null);
     proposalsBulkApi
       .add(otherJobId, {
         candidate_ids: [item.candidate_id],
         initial_stage_legacy: "new",
-        source: "also_fits",
+        source,
         origin_job_id: jobId,
       })
       .then(async (result) => {
@@ -448,6 +459,10 @@ export function ScreeningWorkbench({
         void queryClient.invalidateQueries({ queryKey: alsoFitsKeys.one(jobId, item.candidate_id) });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(otherJobId)] });
         void queryClient.invalidateQueries({ queryKey: ["kanban", String(jobId)] });
+        if (!join) {
+          setManualAddedNote(addedNote ?? null);
+          return;
+        }
         if (jointIds.size < JOINT_MAX_OTHERS) {
           const next = new Set([...jointIds, otherJobId]);
           setJointIds(next);
@@ -533,7 +548,20 @@ export function ScreeningWorkbench({
             suggestions={jointSuggestions}
             selected={selectedJoint}
             onToggle={toggleJoint}
-            onAddAndJoin={addAndJoin}
+            onAddAndJoin={(otherJobId) => addAndJoin(otherJobId)}
+            manualAdd={{
+              candidateId: item.candidate_id,
+              fromJobId: jobId,
+              onAdd: (job) =>
+                addAndJoin(job.job_id, {
+                  source: "also_manual",
+                  join: job.joinable && selectedJoint.size < JOINT_MAX_OTHERS,
+                  addedNote: job.joinable
+                    ? `Dodano do „Nowych”: ${job.title}. W tej rozmowie jest już komplet rekrutacji.`
+                    : `Dodano do „Nowych”: ${job.title}. Rozmowę o niej prowadzi jej zespół.`,
+                }),
+              addedNote: manualAddedNote,
+            }}
             missingTwins={jointMissingTwins}
             twinSkips={twinSkips}
             onTwinSkip={skipTwin}

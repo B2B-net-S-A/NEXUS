@@ -28,7 +28,8 @@ from datetime import date
 from types import SimpleNamespace
 from typing import Iterable, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -36,7 +37,9 @@ from app.models.candidate import Candidate
 from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
+from app.models.user import User
 from app.services.client_identity import client_display_name_expression
+from app.services.polish_ilike import polish_folded_ilike
 from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
@@ -390,13 +393,105 @@ async def other_open_jobs_for_candidates(
     }
 
 
+#: „+ Dodaj inną rekrutację” w „Screening dla” (29.10.2026): ile znaków
+#: frazy zanim szukamy i ile rekrutacji pokazujemy (lustro DL-a, ``dl_match``).
+SEARCH_MIN_CHARS = 2
+SEARCH_LIMIT = 8
+# Z bazy bierzemy więcej, bo zespół rekrutera idzie na górę dopiero po
+# sprawdzeniu członkostwa (reguła trasy, nie SQL).
+SEARCH_FETCH = 20
+
+
+@dataclass(frozen=True)
+class ManualJobHit:
+    job_id: int
+    title: str
+    client_name: Optional[str]
+    client_reference: Optional[str]
+    delivery_lead_name: Optional[str]
+
+
+async def search_open_jobs(
+    db: AsyncSession,
+    *,
+    candidate_id: int,
+    from_job_id: int,
+    phrase: str,
+    scope_clause: Optional[ColumnElement] = None,
+) -> tuple[ManualJobHit, ...]:
+    """„+ Dodaj inną rekrutację” rekrutera (zgłoszenie Michała 29.10.2026).
+
+    „Pasuje też do” pokazuje najwyżej 3 rekrutacje ≥ 70 z 8 najbliższych
+    wektorowo, więc rekrutacja, o której rekruter chce porozmawiać z osobą
+    („Fullstack też na backend”), potrafi z niej wypaść. Ta sama pula co
+    podpowiedź (:func:`open_pool_job_ids`: w pracy, bez żadnego wiersza tej
+    osoby), szukana po nazwie, numerze u klienta, kliencie i id — jak
+    ``dl_match.search_targets`` DL-a. Bez oceny dopasowania: rekruter wie,
+    czemu dodaje.
+    """
+    from app.services.job_working_title import display_title
+
+    phrase = phrase.strip()
+    if len(phrase) < SEARCH_MIN_CHARS:
+        return ()
+    in_job = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.job_id == Job.id,
+            CandidateStage.candidate_id == candidate_id,
+        )
+        .exists()
+    )
+    text = or_(
+        polish_folded_ilike(Job.title, phrase),
+        polish_folded_ilike(func.coalesce(Job.working_title, ""), phrase),
+        polish_folded_ilike(func.coalesce(Job.client_reference, ""), phrase),
+        polish_folded_ilike(client_display_name_expression(), phrase),
+    )
+    if phrase.isdigit():
+        text = or_(text, Job.id == int(phrase))
+    lead = aliased(User)
+    stmt = (
+        select(Job, client_display_name_expression(), lead.name)
+        .outerjoin(Client, Client.id == Job.client_id)
+        .outerjoin(lead, lead.id == Job.delivery_lead_id)
+        .where(
+            Job.id != from_job_id,
+            Job.status == JobStatus.published,
+            Job.work_state.in_(IN_WORK_STATES),
+            ~in_job,
+            text,
+        )
+        .order_by(Job.id.desc())
+        .limit(SEARCH_FETCH)
+    )
+    if scope_clause is not None:
+        stmt = stmt.where(scope_clause)
+    return tuple(
+        ManualJobHit(
+            job_id=int(job.id),
+            title=display_title(job),
+            client_name=client_name,
+            client_reference=job.client_reference,
+            delivery_lead_name=lead_name,
+        )
+        for job, client_name, lead_name in (await db.execute(stmt)).all()
+    )
+
+
 def bell_message(
-    *, actor_name: str, candidate_name: str, job_title: str, origin_title: Optional[str]
+    *,
+    actor_name: str,
+    candidate_name: str,
+    job_title: str,
+    origin_title: Optional[str],
+    manual: bool = False,
 ) -> str:
     where = f" Znaleziony przy rekrutacji „{origin_title}”." if origin_title else ""
+    how = "dodane ręcznie przy rozmowie" if manual else "podpowiedź „Pasuje też do”"
     return (
         f"{actor_name} dodał(a) {candidate_name} do Twojej rekrutacji „{job_title}”"
-        f" — podpowiedź „Pasuje też do”.{where} Rezerwacja 12 h u osoby, która dodała."
+        f" — {how}.{where} Rezerwacja 12 h u osoby, która dodała."
     )
 
 
@@ -407,8 +502,12 @@ async def record_also_fits_added(
     candidate_ids: list[int],
     actor_id: int,
     origin_job_id: Optional[int],
+    manual: bool = False,
 ) -> int:
     """Po „+ Dodaj” z „Pasuje też do”: wpis w historii i dzwonek do rekruterów B.
+
+    ``manual`` — rekrutacja wskazana ręcznie („+ Dodaj inną rekrutację”,
+    29.10.2026): ten sam wpis i dzwonek, inne słowa i ``via`` w historii.
 
     Decyzja Artura 14.10.2026 (D2): rekruter rekrutacji B wie, że ktoś dodał mu
     osobę — kto i skąd. Bez osoby, która dodała. Wołane PO zapisie dodania;
@@ -475,7 +574,11 @@ async def record_also_fits_added(
                     entity_id=cid,
                     action="also_fits_added",
                     user_id=actor_id,
-                    details={"job_id": job_id, "from_job_id": origin_job_id},
+                    details={
+                        "job_id": job_id,
+                        "from_job_id": origin_job_id,
+                        **({"via": "manual"} if manual else {}),
+                    },
                 )
             )
             for user_id in recipients:
@@ -490,6 +593,7 @@ async def record_also_fits_added(
                                 candidate_name=names[cid],
                                 job_title=job_title,
                                 origin_title=origin_title,
+                                manual=manual,
                             ),
                             ntype=NotificationType.also_fits_added,
                             related_entity_type=(
@@ -518,11 +622,13 @@ __all__ = [
     "ALSO_FITS_PREFILTER",
     "AlsoFitsJob",
     "AlsoFitsResult",
+    "ManualJobHit",
     "Scored",
     "also_fits_for_candidate",
     "bell_message",
     "open_pool_job_ids",
     "other_open_jobs_for_candidates",
     "record_also_fits_added",
+    "search_open_jobs",
     "select_also_fits",
 ]

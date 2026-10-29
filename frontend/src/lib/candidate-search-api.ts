@@ -377,6 +377,8 @@ export type BulkAddSource =
   | "my_people"
   // 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
   | "also_fits"
+  // 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (wskazana ręcznie).
+  | "also_manual"
   // 22.10.2026: zakładka „Podobni” na profilu kandydata.
   | "similar_candidates";
 
