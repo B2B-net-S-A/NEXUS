@@ -211,3 +211,49 @@ describe("Po osobach, które odeszły (28.10.2026)", () => {
     expect(addedByOptions([own], { id: 5 }).some((o) => o.key === "departed")).toBe(false);
   });
 });
+
+describe("od „Zweryfikowanego” liczy się osoba, która zweryfikowała (29.10.2026)", () => {
+  // Zgłoszenie rekruterki z 29.10.2026: w „CV wysłane” cztery karty z jej
+  // imieniem (zweryfikowała), a „Kto dodał → Ty” pokazywał jedną — dwie dodał
+  // kolega, jedną silnik „Nowi na 20”.
+  const sent = [
+    { candidate_id: 1, added_to_job_by_id: 8, verified_by_id: 7 },
+    { candidate_id: 2, added_to_job_by_id: 8, verified_by_id: 7 },
+    { candidate_id: 3, added_to_job_by_id: null, entry_source: "system", verified_by_id: 7 },
+    { candidate_id: 4, added_to_job_by_id: 7, verified_by_id: 7 },
+  ];
+  const me = { kind: "user", userId: 7 } as const;
+
+  it("filtr pokazuje wszystkie karty z osobą, która zweryfikowała", () => {
+    expect(sent.filter((p) => matchesAddedBy(p, me, "cv_sent")).map((p) => p.candidate_id)).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(matchesAddedBy(sent[0], { kind: "user", userId: 8 }, "cv_sent")).toBe(false);
+    expect(matchesAddedBy(sent[2], { kind: "system" }, "cv_sent")).toBe(false);
+  });
+
+  it("menu liczy je u osoby, która zweryfikowała", () => {
+    const columns = [
+      { stage: "cv_sent", name: "CV wysłane", category: "internal", items: sent },
+    ];
+    const options = addedByOptions(peopleInProgress(columns), { id: 7, name: "Marta Nowak" });
+    expect(options.map((o) => [o.label, o.count])).toEqual([
+      ["Wszyscy", 4],
+      ["Ty (Marta Nowak)", 4],
+    ]);
+  });
+
+  it("przed weryfikacją i bez kolumny — jak dotąd: „Biorę”, potem dodająca", () => {
+    const back = { candidate_id: 5, added_to_job_by_id: 8, verified_by_id: 7 };
+    expect(matchesAddedBy(back, { kind: "user", userId: 8 }, "screening")).toBe(true);
+    expect(matchesAddedBy(back, { kind: "user", userId: 8 })).toBe(true);
+    const taken = { candidate_id: 6, added_to_job_by_id: 8, taken_by_user_id: 9 };
+    expect(matchesAddedBy(taken, { kind: "user", userId: 9 }, "new")).toBe(true);
+  });
+
+  it("„Prowadzi” wygrywa także z osobą, która zweryfikowała", () => {
+    const assigned = { candidate_id: 7, added_to_job_by_id: 8, verified_by_id: 7, owner_user_id: 9 };
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 9 }, "cv_sent")).toBe(true);
+    expect(matchesAddedBy(assigned, me, "cv_sent")).toBe(false);
+  });
+});

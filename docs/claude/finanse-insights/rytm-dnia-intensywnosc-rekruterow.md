@@ -1,5 +1,5 @@
 # Rytm dnia i intensywność pracy rekruterów (Insights → „Rytm dnia”)
-<!-- indeks: tylko HoR i admin, punkty pracy za akcję, poziomy godziny, intensywność 0–100, urlop i dni przed kontem poza wskaźnikiem, podpowiedź intensywność × CV do klienta, reguły w app_settings, ochrona przed nabijaniem, rozkład dnia po kliknięciu -->
+<!-- indeks: tylko HoR i admin, punkty pracy za akcję, poziomy godziny, intensywność 0–100, urlop i dni przed kontem poza wskaźnikiem, podpowiedź intensywność × CV do klienta, reguły w app_settings, ochrona przed nabijaniem, rozkład dnia po kliknięciu, minimum 8 h i przerwa 30 min -->
 
 Decyzje Artura z 28–29.10.2026 (makiety w prywatnym artefakcie
 `S7Hx8KFo1FLfv255MgQHKg`). Zakładka pokazuje, kiedy i jak intensywnie
@@ -44,19 +44,33 @@ wyniki = trzeba pracować więcej.
   `GET /api/insights/work-rhythm/day` — każda akcja z godziną, kandydatem,
   punktami albo powodem, dla którego nic nie dała. Import wielu osób naraz
   rozpoznajemy po całym zespole, więc zdarzenia dnia pobieramy dla wszystkich.
+- **Czas pracy i minimum 8 h** (decyzja Artura 29.10.2026): 8 h dziennie to
+  minimum (`min_work_hours`; pole celowo nowe — reguły zapisane wcześniej
+  miały `norm_work_hours: 7`). Czas pracy = suma odcinków, w których coś się
+  dzieje w NEXUSIE (akcje z punktami po ochronie przed nabijaniem i prepy);
+  30 min bez akcji i bez prepa (`break_minutes`) to przerwa i się nie liczy,
+  pojedyncza akcja bez sąsiadów nie daje czasu. Ściśle, bez doliczania
+  rozmów telefonicznych — Artur wybrał tę wersję, wiedząc, że na kopii
+  12–22.10 nikt nie ma średnio 8 h (najlepiej 5,5 h, przy progu 60 min 6,8 h).
+  To dane dla managera w Insights, nie wpływają na timesheety.
+  Poniżej średnio 8 h nikt nie jest wzorem, a intensywność okresu i dnia to
+  najwyżej `level_high − 1` (dzień, który trwa, bez tej bramki). Pół dnia
+  urlopu = pół minimum. Podpowiedź: poniżej minimum „Dobre wyniki, poniżej
+  8 h” albo „Za mało pracy”; przy minimum „Wzór”, „Pomóż z jakością” albo
+  „Jest, ale mało robi”. Rozkład dnia pokazuje odcinki pracy i przerwy.
 - **Poziom godziny** z progów `hour_levels` (domyślnie 4 / 11 / 25 pkt =
-  kwartyle zespołu od 12.10). **Godzina pracy** = ≥ 4 pkt albo prep ustawiony
+  kwartyle zespołu od 12.10). **Godzina intensywna** = ≥ 4 pkt albo prep ustawiony
   z NEXUSA (`prep_meetings`) ≥ 30 min w tej godzinie, liczona 8:00–18:00. Inne
   wpisy M365 się nie liczą (29.10.2026): od 12.10 to ok. 12,5 tys. cyklicznych
   „Spotkań” bez uczestników, czyli blokad kalendarza.
-- **Intensywność dnia (0–100)** = ½ × godziny pracy / 7 + ½ × punkty dnia /
+- **Intensywność dnia (0–100)** = ½ × godziny intensywne / 8 + ½ × punkty dnia /
   120, każda część najwyżej 1. Okres = średnia z dni pracy. Dzień urlopu
   (`person_workdays.absence_by_user`) i dni przed założeniem konta nie liczą
   się wcale; pół dnia urlopu obniża obie normy o połowę. L4 nie ma
   w kartotece — dzień zwolnienia wygląda jak dzień bez pracy.
-- **Podpowiedź dla lidera:** intensywność ≥ 60 i CV do klienta ≥ 80% mediany
-  zespołu → wzór; dużo pracy i mało CV → „pomóż z jakością”; mało pracy
-  i dobre CV → „skutecznie, ale mało”; mało i mało → „za mało pracy”. Sygnał
+- **Podpowiedź dla lidera:** najpierw minimum 8 h (wyżej). Przy minimum:
+  intensywność ≥ 60 i CV do klienta ≥ 80% mediany zespołu → wzór; intensywnie
+  i mało CV → „pomóż z jakością”; mało punktów → „jest, ale mało robi”. Sygnał
   prowadzi do rozmowy, nigdy wprost do sankcji. CV do klienta z migawki
   `credited` (`credited_bind` zawężone do etapu i okna), nie z własnego CTE.
 - **Reguły** trzyma `app_settings['work_rhythm_rules']`; brak wpisu =

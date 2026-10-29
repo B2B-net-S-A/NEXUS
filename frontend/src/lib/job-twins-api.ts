@@ -72,6 +72,17 @@ export interface TwinPreview {
   /** Zweryfikowani tutaj, których nie ma w bliźniaku — zostają tam, gdzie są. */
   verified_not_in_other: number;
   verified_not_in_job: number;
+  /** Zgodność pary z „Zasadami bliźniaków” (brak = serwer sprzed zasad). */
+  rules?: TwinRuleCheck[];
+}
+
+/** Ocena pary według „Zasad bliźniaków” z Ustawień (29.10.2026). */
+export interface TwinRuleCheck {
+  key: TwinRuleKey;
+  label: string;
+  mode: TwinRuleMode;
+  ok: boolean;
+  detail: string;
 }
 
 export interface OpenSimilarItem extends TwinJobBrief {
@@ -79,12 +90,69 @@ export interface OpenSimilarItem extends TwinJobBrief {
   twin: boolean;
   can_twin: boolean;
   twin_limit_reached: boolean;
+  /** Niespełnione zasady wymagane — para nie trafi na listę HoR (łączyć wolno). */
+  rule_failures?: TwinRuleCheck[];
+  rule_warnings?: TwinRuleCheck[];
 }
 
 export interface TwinSuggestion {
   similarity: number;
   job: TwinJobBrief;
   other: TwinJobBrief;
+  warnings?: TwinRuleCheck[];
+}
+
+export type TwinRuleMode = "required" | "warning" | "off";
+export type TwinRuleKey =
+  | "similarity"
+  | "critical"
+  | "must"
+  | "location"
+  | "work_mode"
+  | "budget"
+  | "client"
+  | "category"
+  | "different_dl";
+
+/** Zasady bliźniaków — lustro `job_twin_rules.TwinRules` z backendu. */
+export interface TwinRules {
+  min_similarity: number;
+  critical: { mode: TwinRuleMode; include_title: boolean };
+  must: { mode: TwinRuleMode; min_share: number };
+  location: { mode: TwinRuleMode };
+  work_mode: { mode: TwinRuleMode };
+  budget: { mode: TwinRuleMode; max_diff: number };
+  client: { mode: TwinRuleMode };
+  category: { mode: TwinRuleMode };
+  different_dl: { mode: TwinRuleMode };
+  max_twins: number;
+  open_similar_limit: number;
+  pair_hint: "careful" | "default" | "bold";
+}
+
+export interface TwinRulesPayload {
+  rules: TwinRules;
+  defaults: TwinRules;
+  labels: Record<TwinRuleKey, string>;
+  can_edit: boolean;
+}
+
+export interface TwinRulesPreview {
+  pairs_in_scope: number;
+  pass_required: number;
+  with_warnings: number;
+  /** Możliwe bliźniaki na liście HoR przy tych zasadach. */
+  suggestions: number;
+  /** To samo przy zapisanych zasadach. */
+  suggestions_saved: number;
+  per_rule: Partial<Record<TwinRuleKey, number>>;
+  examples: Array<{
+    status: "drop" | "add" | "warn";
+    similarity: number;
+    job: { id: number; title: string };
+    other: { id: number; title: string };
+    reason: string;
+  }>;
 }
 
 export const jobTwinsKeys = {
@@ -93,6 +161,7 @@ export const jobTwinsKeys = {
   preview: (jobId: number, otherId: number) => ["job-twin-preview", jobId, otherId] as const,
   suggestions: () => ["job-twin-suggestions"] as const,
   candidates: (clientId: number | null) => ["job-twin-candidates", clientId] as const,
+  rules: () => ["job-twin-rules"] as const,
 };
 
 export const jobTwinsApi = {
@@ -127,6 +196,11 @@ export const jobTwinsApi = {
         params: clientId ? { client_id: clientId } : {},
       })
       .then((r) => r.data),
+  rules: () => api.get<TwinRulesPayload>("/api/job-twins/rules").then((r) => r.data),
+  saveRules: (rules: TwinRules) =>
+    api.put<TwinRulesPayload>("/api/job-twins/rules", rules).then((r) => r.data),
+  previewRules: (rules: TwinRules, signal?: AbortSignal) =>
+    api.post<TwinRulesPreview>("/api/job-twins/rules/preview", rules, { signal }).then((r) => r.data),
   dismiss: (jobId: number, otherId: number) =>
     api.post("/api/job-twins/dismiss", { job_ids: [jobId, otherId] }).then((r) => r.data),
 };
@@ -249,4 +323,25 @@ export function budgetLabel(job: Pick<TwinJobBrief, "budget_min_hourly" | "budge
 /** Numer w nagłówkach: numer u klienta, potem nasz, potem id. */
 export function twinRef(job: Pick<TwinJobBrief, "client_reference" | "reference_number" | "id">): string {
   return job.client_reference || job.reference_number || `#${job.id}`;
+}
+
+export function useTwinRules() {
+  return useQuery({ queryKey: jobTwinsKeys.rules(), queryFn: () => jobTwinsApi.rules(), staleTime: 60_000 });
+}
+
+export function useSaveTwinRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (rules: TwinRules) => jobTwinsApi.saveRules(rules),
+    onSuccess: (data) => {
+      qc.setQueryData(jobTwinsKeys.rules(), data);
+      qc.invalidateQueries({ queryKey: jobTwinsKeys.suggestions() });
+      qc.invalidateQueries({ queryKey: ["job-open-similar"] });
+    },
+  });
+}
+
+/** „krytyczne: …”, „⚠ lokalizacja” — krótko, do plakietki przy parze. */
+export function ruleChipLabel(check: TwinRuleCheck): string {
+  return check.label.toLowerCase();
 }

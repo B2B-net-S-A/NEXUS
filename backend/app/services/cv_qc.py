@@ -2380,6 +2380,7 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "generated_document_id": gen.get("generated_document_id"),
         "document_id": gen.get("document_id"),
         "filename": gen.get("filename"),
+        "from_word_file": bool(gen.get("from_word_file")),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
         "edit_revision": gen.get("edit_revision"),

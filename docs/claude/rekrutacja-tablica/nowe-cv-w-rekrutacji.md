@@ -238,7 +238,8 @@ https://claude.ai/artifact/U6wAqaH4nqF55RF9RiWPP2, raport
   dwoma słowami po łączniku, a nazwiska osoby nie ma ani w nagłówku, ani
   w nazwie pliku. Bramka tożsamości oryginału tego pliku nie widzi, a 15.10
   ten sam plik trafił do panelu innej osoby. CV blind i nagłówek bez łącznika
-  przechodzą; komunikat wskazuje drogę awaryjną („Plik z dysku” w karcie).
+  przechodzą; komunikat wskazuje drogę awaryjną („Gotowe CV do klienta z dysku
+  (bez AI)” w oknie „Użyj innego CV” karty).
 - **D3 — naprawa profili z okresu przejściowego:**
   `python -m app.cli.client_cv_primary_repair` (na sucho), potem
   `--apply --expected N`. Główne CV „B2B” wgrane od 13.10 → najnowszy własny

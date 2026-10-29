@@ -5,6 +5,9 @@
  * Dane i akcje przychodzą z `useReadyCvChoice`; tu sprawdzamy, co okno z nimi
  * robi: awaria listy nie wygląda jak „brak CV”, plik z dysku nie wysyła się
  * sam, a zły format nie dochodzi do serwera.
+ *
+ * 29.10.2026: plik bez układu szablonu B2B (CV kandydata) nie zapisuje się
+ * jako CV do klienta bez pytania „Wygeneruj z tego pliku / Użyj tak, jak jest”.
  */
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -88,6 +91,7 @@ function choice(overrides: Partial<ReadyCvChoice> = {}): ReadyCvChoice {
     refetch: vi.fn(),
     choose: vi.fn(async () => undefined),
     upload: vi.fn(async () => undefined),
+    inspect: vi.fn(async () => true),
     busyKey: null,
     uploading: false,
     confirmDialog: null,
@@ -95,7 +99,11 @@ function choice(overrides: Partial<ReadyCvChoice> = {}): ReadyCvChoice {
   };
 }
 
-function renderDialog(value: ReadyCvChoice, replaces = true) {
+function renderDialog(
+  value: ReadyCvChoice,
+  replaces = true,
+  extra: { onGenerateFromFile?: (file: File) => void; generatingFromFile?: boolean } = {},
+) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -107,6 +115,7 @@ function renderDialog(value: ReadyCvChoice, replaces = true) {
         jobLabel="Python Developer"
         choice={value}
         replaces={replaces}
+        {...extra}
       />
     </QueryClientProvider>,
   );
@@ -152,7 +161,119 @@ describe("UseOtherCvDialog", () => {
     expect(value.upload).not.toHaveBeenCalled();
     await userEvent.click(submit);
 
-    expect(value.upload).toHaveBeenCalledWith(file);
+    // Plik w układzie szablonu B2B: bez pytania, jak dotąd.
+    expect(value.inspect).toHaveBeenCalledWith(file);
+    await waitFor(() => expect(value.upload).toHaveBeenCalledWith(file));
+    expect(screen.queryByTestId("use-other-cv-candidate-file")).toBeNull();
+  });
+
+  it("sekcja pliku mówi, że to gotowe CV do klienta bez AI, i odsyła CV kandydata do „Wgraj nowe CV”", () => {
+    renderDialog(choice());
+
+    expect(screen.getByRole("region", { name: "Gotowe CV do klienta z dysku" })).toBeInTheDocument();
+    expect(screen.getByText("Wgraj gotowe CV do klienta (bez AI)")).toBeInTheDocument();
+    expect(screen.getByTestId("use-other-cv-candidate-hint")).toHaveTextContent(
+      /„Wgraj nowe CV”.*„Generuj CV”/,
+    );
+  });
+
+  describe("plik wygląda na CV kandydata (zgłoszenie 29.10.2026)", () => {
+    const candidateCv = () => new File(["docx"], "CV_kandydatki.docx");
+
+    async function askAbout(file: File, extra: Parameters<typeof renderDialog>[2] = {}) {
+      const value = choice({ inspect: vi.fn(async () => false) });
+      renderDialog(value, true, extra);
+      pickFile(file);
+      await userEvent.click(screen.getByRole("button", { name: /Użyj tego pliku/ }));
+      await screen.findByTestId("use-other-cv-candidate-file");
+      return value;
+    }
+
+    it("nie zapisuje pliku jako CV do klienta, tylko pyta", async () => {
+      const value = await askAbout(candidateCv(), { onGenerateFromFile: vi.fn() });
+
+      expect(screen.getByTestId("use-other-cv-candidate-file")).toHaveTextContent(
+        "To wygląda na CV kandydata, nie na CV w szablonie B2B. Wygenerować z niego CV?",
+      );
+      expect(value.upload).not.toHaveBeenCalled();
+    });
+
+    it("„Wygeneruj z tego pliku” oddaje plik karcie, nie zapisuje go jako CV do klienta", async () => {
+      const onGenerateFromFile = vi.fn();
+      const file = candidateCv();
+      const value = await askAbout(file, { onGenerateFromFile });
+
+      await userEvent.click(screen.getByRole("button", { name: /Wygeneruj z tego pliku/ }));
+
+      expect(onGenerateFromFile).toHaveBeenCalledWith(file);
+      expect(value.upload).not.toHaveBeenCalled();
+    });
+
+    it("„Użyj tak, jak jest” robi to, co dotąd: plik jako CV do klienta", async () => {
+      const file = candidateCv();
+      const value = await askAbout(file, { onGenerateFromFile: vi.fn() });
+
+      await userEvent.click(screen.getByRole("button", { name: "Użyj tak, jak jest" }));
+
+      expect(value.upload).toHaveBeenCalledWith(file);
+      expect(screen.queryByTestId("use-other-cv-candidate-file")).toBeNull();
+    });
+
+    it("nowy plik zdejmuje pytanie o poprzedni", async () => {
+      await askAbout(candidateCv(), { onGenerateFromFile: vi.fn() });
+
+      pickFile(new File(["docx"], "B2B_CV.docx"));
+
+      expect(screen.queryByTestId("use-other-cv-candidate-file")).toBeNull();
+      expect(screen.getByRole("button", { name: /Użyj tego pliku/ })).toBeEnabled();
+    });
+
+    it("w trakcie zapisu pliku jako CV kandydata oba przyciski czekają", async () => {
+      const value = choice({ inspect: vi.fn(async () => false) });
+      const onGenerateFromFile = vi.fn();
+      const { rerender } = renderDialog(value, true, { onGenerateFromFile });
+      pickFile(candidateCv());
+      await userEvent.click(screen.getByRole("button", { name: /Użyj tego pliku/ }));
+      await screen.findByTestId("use-other-cv-candidate-file");
+
+      rerender(
+        <QueryClientProvider client={new QueryClient()}>
+          <UseOtherCvDialog
+            open
+            onOpenChange={vi.fn()}
+            candidateId={121}
+            candidateName="Jan Fikcyjny"
+            jobLabel="Python Developer"
+            choice={value}
+            replaces
+            onGenerateFromFile={onGenerateFromFile}
+            generatingFromFile
+          />
+        </QueryClientProvider>,
+      );
+
+      expect(screen.getByRole("button", { name: /Wygeneruj z tego pliku/ })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Użyj tak, jak jest" })).toBeDisabled();
+    });
+
+    it("bez akcji generowania zostaje tylko „Użyj tak, jak jest”", async () => {
+      await askAbout(candidateCv());
+
+      expect(screen.queryByRole("button", { name: /Wygeneruj z tego pliku/ })).toBeNull();
+      expect(screen.getByRole("button", { name: "Użyj tak, jak jest" })).toBeInTheDocument();
+    });
+  });
+
+  it("pliku, którego serwer nie odczytał, okno nie zapisuje i o nic nie pyta", async () => {
+    const value = choice({ inspect: vi.fn(async () => null) });
+    renderDialog(value);
+    pickFile(new File(["docx"], "CV_uszkodzone.docx"));
+
+    await userEvent.click(screen.getByRole("button", { name: /Użyj tego pliku/ }));
+
+    await waitFor(() => expect(value.inspect).toHaveBeenCalled());
+    expect(value.upload).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("use-other-cv-candidate-file")).toBeNull();
   });
 
   it("plik inny niż .docx nie dochodzi do serwera", () => {

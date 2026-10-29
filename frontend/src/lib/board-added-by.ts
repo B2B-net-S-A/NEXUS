@@ -7,7 +7,10 @@
  * Nie osoba z bieżącego etapu. Porównanie po numerze — po imieniu myliłoby
  * imienników. Osoba, która kliknęła „Biorę”, wygrywa z dodającą (prośba
  * rekruterki, decyzja Artura 27.10.2026: wzięła ludzi kolegi do telefonu
- * i nie mogła ich znaleźć na pełnej Tablicy).
+ * i nie mogła ich znaleźć na pełnej Tablicy). Od „Zweryfikowanego” w prawo
+ * liczy się osoba, która zweryfikowała — ta sama, którą pokazuje karta
+ * (`cardOwner`; zgłoszenie rekruterki z 29.10.2026: w „CV wysłane” cztery
+ * karty z jej imieniem, a „Ty” pokazywał jedną).
  *
  * Osoby dodane przez silnik „Nowi na 20” (`entry_source = "system"`, 23.10.2026)
  * nie mają osoby dodającej — w menu to osobna pozycja „System”, nie „Brak danych”.
@@ -20,7 +23,7 @@
  * w rekrutację pokazuje wszystkich (D3). Zasady:
  * docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”).
  */
-import { placeStage, type StageLike } from "@/lib/board-stages";
+import { placeStage, type BoardColumnKey, type StageLike } from "@/lib/board-stages";
 
 export type AddedByFilter =
   | { kind: "all" }
@@ -46,18 +49,50 @@ export interface AddedByItem {
   taken_by_name?: string | null;
   /** Odejście z firmy (28.10.2026): para w opiece Delivery Leada. */
   care_user_id?: number | null;
+  /** Pierwsza osoba, która zweryfikowała parę (20.10.2026). */
+  verified_by_id?: number | null;
+  verified_by_name?: string | null;
+  /** Kolumna Tablicy karty — dokłada ją `peopleInProgress`. */
+  board_column?: BoardColumnKey | null;
+}
+
+/** Kolumny, w których nikt jeszcze nie zweryfikował osoby (jak `cardOwner`). */
+const BEFORE_VERIFIED: ReadonlySet<BoardColumnKey> = new Set(["new", "screening"]);
+
+/** Co liczy się w kolumnie: „Biorę” przed weryfikacją, weryfikująca od niej. */
+function phase(column: BoardColumnKey | null): { taker: boolean; verifier: boolean } {
+  if (column == null) return { taker: true, verifier: false };
+  const before = BEFORE_VERIFIED.has(column);
+  return { taker: before, verifier: !before };
 }
 
 /** Osoba karty w filtrze: przypisana „Prowadzi”, potem ta, która wzięła
- *  „Biorę”, a bez tego ta, która dodała. */
-function adderId(item: AddedByItem): number | null {
-  return item.owner_user_id ?? item.taken_by_user_id ?? item.added_to_job_by_id ?? null;
+ *  „Biorę” (przed weryfikacją), ta, która zweryfikowała (od „Zweryfikowanego”),
+ *  a bez tego ta, która dodała. `null` = osoba karty spoza zapisanych. */
+function cardPerson(
+  item: AddedByItem,
+  column: BoardColumnKey | null,
+): { id: number; name: string | null } | null {
+  const { taker, verifier } = phase(column);
+  if (item.owner_user_id != null) return { id: item.owner_user_id, name: item.owner_name ?? null };
+  if (taker && item.taken_by_user_id != null) {
+    return { id: item.taken_by_user_id, name: item.taken_by_name ?? null };
+  }
+  if (verifier && item.verified_by_id != null) {
+    return { id: item.verified_by_id, name: item.verified_by_name ?? null };
+  }
+  if (item.added_to_job_by_id != null) {
+    return { id: item.added_to_job_by_id, name: item.added_to_job_by_name ?? null };
+  }
+  return null;
 }
 
-function adderName(item: AddedByItem): string | null {
-  if (item.owner_user_id != null) return item.owner_name?.trim() || null;
-  if (item.taken_by_user_id != null) return item.taken_by_name?.trim() || null;
-  return item.added_to_job_by_name?.trim() || null;
+function adderId(item: AddedByItem, column: BoardColumnKey | null): number | null {
+  return cardPerson(item, column)?.id ?? null;
+}
+
+function adderName(item: AddedByItem, column: BoardColumnKey | null): string | null {
+  return cardPerson(item, column)?.name?.trim() || null;
 }
 
 interface AddedByColumn extends StageLike {
@@ -87,25 +122,40 @@ export function addedByKey(filter: AddedByFilter): string {
 }
 
 export function isSystemAdded(
-  item: Pick<AddedByItem, "entry_source" | "owner_user_id" | "taken_by_user_id">,
+  item: Pick<
+    AddedByItem,
+    "entry_source" | "owner_user_id" | "taken_by_user_id" | "verified_by_id"
+  >,
+  column: BoardColumnKey | null = null,
 ): boolean {
+  const { taker, verifier } = phase(column);
   return (
-    item.entry_source === "system" && item.owner_user_id == null && item.taken_by_user_id == null
+    item.entry_source === "system" &&
+    item.owner_user_id == null &&
+    !(taker && item.taken_by_user_id != null) &&
+    !(verifier && item.verified_by_id != null)
   );
 }
 
-export function matchesAddedBy(item: AddedByItem, filter: AddedByFilter): boolean {
+/** `column` = kolumna Tablicy karty; bez niej ta z `peopleInProgress`,
+ *  a bez niczego — reguła sprzed weryfikacji (jak karta bez kolumny). */
+export function matchesAddedBy(
+  item: AddedByItem,
+  filter: AddedByFilter,
+  column: BoardColumnKey | null = item.board_column ?? null,
+): boolean {
   if (filter.kind === "all") return true;
-  if (filter.kind === "system") return isSystemAdded(item);
+  if (filter.kind === "system") return isSystemAdded(item, column);
   if (filter.kind === "departed") return item.care_user_id != null;
-  if (isSystemAdded(item)) return false;
-  const id = adderId(item);
+  if (isSystemAdded(item, column)) return false;
+  const id = adderId(item, column);
   return filter.kind === "none" ? id == null : id === filter.userId;
 }
 
 /**
  * Osoby w toku na Tablicy: kolumny bez zamkniętych (ta sama reguła co
- * `foldBoardColumns`) i karty „Poza szablonem”, każda osoba raz.
+ * `foldBoardColumns`) i karty „Poza szablonem”, każda osoba raz, z kolumną
+ * karty w `board_column` (karty „Poza szablonem” bez kolumny).
  */
 export function peopleInProgress(
   columns: readonly AddedByColumn[],
@@ -113,16 +163,17 @@ export function peopleInProgress(
 ): AddedByItem[] {
   const seen = new Set<number>();
   const people: AddedByItem[] = [];
-  const take = (item: AddedByItem) => {
+  const take = (item: AddedByItem, column: BoardColumnKey | null) => {
     if (seen.has(item.candidate_id)) return;
     seen.add(item.candidate_id);
-    people.push(item);
+    people.push({ ...item, board_column: column });
   };
   for (const col of columns) {
-    if (placeStage(col).column === "closed") continue;
-    col.items.forEach(take);
+    const column = placeStage(col).column;
+    if (column === "closed") continue;
+    for (const item of col.items) take(item, column);
   }
-  extraItems.forEach(take);
+  for (const item of extraItems) take(item, null);
   return people;
 }
 
@@ -152,18 +203,19 @@ export function addedByOptions(
   let departed = 0;
   for (const person of people) {
     if (person.care_user_id != null) departed += 1;
-    if (isSystemAdded(person)) {
+    const column = person.board_column ?? null;
+    if (isSystemAdded(person, column)) {
       bySystem += 1;
       continue;
     }
-    const id = adderId(person);
+    const id = adderId(person, column);
     if (id == null) {
       withoutAdder += 1;
       continue;
     }
     const entry = byUser.get(id) ?? { count: 0, name: null };
     entry.count += 1;
-    entry.name ??= adderName(person);
+    entry.name ??= adderName(person, column);
     byUser.set(id, entry);
   }
 

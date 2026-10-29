@@ -79,6 +79,11 @@ export interface PreviewCvUpload {
 
 export interface StageCvUpload {
   upload: (file: File) => void;
+  /**
+   * Plik zawsze jako CV kandydata (oryginał etapu), także nazwany „B2B_…” —
+   * „Wygeneruj z tego pliku” w oknie „Użyj gotowego CV” (29.10.2026).
+   */
+  uploadAsOriginal: (file: File) => void;
   /** Wgrywanie albo otwarte pytanie „Zastąpić CV do klienta?” — drugi plik czeka. */
   isPending: boolean;
   /** Plik w drodze — kafelek pokazuje jego nazwę. */
@@ -253,6 +258,10 @@ export function useStageCvUpload({
     upload: (file) => {
       if (isPending) return;
       mutation.mutate({ file });
+    },
+    uploadAsOriginal: (file) => {
+      if (isPending) return;
+      mutation.mutate({ file, mode: "original" });
     },
     isPending,
     pendingFile: mutation.isPending ? (mutation.variables?.file ?? null) : confirming,

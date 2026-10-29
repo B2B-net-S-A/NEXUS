@@ -133,6 +133,33 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   Odrzucone na teraz (makiety M3–M4): wygaszanie nietkniętych kart po 5
   dniach roboczych i próg 65 pkt. Raportu poniedziałkowego Artur nie
   potrzebuje — pyta o odrzucenia na bieżąco.
+- **E. Dojazd do biura w km (decyzja Artura 29.10.2026, makiety
+  https://claude.ai/artifact/ACs6ajioJwfu4tYrNLSTKo).** Produkcja 23–29.10:
+  w 115 rekrutacjach z biurem w Warszawie 87 kart od systemu to osoby ponad
+  100 km od każdego biura (66 czekało w „Nowych”, 32 weszły już po regule
+  „za resztą” z 27.10); dalej poszło 20% tych, o których zdecydowano, wobec
+  40% osób do 30 km. Od tej zmiany silnik liczy km w linii prostej z miasta
+  w profilu (`location`, `city`) do najbliższego biura rekrutacji
+  (`new_column_autofill.office_km`, `location_utils.nearest_km`, słownik
+  `pl_places`, Trójmiasto = trzy miasta), gdy rekrutacja chce biura
+  (`wants_office`: hybryda, stacjonarnie albo dni w biurze — także bez
+  liczby dni):
+  * ponad `OFFICE_FAR_KM` (100) = nie dodaje;
+  * `OFFICE_NEAR_KM`–100 km (50–100) = za resztą, ostrzeżenie `office_city`
+    z `km` → plakietka „Płock · 95 km”;
+  * do 50 km = bez ostrzeżenia o mieście (wcześniej Pruszków dostawał „Inne
+    miasto”);
+  * osoba, która sama wskazała miasto biura (`office_cities`, notatki
+    `preferences.locations`, relokacja) — `office_km` = `None`, reguła jej
+    nie dotyczy (takie osoby szły dalej w 45%);
+  * miasto nieznane albo spoza słownika (zagranica) — jak dotąd: nieznane
+    przechodzi, nazwa inna niż biuro = „Inne miasto”, za resztą.
+  Wyszukiwanie ręczne, „Propozycje z bazy” i bramka z 27.09 (hybryda 1–3 dni:
+  inne miasto to plakietka) bez zmian — zespół może dodać kogoś z daleka sam.
+  Karty dodane przed regułą: `scripts/autofill_withdraw_far_from_office.py`
+  (podgląd, `--apply`), ta sama droga co karty ponad budżetem
+  (`autofill_withdraw.plan_far`, archiwum `autofill_withdrawn_far_from_office`,
+  „Praca w tle” z `why: "far"`).
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,

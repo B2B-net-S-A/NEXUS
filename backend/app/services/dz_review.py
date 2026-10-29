@@ -956,10 +956,22 @@ async def _generated_cv(
         )
     ).scalar_one_or_none()
     if row is not None:
+        metadata = row.branded_render_metadata or {}
+        origin = (
+            metadata.get("origin") if isinstance(metadata.get("origin"), dict) else {}
+        )
+        # Treść wczytana z pliku Word bez AI (29.10.2026): QC pokazuje ten sam
+        # znacznik co karta „CV do klienta”, bo przy kontroli to jedyne miejsce,
+        # gdzie widać, że układ przyszedł z pliku, a nie z generatora.
+        from_word_file = metadata.get("source") == "document"
         return {
             "source": "branded_finalized"
             if row.branded_status == "finalized"
             else "branded_draft",
+            "from_word_file": from_word_file,
+            "filename": (str(origin.get("label") or "").strip() or None)
+            if from_word_file
+            else None,
             "stage_id": row.candidate_stage_id,
             "generated_document_id": row.generated_document_id,
             "updated_at": row.branded_finalized_at or row.branded_updated_at,

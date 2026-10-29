@@ -60,6 +60,7 @@ import {
   DismissedSection,
   MutedChecks,
   PassedChecks,
+  QcWordFileNote,
   SECTION_TITLE,
   qcDismissedEntries,
   type ActionContext,
@@ -898,6 +899,7 @@ export function CvEditorIssues({
             treści otwartej tutaj. Wynik zobaczysz w oknie QC na Tablicy.
           </p>
         ) : null}
+        {otherDocument ? null : <QcWordFileNote cv={qc?.cv} />}
         {issuesQuery.isError ? (
           <p role="alert" className="rounded-lg border border-border px-3 py-2 text-xs text-muted-foreground">
             Nie udało się wczytać uwag generatora i kontroli AI.{" "}

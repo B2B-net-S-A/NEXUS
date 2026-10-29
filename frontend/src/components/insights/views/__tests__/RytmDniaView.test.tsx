@@ -30,7 +30,7 @@ const RULES: WorkRhythmRules = {
   weights: { screening: 5, client_step: 3, cv: 3, note: 2, contact: 1, action: 1, view: 0.5 },
   hour_levels: [4, 11, 25],
   work_hour_min_points: 4,
-  norm_work_hours: 7,
+  min_work_hours: 7,
   norm_day_points: 120,
   level_high: 75,
   level_mid: 50,
@@ -44,6 +44,7 @@ const RULES: WorkRhythmRules = {
   stage_return_points: 0,
   contacts_per_day: 10,
   thin_hour_candidates: 2,
+  break_minutes: 30,
 };
 
 function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
@@ -61,6 +62,7 @@ function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
     first: "09:00",
     last: "17:00",
     work_hours: 8,
+    work_time: 8.5,
     day_points: 65,
     index: 80,
     ...over,
@@ -84,6 +86,9 @@ function body(over: Partial<WorkRhythmResponse> = {}): WorkRhythmResponse {
         leave_days: 0,
         days_before_start: 0,
         avg_work_hours: 8,
+        avg_work_time: 8.5,
+        full_days: 2,
+        timed_days: 2,
         median_points: 65,
       },
       {
@@ -99,6 +104,9 @@ function body(over: Partial<WorkRhythmResponse> = {}): WorkRhythmResponse {
         leave_days: 1,
         days_before_start: 0,
         avg_work_hours: 6,
+        avg_work_time: 6,
+        full_days: 0,
+        timed_days: 1,
         median_points: 50,
       },
     ],
@@ -145,10 +153,14 @@ describe("RytmDniaView", () => {
     mocks.params = new URLSearchParams("widok=intensywnosc");
     const data = body({ with_results: true, can_edit_rules: true, team_cv_per_day_median: 2 });
     data.people[0] = { ...data.people[0], cv_sent: 1, cv_per_day: 0.5, results_pct: 25, diagnosis: "quality" };
+    data.people[1] = { ...data.people[1], cv_sent: 4, cv_per_day: 4, results_pct: 200, diagnosis: "short_good" };
     mocks.get.mockResolvedValue({ data });
     renderView();
     expect(await screen.findByText("Podpowiedź dla lidera")).toBeInTheDocument();
     expect(screen.getAllByText("Pomóż z jakością").length).toBeGreaterThan(0);
+    // Poniżej 8 h dobre wyniki nie robią wzoru (decyzja Artura 29.10.2026).
+    expect(screen.getAllByText("Dobre wyniki, poniżej 8 h").length).toBeGreaterThan(0);
+    expect(screen.getByText("6 h 00")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zmień reguły/ })).toBeInTheDocument();
   });
 
@@ -161,6 +173,8 @@ describe("RytmDniaView", () => {
       meetings: Array(13).fill(false),
       thin: Array(13).fill(false),
       skipped: {},
+      work_time: 0,
+      spans: [],
       events: [],
     };
     mocks.get.mockImplementation((url: string) =>
@@ -205,6 +219,8 @@ describe("DayBreakdown", () => {
           meetings: Array(13).fill(false),
           thin,
           skipped: { limit_podgladow: 1.5 },
+          work_time: 1.25,
+          spans: [["09:00", "09:50"], ["10:05", "10:30"]],
           events: [
             { time: "10:05", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: "Jan Próbny", points: 0.5, weight: 0.5, reason: null },
             { time: "10:06", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: null, points: 0, weight: 0.5, reason: "limit_podgladow" },
@@ -218,6 +234,8 @@ describe("DayBreakdown", () => {
     expect(screen.getByText("0 — ponad limit podglądów w godzinie")).toBeInTheDocument();
     expect(screen.getByText(/nie jest godziną pracy/)).toBeInTheDocument();
     expect(screen.getByText(/Jan Próbny/)).toBeInTheDocument();
+    expect(screen.getByText("1 h 15")).toBeInTheDocument();
+    expect(screen.getByText(/Przerwy: 09:50–10:05 \(15 min\)/)).toBeInTheDocument();
   });
 });
 
@@ -225,5 +243,11 @@ describe("draftProblem — ochrona", () => {
   it("odrzuca ujemne limity, 0 = bez limitu przechodzi", () => {
     expect(draftProblem({ ...RULES, views_per_hour: 0 })).toBeNull();
     expect(draftProblem({ ...RULES, contacts_per_day: -1 })).toMatch(/ujemne/);
+  });
+});
+
+describe("draftProblem — przerwa", () => {
+  it("przerwa musi mieć 10–180 minut", () => {
+    expect(draftProblem({ ...RULES, break_minutes: 5 })).toMatch(/Przerwa/);
   });
 });

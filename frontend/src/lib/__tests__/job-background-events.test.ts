@@ -38,6 +38,9 @@ describe("job-background-events", () => {
     expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 2, why: "client" }))).toBe(
       "System wycofał z „Nowych” 2 swoje osoby — odrzucenie na cały klient w innej rekrutacji.",
     );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 4, why: "far" }))).toBe(
+      "System wycofał z „Nowych” 4 swoje osoby — mieszkają dalej niż 100 km od biura.",
+    );
   });
 
   it("auto-CV: stan dokumentu czytany na żywo; zredagowane nazwisko to „Kandydat #id”", () => {

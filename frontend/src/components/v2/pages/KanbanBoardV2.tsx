@@ -190,6 +190,7 @@ import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
 } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelErrorBoundary } from "@/components/v2/jobs/PersonPanelErrorBoundary";
 import {
  colId,
  columnLabel,
@@ -1983,13 +1984,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
-/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026). */
+/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026).
+ *  `boardKey` = kolumna Tablicy — od „Zweryfikowanego” liczy się osoba,
+ *  która zweryfikowała, jak na karcie (29.10.2026). */
 function withAddedByFilter<C extends { items: KanbanItem[]; count: number }>(
  col: C,
- filter: AddedByFilter
+ filter: AddedByFilter,
+ boardKey: BoardColumnKey | null
 ): C {
  if (filter.kind === "all") return col;
- const items = col.items.filter((item) => matchesAddedBy(item, filter));
+ const items = col.items.filter((item) => matchesAddedBy(item, filter, boardKey));
  return { ...col, items, count: items.length };
 }
 
@@ -2030,8 +2034,11 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
  // `count` = widoczne karty, liczba bez filtra — `totalCountByColId`.
  const displayCols = useMemo(
- () => allDisplayCols.map((c) => withAddedByFilter(c, addedBy)),
- [allDisplayCols, addedBy]
+ () =>
+ allDisplayCols.map((c, i) =>
+ withAddedByFilter(c, addedBy, boardFold.columns[i]?.key ?? null)
+ ),
+ [allDisplayCols, addedBy, boardFold]
  );
  const boardKeyByColId = useMemo(() => {
  const m = new Map<string, BoardColumnKey>();
@@ -3699,7 +3706,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // nie mówiła, że coś ukryła.
  const allOffTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
  const offTemplateCols = useMemo(
- () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy)),
+ () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy, null)),
  [allOffTemplateCols, addedBy]
  );
  // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M” i napis
@@ -3720,13 +3727,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  setSelected((prev) => {
  if (prev.size === 0) return prev;
  const hidden = new Set<number>();
- for (const c of [...allDisplayCols, ...allOffTemplateCols]) {
- for (const item of c.items) if (!matchesAddedBy(item, addedBy)) hidden.add(item.candidate_id);
+ allDisplayCols.forEach((c, i) => {
+ const key = boardFold.columns[i]?.key ?? null;
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, key)) hidden.add(item.candidate_id);
+ });
+ for (const c of allOffTemplateCols) {
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, null)) hidden.add(item.candidate_id);
  }
  const next = new Set(Array.from(prev).filter((id) => !hidden.has(id)));
  return next.size === prev.size ? prev : next;
  });
- }, [addedBy, allDisplayCols, allOffTemplateCols]);
+ }, [addedBy, allDisplayCols, allOffTemplateCols, boardFold]);
  // Menu „Kto dodał” w panelu osoby — te same liczby co przycisk w nagłówku
  // (osoby w toku, `lib/board-added-by.ts`), z żywego stanu Tablicy.
  const addedByMenuOptions = useMemo(
@@ -4440,6 +4451,7 @@ headerAction={
  hidden={reviewOpen}
  inert={reviewOpen || undefined}
  >
+ <PersonPanelErrorBoundary key={dockItem.candidate_id} onClose={closeDock}>
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
@@ -4561,6 +4573,7 @@ headerAction={
  ) : null
  }
  />
+ </PersonPanelErrorBoundary>
  </div>
  )}
  {dlReviewTask ? (

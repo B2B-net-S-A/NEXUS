@@ -52,6 +52,7 @@ import {
   DismissedSection,
   MutedChecks,
   PassedChecks,
+  QcWordFileNote,
   SECTION_TITLE,
   TaskCard,
   qcDismissedEntries,
@@ -619,6 +620,7 @@ export function CvQcDialogView({
                   ? "Brak CV firmowego"
                   : "Sprawdzenia CV firmowego przed „CV wysłane” i Cpro."}
             </DialogDescription>
+            <QcWordFileNote cv={data?.cv} />
           </div>
           {data ? (
             <div className="flex items-center gap-2">
