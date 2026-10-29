@@ -159,8 +159,8 @@ export function JointAddJob({
         </ul>
       )}
       <p className="text-[11px] text-muted-foreground">
-        „Dodaj i dołącz” — osoba trafia do „Nowych” tamtej rekrutacji z Twoją rezerwacją 12 h i wchodzi do tej rozmowy.
-        W innym zespole — tylko do „Nowych”, jej rekruter dostaje dzwonek.
+        Osoba trafia do „Nowych” tamtej rekrutacji z Twoją rezerwacją 12 h, a jej rekruter dostaje dzwonek.
+        „Dodaj i dołącz” bierze ją też do tej rozmowy.
       </p>
     </div>
   );
