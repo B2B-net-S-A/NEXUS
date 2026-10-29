@@ -706,7 +706,8 @@ async def _upload_client_cv(
                 "message": (
                     f"To CV innej osoby: w pliku jest „{observed[:80]}”. Nie podpiąłem go "
                     "jako CV do klienta. Jeśli to ta sama osoba (np. po zmianie "
-                    "nazwiska), wgraj plik w karcie „CV do klienta” → „Plik z dysku”."
+                    "nazwiska), wgraj plik w karcie „CV do klienta” → „Użyj innego CV” "
+                    "→ „Gotowe CV do klienta z dysku (bez AI)”."
                 ),
             },
         )

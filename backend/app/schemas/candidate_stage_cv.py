@@ -319,6 +319,8 @@ class CVImportPreview(BaseModel):
 
     content_html: str
     filename: str
+    # Plik ma układ szablonu B2B; `False` = wygląda na CV kandydata (29.10.2026).
+    b2b_template: bool = True
 
 
 class CVBrandedFinalizeResponse(BaseModel):

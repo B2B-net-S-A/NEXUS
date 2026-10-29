@@ -1288,10 +1288,26 @@
   {
    "id": "cv.use-other-upload",
    "area": "cv",
-   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”",
+   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”. Od 29.10.2026 sekcja nazywa się „Gotowe CV do klienta z dysku (bez AI)”",
    "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
-   "marker": "Wgraj plik CV z dysku",
+   "marker": "Wgraj gotowe CV do klienta (bez AI)",
    "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.use-other-upload-candidate-cv-question",
+   "area": "cv",
+   "opis": "Plik bez układu szablonu B2B (brak „Dlaczego nasz kandydat?” i „Nazwa firmy:/Stanowisko:”) zatrzymuje się na pytaniu: „Wygeneruj z tego pliku” (CV kandydata + panel generowania) albo „Użyj tak, jak jest” (29.10.2026)",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wygeneruj z tego pliku",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV” → plik z dysku"
+  },
+  {
+   "id": "cv.qc-word-file-badge",
+   "area": "cv",
+   "opis": "Znacznik „z pliku Word” w oknie QC CV i w panelu „Do poprawy” edytora, gdy szkic etapu wczytano z pliku Word bez AI (29.10.2026)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "qc-cv-word-file",
+   "v3_home": "okno QC CV z Tablicy; edytor CV → „Do poprawy”"
   },
   {
    "id": "cv.stage-copy-from-other-job",
