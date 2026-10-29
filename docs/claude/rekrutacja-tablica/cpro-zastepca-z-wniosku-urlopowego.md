@@ -9,7 +9,7 @@ ustawiony na firmę, widzi ją tylko on). Zastępca z wniosku
 (`substitute_user_id`) dotyczy akceptacji i poczty, nie Cpro. Decyzja Artura:
 osoba od Cpro wskazuje we wniosku, kto w tym czasie wrzuca.
 
-- **Pole we wniosku.** `leave_requests.cpro_substitute_user_id` (0617,
+- **Pole we wniosku.** `leave_requests.cpro_substitute_user_id` (0618,
   `hr_leave_cpro_schema.py`), osobno od zwykłego zastępcy, bo osoba od Cpro
   bywa w Finansach, a Cpro przejmuje ktoś z rekrutacji. Podgląd wniosku mówi
   `cpro_sender: true` osobie, która dziś jest osobą od Cpro, i wtedy okno
