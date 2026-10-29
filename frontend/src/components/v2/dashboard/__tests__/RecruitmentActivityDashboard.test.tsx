@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { RecruitmentActivityDashboard } from "@/components/v2/dashboard/RecruitmentActivityDashboard"
 import {
@@ -80,7 +80,15 @@ const summary = {
 }
 
 describe("RecruitmentActivityDashboard", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   beforeEach(() => {
+    // Tylko data — timery zostają prawdziwe dla userEvent i react-query.
+    vi.useFakeTimers({ toFake: ["Date"] })
+    vi.setSystemTime(new Date("2026-09-02T10:00:00Z"))
+    window.localStorage.clear()
     getSummary.mockReset()
     getDetails.mockReset()
     getSummary.mockResolvedValue(summary)
@@ -111,7 +119,7 @@ describe("RecruitmentActivityDashboard", () => {
     })
   })
 
-  it("shows useful day/month metrics, target and team comparisons", async () => {
+  it("shows the period's numbers, today's share, target and team comparisons", async () => {
     renderDashboard()
 
     expect(
@@ -130,7 +138,67 @@ describe("RecruitmentActivityDashboard", () => {
     expect(
       screen.getByRole("button", { name: /Rozmowy u klienta/ }),
     ).toHaveTextContent("8")
+    expect(screen.getByRole("button", { name: /Weryfikacje/ })).toHaveTextContent(
+      "w tym dziś: 3",
+    )
+    expect(screen.getByRole("button", { name: /Placementy/ })).not.toHaveTextContent(
+      "w tym dziś",
+    )
+    expect(screen.getByText("1–2 września 2026")).toBeInTheDocument()
+    expect(getSummary).toHaveBeenCalledWith(
+      expect.objectContaining({
+        day: "2026-09-02",
+        month: "2026-09",
+        dateFrom: "2026-09-01",
+        dateTo: "2026-09-02",
+      }),
+    )
     expect(getDetails).not.toHaveBeenCalled()
+  })
+
+  it("asks for the picked period and drops today's share for a single day", async () => {
+    const user = userEvent.setup()
+    renderDashboard()
+    await screen.findByText("Dzienny cel weryfikacji · Renata Rekruter")
+
+    await user.click(screen.getByRole("button", { name: "Poprzedni miesiąc" }))
+    await waitFor(() =>
+      expect(getSummary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ dateFrom: "2026-08-01", dateTo: "2026-08-31" }),
+      ),
+    )
+    expect(await screen.findByText("1–31 sierpnia 2026")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Weryfikacje/ })).not.toHaveTextContent(
+      "w tym dziś",
+    )
+
+    await user.click(screen.getByRole("button", { name: "Dziś" }))
+    await waitFor(() =>
+      expect(getSummary).toHaveBeenLastCalledWith(
+        expect.objectContaining({ dateFrom: "2026-09-02", dateTo: "2026-09-02" }),
+      ),
+    )
+    expect(screen.getByRole("button", { name: /Weryfikacje/ })).not.toHaveTextContent(
+      "w tym dziś",
+    )
+    expect(
+      JSON.parse(window.localStorage.getItem("nexus:recruitment-activity:period") ?? "{}"),
+    ).toMatchObject({ key: "today" })
+  })
+
+  it("does not ask for a reversed custom period", async () => {
+    const user = userEvent.setup()
+    renderDashboard()
+    await screen.findByText("Dzienny cel weryfikacji · Renata Rekruter")
+    await user.click(screen.getByRole("button", { name: "Od–do" }))
+    const calls = getSummary.mock.calls.length
+
+    // „Od” zostaje 1.09, „do” przed nim.
+    fireEvent.change(screen.getByLabelText("Do"), { target: { value: "2026-08-10" } })
+
+    expect(await screen.findByText("Data „od” jest po dacie „do”.")).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /Weryfikacje/ })).toBeNull()
+    expect(getSummary.mock.calls.length).toBe(calls)
   })
 
   it("loads candidate and recruitment rows only after a metric is expanded", async () => {
@@ -145,7 +213,9 @@ describe("RecruitmentActivityDashboard", () => {
       expect(getDetails).toHaveBeenCalledWith(
         expect.objectContaining({
           metric: "verification",
-          window: "day",
+          window: "range",
+          dateFrom: "2026-09-01",
+          dateTo: "2026-09-02",
           page: 1,
           pageSize: 25,
         }),
