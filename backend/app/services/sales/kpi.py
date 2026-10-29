@@ -1,4 +1,4 @@
-"""KPI tygodniowe handlowców i krzywa WON MRR względem celu firmy (0620).
+"""KPI tygodniowe handlowców i krzywa WON MRR względem celu firmy (0621).
 
 Definicje 1:1 z Atlasa (``src/services/team_kpi.py``,
 ``sales_dashboard_service.py``, ``api/routes/team_finance.py``), poza

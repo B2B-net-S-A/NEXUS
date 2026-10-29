@@ -1219,7 +1219,7 @@ try:
         *_sales_schema.GAPS_DDL,
         # 0618: historia zmian szansy.
         *_sales_schema.HISTORY_DDL,
-        # 0620: cele i KPI tygodniowe handlowców.
+        # 0621: cele i KPI tygodniowe handlowców.
         *_sales_schema.TARGETS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
