@@ -239,3 +239,35 @@ def test_unfinished_today_does_not_enter_period_numbers():
     assert summary["index"] == 64
     assert summary["worked_days"] == 9
     assert summary["leave_days"] == 0
+
+
+def test_only_nexus_preps_count_as_meetings():
+    """Decyzja Artura 29.10.2026: cykliczne „Spotkania” bez uczestników to blokady
+    kalendarza (ok. 12,5 tys. od 12.10) — godzinę pracy daje tylko prep z NEXUSA."""
+    from app.services.work_rhythm import _MEETINGS_SQL
+
+    sql = " ".join(_MEETINGS_SQL.split())
+    assert "FROM prep_meetings" in sql
+    assert "JOIN calendar_events" in sql
+    assert "microsoft365" not in sql
+
+
+@pytest.mark.parametrize(
+    ("roles", "shown"),
+    [
+        (("recruiter",), True),
+        (("recruiter", "talent_community_manager", "delivery_lead"), True),
+        (("delivery_lead", "recruiter"), True),
+        (("talent_community_manager", "recruiter"), True),
+        (("talent_community_manager",), False),
+        (("delivery_lead",), False),
+        (("admin", "head_of_recruitment", "recruiter"), False),
+        (("head_of_recruitment", "recruiter"), False),
+    ],
+)
+def test_everyone_with_recruiter_role_is_shown(roles, shown):
+    """Decyzja Artura 29.10.2026: każdy z rolą rekrutera (też DL), bez samych
+    TCM; HoR i admin to widzowie, nie wiersze."""
+    from app.services.work_rhythm import is_rhythm_person
+
+    assert is_rhythm_person(_user(*roles)) is shown

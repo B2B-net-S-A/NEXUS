@@ -2,16 +2,16 @@
 
 Insights → „Rytm dnia”: kiedy i jak intensywnie rekruterzy pracują w NEXUSIE,
 godzina po godzinie. Widzą to tylko Head of Recruitment i admin (29.10.2026);
-pokazujemy tylko rekruterów i TCM (bez Delivery Leadów, Head of Recruitment
-i adminów), bez formy współpracy.
+pokazujemy każdego z rolą rekrutera, także DL-i z dopisanym rekruterem
+(bez samych TCM, Head of Recruitment i adminów), bez formy współpracy.
 Liczymy od 12.10.2026 — od tego dnia zespół pracuje w NEXUSIE.
 
 * **Punkty pracy** — każda akcja osoby ma wagę swojego rodzaju (``KINDS``).
   Screening waży najwięcej, bo za notatką stoi rozmowa; klikanie kart mało,
   żeby nie opłacało się „nabijać”. Importy, automaty i autozapisy nie liczą się.
 * **Poziom godziny** — suma punktów w godzinie wobec progów ``hour_levels``.
-* **Godzina pracy** — co najmniej ``work_hour_min_points`` albo spotkanie
-  w kalendarzu M365 trwające ≥ 30 min w tej godzinie; liczona 8:00–18:00.
+* **Godzina pracy** — co najmniej ``work_hour_min_points`` albo prep
+  ustawiony z NEXUSA trwający ≥ 30 min w tej godzinie; liczona 8:00–18:00.
 * **Intensywność dnia (0–100)** — ½ × godziny pracy / norma godzin + ½ ×
   punkty dnia / norma punktów, każda część najwyżej 1. Pół dnia urlopu
   obniża obie normy o połowę, cały dzień urlopu nie liczy się wcale.
@@ -73,9 +73,10 @@ DEFAULT_RULES: dict[str, Any] = {
     "diag_results_pct": 80,
 }
 
-# Kto jest w Rytmie dnia: rekruter albo TCM, ale nie lider.
-_INCLUDED_ROLES = (UserRole.recruiter, UserRole.talent_community_manager)
-_EXCLUDED_ROLES = (UserRole.delivery_lead, UserRole.head_of_recruitment, UserRole.admin)
+# Każdy z rolą rekrutera, także DL z dopisanym rekruterem; sam TCM nie
+# (decyzja Artura 29.10.2026). HoR i admin oglądają, nie są wierszami.
+_INCLUDED_ROLES = (UserRole.recruiter,)
+_EXCLUDED_ROLES = (UserRole.head_of_recruitment, UserRole.admin)
 # Na razie całą zakładkę widzą tylko Head of Recruitment i admin (decyzja
 # Artura 29.10.2026, po wcześniejszym „widzi cały zespół”); oni też zmieniają reguły.
 VIEWER_ROLES = (UserRole.admin, UserRole.head_of_recruitment)
@@ -167,7 +168,7 @@ def hour_level(points: float, rules: Rules) -> int:
 def work_hours(
     points: Mapping[int, float], meetings: Iterable[int], rules: Rules
 ) -> int:
-    """Godziny pracy w 8:00–18:00: dość punktów albo spotkanie ≥ 30 min."""
+    """Godziny pracy w 8:00–18:00: dość punktów albo prep z NEXUSA ≥ 30 min."""
     met = set(meetings)
     return sum(
         1
@@ -351,15 +352,17 @@ FROM local_ev
 GROUP BY 1, 2, 3, 4
 """
 
+# Spotkanie = tylko prep ustawiony z NEXUSA (decyzja Artura 29.10.2026):
+# cykliczne wpisy M365 bez uczestników to blokady kalendarza, nie rozmowy.
 _MEETINGS_SQL = """
-SELECT COALESCE(created_by, operational_owner_id) AS uid,
-       start_time AT TIME ZONE 'Europe/Warsaw' AS s,
-       end_time AT TIME ZONE 'Europe/Warsaw' AS e
-FROM calendar_events
-WHERE external_source = 'microsoft365' AND NOT all_day
-  AND status::text <> 'cancelled' AND end_time IS NOT NULL
-  AND COALESCE(created_by, operational_owner_id) = ANY(:ids)
-  AND start_time < :end AND end_time > :start
+SELECT COALESCE(p.scheduled_by_user_id, p.organizer_user_id) AS uid,
+       ce.start_time AT TIME ZONE 'Europe/Warsaw' AS s,
+       ce.end_time AT TIME ZONE 'Europe/Warsaw' AS e
+FROM prep_meetings p
+JOIN calendar_events ce ON ce.id = p.calendar_event_id
+WHERE ce.status::text <> 'cancelled' AND ce.end_time IS NOT NULL
+  AND COALESCE(p.scheduled_by_user_id, p.organizer_user_id) = ANY(:ids)
+  AND ce.start_time < :end AND ce.end_time > :start
 """
 
 # Zasługa z migawki `credited` (reguła 27.10.2026: konsumenci nie liczą
@@ -384,8 +387,14 @@ def _bounds(start: date, end: date) -> dict[str, datetime]:
     }
 
 
+def is_rhythm_person(user: User) -> bool:
+    return user.has_any_role(*_INCLUDED_ROLES) and not user.has_any_role(
+        *_EXCLUDED_ROLES
+    )
+
+
 async def rhythm_people(db: AsyncSession) -> list[User]:
-    """Aktywni rekruterzy i TCM bez ról lidera, alfabetycznie.
+    """Aktywne osoby z rolą rekrutera (bez HoR i adminów), alfabetycznie.
 
     Konto, w imieniu którego działa integracja (``oauth_clients.acting_user_id``,
     np. „Integracje: …” z rolą TCM), nie jest człowiekiem — pomijamy je.
@@ -404,13 +413,7 @@ async def rhythm_people(db: AsyncSession) -> list[User]:
         .scalars()
         .all()
     )
-    people = [
-        u
-        for u in users
-        if u.id not in integration_ids
-        and u.has_any_role(*_INCLUDED_ROLES)
-        and not u.has_any_role(*_EXCLUDED_ROLES)
-    ]
+    people = [u for u in users if u.id not in integration_ids and is_rhythm_person(u)]
     return sorted(people, key=lambda u: (u.name or "").lower())
 
 
