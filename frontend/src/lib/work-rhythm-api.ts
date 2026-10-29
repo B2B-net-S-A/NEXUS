@@ -73,7 +73,7 @@ export interface WorkRhythmPerson {
   days_before_start: number;
   avg_work_hours: number | null;
   median_points: number | null;
-  /** Tylko dla liderów (admin, Head of Recruitment, Delivery Lead). */
+  /** Tylko dla widzów zakładki (admin, Head of Recruitment). */
   cv_sent?: number;
   cv_per_day?: number | null;
   results_pct?: number | null;
