@@ -13,6 +13,7 @@ import {
   notificationDeliveryApi,
   type NotificationDeliveryOverview,
   type NotificationDeliveryType,
+  type NotificationSilencedKind,
   type NotificationDeliveryUpdate,
 } from "@/lib/api/notificationDelivery";
 import { pluralPl } from "@/lib/plural-pl";
@@ -187,6 +188,57 @@ function NotificationTable({ items, enabled, busy, digestRecipients, onToggle }:
   );
 }
 
+/** Baner z 29.10.2026: rodzaj wyłączony dla firmy, a NEXUS tworzy w nim
+ *  dzwonki — „Nowa osoba” i „Prep” tak startowały i nikt o tym nie wiedział. */
+function SilencedBanner({ items, windowDays, busy, onEnable, onKeepOff }: {
+  items: NotificationSilencedKind[];
+  windowDays: number;
+  busy: boolean;
+  onEnable: (id: string) => void;
+  onKeepOff: (id: string) => void;
+}) {
+  return (
+    <section
+      aria-labelledby="notification-silenced-heading"
+      className="rounded-xl border border-warning/40 bg-warning-muted p-5 text-warning-muted-foreground"
+    >
+      <h2 id="notification-silenced-heading" className="font-semibold">
+        Maile wyłączone dla całej firmy, choć NEXUS tworzy w nich dzwonki
+      </h2>
+      <p className="mt-1 text-sm">
+        Te rodzaje nikomu nie wychodzą mailem. Włącz je albo zostaw wyłączone — decyzja trafi do Historii zdarzeń.
+      </p>
+      <ul className="mt-3 divide-y divide-warning/25">
+        {items.map((item) => (
+          <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
+            <div className="min-w-0">
+              <p className="font-medium">{item.label}</p>
+              <p className="text-sm">
+                {item.bells} {pluralPl(item.bells, "dzwonek", "dzwonki", "dzwonków")} w {windowDays} dni bez maila,{" "}
+                {item.unread} {pluralPl(item.unread, "nieprzeczytany", "nieprzeczytane", "nieprzeczytanych")}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={busy} aria-label={`Włącz: ${item.label}`} onClick={() => onEnable(item.id)}>
+                Włącz
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                aria-label={`Zostaw wyłączone: ${item.label}`}
+                onClick={() => onKeepOff(item.id)}
+              >
+                Zostaw wyłączone
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export interface NotificationDeliverySettingsProps {
   /** Przejście do zakładki „Moje” (wyłączenie maila tylko sobie). Bez tego
    *  ekran prowadzi linkiem do pozycji „Moje powiadomienia”. */
@@ -227,7 +279,7 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
   const editable = data.types.filter((item) => item.editable);
   const required = data.types.filter((item) => !item.editable);
   const busy = !canWrite || save.isPending || query.isFetching;
-  const update = (enabled: boolean, changed?: NotificationDeliveryType, reason?: string) => {
+  const update = (enabled: boolean, changed?: NotificationDeliveryType, reason?: string, keepOff?: string) => {
     if (busy) return;
     const input: NotificationDeliveryUpdate = {
       enabled,
@@ -236,9 +288,16 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
         email_enabled: item.id === changed?.id ? !item.email_enabled : item.email_enabled,
       })),
       ...(reason ? { reason } : {}),
+      ...(keepOff ? { keep_off: [keepOff] } : {}),
     };
     save.mutate(input);
   };
+  const silenced = data.silenced ?? [];
+  const enableSilenced = (id: string) => {
+    const item = editable.find((type) => type.id === id);
+    if (item && !item.email_enabled) update(data.enabled, item);
+  };
+  const keepSilencedOff = (id: string) => update(data.enabled, undefined, undefined, id);
   // Włączenie zapisuje się od razu. Wyłączenie zabiera mail wszystkim, więc
   // najpierw pyta — 09.10.2026 jedno kliknięcie wyłączyło skrót 28 osobom.
   const askOff = (target: PendingOff) => {
@@ -321,6 +380,16 @@ export default function NotificationDeliverySettings({ onGoToMine }: Notificatio
           {data.provider.cooldown_until && <div><dt>Przerwa po błędzie do</dt><dd>{formatTime(data.provider.cooldown_until)}</dd></div>}
         </dl>
       </section>
+
+      {silenced.length > 0 && (
+        <SilencedBanner
+          items={silenced}
+          windowDays={data.silenced_window_days ?? 7}
+          busy={busy}
+          onEnable={enableSilenced}
+          onKeepOff={keepSilencedOff}
+        />
+      )}
 
       <section aria-labelledby="notification-types-heading" className="space-y-3">
         <h2 id="notification-types-heading" className="font-semibold">Rodzaje powiadomień</h2>
