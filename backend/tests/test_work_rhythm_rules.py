@@ -599,3 +599,28 @@ def test_just_below_eight_hours_never_counts_as_full():
         == "short_good"
     )
     assert summary["timed_days"] == 10
+
+
+def test_zero_point_actions_still_count_as_work_time():
+    """29.10.2026 (Artur): podgląd ponad limit czy powtórka nie daje punktów, ale
+    osoba w tej chwili pracuje — liczy się do czasu pracy. Automat nie."""
+    from app.services.work_rhythm import build_cells, classify_events, worked_time
+
+    evs = [_ev(0, act="a", ent="1")]
+    evs += [
+        _ev(m, kind="view", act="document_downloaded", ent=str(m)) for m in range(1, 5)
+    ]
+    evs += [
+        _ev(m, kind="view", act="document_downloaded", ent=str(m)) for m in (25, 50)
+    ]
+    evs.append(_ev(59, kind="cv", src="cv", act="auto", ent="99"))
+    classified = classify_events(evs, RULES)
+    assert [r for e, _, r in classified if e.ts.minute in (25, 50, 59)] == [
+        "limit_podgladow",
+        "limit_podgladow",
+        "automat",
+    ]
+    cell = build_cells(classified, RULES)[(7, date(2026, 10, 20))]
+    hours, spans = worked_time(cell.stamps, [], RULES)
+    assert spans == [(datetime(2026, 10, 20, 10, 0), datetime(2026, 10, 20, 10, 50))]
+    assert hours == pytest.approx(50 / 60)
