@@ -94,6 +94,18 @@ def test_question_pair_hint_never_pairs_rate_questions_by_words() -> None:
     assert job_twins.suggest_question_pairs(own, other) == []
 
 
+def test_skip_reasons_mirror_the_frontend() -> None:
+    """„Nie bierze udziału w tej rekrutacji…” w „Screening dla” wysyła kody
+    z `lib/job-twins-api.ts` — serwer przyjmuje tylko swoje."""
+    front = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/job-twins-api.ts"
+    ).read_text(encoding="utf-8")
+    block = front[front.index("TWIN_SKIP_REASONS") :].split("];", 1)[0]
+    assert sorted(re.findall(r'code: "([a-z_]+)"', block)) == sorted(
+        job_twins.SKIP_REASONS
+    )
+
+
 def test_validate_question_pairs_refuses_unknown_and_repeated() -> None:
     with pytest.raises(HTTPException) as unknown:
         job_twins.validate_question_pairs(

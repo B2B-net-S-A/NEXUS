@@ -105,3 +105,12 @@ describe("bliźniaki — odmowa ruchu TWIN_SCREENING_REQUIRED", () => {
     expect(twinRequiredOf({ response: { status: 409, data: { detail: { code: "OTHER" } } } })).toBeNull();
   });
 });
+
+describe("bliźniaki — powody pominięcia", () => {
+  it("mirrors the server's skip reason codes", async () => {
+    const { TWIN_SKIP_REASONS } = await import("@/lib/job-twins-api");
+    expect(TWIN_SKIP_REASONS.map((r) => r.code).sort()).toEqual(
+      ["candidate_declined", "client_conflict", "client_rejected", "other"].sort(),
+    );
+  });
+});

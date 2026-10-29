@@ -200,6 +200,21 @@ export function useDismissTwinSuggestion() {
   });
 }
 
+/**
+ * Powody pominięcia bliźniaka (0614) — lustro `job_twins.SKIP_REASONS`
+ * z backendu; serwer przyjmuje tylko te kody (`twin_skips` w `/move`).
+ */
+export const TWIN_SKIP_REASONS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: "candidate_declined", label: "Kandydat nie chce tej rekrutacji" },
+  { code: "client_rejected", label: "Odrzucona przez klienta bliźniaka" },
+  { code: "client_conflict", label: "Konflikt u klienta bliźniaka" },
+  { code: "other", label: "Inny powód" },
+];
+
+export function twinSkipLabel(code: string): string {
+  return TWIN_SKIP_REASONS.find((r) => r.code === code)?.label ?? code;
+}
+
 /** „zdalnie”, „2 dni z biura”, „hybrydowo”, „w biurze” — jak w nagłówku rekrutacji. */
 export function workModeLabel(job: Pick<TwinJobBrief, "remote_policy" | "onsite_days_per_week" | "onsite_days_per_month">): string {
   const policy = job.remote_policy;

@@ -87,3 +87,11 @@ Serwis `services/job_twins.py`, trasy `api/job_twins.py`, DDL
     zapisany w bliźniaku);
   - odmowa `TWIN_SCREENING_REQUIRED` na Tablicy i w panelu osoby: okno
     `TwinSkipDialog` (powód z listy → ten sam ruch z `twin_skips`).
+- **„Nie bierze udziału w tej rekrutacji…” (prośba Artura 29.10.2026).** Przy
+  bliźniaku w „Screening dla” (także brakującym) rekruter wybiera powód z tej
+  samej listy co okno odmowy (`TWIN_SKIP_REASONS` w `lib/job-twins-api.ts` =
+  `job_twins.SKIP_REASONS`, pilnuje `test_job_twins.py`). Bliźniak wypada
+  z rozmowy (bez kłódki, „Cofnij” przywraca), a powód idzie z ruchem na
+  „Zweryfikowany” jako `twin_skips` — z formularza wspólnego i pojedynczego —
+  i zostaje w Historii zdarzeń. Pominięcie dotyczy tej rozmowy; nie
+  zapisujemy go na stałe przy osobie.

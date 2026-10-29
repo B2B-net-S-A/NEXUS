@@ -138,6 +138,8 @@ export interface JointScreeningFormProps {
   /** Odznaczone rekrutacje z wpisami w pamięci — zapis ich nie obejmie (D2 A). */
   pendingMemory?: readonly PendingMemoryItem[];
   onReselect?: (jobId: number) => void;
+  /** Bliźniaki pominięte w tej rozmowie (rekrutacja → kod powodu) — do `/move`. */
+  twinSkips?: Record<string, string>;
 }
 
 type ResultKind = "saved" | "unchanged" | "moved" | "save_failed" | "move_refused" | "deal_breaker" | "no_stage";
@@ -259,6 +261,7 @@ function JointFormBody({
   memory,
   pendingMemory = [],
   onReselect,
+  twinSkips,
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
   const queryClient = useQueryClient();
   // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól (serwer też;
@@ -456,6 +459,7 @@ function JointFormBody({
           ? { expected_rate_value: rate.amount, expected_rate_unit: rate.unit, expected_rate_currency: rate.currency }
           : {}),
         ...(acknowledgeEligibility ? { acknowledge_eligibility: true } : {}),
+        ...(twinSkips ? { twin_skips: twinSkips } : {}),
       },
       { silent: true, candidateName, eligibilitySubject: pair.title },
     );
