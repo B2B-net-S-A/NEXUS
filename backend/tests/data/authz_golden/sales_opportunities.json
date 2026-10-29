@@ -31,6 +31,7 @@
   "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",

@@ -22,6 +22,7 @@ from app.models.sales import (
     SalesLead,
     SalesOpportunity,
     SalesOpportunityContact,
+    SalesOpportunityEvent,
     SalesPipeline,
     SalesPipelineStage,
 )
@@ -457,6 +458,17 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
             )
         )
         assert kept == "dismissed"  # decyzja handlowca przetrwała drugi bieg
+        # Import nie pisze historii zmian — zaczyna się od pracy w NEXUSIE.
+        events = await db.scalar(
+            select(func.count())
+            .select_from(SalesOpportunityEvent)
+            .join(
+                SalesOpportunity,
+                SalesOpportunity.id == SalesOpportunityEvent.opportunity_id,
+            )
+            .where(SalesOpportunity.external_ref.like(f"atlas:%{tag}%"))
+        )
+        assert events == 0
 
 
 # ── Bieg na produkcji przez coolify-ops (action=atlas-import) ─────────────────
