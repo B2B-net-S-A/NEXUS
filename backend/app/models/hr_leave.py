@@ -88,7 +88,7 @@ class LeaveRequest(Base, TimestampMixin):
     substitute_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"), nullable=True
     )
-    # Kto wrzuca do Cpro za osobę od Cpro w czasie tego urlopu (0620,
+    # Kto wrzuca do Cpro za osobę od Cpro w czasie tego urlopu (0621,
     # `cpro_sender.effective_sender`). Osobno od zastępcy akceptacji i poczty.
     cpro_substitute_user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
