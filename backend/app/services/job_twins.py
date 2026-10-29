@@ -745,7 +745,10 @@ async def assert_twin_screening(
         return skipped
     from app.services.job_working_title import display_title  # noqa: PLC0415
 
-    names = ", ".join(twin.reference_number or display_title(twin) for twin in blocking)
+    def ref(twin: Job) -> str:
+        return twin.client_reference or twin.reference_number or display_title(twin)
+
+    names = ", ".join(ref(twin) for twin in blocking)
     raise HTTPException(
         status_code=409,
         detail={
@@ -757,7 +760,7 @@ async def assert_twin_screening(
             "twins": [
                 {
                     "job_id": twin.id,
-                    "reference_number": twin.reference_number,
+                    "reference_number": ref(twin),
                     "title": display_title(twin),
                 }
                 for twin in blocking
@@ -795,7 +798,8 @@ async def assert_rate_within_budget(
             "code": "twin_rate_over_budget",
             "message": (
                 f"Najwyżej {Decimal(str(budget)).normalize():f} zł/h — tyle wynosi budżet "
-                f"{job.reference_number or 'tej rekrutacji'}. Zaproponuj stawkę "
+                f"{job.client_reference or job.reference_number or 'tej rekrutacji'}. "
+                "Zaproponuj stawkę "
                 "w budżecie albo niższą."
             ),
             "budget_hourly": float(budget),
