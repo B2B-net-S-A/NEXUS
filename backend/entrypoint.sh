@@ -602,6 +602,8 @@ _ENUM_STATEMENTS = [
     # 0504: powody „nie liczy się do hit ratio” (21.10.2026).
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
+    # 0617: zamknięcie przez NEXUS po 28 dniach bez ruchu (services/job_idle.py).
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_activity'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
     # Candidate model odwołuje się do 7 nowych kolumn + enum — bez nich KAŻDY
     # SELECT kandydata wywala UndefinedColumnError (łącznie z /api/candidates
@@ -793,6 +795,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
     # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
+    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_idle_reminder'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
@@ -5141,6 +5145,10 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_duration VARCHAR(16) NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    # 0617: „Jeszcze trwa” przy rekrutacji bez ruchu (services/job_idle.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idle_snoozed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idle_snoozed_by INTEGER NULL "
     "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",

@@ -15,7 +15,9 @@ export type JobCloseReason =
   | "client_ghosted"
   | "other"
   | "duplicate"
-  | "no_match";
+  | "no_match"
+  // 28.10.2026: nadaje tylko NEXUS po 28 dniach bez ruchu (`services/job_idle.py`).
+  | "no_activity";
 
 /**
  * Etykiety wszystkich powodów — także „Inny”, którego nie da się już wybrać
@@ -31,6 +33,7 @@ export const JOB_CLOSE_REASONS: { value: JobCloseReason; label: string }[] = [
   { value: "paused", label: "Wstrzymana przez klienta" },
   { value: "client_ghosted", label: "Klient przestał odpowiadać" },
   { value: "no_match", label: "Nie znaleźliśmy kandydata" },
+  { value: "no_activity", label: "28 dni bez ruchu — zamknął NEXUS" },
   { value: "other", label: "Inny (do przejrzenia)" },
 ];
 
