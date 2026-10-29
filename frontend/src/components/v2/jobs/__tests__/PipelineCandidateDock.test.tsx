@@ -63,6 +63,11 @@ vi.mock("@/components/Toast", () => ({
 vi.mock("@/components/v2/jobs/DockCallCheatsheet", () => ({
   DockCallCheatsheet: () => null,
 }));
+vi.mock("@/components/v2/modals/QuickAssignV2", () => ({
+  QuickAssignV2: ({ candidateName }: { candidateName: string }) => (
+    <h2>Przypisz do rekrutacji — {candidateName}</h2>
+  ),
+}));
 vi.mock("@/components/v2/modals/CVOriginalPreviewModal", () => ({
   CVOriginalPreviewModal: () => null,
 }));
@@ -558,6 +563,22 @@ describe("PipelineCandidateDock", () => {
     await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
     await screen.findByRole("menuitem", { name: /Otwórz CV/ });
     expect(screen.queryByRole("menuitem", { name: /Czarna lista/ })).toBeNull();
+    expect(screen.queryByRole("menuitem", { name: /Dodaj też do rekrutacji/ })).toBeNull();
+  });
+
+  it("„⋯ → Dodaj też do rekrutacji…” otwiera okno „Przypisz do rekrutacji” (29.10.2026)", async () => {
+    const user = userEvent.setup();
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } } as never);
+    try {
+      renderDock();
+      await user.click(screen.getByRole("button", { name: "Więcej akcji osoby" }));
+      await user.click(await screen.findByRole("menuitem", { name: /Dodaj też do rekrutacji…/ }));
+      expect(
+        await screen.findByRole("heading", { name: "Przypisz do rekrutacji — Anna Kowalska" }),
+      ).toBeInTheDocument();
+    } finally {
+      useAuthStore.setState({ user: null } as never);
+    }
   });
 });
 

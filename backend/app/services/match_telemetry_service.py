@@ -427,6 +427,8 @@ PIPELINE_ADD_SOURCES = frozenset(
         "my_people",
         # 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
         "also_fits",
+        # 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (ręcznie).
+        "also_manual",
         # 22.10.2026: zakładka „Podobni” na profilu kandydata.
         "similar_candidates",
         # Audyt 06.10.2026 (U2): dodanie tokenem integracji (scraper) — bez

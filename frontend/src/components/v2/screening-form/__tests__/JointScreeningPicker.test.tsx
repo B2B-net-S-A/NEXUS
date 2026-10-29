@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -253,11 +254,15 @@ describe("JointScreeningPicker — kandydat nie bierze udziału w bliźniaku (06
 });
 
 /** Rozwinięty panel osoby w szerokim oknie z zapamiętanym „Trybem rozmowy”. */
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
 function InConversationMode({ children }: { children: ReactNode }) {
   return (
-    <PersonPanelSideProvider>
-      <PersonPanelColumn split>{children}</PersonPanelColumn>
-    </PersonPanelSideProvider>
+    <QueryClientProvider client={queryClient}>
+      <PersonPanelSideProvider>
+        <PersonPanelColumn split>{children}</PersonPanelColumn>
+      </PersonPanelSideProvider>
+    </QueryClientProvider>
   );
 }
 
@@ -316,7 +321,7 @@ describe("JointScreeningPicker — tryb rozmowy (29.10.2026)", () => {
     expect(screen.getByTestId("joint-screening-picker")).toHaveAttribute("data-collapsed");
   });
 
-  it("bliźniak bez tej osoby, „Cofnij” i odmowa serwera pokazują pełną listę", () => {
+  it("bliźniak bez tej osoby, odmowa serwera, trwające dodanie i „Dodano do Nowych” pokazują pełną listę", () => {
     conversationModeOn();
     const { rerender } = render(
       <InConversationMode>
@@ -333,6 +338,17 @@ describe("JointScreeningPicker — tryb rozmowy (29.10.2026)", () => {
       </InConversationMode>,
     );
     expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+
+    rerender(
+      <InConversationMode>
+        <JointScreeningPicker
+          {...baseProps}
+          manualAdd={{ candidateId: 1, fromJobId: 10, onAdd: vi.fn(), addedNote: "Dodano do Nowych: Data Architect" }}
+        />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByTestId("joint-add-note")).toHaveTextContent("Dodano do Nowych");
   });
 
   it("poza trybem rozmowy lista wygląda jak dotąd", () => {

@@ -28,6 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/also-fits": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "GET /api/candidates/{candidate_id}/also-fits": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidates/{candidate_id}/also-fits/search": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

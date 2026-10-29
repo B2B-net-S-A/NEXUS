@@ -31,9 +31,30 @@ export interface AlsoFitsResponse {
   returns_to_market_on?: string | null;
 }
 
+/**
+ * „+ Dodaj inną rekrutację” (29.10.2026): otwarta rekrutacja firmy bez tej
+ * osoby, wyszukana ręcznie. Bez oceny — rekruter wie, czemu dodaje.
+ */
+export interface AlsoFitsManualJob {
+  job_id: number;
+  title: string;
+  client_name: string | null;
+  client_reference?: string | null;
+  delivery_lead_name?: string | null;
+  /** Rekrutacja może wejść do tej rozmowy (reguła par „Screening dla”). */
+  joinable: boolean;
+  /** Patrzący naprawdę jest w jej zespole — „Twój zespół”, na górze listy. */
+  in_my_team: boolean;
+}
+
+/** Od tylu znaków szukamy (lustro `SEARCH_MIN_CHARS` serwera). */
+export const ALSO_FITS_SEARCH_MIN_CHARS = 2;
+
 export const alsoFitsKeys = {
   one: (fromJobId: number, candidateId: number) =>
     ["also-fits", fromJobId, candidateId] as const,
+  search: (fromJobId: number, candidateId: number, q: string) =>
+    ["also-fits", fromJobId, candidateId, "search", q] as const,
 };
 
 export const alsoFitsApi = {
@@ -41,6 +62,12 @@ export const alsoFitsApi = {
     api
       .get<AlsoFitsResponse>(`/api/candidates/${candidateId}/also-fits`, {
         params: { from_job_id: fromJobId },
+      })
+      .then((r) => r.data),
+  search: (candidateId: number, fromJobId: number, q: string): Promise<AlsoFitsManualJob[]> =>
+    api
+      .get<AlsoFitsManualJob[]>(`/api/candidates/${candidateId}/also-fits/search`, {
+        params: { from_job_id: fromJobId, q },
       })
       .then((r) => r.data),
 };

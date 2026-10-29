@@ -23,8 +23,8 @@
  * W „Trybie rozmowy” (29.10.2026, zgłoszenie Artura: formularz za ciasny na
  * laptopie) lista stoi zwinięta do jednej linii z wybranymi rekrutacjami
  * i „Zmień” — na 1280 × 720 miała 388 px i spychała formularz poza ekran.
- * Bliźniak bez tej osoby, „Cofnij” po odznaczeniu i odmowa serwera
- * pokazują pełną listę, bo czekają na decyzję rekrutera.
+ * Bliźniak bez tej osoby, „Cofnij” po odznaczeniu, odmowa serwera
+ * i „Dodano do Nowych: …” pokazują pełną listę, bo rekruter musi je zobaczyć.
  */
 
 import { useState } from "react";
@@ -38,11 +38,13 @@ import {
   answersStay,
   memoryChipLabel,
 } from "@/components/v2/screening-form/ScreeningMemoryNotes";
-import type { AlsoFitsJob } from "@/lib/also-fits-api";
+import type { AlsoFitsJob, AlsoFitsManualJob } from "@/lib/also-fits-api";
 import type { JointContextPair, JointMissingTwin } from "@/lib/api/screeningForm";
 import { JOINT_MAX_OTHERS } from "@/lib/joint-screening";
 import { TWIN_SKIP_REASONS, twinSkipLabel } from "@/lib/job-twins-api";
 import { cn } from "@/lib/utils";
+
+import { JointAddJob } from "./JointAddJob";
 
 const COLUMN_LABEL: Record<string, string> = { new: "Nowi", screening: "Screening" };
 
@@ -90,6 +92,17 @@ export interface JointScreeningPickerProps {
   twinSkips?: ReadonlyMap<number, string>;
   /** „Nie bierze udziału…” przy bliźniaku; `null` = cofnij pominięcie. */
   onTwinSkip?: (jobId: number, reason: string | null) => void;
+  /**
+   * „+ Dodaj inną rekrutację” (29.10.2026): rekruter sam wskazuje rekrutację,
+   * której „Pasuje też do” nie podsunęło. Z nim sekcja stoi też bez podpowiedzi.
+   */
+  manualAdd?: {
+    candidateId: number;
+    fromJobId: number;
+    onAdd: (job: AlsoFitsManualJob) => void;
+    /** „Dodano do Nowych: …” po dodaniu do rekrutacji spoza zespołu. */
+    addedNote?: string | null;
+  };
 }
 
 /**
@@ -178,13 +191,15 @@ export function JointScreeningPicker({
   missingTwins = [],
   twinSkips,
   onTwinSkip,
+  manualAdd,
 }: JointScreeningPickerProps) {
   const conversation = usePersonPanelConversationMode();
   const [listOpen, setListOpen] = useState(false);
-  if (pairs.length === 0 && suggestions.length === 0 && missingTwins.length === 0) return null;
+  if (!manualAdd && pairs.length === 0 && suggestions.length === 0 && missingTwins.length === 0) return null;
   const count = selected.size + 1;
   const full = selected.size >= JOINT_MAX_OTHERS;
-  const needsDecision = missingTwins.length > 0 || notice != null || Boolean(error) || addingJobId != null;
+  const needsDecision =
+    missingTwins.length > 0 || notice != null || Boolean(error) || addingJobId != null || Boolean(manualAdd?.addedNote);
   if (conversation?.on && !listOpen && !needsDecision) {
     const others = pairs.filter((pair) => selected.has(pair.job_id));
     return (
@@ -382,6 +397,31 @@ export function JointScreeningPicker({
           </li>
         ))}
       </ul>
+      {manualAdd ? (
+        <JointAddJob
+          candidateId={manualAdd.candidateId}
+          fromJobId={manualAdd.fromJobId}
+          listedIds={
+            new Set([
+              ...pairs.map((p) => p.job_id),
+              ...suggestions.map((j) => j.job_id),
+              ...missingTwins.map((t) => t.job_id),
+            ])
+          }
+          onAdd={manualAdd.onAdd}
+          disabled={addingJobId != null}
+          joinFull={full}
+        />
+      ) : null}
+      {manualAdd?.addedNote ? (
+        <p
+          role="status"
+          data-testid="joint-add-note"
+          className="mt-2 rounded-md bg-success-muted px-2.5 py-1.5 text-xs text-success-muted-foreground"
+        >
+          {manualAdd.addedNote}
+        </p>
+      ) : null}
       {notice ? (
         <p
           role="status"
