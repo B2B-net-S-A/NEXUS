@@ -174,3 +174,77 @@ describe("JointScreeningPicker — pamięć rozmowy (16.10.2026, D1 A)", () => {
     expect(screen.queryByRole("button", { name: "Cofnij" })).toBeNull();
   });
 });
+
+describe("JointScreeningPicker — bliźniaki (0614)", () => {
+  it("locks a twin in the conversation and offers to add the person to a missing twin", () => {
+    const onToggle = vi.fn();
+    const onAddAndJoin = vi.fn();
+    render(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        missingTwins={[
+          { job_id: 5, title: "Programista Python C", client_id: 1, verified_stage_def_id: 3, budget_hourly: 110 },
+        ]}
+        selected={new Set([2])}
+        onToggle={onToggle}
+        onAddAndJoin={onAddAndJoin}
+        addingJobId={null}
+      />,
+    );
+    const twin = screen.getByRole("checkbox", { name: /Programista Python B/ });
+    expect(twin).toBeChecked();
+    expect(twin).toBeDisabled();
+    expect(screen.getAllByText("🔒 bliźniak")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "+ Dodaj do bliźniaka" }));
+    expect(onAddAndJoin).toHaveBeenCalledWith(5);
+  });
+});
+
+describe("JointScreeningPicker — kandydat nie bierze udziału w bliźniaku (0614)", () => {
+  it("lets the recruiter skip a locked twin with a reason and undo it", () => {
+    const onTwinSkip = vi.fn();
+    const { rerender } = render(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        selected={new Set([2])}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+        twinSkips={new Map()}
+        onTwinSkip={onTwinSkip}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Nie bierze udziału w tej rekrutacji…" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /Powód — Programista Python B/ }), {
+      target: { value: "candidate_declined" },
+    });
+    expect(onTwinSkip).toHaveBeenCalledWith(2, "candidate_declined");
+
+    rerender(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        missingTwins={[
+          { job_id: 5, title: "Programista Python C", client_id: 1, verified_stage_def_id: 3, budget_hourly: 110 },
+        ]}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+        twinSkips={new Map([[2, "candidate_declined"], [5, "client_rejected"]])}
+        onTwinSkip={onTwinSkip}
+      />,
+    );
+    expect(screen.getByTestId("twin-skip-2")).toHaveTextContent("Nie bierze udziału: Kandydat nie chce tej rekrutacji");
+    expect(screen.getByRole("checkbox", { name: /nie bierze udziału/ })).not.toBeChecked();
+    // Pominięty brakujący bliźniak nie proponuje już dodania osoby.
+    expect(screen.queryByRole("button", { name: "+ Dodaj do bliźniaka" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Cofnij" })[0]);
+    expect(onTwinSkip).toHaveBeenLastCalledWith(2, null);
+  });
+});
