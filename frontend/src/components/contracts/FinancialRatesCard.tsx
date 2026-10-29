@@ -1,6 +1,8 @@
 import { AlertCircle, Banknote, RefreshCw, TrendingUp } from "lucide-react";
 
-import { formatCurrency } from "@/lib/utils";
+import type { RecruitmentRate } from "@/lib/api/recruitmentRates";
+import { normalizeRateUnit } from "@/lib/recruitment-rate-check";
+import { formatCurrency, formatDate as formatTimestamp } from "@/lib/utils";
 // Daty ISO bez przesunięcia strefy (audyt 24.09, N8).
 import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { HOURS_PER_MONTH, MD_PER_MONTH } from "@/lib/work-time";
@@ -122,7 +124,93 @@ function PlnConversion({
   );
 }
 
-export function FinancialRatesCard({ contract }: { contract: FinancialRatesContract }) {
+const RECRUITMENT_UNIT_SUFFIX: Record<"hour" | "day" | "month", string> = {
+  hour: "/h",
+  day: "/MD",
+  month: "/mies.",
+};
+
+const CONTRACT_UNIT_KIND: Record<FinancialRatesContract["rate_unit"], "hour" | "day" | "month"> = {
+  hourly: "hour",
+  daily: "day",
+  monthly: "month",
+};
+
+/**
+ * Stawka do klienta z rekrutacji, gdy kontrakt jeszcze jej nie ma
+ * (zgłoszenie Klaudii 29.10.2026). Tylko podpowiedź: przychód kontraktu
+ * nadal przychodzi z zamówienia klienta, bo stawka wpisana przed zamówieniem
+ * gasiłaby Finansom dzwonek „bez zamówienia” (decyzja z 04.10.2026,
+ * `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md`).
+ */
+function ClientRateFromRecruitment({
+  rate,
+  contract,
+  candidateCurrency,
+}: {
+  rate: RecruitmentRate;
+  contract: FinancialRatesContract;
+  candidateCurrency: string;
+}) {
+  const value = Number(rate.client_rate_value);
+  const currency = rate.client_rate_currency || "PLN";
+  const kind = normalizeRateUnit(rate.client_rate_unit);
+  const suffix = kind ? RECRUITMENT_UNIT_SUFFIX[kind] : "";
+  const who = [
+    rate.client_rate_by_name,
+    rate.client_rate_at ? formatTimestamp(rate.client_rate_at) : null,
+  ]
+    .filter((item): item is string => Boolean(item))
+    .join(", ");
+  // Marża tylko przy tej samej jednostce i walucie co stawka kandydata —
+  // przeliczanie MD na godziny czy EUR na PLN to już domysł, nie podpowiedź.
+  const comparable =
+    kind === CONTRACT_UNIT_KIND[contract.rate_unit] &&
+    currency.toUpperCase() === candidateCurrency.toUpperCase() &&
+    contract.rate_candidate != null;
+  const margin = comparable ? value - (contract.rate_candidate as number) : null;
+  const marginPct = margin !== null && value > 0 ? ((margin / value) * 100).toFixed(1) : null;
+
+  return (
+    <div
+      className="rounded-md border border-dashed border-border bg-muted/50 px-2.5 py-2 text-xs space-y-1"
+      data-testid="client-rate-from-recruitment"
+    >
+      <div className="flex justify-between gap-3">
+        <span className="min-w-0 text-muted-foreground">
+          Z rekrutacji{rate.job_title ? ` „${rate.job_title}”` : ""}
+          {who ? ` (${who})` : ""}
+        </span>
+        <span className="whitespace-nowrap font-medium tabular-nums">
+          {formatCurrency(value, currency)}
+          <span className="opacity-70">{suffix}</span>
+        </span>
+      </div>
+      {margin !== null && (
+        <div className="flex justify-between gap-3 text-muted-foreground">
+          <span>Marża wg rekrutacji</span>
+          <span className="whitespace-nowrap tabular-nums">
+            {formatCurrency(margin, currency)}
+            {suffix}
+            {marginPct ? ` (${marginPct}%)` : ""}
+          </span>
+        </div>
+      )}
+      <p className="text-muted-foreground">
+        Stawka przychodowa wejdzie do kontraktu z zamówieniem klienta.
+      </p>
+    </div>
+  );
+}
+
+export function FinancialRatesCard({
+  contract,
+  recruitmentRate = null,
+}: {
+  contract: FinancialRatesContract;
+  /** Para z rekrutacji kontraktu — pokazywana tylko, gdy kontrakt nie ma stawki klienta. */
+  recruitmentRate?: RecruitmentRate | null;
+}) {
   // The API redacts this field to null for non-finance callers and historical
   // rows can also predate the PLN default. The parent currently gates the card,
   // but keeping the component null-safe prevents a legacy row from crashing the
@@ -222,6 +310,17 @@ export function FinancialRatesCard({ contract }: { contract: FinancialRatesContr
               />
             </span>
           </div>
+          {contract.rate_client == null &&
+            recruitmentRate != null &&
+            !recruitmentRate.client_rate_redacted &&
+            recruitmentRate.client_rate_value != null &&
+            recruitmentRate.client_rate_value !== "" && (
+              <ClientRateFromRecruitment
+                rate={recruitmentRate}
+                contract={contract}
+                candidateCurrency={candidateCurrency}
+              />
+            )}
           {/* Także przy JEDNYM kroku (UAT B53): zakładka „Historia stawek" odsyła
               tu po kroki z datami i pochodzeniem, a przy `> 1` karta pokazywała
               samą kwotę — wskazówka prowadziła do czegoś, czego nie było.

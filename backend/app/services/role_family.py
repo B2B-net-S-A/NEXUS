@@ -22,6 +22,9 @@ zmienia Head of Recruitment w panelu, po pomiarze):
 Inna rola nie usuwa osoby z list ręcznych: przejście z QA do programowania
 bywa prawdziwe. Okno ją oznacza i stawia na końcu, a nocny przegląd nie
 publikuje jej jako propozycji, chyba że spełnia `KEEP_MUST_SHARE` wymagań.
+Do puli dopełniania „Nowych” nie wchodzi wcale (29.10.2026): karta stamtąd
+ląduje na tablicy bez człowieka, a lista technologii w CV architekta spełnia
+„musi mieć” złożone z samych narzędzi.
 """
 
 from __future__ import annotations
@@ -78,7 +81,9 @@ _RULES: tuple[tuple[Family, re.Pattern[str]], ...] = tuple(
         ),
         (
             "devops",
-            r"devops|\bsre\b|site reliability|administrator|\badmin\b|sysadmin|platform engineer"
+            # „DevSecOps” nie zawiera „devops” (29.10.2026: rekrutacja
+            # „DevSecOps - inżynier” była bez roli i nic jej nie pilnowało).
+            r"dev\W?(?:sec\W?)?ops|secops|\bsre\b|site reliability|administrator|\badmin\b|sysadmin|platform engineer"
             r"|cloud engineer|network engineer",
         ),
         # Samo „Designer”/„Projektant” to w tytułach IT często projektant
@@ -112,7 +117,8 @@ HISTORY_MIN_PROCESSES = 3
 HISTORY_MIN_SHARE = 0.75
 # Ostatnie rekrutacje osoby, z których liczymy historię.
 HISTORY_LAST_PROCESSES = 10
-# Nocny przegląd publikuje osobę z inną rolą, gdy spełnia tyle „musi mieć”.
+# Nocny przegląd publikuje osobę z inną rolą, gdy spełnia tyle „musi mieć”
+# (tylko propozycje do okna; pula „Nowych” nie ma wyjątku).
 KEEP_MUST_SHARE = 0.8
 
 _POSITION_MAX = 60
@@ -224,8 +230,9 @@ def keeps_despite_role(requirements: Sequence[dict]) -> bool:
 async def history_titles(
     db, candidate_ids: Sequence[int], *, exclude_job_id: Optional[int] = None
 ) -> dict[int, list[str]]:
-    """Tytuły ostatnich rekrutacji osób w NEXUSIE (bez unieważnionych i bez
-    kart wstawionych przez scraper ogłoszeń — to nie była decyzja człowieka)."""
+    """Tytuły ostatnich rekrutacji osób w NEXUSIE (bez unieważnionych, bez
+    kart wstawionych przez scraper ogłoszeń i przez dopełnianie „Nowych” —
+    to nie była decyzja człowieka, a silnik nie może utwierdzać się sam)."""
     from app.models.job import Job  # noqa: PLC0415
     from app.models.recruitment_process import RecruitmentProcess  # noqa: PLC0415
 
@@ -238,7 +245,7 @@ async def history_titles(
             RecruitmentProcess.candidate_id.in_(list(candidate_ids)),
             RecruitmentProcess.voided_at.is_(None),
             (RecruitmentProcess.entry_source.is_(None))
-            | (RecruitmentProcess.entry_source != "auto_match"),
+            | RecruitmentProcess.entry_source.not_in(("auto_match", "system")),
         )
         .order_by(
             RecruitmentProcess.candidate_id,

@@ -68,6 +68,7 @@ import {
 import { workModeLabel } from "@/lib/job-twins-api";
 import {
   CLIENT_KEY,
+  PER_JOB_TERMS_KEYS,
   SHARED_ASSESSMENT_KEYS,
   SHARED_TERMS_KEYS,
   budgetVerdict,
@@ -672,6 +673,9 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
   const sameRate = methods.watch("shared.same_rate");
   const anchor = pairs.find((p) => p.anchor) ?? pairs[0];
   const sharedKeys = SHARED_TERMS_KEYS.filter((key) => methods.getValues(`shared.card.${key}`) !== undefined);
+  const perJobKeys = PER_JOB_TERMS_KEYS.filter((key) =>
+    pairs.some((p) => methods.getValues(`jobs.${jobKey(p.jobId)}.card.${key}`) !== undefined),
+  );
   const clients = new Map<string, JointPair>();
   for (const pair of pairs) {
     if (editableCardKeys(pair.state).includes(CLIENT_KEY) && !clients.has(clientKey(pair.clientId))) {
@@ -685,7 +689,10 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
         <h3 id="joint-terms" className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Warunki · wspólne dla {pairs.length} rekrutacji
         </h3>
-        <p className="text-xs text-muted-foreground">Wpisujesz raz — zapis trafia do każdej zaznaczonej rekrutacji.</p>
+        <p className="text-xs text-muted-foreground">
+          Wpisujesz raz — zapis trafia do każdej zaznaczonej rekrutacji.
+          {perJobKeys.length > 0 ? " Tryb pracy — osobno dla każdej." : ""}
+        </p>
       </div>
 
       {canEditRate && pairs.some((p) => p.twin) ? (
@@ -734,6 +741,15 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
           <SharedField key={key} methods={methods} name={`shared.card.${key}`} label={formFieldLabel(anchor.state, key)} pairs={pairs} cardKey={key} />
         ))}
       </div>
+      {perJobKeys.map((key) => (
+        <div key={key} className="grid gap-3 @md:grid-cols-2">
+          {pairs
+            .filter((pair) => methods.getValues(`jobs.${jobKey(pair.jobId)}.card.${key}`) !== undefined)
+            .map((pair) => (
+              <JobTermField key={pair.jobId} methods={methods} pair={pair} cardKey={key} />
+            ))}
+        </div>
+      ))}
       {[...clients.entries()].map(([key, pair]) => (
         <SharedField
           key={key}
@@ -915,6 +931,24 @@ function SharedField({
           W {pair.title}: {saved}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Warunek tej jednej rekrutacji (tryb pracy) — pod polem tryb z rekrutacji, gdy jest podany. */
+function JobTermField({ methods, pair, cardKey }: { methods: UseFormReturn<JointValues>; pair: JointPair; cardKey: string }) {
+  const path = `jobs.${jobKey(pair.jobId)}.card.${cardKey}`;
+  const id = `joint-${jobKey(pair.jobId)}-${cardKey}`;
+  const known = cardKey === "work_mode" && pair.workMode && pair.workMode !== "tryb pracy nie podany" ? pair.workMode : null;
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-foreground">
+        {formFieldLabel(pair.state, cardKey)}
+        <span className="font-normal text-muted-foreground"> · {pair.title}</span>
+      </label>
+      <Input id={id} {...methods.register(path as "answers")} />
+      <OriginLine path={path} methods={methods} />
+      {known ? <p className="mt-0.5 text-[11px] text-muted-foreground">W rekrutacji: {known}</p> : null}
     </div>
   );
 }
@@ -1201,7 +1235,8 @@ function AssessmentSection({
 }) {
   const active = pairs.find((p) => p.jobId === tab) ?? pairs[0];
   const key = jobKey(active.jobId);
-  const ownKeys = Object.keys(methods.getValues(`jobs.${key}.card`) ?? {});
+  const perJobTerms: ReadonlySet<string> = new Set(PER_JOB_TERMS_KEYS);
+  const ownKeys = Object.keys(methods.getValues(`jobs.${key}.card`) ?? {}).filter((k) => !perJobTerms.has(k));
   const sharedAssessment = SHARED_ASSESSMENT_KEYS.filter((k) => methods.getValues(`shared.card.${k}`) !== undefined);
   return (
     <section aria-labelledby="joint-assessment" className="space-y-3">
@@ -1230,7 +1265,10 @@ function AssessmentSection({
           );
         })}
       </div>
-      <div role="tabpanel" className="space-y-3">
+      {/* Klucz = rekrutacja: bez niego zakładka zostawiała to samo pole tekstowe
+          pod nową nazwą, RHF nie przepisywał wartości i tekst jednej rekrutacji
+          stał w drugiej (zgłoszenie rekrutera 29.10.2026). */}
+      <div key={active.jobId} role="tabpanel" className="space-y-3">
         <fieldset>
           <legend className="mb-1 text-xs font-medium text-foreground">Ogólna ocena dopasowania</legend>
           <div className="grid grid-cols-3 gap-1.5">

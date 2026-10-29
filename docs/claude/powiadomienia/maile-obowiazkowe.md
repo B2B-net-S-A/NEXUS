@@ -20,9 +20,33 @@ rekrutacja z Twoimi osobami od „CV wysłane” (28.10.2026,
 `rekrutacja-tablica/zamkniecie-rekrutacji-osoby-w-toku.md`), kandydaci po osobie,
 która odeszła z firmy (28.10.2026,
 `rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-leada.md`), ważne ogłoszenie
-na pulpicie (28.10.2026, `ui/ogloszenia-na-pulpicie.md`). Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
+na pulpicie (28.10.2026, `ui/ogloszenia-na-pulpicie.md`), od 29.10.2026 nowa
+osoba w NEXUSIE oraz trzy rodzaje z 22.10: prep (odmowa albo zmiana terminu),
+umowa przedwstępna i zadania od zespołu (niżej). Poranny skrót, wzmianki, czat, terminy rekrutacji i zmiany etapów
 zostają do wyłączenia przez konto. Nowy rodzaj obowiązkowy = wpis
 w `REQUIRED_KINDS`; test pilnuje, że to rodzaj z katalogu.
+
+## Każdy rodzaj ma decyzję, kto go włącza (29.10.2026)
+
+Pierwsza nowa osoba na produkcji (29.10, 12:30): 4 dzwonki do HoR i adminów,
+0 maili. `new_person` (#2776) był zwykłym rodzajem, a zwykły rodzaj startuje
+wyłączony dla całej firmy, dopóki admin go nie włączy. Tak samo prep, umowa
+przedwstępna i zadania od zespołu: 22.10 miały iść mailem, 26.10 nie trafiły
+do obowiązkowych i od 22.10 „Prep” dał 36 dzwonków bez maila. Decyzja Artura
+29.10.2026: te cztery są obowiązkowe (także nowa osoba, choć 28.10 miała być
+do wyłączenia w „Moje maile”). Makiety: https://claude.ai/artifact/UR8aqrracLBTt57ij9npGm.
+
+- **Strażnik w CI**: rodzaj z `CATALOG` jest w `REQUIRED_KINDS` albo
+  w `ADMIN_DECIDES` z powodem, dla którego włącza go admin
+  (`test_every_mail_kind_has_a_decision_who_turns_it_on`). Nowy rodzaj bez
+  tej decyzji nie przejdzie PR-a.
+- **Baner w Ustawienia → Powiadomienia firmy → Maile**: rodzaje wyłączone dla
+  firmy, w których w ostatnich 7 dniach powstały dzwonki (`silenced_kinds`,
+  `admin_view.silenced`), z liczbą dzwonków i nieprzeczytanych. „Włącz” włącza
+  rodzaj, „Zostaw wyłączone” zapisuje `kept_off_at` w polityce i wpis
+  w Historii zdarzeń; znacznik znika przy włączeniu, więc ponowne wyłączenie
+  znów pokaże rodzaj na banerze. Globalnie wyłączona wysyłka i mail
+  obowiązkowy wstrzymany z powodem nie trafiają na baner.
 
 ## Jak działa
 

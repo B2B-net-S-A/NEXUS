@@ -49,6 +49,11 @@ from app.services import role_family as rf
         ("Product Owner & Engineering Manager", "pm"),
         ("Product Owner D4A (DevOps for Applications)", None),
         ("DevOps - Market Risk (replacement) (43075)", "devops"),
+        # „DevSecOps” nie zawiera „devops” — rekrutacja bez roli (29.10.2026).
+        ("DevSecOps - inżynier (ZOB-3104)", "devops"),
+        ("Inżynier DevSecOps SENIOR - Zespół do Open Banking (ZOB-2861)", "devops"),
+        ("Platform Architect / DevSecOps", "devops"),
+        ("SecOps Engineer", "devops"),
         ("Admin ds. sieci teleinformatycznych", "devops"),
         ("UI Designer (6426)", "design"),
         # Nieznane — lepiej brak znaku niż zły znak.
@@ -72,6 +77,14 @@ def test_tester_on_a_developer_job_is_another_role():
     assert found.family == "qa"
     assert found.label == "tester"
     assert found.detail == "obecnie Senior QA Automation Engineer"
+
+
+def test_analyst_on_a_devsecops_job_is_another_role():
+    """Zgłoszenie rekrutera 29.10.2026: analityk systemowy w „Nowych” DevSecOps."""
+    job_family = rf.family_of("DevSecOps - inżynier (ZOB-3104)")
+    found = rf.role_mismatch(job_family, "Analityk Systemowy")
+    assert found is not None
+    assert found.family == "analyst"
 
 
 def test_clear_history_beats_an_old_cv():

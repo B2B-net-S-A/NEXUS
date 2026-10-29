@@ -11,11 +11,22 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import DateTime, and_, cast, create_engine, or_, select, text, true
+from sqlalchemy import (
+    DateTime,
+    String,
+    and_,
+    cast,
+    create_engine,
+    func,
+    or_,
+    select,
+    text,
+    true,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -420,6 +431,10 @@ class DeliveryPolicy:
         reason = self.types.get(kind, {}).get("paused_reason")
         return reason if isinstance(reason, str) and reason else None
 
+    def kept_off(self, kind: str) -> bool:
+        """Admin zostawił ten zwykły rodzaj wyłączony („Zostaw wyłączone”)."""
+        return isinstance(self.types.get(kind, {}).get("kept_off_at"), str)
+
     @property
     def effective_enabled(self) -> bool:
         return any(self.kind_enabled(kind) for kind in ROUTINE_KINDS)
@@ -465,6 +480,13 @@ REQUIRED_KINDS = frozenset(
         "cv_returned",
         "client_accepted",
         "hire_documents",
+        # 29.10.2026: nowa osoba po pierwszym logowaniu i trzy rodzaje z 22.10
+        # (prep, umowa przedwstępna, zadania od zespołu) były zwykłymi rodzajami
+        # i nikt ich nie włączył — 0 maili przy 40 dzwonkach na produkcji.
+        "new_person",
+        "prep_change",
+        "pre_contract",
+        "team_task",
         "signature_request",
         "delivery_alert",
         HR_MAIL_KIND,
@@ -473,6 +495,22 @@ REQUIRED_KINDS = frozenset(
         "system_failure",
     }
 )
+# Zwykły rodzaj startuje wyłączony dla całej firmy i włącza go admin. Każdy
+# rodzaj z katalogu jest obowiązkowy albo stoi tu z powodem — strażnik
+# `test_every_mail_kind_has_a_decision_who_turns_it_on` (29.10.2026: nowy
+# rodzaj bez tej decyzji nie wychodził mailem i nikt o tym nie wiedział).
+ADMIN_DECIDES: dict[str, str] = {
+    "chat_unread": "Czat ma własne okienko w pasku; mail to dodatek po 15 min offline.",
+    "mentions": "Informacja, nie blokuje cudzej pracy (decyzja 26.10.2026).",
+    "pipeline_stage": "Reguły etapów konfiguruje admin — bez nich mail zalałby skrzynki.",
+    "rate_change": "Informacja dla Delivery Leada; firma decyduje, czy idzie mailem.",
+    "job_deadline": "Przypomnienie o terminie, do wyłączenia przez konto (26.10.2026).",
+    "application_confirmation": "Mail do kandydata — bez maili do kandydatów (decyzja Artura).",
+    "daily_digest": "Poranny skrót zbiera resztę dzwonka; admin decyduje o całej firmie.",
+    "kpi_weekly_report": "Raport okresowy, nie sprawa, na którą ktoś czeka.",
+    "board_monthly_report": "Raport dla Rady z przychodem i marżą — włącza admin.",
+    "board_placement_alert": "Mail do Rady z marżą przy placemencie — włącza admin.",
+}
 PAUSE_REASON_MAX = 500
 
 
@@ -551,7 +589,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
 }
 
 
-def notification_kind(notification_type: Any) -> str | None:
+def _type_kinds() -> dict[str, str]:
     return {
         **dict.fromkeys(HR_MAIL_TYPES, HR_MAIL_KIND),
         **{t: kind for kind, types in BELL_MAIL_TYPES.items() for t in types},
@@ -577,7 +615,98 @@ def notification_kind(notification_type: Any) -> str | None:
         "job_ad_backlog": JOB_AD_KIND,
         "job_ad_nudge": JOB_AD_KIND,
         "hr_bonus_assigned": HR_BONUS_KIND,
-    }.get(getattr(notification_type, "value", notification_type))
+    }
+
+
+def notification_kind(notification_type: Any) -> str | None:
+    return _type_kinds().get(getattr(notification_type, "value", notification_type))
+
+
+def bell_types_by_kind() -> dict[str, tuple[str, ...]]:
+    """Odwrotność `notification_kind`: typy dzwonka, z których idzie dany mail."""
+    out: dict[str, list[str]] = {}
+    for ntype, kind in _type_kinds().items():
+        out.setdefault(kind, []).append(ntype)
+    return {kind: tuple(sorted(types)) for kind, types in out.items()}
+
+
+# Baner „wyłączone, a ludzie na nie czekają” (29.10.2026) liczy dzwonki z tylu dni.
+SILENCED_WINDOW_DAYS = 7
+
+
+def silenced_kinds(
+    policy: DeliveryPolicy, counts: dict[str, tuple[int, int]]
+) -> list[dict[str, Any]]:
+    """Rodzaje wyłączone dla firmy, w których NEXUS tworzy dzwonki, a admin
+    nie zdecydował, że zostają wyłączone. ``counts`` = {rodzaj: (dzwonki,
+    nieprzeczytane)} z ostatnich `SILENCED_WINDOW_DAYS` dni.
+
+    Globalnie wyłączona wysyłka i wstrzymany z powodem mail obowiązkowy to
+    decyzje admina widoczne na ekranie — nie trafiają na baner.
+    """
+    if not policy.enabled:
+        return []
+    labels = {spec["id"]: spec["label"] for spec in CATALOG}
+    rows = [
+        dict(id=kind, label=labels[kind], bells=bells, unread=unread)
+        for kind, (bells, unread) in counts.items()
+        if kind in ROUTINE_KINDS
+        and bells > 0
+        and not policy.kind_enabled(kind)
+        and not policy.kept_off(kind)
+        and not policy.paused_reason(kind)
+    ]
+    return sorted(rows, key=lambda row: (-row["bells"], row["id"]))
+
+
+async def _silenced_counts(
+    db: AsyncSession, policy: DeliveryPolicy, now: datetime
+) -> dict[str, tuple[int, int]]:
+    """Dzwonki z ostatnich dni w rodzajach, które dziś nie idą mailem."""
+    from app.models.notification import Notification
+
+    kinds = {
+        kind: types
+        for kind, types in bell_types_by_kind().items()
+        if kind in ROUTINE_KINDS
+        and not policy.kind_enabled(kind)
+        and not policy.kept_off(kind)
+    }
+    if not policy.enabled or not kinds:
+        return {}
+    type_kind = {t: kind for kind, types in kinds.items() for t in types}
+    ntype = cast(Notification.notification_type, String)
+    rows = (
+        await db.execute(
+            select(
+                ntype,
+                func.count(),
+                func.count().filter(Notification.is_read.is_(False)),
+            )
+            .where(
+                ntype.in_(list(type_kind)),
+                Notification.created_at >= now - timedelta(days=SILENCED_WINDOW_DAYS),
+            )
+            .group_by(ntype)
+        )
+    ).all()
+    counts: dict[str, tuple[int, int]] = {}
+    for name, bells, unread in rows:
+        kind = type_kind[name]
+        prev = counts.get(kind, (0, 0))
+        counts[kind] = (prev[0] + bells, prev[1] + unread)
+    return counts
+
+
+async def silenced_view(db: AsyncSession, policy: DeliveryPolicy) -> list[dict]:
+    """Baner dla admina; awaria liczenia nie może zabrać ekranu."""
+    try:
+        async with db.begin_nested():
+            counts = await _silenced_counts(db, policy, datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001 — baner jest informacją, nie warunkiem
+        logger.warning("silenced notification email count failed", exc_info=True)
+        return []
+    return silenced_kinds(policy, counts)
 
 
 DIGEST_KIND = "daily_digest"
@@ -744,15 +873,20 @@ def updated_value(
     toggles: dict[str, bool],
     now: datetime,
     reason: str | None = None,
+    keep_off: frozenset[str] | set[str] = frozenset(),
 ) -> dict:
     """Pure transition used after locking the stored row. Never accept client cutoffs.
 
     Wyłączenie maila obowiązkowego wymaga powodu (`RequiredKindReasonMissing`);
     powód i chwila zostają w rodzaju, dopóki admin nie włączy go z powrotem —
     po tym znaku `ensure_required_kinds` nie włącza go sam przy starcie.
+    `keep_off` (29.10.2026): admin zostawia wyłączony zwykły rodzaj — znacznik
+    `kept_off_at` zdejmuje go z banera i znika przy włączeniu.
     """
     if not set(toggles) <= ROUTINE_KINDS:
         raise ValueError("unknown notification email type")
+    if not set(keep_off) <= set(ADMIN_DECIDES):
+        raise ValueError("only an admin-decided email type can be kept off")
     reason = (reason or "").strip()[:PAUSE_REASON_MAX]
     global_cutoff = previous.send_not_before
     if enabled and (not previous.enabled or global_cutoff is None):
@@ -769,6 +903,10 @@ def updated_value(
             "email_enabled": is_enabled,
             "send_not_before": cutoff.isoformat() if cutoff else None,
         }
+        if not is_enabled and kind in keep_off:
+            types[kind]["kept_off_at"] = now.isoformat()
+        elif not is_enabled and not was_enabled and previous.kept_off(kind):
+            types[kind]["kept_off_at"] = old["kept_off_at"]
         if kind not in REQUIRED_KINDS or is_enabled:
             continue
         if was_enabled:
@@ -800,6 +938,13 @@ def policy_changes(before: DeliveryPolicy, after: DeliveryPolicy) -> dict[str, A
             types[kind] = {"from": was, "to": now_on}
     if types:
         changes["types"] = types
+    kept = sorted(
+        kind
+        for kind in ROUTINE_KINDS
+        if after.kept_off(kind) and not before.kept_off(kind)
+    )
+    if kept:
+        changes["kept_off"] = kept
     return changes
 
 
@@ -818,6 +963,9 @@ def _changes_summary(changes: dict[str, Any]) -> str:
         parts.append("wyłączono: " + ", ".join(off))
     if on:
         parts.append("włączono: " + ", ".join(on))
+    kept = [labels[k] for k in changes.get("kept_off", [])]
+    if kept:
+        parts.append("zostawiono wyłączone: " + ", ".join(kept))
     return "Maile automatyczne dla całej firmy — " + "; ".join(parts)
 
 
@@ -875,6 +1023,7 @@ async def save_policy(
     admin_id: int,
     actor: Any = None,
     reason: str | None = None,
+    keep_off: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     await db.execute(
         insert(AppSetting)
@@ -895,6 +1044,7 @@ async def save_policy(
         toggles=toggles,
         now=datetime.now(timezone.utc),
         reason=reason,
+        keep_off=keep_off,
     )
     row.updated_by = admin_id
     # Przełącznik działa na całą firmę, a do 09.10.2026 nie zostawiał śladu
@@ -1092,6 +1242,9 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
             "scope": queue.get("scope", "routine_email"),
         },
         types=types,
+        # Wyłączone rodzaje, w których powstają dzwonki (29.10.2026).
+        silenced=await silenced_view(db, policy),
+        silenced_window_days=SILENCED_WINDOW_DAYS,
         excluded_channels=[
             dict(
                 id="manual_m365",

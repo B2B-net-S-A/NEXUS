@@ -47,6 +47,13 @@ import {
 } from "@/hooks/useChatMessageFocus";
 import { useActiveChat } from "@/lib/active-chat";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
+import {
+  CHAT_COMPOSE_MAX_ROWS,
+  EXPANDED_COMPOSE_HINT,
+  ExpandComposeButton,
+  composeKeyAction,
+  useChatCompose,
+} from "@/components/v2/pages/chat-compose";
 import { useMentionableUsers } from "@/hooks/useMentionableUsers";
 import {
   buildUsersByEmail,
@@ -150,6 +157,11 @@ export default function JobChatTab({
 
   // Auto-scroll do dołu tylko gdy user już jest blisko dołu
   const stickToBottomRef = useRef(true);
+  // Pole rośnie i rozwija się na całe okno czatu (`chat-compose.tsx`).
+  const { listCallbackRef, composeExpanded, setComposeExpanded } = useChatCompose(
+    listRef,
+    stickToBottomRef,
+  );
 
   const handleScroll = () => {
     const el = listRef.current;
@@ -216,6 +228,7 @@ export default function JobChatTab({
     onSuccess: () => {
       setText("");
       setReplyTo(null);
+      setComposeExpanded(false);
       stickToBottomRef.current = true;
       // Server emituje WS event do wszystkich (w tym do autora) → invalidacja
       // ride'uje na CHAT_BUS_EVENT, ale dla pewności wyzwalamy też tutaj.
@@ -233,6 +246,7 @@ export default function JobChatTab({
     onSuccess: () => {
       setText("");
       setEditingId(null);
+      setComposeExpanded(false);
       queryClient.invalidateQueries({
         queryKey: ["job-chat-messages", jobId, activeSearch],
       });
@@ -346,12 +360,18 @@ export default function JobChatTab({
   };
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    const action = composeKeyAction(e, composeExpanded);
+    if (action === "send") {
       e.preventDefault();
       handleSubmit();
       return;
     }
-    if (e.key === "Escape") {
+    if (action === "collapse") {
+      e.preventDefault();
+      setComposeExpanded(false);
+      return;
+    }
+    if (action === "cancel") {
       if (editingId !== null) {
         setEditingId(null);
         setText("");
@@ -471,7 +491,7 @@ export default function JobChatTab({
       </div>
 
       {/* Pinned bar */}
-      {pinned.length > 0 && (
+      {pinned.length > 0 && !composeExpanded && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 px-4 py-2 space-y-1">
           {pinned.map((p) => (
             <div key={p.id} className="flex items-start gap-2 text-xs">
@@ -498,8 +518,10 @@ export default function JobChatTab({
 
       {/* Message list */}
       <div
-        ref={listRef}
+        ref={listCallbackRef}
         onScroll={handleScroll}
+        // Rozwinięte pole zajmuje miejsce listy; lista wraca po zwinięciu.
+        hidden={composeExpanded}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-3"
       >
         {messagesQuery.isFetchingNextPage && (
@@ -581,10 +603,18 @@ export default function JobChatTab({
       {!readOnly ? (
       <form
         onSubmit={handleSubmit}
-        className="relative border-t border-border dark:border-border px-3 py-2"
+        className={cn(
+          "relative border-t border-border dark:border-border px-3 py-2",
+          composeExpanded && "flex min-h-0 flex-1 flex-col gap-1.5",
+        )}
+        // Esc zwija rozwinięte pole — panel „Historia i czat” ma go nie zamykać.
+        data-keep-sheet-on-escape={composeExpanded ? "" : undefined}
       >
-        <div className="flex items-end gap-2">
-          <div className="flex-1">
+        {composeExpanded ? (
+          <p className="text-xs text-muted-foreground">{EXPANDED_COMPOSE_HINT}</p>
+        ) : null}
+        <div className={cn("flex items-end gap-2", composeExpanded && "min-h-0 flex-1")}>
+          <div className={cn("flex-1", composeExpanded && "h-full")}>
             <MentionTextarea
               value={text}
               onChange={setText}
@@ -597,13 +627,22 @@ export default function JobChatTab({
                   : "Napisz wiadomość… (@ oznacza osobę, Enter wysyła, Shift+Enter = nowa linia)"
               }
               rows={2}
-              // Lista wiadomości trzyma się dołu tylko przy nowej wiadomości —
-              // rosnące pole wypychałoby ostatnie poza widok.
-              autoGrow={false}
+              maxRows={CHAT_COMPOSE_MAX_ROWS}
+              // Rozwinięte pole wypełnia okno czatu, więc nie liczy wysokości z tekstu.
+              autoGrow={!composeExpanded}
+              wrapperClassName={composeExpanded ? "h-full" : undefined}
+              className={composeExpanded ? "h-full" : undefined}
               disabled={sendMutation.isPending || editMutation.isPending}
               ariaLabel="Treść wiadomości chatu"
             />
           </div>
+          <ExpandComposeButton
+            expanded={composeExpanded}
+            onToggle={() => {
+              setComposeExpanded(!composeExpanded);
+              requestAnimationFrame(() => textareaRef.current?.focus());
+            }}
+          />
           <button
             type="submit"
             disabled={
