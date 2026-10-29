@@ -952,3 +952,62 @@ def test_migration_rechain_probes_the_token_before_checkout() -> None:
     assert steps.index(token) == 0
     for step in steps[1:]:
         assert step.get("if") == "steps.token.outputs.ok == 'true'", step.get("name")
+
+
+def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
+    """25–28.10.2026: 54 z 54 czerwonych bramek kolejki to dwie głowy
+    Alembica — kilka PR-ów z migracją naraz w kolejce wywracało każdą grupę
+    od drugiej, także PR-y bez migracji. W kolejce jest najwyżej jeden."""
+    job = _load("auto-enqueue.yml")["jobs"]["enqueue"]
+    assert "'czeka-na-migracje'" in job["if"], "Zaparkowany PR nie wraca po pushu."
+    run = job["steps"][0]["run"]
+    lane = run.index('python3 "$lane" admit')
+    assert run.index("gh pr view") < lane < run.index("--squash --auto")
+    assert "contents/.github/scripts/queue_migration_lane.py?ref=main" in run, (
+        "Skrypt z maina, nie z gałęzi PR-a — w kroku jest PAT."
+    )
+    lane_src = (_WORKFLOWS.parent / "scripts" / "queue_migration_lane.py").read_text(
+        encoding="utf-8"
+    )
+    code = re.search(r"^WAIT_EXIT = (\d+)$", lane_src, re.M).group(1)
+    assert f'"$rc" -eq {code}' in run, "Kod „czekaj” w skrypcie i w kroku."
+
+
+def test_queue_runs_the_migration_lane_after_every_group_check() -> None:
+    wf = _load("queue-migration-lane.yml")
+    run_trigger = _triggers(wf)["workflow_run"]
+    assert set(run_trigger["workflows"]) == {"CI Gate", "CI"}
+    assert run_trigger["branches"] == ["gh-readonly-queue/**"]
+    assert wf["concurrency"]["cancel-in-progress"] is False
+    job = wf["jobs"]["lane"]
+    assert "merge_group" in job["if"]
+    step = _step(job["steps"], "Pilnuj pasa migracji")
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}", (
+        "Etykieta zdjęta tokenem Actions nie uruchomi auto-enqueue."
+    )
+    assert "queue_migration_lane.py" in step["run"] and "enforce" in step["run"]
+
+
+def test_rechain_parks_the_lane_before_pushing() -> None:
+    steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    copy = _step(steps, "Skrypty z maina do katalogu tymczasowego")
+    assert ".github/scripts/queue_migration_lane.py" in copy["run"]
+    lane = _step(steps, "Pas migracji (jeden PR z migracją w kolejce)")
+    assert lane["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert '"$RUNNER_TEMP/queue_migration_lane.py"' in lane["run"]
+    assert steps.index(lane) < steps.index(_step(steps, "Przepnij")), (
+        "Najpierw etykiety, potem push — inaczej auto-enqueue wrzuci wszystkich."
+    )
+
+
+def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:
+    job = _load("ci-gate.yml")["jobs"]["backend-fast"]
+    assert job["permissions"]["actions"] == "write"
+    steps = job["steps"]
+    heads = _step(steps, "Jedna głowa Alembica")
+    cancel = _step(steps, "Anuluj pełne CI grupy z dwiema głowami")
+    assert heads["id"] == "heads"
+    assert steps.index(cancel) == steps.index(heads) + 1
+    assert "steps.heads.outcome == 'failure'" in cancel["if"]
+    assert "github.event_name == 'merge_group'" in cancel["if"]
+    assert "(ci|e2e)" in cancel["run"] and "gh run cancel" in cancel["run"]
