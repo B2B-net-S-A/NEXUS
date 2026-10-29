@@ -5908,6 +5908,9 @@ export interface M365ConnectionStatus {
   // (e.g. server-side encryption key rotated). Renders an amber CTA banner.
   requires_reconnect?: boolean;
   max_attachment_mb?: number;
+  /** Dokąd trafia poczta skrzynki (28.10.2026): karty kandydatów i/lub Sprzedaż. */
+  mail_to_candidates?: boolean;
+  mail_to_sales?: boolean;
 }
 
 export interface EmailAttachmentPreview {

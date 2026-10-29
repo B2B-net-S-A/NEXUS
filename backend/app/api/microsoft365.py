@@ -24,7 +24,7 @@ import logging
 import time
 from collections import OrderedDict
 from datetime import datetime, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status
@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.candidate_access import (
     NOT_READ_ONLY,
     CandidatePIIAccess,
+    user_has_candidate_read,
 )
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal, get_db
@@ -46,9 +47,11 @@ from app.core.security import secrets_equal
 from app.core.tasks import spawn as spawn_background
 from app.models.m365 import GraphSubscription, M365Connection, M365SyncStatus
 from app.models.user import User
+from app.api.deps import require_onboarded_user
 from app.services.m365 import oauth as m365_oauth
 from app.services.m365 import webhooks as m365_webhooks
-from app.services.m365.access import can_own_mailbox
+from app.services.m365.access import can_connect_mailbox, mailbox_scope
+from app.services.section_permissions import resolve_effective_section_access
 from app.services.m365.calendar import get_free_busy
 from app.services.m365.error_codes import M365ErrorCode, classify_m365_error
 from app.services.m365.graph_client import GraphClient, GraphRequestError
@@ -108,11 +111,50 @@ class ConnectionStatus(BaseModel):
     # refresh token). Frontend renders an amber banner with a CTA.
     requires_reconnect: bool = False
     max_attachment_mb: int = settings.M365_MAX_ATTACHMENT_MB
+    # Dokąd trafia poczta tej skrzynki (28.10.2026): do kart kandydatów
+    # i/lub na oś firm w Sprzedaży.
+    mail_to_candidates: bool = False
+    mail_to_sales: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+MAILBOX_DENIED_DETAIL = (
+    "Skrzynkę Outlooka podłącza osoba z dostępem do kandydatów albo do Sprzedaży."
+)
+
+
+async def require_mailbox_owner(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """Konto, które może mieć podłączoną skrzynkę: dostęp do kandydatów albo
+    „Sprzedaż: podgląd” (handlowiec, decyzja Artura 28.10.2026).
+
+    Poczta handlowca bez dostępu do kandydatów nie trafia do kandydatów —
+    pilnuje tego synchronizacja (``services/m365/access.py``), nie ta bramka.
+    """
+    if not can_connect_mailbox(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MAILBOX_DENIED_DETAIL)
+    return current_user
+
+
+MailboxOwner = Annotated[User, Depends(require_mailbox_owner)]
+
+
+async def require_mailbox_status_reader(
+    current_user: User = Depends(require_onboarded_user),
+) -> User:
+    """Odczyt statusu skrzynki: jak dotąd każdy z odczytem kandydatów (także
+    „Automatyzacje”, które skrzynki nie podłączą) plus właściciel skrzynki
+    Sprzedaży."""
+    if can_connect_mailbox(current_user) or user_has_candidate_read(current_user):
+        return current_user
+    raise HTTPException(status.HTTP_403_FORBIDDEN, detail=MAILBOX_DENIED_DETAIL)
+
+
+MailboxStatusReader = Annotated[User, Depends(require_mailbox_status_reader)]
 
 
 async def _get_connection_for_user(
@@ -182,7 +224,7 @@ def _mailbox_belongs_to_user(
 @limiter.limit("10/minute")
 async def authorize(
     request: Request,
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
 ) -> AuthorizeResponse:
     """Return the Microsoft login URL. Frontend does `window.location = url`."""
     if not settings.M365_INTEGRATION_ENABLED:
@@ -245,7 +287,11 @@ async def callback(
     # (or the legacy viewer role) after opening the Microsoft consent page.
     user_id = parsed_state.user_id
     user = await db.get(User, user_id)
-    if user is None or not can_own_mailbox(user):
+    if user is not None:
+        # Callback nie przechodzi przez logowanie — politykę uprawnień
+        # (także „Sprzedaż: podgląd”) trzeba wczytać tutaj.
+        await resolve_effective_section_access(db, user)
+    if user is None or not can_connect_mailbox(user):
         return RedirectResponse(
             _frontend_callback_url(
                 "error", "Microsoft 365 is unavailable for this account"
@@ -372,7 +418,7 @@ async def callback(
 
 @router.get("/connection", response_model=ConnectionStatus)
 async def get_connection(
-    current_user: CandidatePIIAccess,
+    current_user: MailboxStatusReader,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> ConnectionStatus:
@@ -384,9 +430,14 @@ async def get_connection(
     # presję bez utraty świeżości (FE refetchInterval i tak pull co 15s).
     response.headers["Cache-Control"] = "private, max-age=30"
 
+    scope = mailbox_scope(current_user)
+    routing = {
+        "mail_to_candidates": scope.candidates,
+        "mail_to_sales": scope.sales,
+    }
     conn = await _get_connection_for_user(db, current_user.id)
     if conn is None:
-        return ConnectionStatus(connected=False)
+        return ConnectionStatus(connected=False, **routing)
     # Soft-disconnected row with reconnect_required status → surface as "not
     # connected but needs reconnect". Frontend shows an amber CTA banner.
     if not conn.is_active:
@@ -398,8 +449,9 @@ async def get_connection(
                 last_error=conn.last_error,
                 last_error_code=classify_m365_error(conn.last_error),
                 requires_reconnect=True,
+                **routing,
             )
-        return ConnectionStatus(connected=False)
+        return ConnectionStatus(connected=False, **routing)
     return ConnectionStatus(
         connected=True,
         mailbox_upn=conn.mailbox_upn,
@@ -409,6 +461,7 @@ async def get_connection(
         last_error=conn.last_error,
         last_error_code=classify_m365_error(conn.last_error),
         backfill_in_progress=conn.backfill_completed_at is None,
+        **routing,
     )
 
 
@@ -418,7 +471,7 @@ async def get_connection(
     dependencies=NOT_READ_ONLY,
 )
 async def disconnect(
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
     db: AsyncSession = Depends(get_db),
 ):
     conn = await _get_connection_for_user(db, current_user.id)
@@ -452,7 +505,7 @@ async def disconnect(
 @limiter.limit("10/minute")
 async def trigger_sync(
     request: Request,
-    current_user: CandidatePIIAccess,
+    current_user: MailboxOwner,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     conn = await _get_connection_for_user(db, current_user.id)
@@ -785,7 +838,9 @@ async def _webhook_dispatch_sync(connection_id: int) -> None:
         if conn is None or not conn.is_active:
             return
         owner = await db.get(User, conn.user_id)
-        if owner is None or not can_own_mailbox(owner):
+        if owner is not None:
+            await resolve_effective_section_access(db, owner)
+        if owner is None or not can_connect_mailbox(owner):
             logger.warning(
                 "webhook-dispatched sync refused for ineligible connection_id=%s",
                 connection_id,

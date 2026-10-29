@@ -76,6 +76,9 @@ _GATE_QUALNAME_MARKERS = (
     # Umowy przedwstępne (22.10.2026): rola z ``PRE_CONTRACT_ROLES`` i sekcja
     # „Rekrutacje” — Finanse, Rada i Automatyzacje z tytułu roli.
     "require_pre_contract_access",
+    # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
+    # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
+    "require_mailbox_",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
