@@ -1,5 +1,5 @@
 # Sprzedaż w NEXUSIE (Atlas → NEXUS) — decyzje Artura 26–27.10.2026 i reguły modułu
-<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa -->
+<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, cele i KPI tygodniowe (oferty = etap) -->
 
 Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
@@ -123,9 +123,38 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   odczyt na karcie szansy; edytor dopiero na prośbę zespołu.
 - **Scalanie firm** przenosi wszystko i archiwizuje źródło (nic nie kasuje).
 
+## Cele i KPI tygodniowe (decyzja Artura 28.10.2026: „Tak, bez Ofert”)
+
+- Zakładka „Podsumowanie”: tabela 8 tygodni na osobę (spotkania, leady,
+  „Oferty (etap)”) ze światłami i krzywa WON netto MRR względem celu firmy.
+  Liczy `services/sales/kpi.py`, API `GET /api/sales/kpi` (podgląd Sprzedaży).
+- **Definicje 1:1 z Atlasa** (`team_kpi.py`, `sales_dashboard_service.py`):
+  spotkania = `meeting` przy szansach (z Fireflies) wg opiekuna szansy, bez
+  zarchiwizowanych, plus wydarzenia Outlooka (`msgraph-event`) wg osoby, która
+  je zsynchronizowała, bez odwołanych; znaczniki ≤ 15 min od poprzedniego
+  liczą się raz. Leady = `qualified_at` w tygodniu. Światła: zielone ≥ cel,
+  żółte ≥ 50%, czerwone poniżej; **bez celu bez światła** (Atlas dawał zielone).
+- **„Oferty” = wejście szansy na etap `offer-sent`**, bo NEXUS nie ma ofert;
+  kilka szans jednej firmy w tygodniu liczy się raz (Atlas liczył oferty per
+  firma). Źródło: historia zmian szansy (`sales_opportunity_events`,
+  `field='stage_id'`: założenie, ruch `/move`, zamiana leada) — jedna tabela
+  z historią, bez osobnego dziennika etapów. **Historia zaczyna się od
+  wdrożenia 0618**, import z Atlasa jej nie pisze — tygodnie sprzed niej mają 0
+  i ekran to mówi.
+- **WON MRR bez body leasingu** (`service_line` albo tag „Body leasing”), netto
+  = MRR × marża / 100, jak w Atlasie; wygrana bez marży liczy się jako 0
+  i ekran podaje ich liczbę. Postęp celu marży osoby to ta sama suma dla jej
+  szans, bez okresu.
+- **Cele ustawia admin** (przycisk „Cele”, `PUT /api/sales/kpi/targets/…`,
+  bramka „Sprzedaż: edycja” + sprawdzenie admina). Tabela `sales_targets`:
+  wiersz bez `user_id` to cel firmy (w Atlasie stała w kodzie). Kwot celów nie
+  ma w kodzie ani w testach.
+- Tygodnie (od poniedziałku) i miesiące w kalendarzu firmy, nie w UTC.
+
 ## Poza zakresem (świadomie)
 
 Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
 poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo,
-cele i KPI tygodniowe, kanał przetargów, eksport CSV (najpierw limit i dziennik
-odczytów), „Kogo możemy dać od ręki” (Talent Radar na rolach).
+kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
+możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
+spotkaniach” z KPI Atlasa.

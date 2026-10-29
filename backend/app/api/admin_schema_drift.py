@@ -290,6 +290,11 @@ async def _run_checks(db: AsyncSession) -> dict[str, Any]:
             continue
         for index in table.indexes:
             columns = tuple(c.name for c in index.columns)
+            if not columns:
+                # Indeks wyrażeniowy (np. ``(user_id IS NULL)``): po stronie bazy
+                # ``_actual_indexes`` nie widzi jego kolumn, więc kształtu nie da
+                # się porównać — pomijamy zamiast zgłaszać fałszywy brak.
+                continue
             wants_unique = bool(index.unique)
             satisfied = (
                 (table_name, columns) in shapes_unique
