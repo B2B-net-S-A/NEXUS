@@ -1,4 +1,4 @@
-"""DDL „Nowości do przeklikania” (0623) — jedno źródło dla migracji i entrypointu.
+"""DDL „Nowości do przeklikania” (0624) — jedno źródło dla migracji i entrypointu.
 
 Jeden wiersz na osobę × nowość: kiedy pierwszy raz zobaczyła kropkę, czy
 zamknęła kartę, czy odłożyła okno zmiany procesu (raz) i czym zaliczyła
