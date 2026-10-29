@@ -169,6 +169,12 @@ SPECS: dict[str, _Spec] = {
         label="Otwórz Tablicę",
         use_title=True,
     ),
+    "departed_pairs_care": _Spec(
+        "Domknij kandydatów po osobie, która odeszła",
+        chip="Odejście z firmy",
+        label="Otwórz listę",
+        use_title=True,
+    ),
     "job_idle_reminder": _Spec(
         "Rekrutacje bez ruchu",
         chip="Bez ruchu",

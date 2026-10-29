@@ -45,13 +45,17 @@ class _Rows:
 class _Db:
     """Udaje bazę dla ścieżki kolejki prepów i liczy KAŻDE zapytanie."""
 
-    def __init__(self, *, pairs, jobs, users, owners=(), verifiers=(), assigned=()):
+    def __init__(
+        self, *, pairs, jobs, users, owners=(), verifiers=(), assigned=(), cared=()
+    ):
         self.pairs = pairs
         self.jobs = {job.id: job for job in jobs}
         self.users = {user.id: user for user in users}
         self.owners = list(owners)  # (cid, jid, user_id)
         self.verifiers = list(verifiers)
         self.assigned = list(assigned)  # „Prowadzi” (cid, jid, user_id)
+        # Opieka po odejściu rekrutera (cid, jid, opiekun) — 28.10.2026.
+        self.cared = list(cared)
         self.calls = 0
 
     @staticmethod
@@ -70,6 +74,8 @@ class _Db:
             return _Rows(self.owners)
         if tables[0] == "candidate_job_owners":
             return _Rows(self.assigned)
+        if tables[0] == "pair_departure_care":
+            return _Rows(self.cared)
         if tables[0] == "candidate_stages":
             return _Rows(self.verifiers)
         if tables[0] == "jobs":
@@ -182,6 +188,22 @@ async def test_assigned_lead_goes_before_the_process_owner():
     db.users[36] = _user(36, active=False)
     assert (
         await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 31
+    )
+
+
+@pytest.mark.asyncio
+async def test_caretaker_goes_before_the_departed_owner():
+    """Odejście z firmy (28.10.2026): rozmowę pary osoby z wyłączonym kontem
+    domyślnie prowadzi Delivery Lead, który ją domyka."""
+    db = _Db(
+        pairs=[],
+        jobs=[_job(5, dl=44, recruiter=35)],
+        users=[_user(36, active=False), _user(44, role=UserRole.delivery_lead)],
+        assigned=[(1, 5, 36)],
+        cared=[(1, 5, 44)],
+    )
+    assert (
+        await interview_slots.default_recruiter_id(db, candidate_id=1, job_id=5) == 44
     )
 
 

@@ -252,11 +252,17 @@ async def default_recruiter_ids(
     from app.services.pair_owner import owner_ids
 
     assigned = await owner_ids(db, wanted)
+    # Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem idzie do
+    # Delivery Leada, który ją domyka (``departure_care``).
+    from app.services.departure_care import caretaker_ids
+
+    caretakers = await caretaker_ids(db, wanted)
     chains = {
         pair: [
             user_id
             for user_id in dict.fromkeys(
                 (
+                    caretakers.get(pair),
                     assigned.get(pair),
                     owners.get(pair),
                     verifiers.get(pair),

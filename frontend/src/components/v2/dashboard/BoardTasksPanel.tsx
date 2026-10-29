@@ -100,6 +100,8 @@ import { countPl } from "@/lib/plural-pl";
 import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
 import { toCompleteCounts, withoutToCompleteLists } from "@/lib/dashboard-to-complete";
 import { transitToFixTotal } from "@/lib/cv-in-transit";
+import { useDepartedCare } from "@/lib/departed-care";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 import {
   AgreementTasksSection,
@@ -107,6 +109,7 @@ import {
   agreementTasksCount,
 } from "./AgreementTasksSection";
 import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
+import { DepartedCareSection, departedCareCount } from "./DepartedCareSection";
 import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
 import { RateChangesSection, RateChangesWaitingSection } from "./RateChangesSection";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
@@ -174,6 +177,12 @@ export function BoardTasksPanel({
   inTile = false,
 }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
+  // „Po osobach, które odeszły” (28.10.2026): opiekunem jest DL, główny DL
+  // klienta albo Head of Recruitment; admin i HoR widzą też licznik per DL.
+  const me = useAuthStore((s) => s.user);
+  const care = useDepartedCare(
+    hasRole(me, "delivery_lead", "head_of_recruitment", "admin"),
+  );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cproJob, setCproJob] = useState<number | null>(null);
   const [cproOpen, setCproOpen] = useState(false);
@@ -238,6 +247,7 @@ export function BoardTasksPanel({
     followups.length +
     agreementTasksCount(data.agreements) +
     flowWorkCount(data.flow, data.finance) +
+    departedCareCount(care.data) +
     (data.rate_changes?.length ?? 0);
   // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
@@ -440,6 +450,12 @@ export function BoardTasksPanel({
         />
         <NewJobLeadsSection rows={leads} />
         {showLoad ? <TeamLoadSection /> : null}
+        <DepartedCareSection
+          data={care.data}
+          failed={care.isError}
+          expanded={expanded["departed_care"] === true}
+          onToggle={() => toggle("departed_care")}
+        />
         {movePrompt}
         <PendingJobsSection
           pending={data.pending_jobs}

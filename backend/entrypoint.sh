@@ -795,6 +795,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
+    # 0621: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'departed_pairs_care'",
     # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
@@ -1203,6 +1205,16 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
+# Opieka po odejściu (migracja 0621) — JEDNO źródło z migracją
+# (`app/services/departure_care_schema.py`).
+try:
+    from app.services import departure_care_schema as _departure_care_schema
+
+    _DEPARTURE_CARE_DDL = list(_departure_care_schema.TABLE_DDL)
+except Exception as _departure_care_err:  # noqa: BLE001
+    print(f"departure care DDL unavailable: {_departure_care_err!r}")
+    _DEPARTURE_CARE_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1293,6 +1305,7 @@ _COLUMN_STATEMENTS = [
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
     *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
