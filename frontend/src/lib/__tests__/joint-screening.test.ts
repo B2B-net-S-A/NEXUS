@@ -101,14 +101,33 @@ describe("joint screening — rzut na parę", () => {
 
   it("an untouched shared field only fills empty pairs; a touched one goes everywhere", () => {
     const filled = pair(2, QB, {}, {
+      card: { ...formState().card, fields: { availability: { raw: "od 1.12", source: "manual" } as never } },
+    });
+    const g = completeGroups([A, filled], SERVER);
+    const values = jointDefaults([A, filled], g);
+    values.shared.card.availability = "asap";
+    expect(projectPair(values, A, g).card.availability).toBe("asap");
+    expect(projectPair(values, filled, g).card.availability).toBe("od 1.12");
+    expect(projectPair(values, filled, g, { shared: { card: { availability: true } } }).card.availability).toBe("asap");
+  });
+
+  // Zgłoszenie rekrutera 29.10.2026: w jednym projekcie 1 dzień z biura,
+  // w drugim 2 — tryb pracy wpisuje się osobno dla każdej rekrutacji.
+  it("work mode is kept per recruitment, not shared", () => {
+    const filled = pair(2, QB, {}, {
       card: { ...formState().card, fields: { work_mode: { raw: "zdalnie", source: "manual" } as never } },
     });
     const g = completeGroups([A, filled], SERVER);
     const values = jointDefaults([A, filled], g);
-    values.shared.card.work_mode = "hybrydowo";
-    expect(projectPair(values, A, g).card.work_mode).toBe("hybrydowo");
+    expect(values.shared.card).not.toHaveProperty("work_mode");
+    expect(values.jobs[jobKey(1)].card.work_mode).toBe("");
+    expect(values.jobs[jobKey(2)].card.work_mode).toBe("zdalnie");
+    values.jobs[jobKey(1)].card.work_mode = "1 dzień z biura";
+    values.jobs[jobKey(2)].card.work_mode = "2 dni z biura";
+    const dirty = { jobs: { [jobKey(1)]: { card: { work_mode: true } }, [jobKey(2)]: { card: { work_mode: true } } } };
+    expect(projectPair(values, A, g, dirty).card.work_mode).toBe("1 dzień z biura");
+    expect(projectPair(values, filled, g, dirty).card.work_mode).toBe("2 dni z biura");
     expect(projectPair(values, filled, g).card.work_mode).toBe("zdalnie");
-    expect(projectPair(values, filled, g, { shared: { card: { work_mode: true } } }).card.work_mode).toBe("hybrydowo");
   });
 
   const rated = (jobId: number, amount: number | null, overrides: Partial<JointPair> = {}) =>
@@ -199,7 +218,6 @@ describe("noteFillPatches — notatka tylko w puste miejsca", () => {
 
   it("fills empty shared terms, the shared answer once and the rate, never what is already there", () => {
     const values = jointDefaults([A, B], groups);
-    values.shared.card.work_mode = "hybrydowo";
     const proposal = {
       fields: [
         { key: "availability", proposed: "od 1.11" },
@@ -212,7 +230,7 @@ describe("noteFillPatches — notatka tylko w puste miejsca", () => {
     const list = noteFillPatches(values, B, groups, proposal);
     const patches = Object.fromEntries(list.map((p) => [p.path, p.value]));
     expect(patches["shared.card.availability"]).toBe("od 1.11");
-    expect(patches).not.toHaveProperty("shared.card.work_mode");
+    expect(patches[`jobs.${jobKey(2)}.card.work_mode`]).toBe("zdalnie");
     expect(patches[`answers.${groups[0].key}`]).toBe("Strumienie w formularzach");
     expect(patches["shared.rate_amount"] ?? patches[`jobs.${jobKey(2)}.rate_amount`]).toBe("110");
     expect(patches[`jobs.${jobKey(2)}.card.recommendation`]).toBe("Mocny w RxJS");
