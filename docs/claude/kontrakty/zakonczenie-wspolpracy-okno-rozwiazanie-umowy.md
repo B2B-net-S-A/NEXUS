@@ -84,3 +84,39 @@ typu dokumentu.
 - Testy: `ContractTerminationDialog.test.tsx` („przygotuj porozumienie”),
   `contract-termination.test.ts`, `b2b-documents.test.ts` („adres kreatora”),
   `app/contracts/[id]/__tests__/signed-delete-flow.test.tsx`.
+
+## Rozwiązanie podpisane poza NEXUSEM (zgłoszenie zespołu, decyzja Artura 29.10.2026)
+
+Kontrakt zakończony bez danych rozwiązania nie miał gdzie ich dopisać: okno
+działa w chwili kończenia, a podpis porozumienia — tylko dla umowy
+z generatora (umowy sprzed NEXUSA nie mają wiersza). Przypomnienie na karcie
+wisiało więc na zawsze mimo podpisanego porozumienia.
+
+- **`PUT /api/contracts/{id}/agreement-termination`** (`ContractStatusUser`,
+  zakres DL-a jak `/terminate`) zapisuje wyłącznie komplet
+  `agreement_termination_*` na kontrakcie B2B „Zakończony”/„Kończący się” —
+  także zakończonym nocną zmianą po dacie końca, bez okna i bez
+  `terminated_at` (28 z 69 nierozwiązanych na kopii z 22.10). Koniec projektu,
+  zamówienia, status i aneksy zostają — nie wołaj do tego ponownie
+  `/terminate`, który rusza zamówienia i dopisuje drugi wpis „terminated”.
+  Inny typ umowy = 422, kontrakt niezakończony = 409, rozwiązanie już
+  zapisane = 409 (zmiana przez „Cofnij zakończenie”, bo nadpisanie rozjechałoby
+  kontrakt z zamkniętą umową w Generatorze). Wpis `Activity`
+  `agreement_termination_recorded`.
+- **Generator jak w oknie z rozwiązaniem:** na „Zakończonym” umowa zawieszona
+  TYM zakończeniem (`suspended` z `termination_restore.contract_id` =
+  kontrakt) przechodzi do „Zakończonych” z ostatnim dniem umowy
+  (`close_rows_after_recorded_termination`, migawka z zawieszenia zostaje),
+  a pozostałe umowy kontraktu — także zostawione przy innym trwającym
+  projekcie — zamyka `sync_generator_after_contract_ended`. „Cofnij
+  zakończenie” wraca do stanu sprzed zakończenia projektu i czyści
+  rozwiązanie. „Kończący się” Generatora nie rusza — zrobi to nocna zmiana
+  statusu.
+- **Wejścia:** „Zapisz rozwiązanie umowy” w przypomnieniu na karcie i „+
+  Rozwiązanie” w wierszu listy „Umowa nierozwiązana” — to samo okno
+  `ContractAgreementRecordDialog` (tryb domyślnie porozumienie, ostatni dzień
+  z końca projektu, skan drugim żądaniem do dokumentów). Bez zapisu
+  zbiorczego: każda umowa ma własne daty, a zgadnięty ostatni dzień umowy
+  przesuwa okres wypowiedzenia i zakaz konkurencji.
+- Testy: `tests/test_contract_agreement_termination_record.py`,
+  `ContractAgreementRecordDialog.test.tsx`.

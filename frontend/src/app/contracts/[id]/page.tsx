@@ -50,6 +50,7 @@ import {
 } from "@/lib/api";
 import { documentsHref } from "@/lib/b2b-documents";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
+import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
   formatCurrency,
@@ -574,6 +575,7 @@ export default function ContractDetailPage() {
     useHrConfig().data?.open_modules.care === true &&
     !getUserRoles(user).includes("automation");
   const [editing, setEditing] = useState(false);
+  const [recordAgreementOpen, setRecordAgreementOpen] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
 
@@ -1561,7 +1563,30 @@ export default function ContractDetailPage() {
                     >
                       Wszystkie nierozwiązane umowy
                     </Link>
+                    {canEditContractStatus && (
+                      // Zgłoszenie zespołu 29.10.2026: porozumienie podpisane
+                      // poza NEXUSEM (umowa sprzed generatora) nie miało gdzie
+                      // trafić — przypomnienie wisiało na zawsze.
+                      <span className="basis-full border-t border-warning/30 pt-1.5">
+                        Porozumienie albo wypowiedzenie podpisane poza NEXUSEM?{" "}
+                        <button
+                          type="button"
+                          onClick={() => setRecordAgreementOpen(true)}
+                          className="ml-1 rounded-md border border-border bg-card px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+                        >
+                          Zapisz rozwiązanie umowy
+                        </button>
+                      </span>
+                    )}
                   </div>
+                )}
+                {recordAgreementOpen && (
+                  <ContractAgreementRecordDialog
+                    contractId={contract.id}
+                    candidateName={contract.candidate_name}
+                    projectEnd={contract.terminated_at ?? contract.end_date ?? null}
+                    onClose={() => setRecordAgreementOpen(false)}
+                  />
                 )}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">

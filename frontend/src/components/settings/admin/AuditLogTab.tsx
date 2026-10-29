@@ -69,6 +69,7 @@ const GENERIC_ACTION_LABELS: Record<string, string> = {
   hired: "Zatrudniono",
   terminated: "Zakończono współpracę",
   bulk_marked_ended: "Zakończono zbiorczo",
+  agreement_termination_recorded: "Zapisano rozwiązanie umowy",
   note_added: "Dodano notatkę",
   document_uploaded: "Dodano plik",
   document_deleted: "Usunięto plik",

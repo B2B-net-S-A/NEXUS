@@ -188,6 +188,7 @@ from app.services.contract_termination_reversal import (
 from app.services.order_write_errors import commit_order_write
 from app.services.contract_termination_sync import (
     AgreementTermination,
+    close_rows_after_recorded_termination,
     contract_agreement_termination,
     contract_dissolved_by_agreement,
     set_contract_agreement_termination,
@@ -6804,6 +6805,105 @@ async def terminate_contract(
         termination_lessons=data.termination_lessons,
         actor_id=current_user.id,
         agreement_termination=_agreement_termination(data.agreement_termination),
+    )
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+@router.put(
+    "/{contract_id}/agreement-termination",
+    response_model=ContractDetailResponse,
+)
+async def record_agreement_termination(
+    contract_id: int,
+    data: AgreementTerminationPayload,
+    # To samo uprawnienie co „Zakończ współpracę”: dane rozwiązania umowy
+    # zapisuje dziś tylko tamto okno.
+    current_user: ContractStatusUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rozwiązanie umowy B2B podpisane poza NEXUSEM (zgłoszenie 29.10.2026).
+
+    Kontrakt zakończony bez danych rozwiązania nie miał gdzie ich dopisać:
+    okno „Zakończ współpracę” działa przy kończeniu, a podpis porozumienia —
+    tylko dla umowy z Generatora. Zapis rusza wyłącznie dane umowy (i umowę
+    w Generatorze zawieszoną tym zakończeniem); koniec projektu, zamówienia
+    i status zostają bez zmian.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+        .with_for_update()
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    if contract.contract_type != ContractType.b2b:
+        raise HTTPException(
+            status_code=422,
+            detail="Rozwiązanie umowy zapisuje się tylko przy umowie B2B.",
+        )
+    # Także „Zakończony” nocną zmianą po dacie końca, bez okna (bez
+    # `terminated_at`) — lista „Umowa nierozwiązana” liczy je tak samo.
+    if contract.status not in (ContractStatus.ended, ContractStatus.ending):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Najpierw zakończ współpracę — rozwiązanie umowy dopisuje się "
+                "do zakończonego projektu."
+            ),
+        )
+    # Zapisane rozwiązanie zmienia się przez „Cofnij zakończenie”, nie tu:
+    # nadpisanie rozjechałoby kontrakt z zamkniętą już umową w Generatorze.
+    if contract_agreement_termination(contract) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Rozwiązanie umowy jest już zapisane na tym kontrakcie.",
+        )
+    termination = AgreementTermination(
+        mode=data.mode,
+        party=data.party,
+        signed_on=data.signed_on,
+        last_day=data.last_day,
+    )
+    set_contract_agreement_termination(contract, termination)
+    # Umowa zawieszona tym zakończeniem → „Zakończone”; pozostałe (bez migawki
+    # tego kontraktu) zamyka ta sama synchronizacja co okno z rozwiązaniem.
+    closed_rows = await close_rows_after_recorded_termination(
+        db, contract, termination, actor_id=current_user.id
+    )
+    closed_rows += await sync_generator_after_contract_ended(
+        db, contract, actor_id=current_user.id
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="agreement_termination_recorded",
+            user_id=current_user.id,
+            details={
+                "agreement_termination": {
+                    "mode": termination.mode,
+                    "party": termination.party,
+                    "signed_on": termination.signed_on.isoformat(),
+                    "last_day": termination.last_day.isoformat(),
+                },
+                "generator_rows_closed": closed_rows,
+            },
+        )
     )
     await db.flush()
     await db.refresh(contract)

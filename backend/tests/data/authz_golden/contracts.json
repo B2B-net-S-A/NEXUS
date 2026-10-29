@@ -80,6 +80,7 @@
   "POST /api/contracts/{contract_id}/return-after-break": "PPDDPDDDPDDDPPDDDDDDDDDDDD",
   "POST /api/contracts/{contract_id}/terminate": "PDDPPDDDPPPDPPDDDDDDDDDDDD",
   "POST /api/contracts/{contract_id}/termination-reversal": "PPDDPDDDPDDDPPDDDDDDDDDDDD",
-  "POST /api/contracts/{contract_id}/void": "PPDPDDDDPPPDDPDDDDDDDDDDDD"
+  "POST /api/contracts/{contract_id}/void": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
+  "PUT /api/contracts/{contract_id}/agreement-termination": "PDDPPDDDPPPDPPDDDDDDDDDDDD"
  }
 }

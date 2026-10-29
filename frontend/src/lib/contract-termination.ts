@@ -285,6 +285,15 @@ export function statusEventDetailsText(
       }
       return parts.join(" · ");
     }
+    case "agreement_termination_recorded": {
+      // Rozwiązanie podpisane poza NEXUSEM, dopisane do zakończonego kontraktu.
+      const parts = [`Rozwiązanie umowy zapisane po zakończeniu (${contract})`];
+      if (details.mode) parts.push(agreementModeLabel(details.mode) ?? details.mode);
+      if (details.agreement_last_day) {
+        parts.push(`ostatni dzień umowy ${plDate(details.agreement_last_day)}`);
+      }
+      return parts.join(" · ");
+    }
     case "linked_to_contract":
       return `Powiązano z kontraktem #${details.contract_id} — umowa miała znacznik „brak kontraktora”`;
     case "contract_termination_undone":

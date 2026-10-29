@@ -2344,6 +2344,10 @@ export const contractsApi = {
     api.post<{ moved: number }>(`/api/contracts/${id}/documents/move`, payload),
   terminate: (id: number, payload: ContractTerminateRequest) =>
     api.post(`/api/contracts/${id}/terminate`, payload),
+  // Rozwiązanie umowy podpisane poza NEXUSEM — dopisane do zakończonego
+  // kontraktu (zgłoszenie 29.10.2026).
+  recordAgreementTermination: (id: number, payload: AgreementTerminationPayload) =>
+    api.put(`/api/contracts/${id}/agreement-termination`, payload),
   // „Cofnij zakończenie" (pomyłka) — podgląd i wykonanie (0368).
   terminationReversalPreview: (id: number) =>
     api.get<ContractTerminationReversalPlan>(
