@@ -569,7 +569,7 @@ HISTORY_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0619: bieżąca poczta i kalendarz Outlooka handlowców (28.10.2026) ──────
+# ── 0620: bieżąca poczta i kalendarz Outlooka handlowców (28.10.2026) ──────
 # * ``emails.web_link`` — „Otwórz w Outlooku” (Graph ``webLink``).
 # * ``calendar_events.m365_ical_uid`` — klucz spotkania wspólny dla wszystkich
 #   skrzynek i dla historii z Atlasa; ``@removed`` z Graphu niesie samo id

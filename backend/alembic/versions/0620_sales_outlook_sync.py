@@ -1,7 +1,7 @@
 """Sprzedaż: bieżąca poczta i kalendarz Outlooka handlowców przy firmach.
 
-Revision ID: 0619_sales_outlook_sync
-Revises: 0618_sales_opportunity_events
+Revision ID: 0620_sales_outlook_sync
+Revises: 0619_announcements
 
 SQL i powody: ``app/services/sales_schema.py`` (``OUTLOOK_SYNC_DDL``; to samo
 źródło czyta ``entrypoint.sh``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import sales_schema as schema
 
-revision = "0619_sales_outlook_sync"
-down_revision = "0618_sales_opportunity_events"
+revision = "0620_sales_outlook_sync"
+down_revision = "0619_announcements"
 branch_labels = None
 depends_on = None
 
