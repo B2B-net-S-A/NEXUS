@@ -161,7 +161,7 @@ class NotificationType(str, enum.Enum):
     # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
     # mail od razu (`services/new_person_setup.py`).
     new_person_signed_in = "new_person_signed_in"
-    # 0617 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
+    # 0618 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
     # oznaczone „ważne” — do odbiorców ogłoszenia (wszyscy albo wybrane role),
     # bez autora; related_entity=(announcement, id). Mail obowiązkowy
     # (`services/announcements.py`).
