@@ -60,7 +60,7 @@ poczty i kalendarza M365 na żywo” z listy „Poza zakresem” w
 - `iCalUId` leży też w `calendar_events.m365_ical_uid`: `@removed` z Graphu
   niesie samo id wydarzenia. Odwołane / usunięte spotkanie znika z osi, tylko
   gdy jeszcze się nie odbyło i nie stoi w kalendarzu innej osoby z NEXUSA.
-- Zmiana `EVENT_SELECT` (0616: `iCalUId`, `webLink`) = nowy klucz
+- Zmiana `EVENT_SELECT` (0617: `iCalUId`, `webLink`) = nowy klucz
   `EVENT_SELECT_RESET_KEY` i jednorazowy pełny odczyt kalendarzy; kursorów
   poczty nie zerujemy — brak `webLink` w starej delcie zastępuje link
   zbudowany z id (`OWA_READ_ITEM_URL`). Raz na skrzynkę z „Sprzedaż: podgląd”

@@ -106,6 +106,14 @@ function prepare() {
     by_stage: [],
   });
   client.setQueryData(salesKeys.ownerLabels, []);
+  // Pasek „Twoja skrzynka Outlook” w ramie Sprzedaży — fikcyjna podłączona skrzynka.
+  client.setQueryData(["m365-connection"], {
+    connected: true,
+    mailbox_upn: "handlowiec@example.com",
+    last_sync_at: new Date().toISOString(),
+    mail_to_sales: true,
+    mail_to_candidates: false,
+  });
   return {
     user: {
       id: 7,

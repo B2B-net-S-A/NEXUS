@@ -1213,7 +1213,7 @@ try:
         *_sales_schema.LEADS_DDL,
         # 0614: luki importu Atlasa (opiekun z Atlasa, Outlook, kontakt w wielu firmach).
         *_sales_schema.GAPS_DDL,
-        # 0616: bieżąca poczta i kalendarz Outlooka handlowców.
+        # 0617: bieżąca poczta i kalendarz Outlooka handlowców.
         *_sales_schema.OUTLOOK_SYNC_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)

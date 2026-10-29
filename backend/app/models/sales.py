@@ -386,7 +386,7 @@ class SalesActivity(Base, TimestampMixin):
             unique=True,
             postgresql_where=text("external_ref IS NOT NULL"),
         ),
-        # 0616: synchronizacja Outlooka (``services/sales/outlook_activities``).
+        # 0617: synchronizacja Outlooka (``services/sales/outlook_activities``).
         Index(
             "ix_sales_activities_external_id",
             "external_source",
