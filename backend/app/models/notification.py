@@ -344,6 +344,10 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
+    # 0615: bliźniacze rekrutacje (28.10.2026) — ktoś połączył rekrutację
+    # z bliźniakiem. Do rekruterów i Delivery Leadów obu rekrutacji poza
+    # osobą, która połączyła; link do rekrutacji. Bez maila.
+    job_twin_linked = "job_twin_linked"
     # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
     # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
     # Leada rekrutacji i każdego Head of Recruitment poza osobą, która

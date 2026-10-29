@@ -20,10 +20,13 @@ import {
   type CompanyLifecycle,
   type CompanyTier,
   type DuplicateCompany,
+  type Ref,
   type SalesCompany,
 } from "@/lib/api/sales";
 
+import { CompanyPicker } from "./CompanyPicker";
 import { SalesSelect } from "./SalesSelect";
+import { useOwnerFilterOptions } from "./useOwnerFilterOptions";
 
 interface CompanyFormDialogProps {
   open: boolean;
@@ -45,6 +48,9 @@ interface FormState {
   lifecycle_stage: CompanyLifecycle;
   tier: CompanyTier | "";
   description: string;
+  owner: string;
+  tags: string;
+  parent: Ref | null;
 }
 
 function initial(company?: SalesCompany): FormState {
@@ -60,6 +66,9 @@ function initial(company?: SalesCompany): FormState {
     lifecycle_stage: company?.lifecycle_stage ?? "lead",
     tier: company?.tier ?? "",
     description: company?.description ?? "",
+    owner: company?.owner ? String(company.owner.id) : "",
+    tags: (company?.tags ?? []).join(", "),
+    parent: company?.parent ?? null,
   };
 }
 
@@ -88,6 +97,13 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
   const { showError, showSuccess } = useToast();
   const registry = useRegistryLookup();
   const pending = create.isPending || update.isPending;
+  const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
+  const ownerChoices = [
+    ...(company?.owner && !ownerOptions.some((option) => option.value === `acct:${company.owner!.id}`)
+      ? [{ value: String(company.owner.id), label: company.owner.name }]
+      : []),
+    ...ownerOptions.map((option) => ({ value: option.value.slice(5), label: option.label })),
+  ];
 
   const fillFromRegistry = () =>
     registry.mutate(form.nip, {
@@ -121,6 +137,15 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
     lifecycle_stage: form.lifecycle_stage,
     tier: form.tier || null,
     description: form.description.trim() || null,
+    tags: form.tags
+      .split(",")
+      .map((tag) => tag.trim())
+      .filter(Boolean),
+    parent_company_id: form.parent?.id ?? null,
+    // Opiekuna zmienia obecny opiekun albo admin (API zwraca 403) — wysyłamy tylko zmianę.
+    ...(form.owner !== (company?.owner ? String(company.owner.id) : "")
+      ? { owner_user_id: form.owner ? Number(form.owner) : null }
+      : {}),
   });
 
   const save = (allowDuplicate: boolean) => {
@@ -294,6 +319,26 @@ export function CompanyFormDialog({ open, onOpenChange, company, onSaved }: Comp
             value={form.linkedin_url}
             onChange={(event) => set("linkedin_url", event.target.value)}
           />
+        </div>
+        {company && (
+          <div className="space-y-1">
+            <Label htmlFor="sales-company-owner">Opiekun</Label>
+            <SalesSelect
+              id="sales-company-owner"
+              value={form.owner}
+              onValueChange={(value) => set("owner", value)}
+              options={ownerChoices}
+              anyLabel={company.owner_label ? `Bez konta (${company.owner_label} z Atlasa)` : "Bez opiekuna"}
+            />
+          </div>
+        )}
+        <div className="space-y-1">
+          <Label htmlFor="sales-company-parent">Firma matka (grupa)</Label>
+          <CompanyPicker id="sales-company-parent" value={form.parent} onChange={(value) => set("parent", value)} />
+        </div>
+        <div className="space-y-1 sm:col-span-2">
+          <Label htmlFor="sales-company-tags">Tagi (po przecinku)</Label>
+          <Input id="sales-company-tags" value={form.tags} onChange={(event) => set("tags", event.target.value)} />
         </div>
         <div className="space-y-1 sm:col-span-2">
           <Label htmlFor="sales-company-description">Opis</Label>

@@ -6,7 +6,7 @@ import { useRef } from "react";
 
 import type { CareerBoardJob } from "@/lib/career/api";
 
-import { sceneItems, type SceneItem } from "./scenes/model";
+import { sceneItems, type SceneItem } from "./requirementItems";
 import {
   careerTheme,
   DEFAULT_CAREER_THEME,
@@ -25,38 +25,22 @@ function fromIf(targets: Element[], vars: gsap.TweenVars): void {
 /**
  * Żywy podgląd sceny na tablicy (etap 7, D2 = A, 21.10.2026; prototyp
  * https://claude.ai/artifact/TsUgULCMSSjVTiYWvoGN3b). Najechanie albo fokus na
- * wierszu buduje tu scenę rekrutacji z jej wymagań w kolorach szablonu.
- * To ozdoba obok listy (`aria-hidden` rysunku); interaktywna scena „x z 5”
- * zostaje na stronie rekrutacji. Ruch tylko od 1024 px i bez „ograniczonego
- * ruchu” — inaczej scena stoi w stanie końcowym.
+ * wierszu buduje tu szkic rekrutacji z jej wymagań w kolorach szablonu.
+ * To ozdoba obok listy (`aria-hidden` rysunku). Ruch tylko od 1024 px i bez
+ * „ograniczonego ruchu” — inaczej szkic stoi w stanie końcowym.
  */
 
-type Layout = "stars" | "list" | "net" | "radar" | "lanes" | "board";
+type Layout = "list" | "net" | "lanes";
 
+// Trzy szablony od 28.10.2026 — każdy z innym rytmem znaku i podglądu.
 const LAYOUTS: Record<CareerThemeId, Layout> = {
   terminal: "list",
-  glitch: "list",
-  papier: "list",
-  szafa: "list",
-  sekwencja: "lanes",
-  plan: "lanes",
-  konstelacja: "stars",
-  horyzont: "stars",
-  c4: "net",
-  topologia: "net",
-  radar: "radar",
-  tablica: "board",
+  grafit: "net",
+  jasny: "lanes",
 };
 
 /** Punkty sceny w polu 400 × 300 — po jednym na wymaganie, najwyżej pięć. */
 const POINTS: Record<Layout, readonly [number, number][]> = {
-  stars: [
-    [90, 92],
-    [214, 58],
-    [318, 126],
-    [270, 226],
-    [124, 214],
-  ],
   list: [
     [40, 78],
     [40, 124],
@@ -71,26 +55,12 @@ const POINTS: Record<Layout, readonly [number, number][]> = {
     [306, 108],
     [326, 222],
   ],
-  radar: [
-    [150, 106],
-    [266, 96],
-    [246, 206],
-    [136, 202],
-    [210, 150],
-  ],
   lanes: [
     [40, 78],
     [96, 124],
     [152, 170],
     [70, 216],
     [190, 262],
-  ],
-  board: [
-    [64, 84],
-    [214, 74],
-    [128, 168],
-    [282, 176],
-    [76, 248],
   ],
 };
 
@@ -102,11 +72,6 @@ const NET_EDGES: readonly [number, number][] = [
   [3, 4],
   [1, 2],
 ];
-const SKY: readonly [number, number, number][] = Array.from(
-  { length: 34 },
-  (_, i) => [(i * 97 + 13) % 400, (i * 53 + 7) % 300, i % 7 === 0 ? 1.4 : 0.8],
-);
-
 /** Szerokość znaku kroju mono przy 12 px — do zmieszczenia podpisu w polu. */
 const CHAR_W = 7.3;
 
@@ -127,35 +92,6 @@ function Decor({
 }) {
   const pts = POINTS[layout].slice(0, n);
   switch (layout) {
-    case "stars":
-      return (
-        <g>
-          {SKY.map(([x, y, r], i) => (
-            <circle
-              key={i}
-              className="kr-bp-sky"
-              cx={x}
-              cy={y}
-              r={r}
-              fill={p.muted}
-              opacity=".45"
-            />
-          ))}
-          {pts.slice(1).map(([x, y], i) => (
-            <line
-              key={i}
-              className="kr-bp-link"
-              x1={pts[i][0]}
-              y1={pts[i][1]}
-              x2={x}
-              y2={y}
-              stroke={p.decor}
-              strokeWidth="1.2"
-              opacity=".7"
-            />
-          ))}
-        </g>
-      );
     case "net":
       return (
         <g>
@@ -181,23 +117,6 @@ function Decor({
               fill={p.accent}
             />
           ) : null}
-        </g>
-      );
-    case "radar":
-      return (
-        <g fill="none" stroke={p.decor} strokeWidth="1" opacity=".75">
-          {[40, 80, 120].map((r) => (
-            <circle key={r} cx="205" cy="150" r={r} />
-          ))}
-          <line x1="205" y1="24" x2="205" y2="276" />
-          <line x1="80" y1="150" x2="330" y2="150" />
-          <path
-            className="kr-bp-sweep"
-            d="M205 150 L205 30 A120 120 0 0 1 290 65 Z"
-            fill={p.accent}
-            stroke="none"
-            opacity=".18"
-          />
         </g>
       );
     case "lanes":
@@ -226,25 +145,6 @@ function Decor({
             strokeWidth="1.2"
             strokeDasharray="4 4"
           />
-        </g>
-      );
-    case "board":
-      return (
-        <g>
-          {pts.map(([x, y], i) => (
-            <rect
-              key={i}
-              className="kr-bp-note"
-              x={x - 14}
-              y={y - 22}
-              width="120"
-              height="40"
-              rx="3"
-              fill={p.decor}
-              opacity=".3"
-              transform={`rotate(${i % 2 ? 2.5 : -2.5} ${x} ${y})`}
-            />
-          ))}
         </g>
       );
     case "list":
@@ -277,30 +177,18 @@ export function BoardPreviewScene({ job }: { job: CareerBoardJob }) {
   return <SceneSketch key={job.slug} theme={job.theme} items={items} animateKey={job.slug} />;
 }
 
-/** Stan „Sprawdź się” na stronie rekrutacji (etap 7, PR C). */
-export interface SketchFit {
-  /** Zaznaczone pozycje w kolejności klikania (`useScene().order`). */
-  order: readonly number[];
-  /** Wymaganie, które kandydat właśnie czyta (ScrollTrigger), albo `null`. */
-  reading: number | null;
-}
-
 /**
- * Szkic sceny: tło szablonu, ozdoba układu i punkty wymagań z podpisami.
- * Bez `fit` — podgląd (wymagania pełne, mile widziane puste). Z `fit` —
- * wszystko puste, zaznaczone łączą się linią w kolejności klikania, a czytane
- * dostaje obwódkę.
+ * Szkic sceny: tło szablonu, ozdoba układu i punkty wymagań z podpisami
+ * (wymagania pełne, mile widziane puste).
  */
 export function SceneSketch({
   theme: themeId,
   items,
   animateKey,
-  fit,
 }: {
   theme: string;
   items: readonly SceneItem[];
   animateKey: string;
-  fit?: SketchFit;
 }) {
   const theme = isCareerThemeId(themeId) ? themeId : DEFAULT_CAREER_THEME;
   const p = careerTheme(theme);
@@ -361,20 +249,6 @@ export function SceneSketch({
           });
 
           // Spokojna pętla — jedna na układ, bez migania (≤ 1 zmiana na sekundę).
-          if (layout === "stars")
-            gsap.to(q(".kr-bp-sky"), {
-              opacity: 0.1,
-              duration: 1.8,
-              stagger: { each: 0.06, from: "random", repeat: -1, yoyo: true },
-            });
-          if (layout === "radar")
-            gsap.to(q(".kr-bp-sweep"), {
-              rotation: 360,
-              svgOrigin: "205 150",
-              duration: 6,
-              ease: "none",
-              repeat: -1,
-            });
           if (layout === "lanes")
             gsap.fromTo(
               q(".kr-bp-today"),
@@ -427,43 +301,16 @@ export function SceneSketch({
     >
       <svg viewBox="0 0 400 300" aria-hidden="true" focusable="false">
         <Decor layout={layout} p={p} n={items.length} />
-        {fit
-          ? fit.order.slice(1).map((id, k) => {
-              const [x1, y1] = pts[fit.order[k]];
-              const [x2, y2] = pts[id];
-              return (
-                <line
-                  key={`${fit.order[k]}-${id}`}
-                  x1={x1}
-                  y1={y1}
-                  x2={x2}
-                  y2={y2}
-                  stroke={p.title}
-                  strokeWidth="2"
-                />
-              );
-            })
-          : null}
         {items.map((item, i) => {
           const [x, y] = pts[i];
           const inline = layout === "list" || layout === "lanes";
           const nice = item.kind === "nice";
           const lx = inline ? x + 18 : labelX(x, item.name);
           const ly = inline ? y + 4 : y + 24;
-          const on = fit ? fit.order.includes(i) : item.kind === "must";
-          const color = fit ? p.title : p.accent;
+          const on = item.kind === "must";
+          const color = p.accent;
           return (
-            <g key={item.key} data-on={fit && on ? "" : undefined}>
-              {fit && fit.reading === i ? (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="13"
-                  fill="none"
-                  stroke={p.title}
-                  strokeWidth="2"
-                />
-              ) : null}
+            <g key={item.key}>
               <circle
                 className="kr-bp-dot"
                 cx={x}

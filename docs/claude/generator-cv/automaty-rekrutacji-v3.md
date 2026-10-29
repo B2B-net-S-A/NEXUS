@@ -110,6 +110,29 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `autofill_withdrawn_client`, „Praca w tle” z `why: "client"`), a
   `ranked_picks` nie podsuwa jej żadnej rekrutacji tego klienta. Bez
   zaznaczenia — tylko ta rekrutacja.
+- **E. Runda 3: „Nie szuka do…” i trzy nowe powody (0616, decyzja Artura
+  28.10.2026).** Analiza 44 odrzuceń z 27–28.10: 9 to „Nie szuka pracy”,
+  a żadna z 12 takich osób od 23.10 nie miała tego w profilu i 5 z nich
+  czekało w 9 „Nowych” innych rekrutacji; 6 z 10 „Inne” to overqualified,
+  błędny numer i zgłoszenie do klienta przez inną firmę. Od tej zmiany:
+  * przy „Nie szuka pracy” okno pyta „Do kiedy nie podsuwać?” (3 / 6 / 12
+    miesięcy albo data, domyślnie 3 miesiące) → `autofill_not_looking_until`
+    (od jutra, najwyżej 2 lata, tylko przy tym powodzie — inaczej 422).
+    Serwer w transakcji ruchu ustawia w profilu `availability_status =
+    not_looking` i „Dostępny od” = ta data (audyt
+    `candidate_availability_changed`), a `autofill_withdraw.withdraw_elsewhere`
+    zdejmuje NIETKNIĘTE karty tej osoby od systemu ze wszystkich innych
+    rekrutacji (archiwum `autofill_withdrawn_not_looking`, „Praca w tle”
+    z `why: "not_looking"`);
+  * `ranked_picks` pomija osoby z profilem „Nie szuka” bez daty albo
+    z „Dostępny od” w przyszłości (`not_looking_now`); po dacie osoba wraca;
+  * nowe powody: `overqualified` (kosz `search`), `wrong_phone` i
+    `client_other_vendor` (kosz `data`); `client_other_vendor` jest w
+    `CLIENT_WIDE_REASONS` (pole „cały klient” jak przy „Pracuje u tego
+    klienta”). Więz powodów: `REASON_CHECK_DDL`.
+  Odrzucone na teraz (makiety M3–M4): wygaszanie nietkniętych kart po 5
+  dniach roboczych i próg 65 pkt. Raportu poniedziałkowego Artur nie
+  potrzebuje — pyta o odrzucenia na bieżąco.
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,
@@ -242,6 +265,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+  Od 28.10.2026 przy mniej niż `AUTO_FULL_REVIEW_MIN_COUNT` (40) osobach od
+  progu dochodzą najlepsi spod progu do łącznie 40 — liczniki i dzwonek liczą
+  tylko od progu (`rekrutacja-tablica/najlepsze-40-i-ukryci-przez-musi-miec.md`).
 - **A. Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026).** Najnowszy
   przegląd rekrutacji w pracy (ten sam warunek co wygaszanie `expired`) zastępuje
   `job_autofill_pool` rekrutacji: `AUTOFILL_POOL_SIZE` (150) najlepszych

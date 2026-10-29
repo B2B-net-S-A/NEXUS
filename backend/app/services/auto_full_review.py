@@ -29,7 +29,10 @@ Reguły, które łatwo cofnąć „przy okazji":
   domyka przeglądy, którym publikacja się nie udała.
 * Od 07.10.2026 (decyzja Artura) publikujemy WSZYSTKIE osoby powyżej progu
   `AUTO_FULL_REVIEW_MIN_SCORE`, które przechodzą `is_good_match` — bez limitu
-  liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Propozycje
+  liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Od 28.10.2026
+  (najlepsze 40) przy mniejszej liczbie dochodzą najlepsi spod progu do
+  łącznie `AUTO_FULL_REVIEW_MIN_COUNT`; dzwonek i liczniki liczą dalej tylko
+  osoby od progu (`job_proposals.meets_threshold`). Propozycje
   `full_base`, których przegląd już nie zaproponował, dostają `expired`
   (`job_proposals.expire_full_base`) — tylko po najnowszym przeglądzie tej
   rekrutacji z wynikami (`_newest_result_run`) i tylko osoby, które ten
@@ -641,16 +644,27 @@ async def _job_accepts_proposals(db, job_id: int) -> bool:
     )
 
 
+def min_count() -> int:
+    """Ile propozycji przegląd daje co najmniej (`AUTO_FULL_REVIEW_MIN_COUNT`)."""
+    return max(0, int(getattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 0) or 0))
+
+
 async def publish_run_proposals(
     db, run: CandidateSearchRun, *, revive_expired: bool = True
 ) -> int:
-    """Wszystkie wyniki przeglądu powyżej progu → `job_proposals` (`full_base`).
+    """Wyniki przeglądu → `job_proposals` (`full_base`): wszyscy od progu
+    plus najlepsi spod progu do łącznie `AUTO_FULL_REVIEW_MIN_COUNT`.
 
-    Bez limitu liczby (07.10.2026): każda osoba dopuszczona, zmierzona,
-    z wynikiem ≥ progu (`ranking_weights.nightly_min_score`: panel, a bez
-    zapisu `AUTO_FULL_REVIEW_MIN_SCORE`) i przechodząca `is_good_match`.
-    Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też paczkami
-    (`job_proposals._UPSERT_CHUNK`). Bez commitu.
+    Od progu bez limitu liczby (07.10.2026): każda osoba dopuszczona,
+    zmierzona, z wynikiem ≥ progu (`ranking_weights.nightly_min_score`: panel,
+    a bez zapisu `AUTO_FULL_REVIEW_MIN_SCORE`) i przechodząca `is_good_match`.
+    Najlepsze N (28.10.2026): gdy takich osób jest mniej niż `min_count()`,
+    dochodzą najlepsi dopuszczeni i zmierzeni spod progu — z tą samą regułą
+    „musi mieć” i bez innej roli — aż do łącznie N. Osoba spod progu nie ma
+    w zapisie flagi: „poniżej progu” liczy się przy odczycie z wyniku
+    (`job_proposals.meets_threshold`), więc dzwonek i liczniki zostają przy
+    osobach od progu. Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też
+    paczkami (`job_proposals._UPSERT_CHUNK`). Bez commitu.
     """
     from app.services.auto_match_outbox import candidate_revision
     from app.services.job_proposals import upsert_proposals
@@ -673,10 +687,79 @@ async def publish_run_proposals(
 
     job = await db.get(Job, run.job_id)
     known = await known_people_for_job(db, job)
-    published = 0
-    offset = 0
-    while True:
-        rows = (
+
+    async def publish_page(
+        rows, *, rule_min: float, room: Optional[int], skip: frozenset = frozenset()
+    ) -> int:
+        picked = []
+        for row in rows:
+            if row.candidate_id in skip:
+                continue
+            requirements = (row.evidence or {}).get("requirements") or []
+            rec = {
+                "score": float(row.fit_score),
+                "status": "published",
+                "matching_must": _requirement_names(requirements, met=True),
+                "gap_must": _requirement_names(requirements, met=False),
+            }
+            if not is_good_match(rec, min_score=rule_min, require_must=require_must):
+                continue
+            picked.append((row, rec, requirements))
+        if not picked:
+            return 0
+        candidates = {
+            c.id: c
+            for c in (
+                await db.scalars(
+                    select(Candidate).where(
+                        Candidate.id.in_([row.candidate_id for row, _, _ in picked])
+                    )
+                )
+            ).all()
+        }
+        # Tester przy programiście (27.10.2026): inna rola nie jest
+        # propozycją, chyba że spełnia większość „musi mieć”.
+        off_role = await _off_role_ids(
+            db,
+            job,
+            [(row.candidate_id, requirements) for row, _, requirements in picked],
+            candidates,
+        )
+        payload = [
+            {
+                "candidate_id": row.candidate_id,
+                "score": rec["score"],
+                "cv_revision": candidate_revision(candidates[row.candidate_id]),
+                # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
+                "evidence": {
+                    "requirements": requirements,
+                    "matched_must": rec["matching_must"],
+                    "missing_must": rec["gap_must"],
+                    **(
+                        {"history": known[row.candidate_id].evidence()}
+                        if row.candidate_id in known
+                        else {}
+                    ),
+                },
+            }
+            for row, rec, requirements in picked
+            if row.candidate_id in candidates and row.candidate_id not in off_role
+        ]
+        if room is not None:
+            payload = payload[:room]
+        if not payload:
+            return 0
+        return await upsert_proposals(
+            db,
+            run.job_id,
+            payload,
+            source="full_base",
+            run_id=run.id,
+            revive_expired=revive_expired,
+        )
+
+    async def page(score_clause, offset: int):
+        return (
             (
                 await db.execute(
                     select(CandidateSearchResult)
@@ -686,7 +769,7 @@ async def publish_run_proposals(
                         CandidateSearchResult.eligible.is_(True),
                         # Wynik bez zmierzonej semantyki nie jest rankingiem.
                         CandidateSearchResult.measurement == "measured",
-                        CandidateSearchResult.fit_score >= min_score,
+                        score_clause,
                     )
                     .order_by(
                         CandidateSearchResult.fit_score.desc(),
@@ -699,71 +782,53 @@ async def publish_run_proposals(
             .scalars()
             .all()
         )
+
+    published = 0
+    offset = 0
+    while True:
+        rows = await page(CandidateSearchResult.fit_score >= min_score, offset)
         if not rows:
             break
         offset += len(rows)
-        picked = []
-        for row in rows:
-            requirements = (row.evidence or {}).get("requirements") or []
-            rec = {
-                "score": float(row.fit_score),
-                "status": "published",
-                "matching_must": _requirement_names(requirements, met=True),
-                "gap_must": _requirement_names(requirements, met=False),
-            }
-            if not is_good_match(rec, min_score=min_score, require_must=require_must):
-                continue
-            picked.append((row, rec, requirements))
-        if picked:
-            candidates = {
-                c.id: c
-                for c in (
-                    await db.scalars(
-                        select(Candidate).where(
-                            Candidate.id.in_([row.candidate_id for row, _, _ in picked])
-                        )
-                    )
-                ).all()
-            }
-            # Tester przy programiście (27.10.2026): inna rola nie jest
-            # propozycją, chyba że spełnia większość „musi mieć”.
-            off_role = await _off_role_ids(
-                db,
-                job,
-                [(row.candidate_id, requirements) for row, _, requirements in picked],
-                candidates,
-            )
-            payload = [
-                {
-                    "candidate_id": row.candidate_id,
-                    "score": rec["score"],
-                    "cv_revision": candidate_revision(candidates[row.candidate_id]),
-                    # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
-                    "evidence": {
-                        "requirements": requirements,
-                        "matched_must": rec["matching_must"],
-                        "missing_must": rec["gap_must"],
-                        **(
-                            {"history": known[row.candidate_id].evidence()}
-                            if row.candidate_id in known
-                            else {}
-                        ),
-                    },
-                }
-                for row, rec, requirements in picked
-                if row.candidate_id in candidates and row.candidate_id not in off_role
-            ]
-            published += await upsert_proposals(
-                db,
-                run.job_id,
-                payload,
-                source="full_base",
-                run_id=run.id,
-                revive_expired=revive_expired,
-            )
+        published += await publish_page(rows, rule_min=min_score, room=None)
+        if len(rows) < _PUBLISH_PAGE:
+            break
+    # Najlepsze N (28.10.2026): dopełnienie spod progu, tylko do łącznie N.
+    # Osoba już pominięta albo dodana w tej rekrutacji nie zajmuje miejsca —
+    # lista pokazałaby wtedy mniej niż N.
+    wanted = min_count()
+    handled = (
+        frozenset(await _handled_candidate_ids(db, run.job_id))
+        if published < wanted
+        else frozenset()
+    )
+    offset = 0
+    while published < wanted:
+        rows = await page(CandidateSearchResult.fit_score < min_score, offset)
+        if not rows:
+            break
+        offset += len(rows)
+        published += await publish_page(
+            rows, rule_min=float("-inf"), room=wanted - published, skip=handled
+        )
         if len(rows) < _PUBLISH_PAGE:
             break
     return published
+
+
+async def _handled_candidate_ids(db, job_id: int) -> list[int]:
+    """Osoby, których para w tej rekrutacji jest pominięta albo dodana."""
+    from app.models.job_proposal import JobProposal
+
+    rows = await db.scalars(
+        select(JobProposal.candidate_id)
+        .where(
+            JobProposal.job_id == job_id,
+            JobProposal.status.in_(("dismissed", "added")),
+        )
+        .distinct()
+    )
+    return list(rows.all())
 
 
 async def _off_role_ids(

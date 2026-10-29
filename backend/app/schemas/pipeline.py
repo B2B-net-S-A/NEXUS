@@ -37,6 +37,10 @@ class StageMove(BaseModel):
     # `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`.
     # Przy innym ruchu albo u Nordei → 422 `FIX_FIELDS_NOT_ALLOWED`.
     fix_fields: Optional[list[str]] = Field(None, max_length=30)
+    # Bliźniaki (0615, 28.10.2026): pominięcie bliźniaka przy wejściu na
+    # „Zweryfikowany” — rekrutacja → kod powodu z `job_twins.SKIP_REASONS`.
+    # Bez wpisu bramka wymaga screeningu pary także w bliźniaku.
+    twin_skips: Optional[dict[int, str]] = Field(None, max_length=3)
     rating: Optional[int] = Field(None, ge=1, le=5)
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
@@ -94,6 +98,9 @@ class StageMove(BaseModel):
             "in_other_process",
             "client_employed",
             "client_refused",
+            "overqualified",
+            "wrong_phone",
+            "client_other_vendor",
             "other",
         ]
     ] = None
@@ -103,6 +110,10 @@ class StageMove(BaseModel):
     # klient — zdejmuje nietknięte karty tej osoby od systemu z innych
     # rekrutacji klienta, a silnik więcej jej temu klientowi nie podsuwa.
     autofill_whole_client: bool = False
+    # 28.10.2026: „Nie szuka pracy” — do kiedy. Profil dostaje „Nie szuka”
+    # i „Dostępny od” = ta data, system zdejmuje nietknięte karty osoby od
+    # systemu z innych rekrutacji i nie podsuwa jej do tej daty.
+    autofill_not_looking_until: Optional[date] = None
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad

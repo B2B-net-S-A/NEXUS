@@ -296,7 +296,8 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
     assert report["contacts_skipped_nameless"] == 1
     assert report["notes_skipped_empty"] == 1
     assert report["files_pending_storage_copy"] == 3
-    assert report["leads_imported"] == 2  # l1 i s2
+    assert report["leads_imported"] == 1  # l1
+    assert report["leads_skipped_job_board"] == 1  # s2 — ogłoszenia odrzucone 27.10
     assert report["leads_skipped_closed"] == 1  # l2 zamieniony w Atlasie
     assert report["leads_skipped_existing_client"] == 1  # s1 to klient NEXUSA
 
@@ -420,9 +421,8 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
             70,
         )
         assert "nie-kopiuj" not in str(linkedin.payload)
-        board = leads[f"atlas:press_signals:s2-{tag}"]
-        assert (board.source, board.score) == ("job_board", 100)
-        board.status = "dismissed"
+        assert f"atlas:press_signals:s2-{tag}" not in leads
+        linkedin.status = "dismissed"
         await db.commit()
 
         before = {
@@ -453,7 +453,7 @@ async def test_import_maps_everything_and_second_run_updates_instead_of_duplicat
         assert title == "Zespół QA i automatyzacji"
         kept = await db.scalar(
             select(SalesLead.status).where(
-                SalesLead.fingerprint == f"atlas:press_signals:s2-{tag}"
+                SalesLead.fingerprint == f"atlas:linkedin_leads:l1-{tag}"
             )
         )
         assert kept == "dismissed"  # decyzja handlowca przetrwała drugi bieg

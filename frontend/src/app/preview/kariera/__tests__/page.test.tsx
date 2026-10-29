@@ -67,12 +67,16 @@ describe("/preview/kariera", () => {
   it("strona rekrutacji: tytuł, parametry, wymagania, proces, bez klienta i stawki", () => {
     render(<CareerPreviewPage />);
     const open = screen.getByRole("region", { name: "rekrutacja otwarta" });
-    expect(within(open).getByRole("heading", { level: 1 })).toHaveTextContent("Senior JavaDeveloper.");
-    expect(within(open).getByText("[hybryda · 2 dni]")).toBeInTheDocument();
-    expect(within(open).getByText("[10.2026 · 12+ mies.]")).toBeInTheDocument();
-    expect(within(open).getByRole("button", { name: "Znam to: Java Spring Boot" })).toBeInTheDocument();
-    expect(within(open).getByText("rozmowa z Martą")).toBeInTheDocument();
-    expect(within(open).getByRole("link", { name: /cd ~\/marta-n/ })).toHaveAttribute(
+    // Domyślny szablon (Grafit, 28.10.2026): tytuł w jedynym <h1>, fakty w <dl>.
+    expect(within(open).getByRole("heading", { level: 1 })).toHaveTextContent("Senior Java Developer");
+    const facts = open.querySelector("dl");
+    expect(facts).toHaveTextContent("Hybryda");
+    expect(facts).toHaveTextContent("2 dni w biurze w tygodniu");
+    const requirements = within(open).getByRole("region", { name: "Wymagania" });
+    expect(within(requirements).getByText("Java Spring Boot")).toBeInTheDocument();
+    const steps = within(open).getByRole("region", { name: "Proces rekrutacji" });
+    expect(within(steps).getByText("Rozmowa z Martą")).toBeInTheDocument();
+    expect(within(open).getByRole("link", { name: /Nie ten projekt/ })).toHaveAttribute(
       "href",
       "/kariera/p/marta-n",
     );
@@ -142,7 +146,7 @@ describe("/preview/kariera", () => {
     );
   });
 
-  it("strona rekrutera (makieta 6d): imię bez nazwiska, „O mnie”, sceny, kategorie, tablica", () => {
+  it("strona rekrutera (makieta 6d): imię bez nazwiska, „O mnie”, kategorie, tablica", () => {
     render(<CareerPreviewPage />);
     const page = screen.getByRole("region", { name: "stały link rekrutera" });
     expect(within(page).getByRole("heading", { level: 1 })).toHaveTextContent(
@@ -156,7 +160,8 @@ describe("/preview/kariera", () => {
       "management & delivery",
     ]);
     const job = within(page).getByRole("link", { name: /DevOps Engineer Azure/ });
-    expect(job).toHaveTextContent("scena: topologia sieci");
+    // Etykiety sceny przy rekrutacji nie ma od 28.10.2026 (trzy szablony zamiast 12 scen).
+    expect(job).not.toHaveTextContent("scena:");
     expect(within(page).getByRole("heading", { level: 2 })).toHaveTextContent(
       "Nic nie pasuje? Zostaw CV u Marty.",
     );

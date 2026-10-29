@@ -32,6 +32,7 @@
   "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",

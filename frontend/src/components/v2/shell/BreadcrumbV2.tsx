@@ -28,6 +28,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   opportunities: "Szanse",
   tasks: "Zadania",
   leads: "Leady",
+  summary: "Podsumowanie",
+  duplicates: "Duplikaty",
   // „Ludzie w NEXUSIE” (16.10.2026).
   "my-time": "Mój czas",
   people: "Ludzie",
@@ -86,6 +88,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   "api-integration": "Integracja z API",
   "api-keys": "Klucze API",
   extension: "Wtyczka LinkedIn",
+  wtyczka: "Wtyczka LinkedIn",
   connect: "Połącz",
   "linkedin-extension": "Wtyczka LinkedIn",
   chats: "Audyt czatów",
@@ -215,13 +218,7 @@ export function BreadcrumbV2({ className }: { className?: string }) {
     );
   }
 
-  const crumbs: {
-    label: React.ReactNode;
-    href: string;
-    /** Nazwa encji z API — jedyny okruszek, który wolno skracać w środku ścieżki. */
-    dynamic?: boolean;
-    linkless?: boolean;
-  }[] = [{ label: "Dashboard", href: "/" }];
+  const crumbs: BreadcrumbCrumb[] = [{ label: "Dashboard", href: "/" }];
 
   let path = "";
   for (let i = 0; i < segments.length; i++) {
@@ -243,26 +240,63 @@ export function BreadcrumbV2({ className }: { className?: string }) {
     }
   }
 
+  return <BreadcrumbTrail crumbs={crumbs} className={className} />;
+}
+
+export interface BreadcrumbCrumb {
+  label: React.ReactNode;
+  href: string;
+  /** Nazwa encji z API — jedyny okruszek, który wolno skracać w środku ścieżki. */
+  dynamic?: boolean;
+  linkless?: boolean;
+}
+
+/**
+ * Sam rysunek ścieżki — osobno, bo harness `/preview/kpi-topbar` stawia go
+ * w replice paska bez adresu i bez zapytań.
+ *
+ * Gdy w pasku brakuje miejsca, ścieżka gubi CAŁE okruszki od początku
+ * („Dashboard”, potem kolejne sekcje), a nazwa osoby czy rekrutacji zostaje
+ * do końca. 28.10.2026 przy 1280 px rekruter z P0, Ligą i licznikiem celów
+ * miał na okruszki 93 px, a „Dashboard › Kandydaci” (178 px, stałe nazwy się
+ * nie kurczą) wychodziło pod wyszukiwarkę, nazwa kandydata miała 0 px.
+ * Mechanizm jak w liczniku celów: okruszki się zawijają, a ścieżka ma
+ * wysokość jednego wiersza, więc nadmiar spada do ukrytego wiersza.
+ * `flex-row-reverse` z odwróconym `order` wypełnia wiersz od nazwy na końcu,
+ * a DOM (i czytnik ekranu) zostaje w kolejności Dashboard → … → nazwa.
+ */
+export function BreadcrumbTrail({
+  crumbs,
+  className,
+}: {
+  crumbs: BreadcrumbCrumb[];
+  className?: string;
+}) {
   return (
     <nav
       aria-label="Ścieżka"
-      className={cn("flex items-center gap-1 text-sm min-w-0", className)}
+      className={cn(
+        "flex flex-row-reverse flex-wrap justify-end content-start h-5 overflow-hidden gap-x-1 text-sm min-w-0",
+        className,
+      )}
     >
       {crumbs.map((c, i) => {
         const isLast = i === crumbs.length - 1;
         return (
           // Stałe nazwy sekcji w środku ścieżki się nie kurczą (UAT M03-B09:
           // „Dash… › Rekr… ›"); skraca się ostatni okruszek i nazwy encji.
+          // Nazwa ma sufit 11rem: dłuższa (pełna nazwa rekrutacji) wypchnęłaby
+          // sekcje do ukrytego wiersza także przy szerokim oknie. Przy 360 px
+          // okruszków to tyle, ile nazwa miała przed 28.10 obok dwóch sekcji.
           <div
             key={c.href}
+            data-crumb
+            style={{ order: crumbs.length - i }}
             className={cn(
-              "flex items-center gap-1",
-              isLast || c.dynamic ? "min-w-0" : "shrink-0",
+              "flex h-5 items-center gap-1",
+              isLast || c.dynamic ? "min-w-0 max-w-44" : "shrink-0",
             )}
           >
-            {i > 0 && (
-              <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
-            )}
             {isLast ? (
               <span className="font-medium text-foreground truncate">
                 {c.label}
@@ -276,6 +310,9 @@ export function BreadcrumbV2({ className }: { className?: string }) {
               >
                 {c.label}
               </Link>
+            )}
+            {!isLast && (
+              <ChevronRight className="h-3 w-3 text-muted-foreground shrink-0" />
             )}
           </div>
         );

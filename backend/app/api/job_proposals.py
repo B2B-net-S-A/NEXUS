@@ -294,8 +294,15 @@ async def list_job_proposals(
     )
 
     job = await _job(db, user, job_id)
+    # Najlepsze 40 (28.10.2026): ten sam próg dla flagi wiersza i separatora.
+    threshold = await proposals.proposal_threshold(db)
     rows, total = await proposals.list_for_job(
-        db, job_id=job_id, status=status, limit=limit, offset=offset
+        db,
+        job_id=job_id,
+        status=status,
+        limit=limit,
+        offset=offset,
+        min_score=threshold,
     )
     ids = [row.candidate_id for row in rows]
     candidates = {
@@ -358,6 +365,7 @@ async def list_job_proposals(
                 ),
                 "status": row.status,
                 "run_id": row.run_id,
+                "below_threshold": row.below_threshold,
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
@@ -381,10 +389,96 @@ async def list_job_proposals(
         "items": items,
         "dismissed_candidate_ids": dismissed_ids,
         "total": total,
+        # Próg propozycji: osoby z `below_threshold` stoją pod „Poniżej N%”.
+        "threshold": threshold,
         "hidden_on_page": hidden,
         "limit": limit,
         "offset": offset,
         "next_offset": offset + limit if offset + limit < total else None,
+    }
+
+
+@router.get("/jobs/{job_id}/proposal-inbox/hidden-by-critical")
+async def list_hidden_by_critical(
+    job_id: int,
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ukryci przez „musi mieć”, choć w CV jest coś bliskiego (28.10.2026).
+
+    Reguły w ``services/hidden_by_critical.py``. Ta sama bramka odczytu co
+    skrzynka; globalna czarna lista chowa, weto HM jedzie jako plakietka.
+    ``can_add_variant`` = osoba zapisuje Profil Championa tej rekrutacji
+    (``job_edit_level``, ta sama reguła co ``PUT …/champion-profile``) —
+    przycisk wariantu idzie tym zapisem, bez własnej trasy.
+    """
+    from app.api.recruitment_access import job_edit_level  # noqa: PLC0415
+    from app.services.candidate_job_eligibility import Visibility  # noqa: PLC0415
+    from app.services.eligibility_annotation import (  # noqa: PLC0415
+        eligibility_annotation,
+    )
+    from app.services.hidden_by_critical import hidden_by_critical  # noqa: PLC0415
+    from app.services.pipeline_eligibility import (  # noqa: PLC0415
+        evaluate_candidates_for_job,
+    )
+
+    job = await _job(db, user, job_id)
+    section = await hidden_by_critical(db, job)
+    decisions = (
+        await evaluate_candidates_for_job(
+            db,
+            job=job,
+            candidate_ids=[person.candidate.id for person in section.people],
+            now=datetime.now(timezone.utc),
+        )
+        if section.people
+        else {}
+    )
+    items = []
+    for person in section.people:
+        decision = decisions.get(person.candidate.id)
+        if decision is not None and decision.visibility == Visibility.hidden:
+            continue
+        items.append(
+            {
+                "candidate": _candidate_brief(person.candidate),
+                "critical": person.critical,
+                "row": section.rows.get(person.critical),
+                "word": person.word,
+                "snippet": person.snippet,
+                "source": person.source,
+                "eligibility": (
+                    eligibility_annotation(decision) if decision is not None else None
+                ),
+            }
+        )
+    return {
+        "job_id": job_id,
+        "run_id": section.run_id,
+        "items": items,
+        "total": len(items),
+        "truncated": section.truncated,
+        # `row` = etykieta wiersza Championa (pisownia DL-a), do którego
+        # przycisk dopisuje wariant; `None` = krytyczna bez wiersza.
+        "searched": [
+            {
+                "critical": label,
+                "row": section.rows.get(label),
+                "words": list(words),
+            }
+            for label, words in section.searched.items()
+        ],
+        "variants": [
+            {
+                "critical": v.critical,
+                "row": section.rows.get(v.critical),
+                "word": v.word,
+                "people": v.people,
+                "in_row": v.in_row,
+            }
+            for v in section.variants
+        ],
+        "can_add_variant": await job_edit_level(db, user, job) is not None,
     }
 
 
@@ -443,8 +537,9 @@ async def job_proposal_counts(
 ):
     """Liczby do nagłówka „Do przejrzenia” — ta sama bramka co skrzynka.
 
-    ``postings_recent`` + ``base`` = ``total`` skrzynki (otwarte propozycje:
-    świeże z ogłoszeń i reszta). ``screened_out`` = lista „Odrzuceni przez AI”
+    ``postings_recent`` + ``base`` + ``below_threshold`` = ``total`` skrzynki
+    (otwarte propozycje: świeże z ogłoszeń, reszta od progu i osoby spod progu
+    z najlepszych 40, których kafel nie liczy). ``screened_out`` = lista „Odrzuceni przez AI”
     (ta sama reguła i ta sama bramka co ``…/screened-out``). ``not_searchable_must``
     = pozycje must rekrutacji, których nie da się szukać w CV (zdanie, branża,
     język, rola) — ta sama reguła co ``non_technology_must`` w ``/scores``.
@@ -461,7 +556,10 @@ async def job_proposal_counts(
 
     job = await _job(db, user, job_id)
     since = datetime.now(timezone.utc) - timedelta(days=days)
-    split = await proposals.open_split_counts(db, job_id=job_id, since=since)
+    threshold = await proposals.proposal_threshold(db)
+    split = await proposals.open_split_counts(
+        db, job_id=job_id, since=since, min_score=threshold
+    )
     screened_out = int(
         await db.scalar(
             select(func.count(ApplicationScreening.id)).where(
@@ -481,6 +579,10 @@ async def job_proposal_counts(
         "days": days,
         "postings_recent": split["postings_recent"],
         "base": split["base"],
+        # Najlepsze 40 (28.10.2026): osoby spod progu są na liście, ale nie
+        # w liczbach kafli — te liczą tylko od `threshold`.
+        "below_threshold": split["below_threshold"],
+        "threshold": threshold,
         "screened_out": screened_out,
         "not_searchable_must": not_searchable,
         # D5 (13.10.2026): „Zapytaj w rozmowie” na karcie propozycji —
@@ -851,6 +953,7 @@ _DETAIL_KEYS = (
     "trigger",
     "reason",
     "message",
+    "why",
 )
 
 

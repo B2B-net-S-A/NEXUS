@@ -439,3 +439,88 @@ LEADS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_leads",)
 DOWNGRADE_DDL: tuple[str, ...] = tuple(
     f"DROP TABLE IF EXISTS {table}" for table in reversed(TABLES)
 )
+
+
+# ── 0614: luki importu Atlasa (audyt 28.10.2026) ───────────────────────────
+# * ``owner_label`` — opiekun z Atlasa, który nie ma konta w NEXUSIE (Atlas
+#   trzymał go jako sam tekst). Admin przypisuje etykietę do konta na ekranie
+#   „Opiekunowie z Atlasa”; nazwisk nie ma w kodzie ani w logach (repo jest
+#   publiczne).
+# * pola Outlooka przy aktywności: id wiadomości (klucz przyszłej
+#   synchronizacji), link „otwórz w Outlooku”, kierunek, czas trwania.
+# * ``sales_company_contacts`` — osoba bywa w kilku firmach (w Atlasie 224
+#   powiązania z firmą inną niż główna), z rolą i stanowiskiem przy tej firmie.
+#   ``sales_contacts.company_id`` zostaje firmą główną.
+# * lista zadań obejmuje też telefony z terminem (w Atlasie Task Center
+#   pokazywał każdy otwarty rodzaj).
+
+ACTIVITY_DIRECTIONS: tuple[str, ...] = ("in", "out")
+CK_ACTIVITY_DIRECTION = (
+    f"direction IS NULL OR direction IN ({quoted(ACTIVITY_DIRECTIONS)})"
+)
+TASK_KINDS: tuple[str, ...] = ("task", "call")
+SYNCED_TABLES: tuple[str, ...] = (
+    "sales_companies",
+    "sales_contacts",
+    "sales_opportunities",
+    "sales_activities",
+)
+
+GAPS_DDL: tuple[str, ...] = (
+    "ALTER TABLE sales_companies ADD COLUMN IF NOT EXISTS owner_label VARCHAR(120) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sales_companies_owner_label "
+    "ON sales_companies (owner_label) WHERE owner_label IS NOT NULL",
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS external_id VARCHAR(255) NULL",
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS web_link VARCHAR(2000) NULL",
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS direction VARCHAR(3) NULL",
+    "ALTER TABLE sales_activities ADD COLUMN IF NOT EXISTS duration_minutes INTEGER NULL",
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint "
+    "WHERE conname = 'ck_sales_activities_direction') THEN "
+    "ALTER TABLE sales_activities ADD CONSTRAINT ck_sales_activities_direction "
+    f"CHECK ({CK_ACTIVITY_DIRECTION}); END IF; END $$",
+    "CREATE INDEX IF NOT EXISTS ix_sales_activities_open_items "
+    "ON sales_activities (assignee_user_id, due_at) "
+    f"WHERE kind IN ({quoted(TASK_KINDS)}) AND done_at IS NULL",
+    """CREATE TABLE IF NOT EXISTS sales_company_contacts (
+    company_id INTEGER NOT NULL REFERENCES sales_companies(id) ON DELETE CASCADE,
+    contact_id INTEGER NOT NULL REFERENCES sales_contacts(id) ON DELETE CASCADE,
+    role VARCHAR(60) NULL,
+    title VARCHAR(255) NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT false,
+    is_current BOOLEAN NOT NULL DEFAULT true,
+    started_at DATE NULL,
+    ended_at DATE NULL,
+    external_ref VARCHAR(80) NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT pk_sales_company_contacts PRIMARY KEY (company_id, contact_id)
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_company_contacts_contact "
+    "ON sales_company_contacts (contact_id)",
+    # Kiedy wiersz ostatnio zapisał import. ``updated_at > synced_at`` znaczy
+    # „zmienione w NEXUSIE po imporcie” — kolejny bieg nie nadpisuje wtedy pól,
+    # które ludzie edytują (etap, status, tytuł, tagi, wykonanie zadania).
+    *(
+        f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ NULL"
+        for table in SYNCED_TABLES
+    ),
+    # Firma główna kontaktu jest też powiązaniem (jedno źródło dla listy osób firmy).
+    "INSERT INTO sales_company_contacts (company_id, contact_id, title, is_primary) "
+    "SELECT company_id, id, title, true FROM sales_contacts "
+    "WHERE company_id IS NOT NULL ON CONFLICT DO NOTHING",
+)
+
+GAPS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_company_contacts",
+    "DROP INDEX IF EXISTS ix_sales_activities_open_items",
+    "ALTER TABLE sales_activities DROP CONSTRAINT IF EXISTS ck_sales_activities_direction",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS duration_minutes",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS direction",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS web_link",
+    "ALTER TABLE sales_activities DROP COLUMN IF EXISTS external_id",
+    *(
+        f"ALTER TABLE {table} DROP COLUMN IF EXISTS synced_at"
+        for table in SYNCED_TABLES
+    ),
+    "DROP INDEX IF EXISTS ix_sales_companies_owner_label",
+    "ALTER TABLE sales_companies DROP COLUMN IF EXISTS owner_label",
+)

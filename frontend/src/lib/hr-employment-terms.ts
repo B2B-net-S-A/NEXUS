@@ -53,6 +53,8 @@ export interface EmploymentTerms {
   bonuses: string;
   bonuses_genitive: string;
   bonuses_tab: string;
+  /** Domyślny opis dnia: „Praca standardowa” przy UoP, „Realizacja usług zgodnie z umową” przy B2B i zleceniu (28.10.2026). */
+  standard_description: string;
 }
 
 export const EMPLOYMENT_TERMS = {
@@ -88,7 +90,8 @@ export const EMPLOYMENT_TERMS = {
     "bonus": "premia",
     "bonuses": "premie",
     "bonuses_genitive": "premii",
-    "bonuses_tab": "Premie i stawka"
+    "bonuses_tab": "Premie i stawka",
+    "standard_description": "Praca standardowa"
   },
   "b2b": {
     "form": "B2B",
@@ -122,7 +125,8 @@ export const EMPLOYMENT_TERMS = {
     "bonus": "wynagrodzenie dodatkowe",
     "bonuses": "wynagrodzenie dodatkowe",
     "bonuses_genitive": "wynagrodzenia dodatkowego",
-    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka"
+    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
+    "standard_description": "Realizacja usług zgodnie z umową"
   },
   "zlecenie": {
     "form": "Umowa zlecenie",
@@ -156,7 +160,8 @@ export const EMPLOYMENT_TERMS = {
     "bonus": "wynagrodzenie dodatkowe",
     "bonuses": "wynagrodzenie dodatkowe",
     "bonuses_genitive": "wynagrodzenia dodatkowego",
-    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka"
+    "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
+    "standard_description": "Realizacja usług zgodnie z umową"
   }
 } as const satisfies Record<EmploymentType, EmploymentTerms>;
 

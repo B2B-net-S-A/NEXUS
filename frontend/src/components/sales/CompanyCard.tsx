@@ -9,6 +9,7 @@ import { StatusDot } from "@/components/ds/StatusDot";
 import { TabbedNav } from "@/components/ds/TabbedNav";
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -36,6 +37,9 @@ import { OpportunityFormDialog } from "./OpportunityFormDialog";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 
+/** Tag importu z Atlasa: firma przeszła warunkowo (nazwa wygląda na osobę). */
+const REVIEW_TAG = "atlas: do przejrzenia";
+
 type Tab = "overview" | "people" | "contacts" | "activities" | "files";
 const TABS: { value: Tab; label: string }[] = [
   { value: "overview", label: "Przegląd" },
@@ -62,7 +66,12 @@ function CompanyFacts({ company, onLink }: { company: SalesCompany; onLink?: () 
         <Fact label="Branża">{company.industry}</Fact>
         <Fact label="Miasto">{company.hq_city}</Fact>
         <Fact label="Wielkość">{company.tier ? TIER_LABELS[company.tier] : null}</Fact>
-        <Fact label="Opiekun">{company.owner?.name}</Fact>
+        <Fact label="Opiekun">
+          {company.owner?.name ??
+            (company.owner_label ? (
+              <span className="text-muted-foreground">{company.owner_label} · z Atlasa, bez konta</span>
+            ) : null)}
+        </Fact>
         <Fact label="Firma matka">
           {company.parent && (
             <Link href={`/sales/companies/${company.parent.id}`} className="text-primary hover:underline">
@@ -90,6 +99,17 @@ function CompanyFacts({ company, onLink }: { company: SalesCompany; onLink?: () 
           )}
         </Fact>
       </dl>
+      {company.tags.length > 0 && (
+        <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Tagi">
+          {company.tags.map((tag) => (
+            <li key={tag}>
+              <Badge variant={tag === REVIEW_TAG ? "warning" : "outline"} size="sm">
+                {tag}
+              </Badge>
+            </li>
+          ))}
+        </ul>
+      )}
       {company.description && (
         <p className="mt-3 whitespace-pre-line text-sm text-muted-foreground">{company.description}</p>
       )}
@@ -98,8 +118,12 @@ function CompanyFacts({ company, onLink }: { company: SalesCompany; onLink?: () 
 }
 
 function CompanyOpportunities({ companyId }: { companyId: number }) {
+  const [showArchived, setShowArchived] = useState(false);
   const opportunities = useOpportunities({ company_id: companyId });
-  const items = opportunities.data?.items ?? [];
+  // Zarchiwizowane szanse z Atlasa (766) — w karcie firmy na żądanie, nie giną.
+  const archived = useOpportunities({ company_id: companyId, archived: true });
+  const archivedCount = archived.data?.total ?? 0;
+  const items = [...(opportunities.data?.items ?? []), ...(showArchived ? archived.data?.items ?? [] : [])];
   const state = resolveViewState({
     isLoading: opportunities.isLoading,
     error: opportunities.error,
@@ -108,7 +132,14 @@ function CompanyOpportunities({ companyId }: { companyId: number }) {
   });
   return (
     <Card className="space-y-2 p-4">
-      <h2 className="text-base font-semibold text-foreground">Szanse</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold text-foreground">Szanse</h2>
+        {archivedCount > 0 && (
+          <Button size="sm" variant="quiet" onClick={() => setShowArchived((value) => !value)}>
+            {showArchived ? "Ukryj archiwalne" : `Pokaż archiwalne (${archivedCount})`}
+          </Button>
+        )}
+      </div>
       {state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie szans…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
@@ -123,7 +154,7 @@ function CompanyOpportunities({ companyId }: { companyId: number }) {
                 {item.title}
               </Link>
               <span className="flex items-center gap-3 text-xs text-muted-foreground">
-                <span>{item.stage.name}</span>
+                <span>{item.archived_at ? "archiwum" : item.stage.name}</span>
                 <span className="tabular-nums text-foreground">{formatDealAmount(item.value, item.currency)}</span>
               </span>
             </li>

@@ -31,6 +31,10 @@ Reguły, które łatwo cofnąć „przy okazji":
   widoczności co lista skrzynki — bez osób już w pipeline'ie tej rekrutacji
   i bez globalnej czarnej listy — więc plakietka nie obiecuje wierszy, których
   lista nie pokaże.
+* Najlepsze 40 (28.10.2026): nocny przegląd dopełnia skrzynkę osobami spod
+  progu. Lista je pokazuje (``ProposalRow.below_threshold``, na końcu), ale
+  liczniki, kafel, poranny dzwonek i skróty liczą wyłącznie pary, które
+  spełniają :func:`meets_threshold` — tak jak przed dopełnianiem.
 * ``evidence`` przechodzi przez :func:`sanitize_evidence` — wyłącznie
   nazwy/identyfikatory wymagań i liczby, nigdy wolny tekst z CV.
 * Żadna funkcja tutaj nie commituje — transakcja należy do wołającego.
@@ -788,8 +792,43 @@ def _live():
     return JobProposal.status != EXPIRED
 
 
+def meets_threshold(min_score: float):
+    """Warunek pary (HAVING): liczy się do liczników, kafla i dzwonka.
+
+    Najlepsze 40 (28.10.2026): para wyłącznie z nocnego przeglądu
+    (``full_base``) z wynikiem poniżej progu stoi na liście skrzynki pod
+    separatorem „Poniżej N%”, ale nie dzwoni i nie podbija liczb — inaczej
+    każda rekrutacja miałaby co rano 40 osób „Do przejrzenia”. Para z innym
+    źródłem (nowe CV, podobne projekty, przepięcie, praktykant) liczy się
+    zawsze, bo te źródła mają własne progi albo są decyzją człowieka.
+    """
+    return or_(
+        func.coalesce(func.bool_or(JobProposal.source != "full_base"), False),
+        func.coalesce(
+            func.max(JobProposal.score).filter(JobProposal.source == "full_base")
+            >= min_score,
+            True,
+        ),
+    )
+
+
+async def proposal_threshold(
+    db: AsyncSession, min_score: Optional[float] = None
+) -> float:
+    """Próg „od N%” — ten sam, którym publikuje nocny przegląd."""
+    if min_score is not None:
+        return float(min_score)
+    from app.services.ranking_weights import nightly_min_score
+
+    return float(await nightly_min_score(db))
+
+
 async def open_counts_for_jobs(
-    db: AsyncSession, job_ids: Sequence[int], *, source: Optional[str] = None
+    db: AsyncSession,
+    job_ids: Sequence[int],
+    *,
+    source: Optional[str] = None,
+    min_score: Optional[float] = None,
 ) -> dict[int, int]:
     """Ile osób czeka w skrzynce rekrutacji — ZESPOŁOWO, nie per użytkownik.
 
@@ -798,10 +837,12 @@ async def open_counts_for_jobs(
     propozycji nie trafiają do słownika (wołający czyta ``.get(job_id, 0)``).
     ``source`` zawęża do par, które ma dane źródło (np. ``full_base`` —
     nocny przegląd bazy); status pary liczy się jak zwykle ze wszystkich.
+    Osoby spod progu (najlepsze 40) się nie liczą (:func:`meets_threshold`).
     """
     ids = sorted({int(j) for j in job_ids})
     if not ids:
         return {}
+    threshold = await proposal_threshold(db, min_score)
     pairs = (
         select(
             JobProposal.job_id.label("job_id"),
@@ -816,6 +857,7 @@ async def open_counts_for_jobs(
         .group_by(JobProposal.job_id, JobProposal.candidate_id)
         .having(
             _pair_status() == "proposed",
+            meets_threshold(threshold),
             *(
                 (func.bool_or(JobProposal.source == source),)
                 if source is not None
@@ -836,13 +878,16 @@ async def fresh_open_pairs(
     since: datetime,
     sources: Sequence[str],
     job_ids_subquery: Any,
+    min_score: Optional[float] = None,
 ) -> list[tuple[int, int]]:
     """Otwarte pary (rekrutacja, kandydat), których pierwszy wiersz z ``sources``
     pojawił się od ``since`` — najlepszy wynik pierwszy w obrębie rekrutacji.
 
     Ta sama widoczność co skrzynka (bez osób w rekrutacji i czarnej listy,
-    status pary ``proposed``). Czyta poranny dzwonek „Do przejrzenia”.
+    status pary ``proposed``). Czyta poranny dzwonek „Do przejrzenia”. Osoby
+    spod progu (najlepsze 40) nie dzwonią (:func:`meets_threshold`).
     """
+    threshold = await proposal_threshold(db, min_score)
     first_seen = func.min(JobProposal.first_seen_at).filter(
         JobProposal.source.in_(list(sources))
     )
@@ -855,7 +900,11 @@ async def fresh_open_pairs(
             ~_globally_blacklisted(JobProposal.candidate_id),
         )
         .group_by(JobProposal.job_id, JobProposal.candidate_id)
-        .having(_pair_status() == "proposed", first_seen >= since)
+        .having(
+            _pair_status() == "proposed",
+            first_seen >= since,
+            meets_threshold(threshold),
+        )
         .order_by(
             JobProposal.job_id,
             func.max(JobProposal.score).desc().nullslast(),
@@ -911,6 +960,9 @@ class ProposalRow:
     posting_seen_at: Optional[datetime] = None
     # Punktacja scrapera portalu (`job_board`) — inna skala, tylko jako dodatek.
     board_score: Optional[float] = None
+    # Najlepsze 40 (28.10.2026): para z samego nocnego przeglądu spod progu —
+    # na liście pod separatorem, poza licznikami (:func:`meets_threshold`).
+    below_threshold: bool = False
 
 
 def _posting_seen_at():
@@ -941,7 +993,11 @@ def _pairs_for_job(job_id: int, status: str, *columns):
 
 
 async def open_split_counts(
-    db: AsyncSession, *, job_id: int, since: datetime
+    db: AsyncSession,
+    *,
+    job_id: int,
+    since: datetime,
+    min_score: Optional[float] = None,
 ) -> dict[str, int]:
     """Otwarte propozycje w podziale: świeże z ogłoszeń i reszta („z bazy”).
 
@@ -949,8 +1005,10 @@ async def open_split_counts(
     ``POSTING_SOURCES`` zaproponowany od ``since``; ``base`` = pozostałe.
     Te same pary co :func:`list_for_job` ze ``status="proposed"``, więc
     ``postings_recent + base`` równa się ``total`` listy (przed ukryciem
-    osób przez bramkę widoczności na stronie).
+    osób przez bramkę widoczności na stronie) — bez osób spod progu: te
+    zwraca osobno ``below_threshold`` (najlepsze 40, 28.10.2026).
     """
+    threshold = await proposal_threshold(db, min_score)
     recent = func.coalesce(
         func.bool_or(
             and_(
@@ -960,16 +1018,26 @@ async def open_split_counts(
         ),
         False,
     )
-    sub = _pairs_for_job(job_id, "proposed", recent.label("posting_recent")).subquery()
+    sub = _pairs_for_job(
+        job_id,
+        "proposed",
+        recent.label("posting_recent"),
+        meets_threshold(threshold).label("counted"),
+    ).subquery()
     row = (
         await db.execute(
             select(
-                func.count().filter(sub.c.posting_recent),
-                func.count().filter(~sub.c.posting_recent),
+                func.count().filter(sub.c.posting_recent, sub.c.counted),
+                func.count().filter(~sub.c.posting_recent, sub.c.counted),
+                func.count().filter(~sub.c.counted),
             ).select_from(sub)
         )
     ).one()
-    return {"postings_recent": int(row[0] or 0), "base": int(row[1] or 0)}
+    return {
+        "postings_recent": int(row[0] or 0),
+        "base": int(row[1] or 0),
+        "below_threshold": int(row[2] or 0),
+    }
 
 
 async def list_for_job(
@@ -980,16 +1048,19 @@ async def list_for_job(
     limit: int = 20,
     offset: int = 0,
     now: Optional[datetime] = None,
+    min_score: Optional[float] = None,
 ) -> tuple[list[ProposalRow], int]:
     """Strona propozycji — jedna pozycja na OSOBĘ, ze złożonymi źródłami.
 
     Kolejność: przepięcia, potem wynik + punkty historii („znani zespołowi”,
     07.10.2026) malejąco (brak wyniku na końcu), potem najnowsze, potem id —
     stabilna między stronami. Pokazywany wynik zostaje bez punktów. ``is_new`` = zaproponowana (albo przywrócona po
-    nowym CV) w ciągu ostatnich 24 h; czysto kosmetyczne.
+    nowym CV) w ciągu ostatnich 24 h; czysto kosmetyczne. Osoby spod progu
+    (najlepsze 40, ``below_threshold``) stoją za wszystkimi od progu.
     """
     if status not in JOB_PROPOSAL_STATUSES:
         raise ValueError(f"Unknown job proposal status: {status!r}")
+    threshold = await proposal_threshold(db, min_score)
     new_since = (now or datetime.now(timezone.utc)) - NEW_PROPOSAL_WINDOW
     grouped = _pairs_for_job(
         job_id,
@@ -1016,6 +1087,7 @@ async def list_for_job(
         func.max(JobProposal.evidence["history"]["points"].as_float()).label(
             "history_points"
         ),
+        (~meets_threshold(threshold)).label("below_threshold"),
     )
     sub = grouped.subquery()
     total = int(await db.scalar(select(func.count()).select_from(sub)) or 0)
@@ -1024,6 +1096,7 @@ async def list_for_job(
             select(sub)
             .order_by(
                 sub.c.is_reassign.desc(),
+                sub.c.below_threshold,
                 (sub.c.rank_score + func.coalesce(sub.c.history_points, 0))
                 .desc()
                 .nullslast(),
@@ -1080,6 +1153,7 @@ async def list_for_job(
             board_score=(
                 float(row.board_score) if row.board_score is not None else None
             ),
+            below_threshold=bool(row.below_threshold),
         )
         for row in page
     ]
@@ -1099,18 +1173,21 @@ async def top_open_by_job(
     *,
     source: str = "full_base",
     per_job: int = 3,
+    min_score: Optional[float] = None,
 ) -> list[TopProposal]:
     """Najlepsze otwarte propozycje danego źródła — po ``per_job`` na rekrutację.
 
     Ta sama widoczność co lista skrzynki (:func:`_pairs_for_job`): bez
     wierszy ``expired``, bez osób już w pipeline'ie i z globalnej czarnej
     listy, status pary ``proposed``. Kolejność: wynik źródła malejąco, potem
-    kandydat (stabilna). Jedno zapytanie dla wszystkich rekrutacji.
+    kandydat (stabilna). Jedno zapytanie dla wszystkich rekrutacji. Bez osób
+    spod progu (:func:`meets_threshold`).
     """
     _validate_source(source)
     ids = sorted({int(j) for j in job_ids})
     if not ids or per_job <= 0:
         return []
+    threshold = await proposal_threshold(db, min_score)
     pairs = (
         select(
             JobProposal.job_id.label("job_id"),
@@ -1129,6 +1206,7 @@ async def top_open_by_job(
         .having(
             _pair_status() == "proposed",
             func.bool_or(JobProposal.source == source),
+            meets_threshold(threshold),
         )
         .subquery()
     )

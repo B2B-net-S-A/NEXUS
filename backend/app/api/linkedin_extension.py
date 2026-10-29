@@ -72,6 +72,7 @@ from app.core.scheduling import business_today
 from app.services import linkedin_extension_lookup as lookup_service
 from app.services import linkedin_extension_writes as writes
 from app.services.linkedin_extension_auth import (
+    LATEST_EXTENSION_VERSION,
     DailyLimitReached,
     allowed_extension_ids,
     count_add,
@@ -240,6 +241,7 @@ async def extension_me(
         user=user_brief(principal.user),
         usage=usage_out(principal.connection),
         frontend_url=frontend_url(),
+        latest_version=LATEST_EXTENSION_VERSION,
     )
 
 

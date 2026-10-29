@@ -1830,6 +1830,32 @@ async def apply_move(
         pending_rate=data.expected_rate_value is not None
         and data.expected_rate_value > 0,
     )
+    # Bliźniaki (0615, 28.10.2026): „Zweryfikowany” po screeningu pod każdy
+    # bliźniak albo z jawnym pominięciem (powód zostaje w Historii zdarzeń).
+    from app.services import job_twins  # noqa: PLC0415
+
+    twin_skipped = await job_twins.assert_twin_screening(
+        db,
+        candidate_id=data.candidate_id,
+        job=job,
+        user=policy.viewer,
+        target_column=target_column,
+        skips=data.twin_skips,
+    )
+    for skip in twin_skipped:
+        db.add(
+            Activity(
+                entity_type="candidate",
+                entity_id=data.candidate_id,
+                action="job_twin_skipped",
+                user_id=policy.actor_id,
+                details={
+                    "job_id": data.job_id,
+                    "twin_job_id": skip["job_id"],
+                    "reason": skip["reason"],
+                },
+            )
+        )
     skipped_requirements = debrief_skipped + verified_skipped
     # D6 (08.10.2026): „Wróć do poprawy” z „QC CV” niesie listę pól do poprawy.
     # Walidacja PRZED zapisem ruchu — zła lista nie może cofnąć karty bez niej.
@@ -2092,6 +2118,7 @@ async def apply_move(
         reason=data.autofill_reason,
         learned_from=data.autofill_learned_from,
         note=data.notes,
+        not_looking_until=data.autofill_not_looking_until,
     )
     # 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
     # zostawiały w historii samo słowo. Opis przychodzi jako `notes` (okna
@@ -2331,6 +2358,32 @@ async def apply_move(
                 candidate_id=data.candidate_id,
                 client_id=job.client_id,
                 except_job_id=job.id,
+            )
+        # „Nie szuka pracy” z datą (28.10.2026): profil + zdjęcie nietkniętych
+        # kart od systemu z innych rekrutacji, silnik pomija do tej daty.
+        if data.autofill_not_looking_until is not None:
+            from app.services import autofill_withdraw
+
+            change = await autofill_feedback.mark_not_looking(
+                db,
+                candidate_id=data.candidate_id,
+                until=data.autofill_not_looking_until,
+            )
+            if change is not None:
+                candidate_audit.record_candidate_audit(
+                    db,
+                    action=candidate_audit.AVAILABILITY_CHANGED,
+                    user_id=policy.actor_id,
+                    entity_id=data.candidate_id,
+                    details={
+                        **change,
+                        "source": "autofill_rejection",
+                        "job_id": job.id,
+                        "stage_id": stage.id,
+                    },
+                )
+            await autofill_withdraw.withdraw_elsewhere(
+                db, candidate_id=data.candidate_id, except_job_id=job.id
             )
         # „Ile chce?” z rozmowy — ta sama droga do „Stawki od” co stawka
         # z okna „Zweryfikowany”.
@@ -5358,6 +5411,18 @@ async def bulk_move_candidates(
             # Ruch zbiorczy nie zapisuje śladu `requirements_skipped` — bramka
             # pól obowiązuje tu także Delivery Leada (22.10.2026).
             allow_skip=False,
+        )
+    # Bliźniaki (0615): ruch zbiorczy nie zna powodów pominięcia — każdy
+    # bliźniak wymaga screeningu pary.
+    from app.services import job_twins  # noqa: PLC0415
+
+    for cid in unique_ids:
+        await job_twins.assert_twin_screening(
+            db,
+            candidate_id=cid,
+            job=job,
+            user=current_user,
+            target_column=bulk_target_column,
         )
 
     # Pipeline v4: cudza osoba zarezerwowana w „Nowych" blokuje całą paczkę.
