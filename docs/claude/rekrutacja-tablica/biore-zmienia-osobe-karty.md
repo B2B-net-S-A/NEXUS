@@ -52,3 +52,21 @@ https://claude.ai/artifact/7cvyoGQuvbJKv7f76bYtq2):
   `scripts/system_card_screening_backfill.py` (podgląd, `--apply`) daje im
   autora ruchu do „Screeningu” z blokadą liczoną od tamtego ruchu, więc nikt
   nie dostaje świeżej blokady.
+
+## Od „Zweryfikowanego” filtr liczy osobę, która zweryfikowała (29.10.2026)
+
+Zgłoszenie rekruterki z 29.10.2026: w rekrutacji Nordei w „Wysłane do Cpro”
+cztery karty miały jej imię (to ona je zweryfikowała), a „Kto dodał → Ty”
+zostawiał jedną. Dwie osoby dodał kolega, jedną silnik „Nowi na 20”. Karta
+od 20.10.2026 pokazuje od „Zweryfikowanego” w prawo osobę, która
+zweryfikowała (`cardOwner`), a filtr dalej liczył dodającą.
+
+- Filtr, menu i kolejka panelu (`board-added-by.cardPerson`) idą za kartą:
+  „Prowadzi” > „Biorę” (tylko w „Nowych” i „Screeningu”) > osoba, która
+  zweryfikowała (od „Zweryfikowanego”, `verified_by_id`) > dodająca. Osoba
+  od systemu po weryfikacji człowieka nie jest już „System”.
+- Kolumnę karty filtr dostaje z Tablicy (`withAddedByFilter`, klucz kolumny
+  z `foldBoardColumns`) albo z `peopleInProgress` (`board_column`). Karta
+  „Poza szablonem” nie ma kolumny i liczy się jak przed weryfikacją.
+- Bez zmian: Liga, premie i „Moi ludzie” liczą jak dotąd (pierwszy
+  weryfikujący i tak jest tam osobą pary, `prowadzi-przypisanie-osoby.md`).

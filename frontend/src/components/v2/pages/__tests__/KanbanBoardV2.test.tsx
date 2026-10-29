@@ -4157,6 +4157,24 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     expect(within(panel).getAllByText("Beata Lis").length).toBeGreaterThan(0);
   });
 
+  it("od „Zweryfikowanego” „Ty” pokazuje karty, które zweryfikowałeś, choć dodał je ktoś inny (29.10.2026)", async () => {
+    const verifiedBy = (p: ReturnType<typeof person>, by: number) => ({
+      ...p,
+      verified_by_id: by,
+      verified_by_name: ADDERS[by],
+    });
+    const columns = boardColumns([BEATA], [FILIP]) as unknown as Array<{ items: unknown[]; count: number }>;
+    const verified = [verifiedBy(person(47, "verified", "Gabriela", "Pająk", 8), 7)];
+    columns[2] = { ...columns[2], items: verified, count: verified.length };
+    renderFiltered({ kind: "user", userId: 7 }, columns as never);
+    expect(
+      await screen.findByRole("group", { name: "Zweryfikowany, liczba kandydatów: 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Gabriela Pająk" })).toBeInTheDocument();
+    // Ta sama osoba przed weryfikacją (Screening) liczy się u dodającej.
+    expect(screen.queryByRole("link", { name: "Filip Kos" })).toBeNull();
+  });
+
   it("bez filtra kolejka to cała kolumna „Nowi” (5), a nie cała Tablica (6)", async () => {
     renderFiltered(ADDED_BY_ALL);
     expect(await screen.findByRole("group", { name: "Nowi, liczba kandydatów: 5" })).toBeInTheDocument();
