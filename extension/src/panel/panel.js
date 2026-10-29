@@ -7,7 +7,7 @@ import { connectUrl, SERVERS } from "../config.js";
 import { readTab } from "../page.js";
 import { detectPage, PAGE_KINDS } from "../readers/index.js";
 import { clearConnection, getConnection, getServerId, onConnectionChanged, setServerId } from "../storage.js";
-import { chooseScreen, firstName, initialsOf, SCREENS, screenForError, usageLabel, withLocalContact } from "../view/logic.js";
+import { chooseScreen, firstName, initialsOf, SCREENS, screenForError, updateNotice, usageLabel, withLocalContact } from "../view/logic.js";
 import { apiErrorText } from "./errors.js";
 import { initialAddState, renderAdd } from "./screen-add.js";
 import { applyBatch, initialListState, renderList } from "./screen-list.js";
@@ -22,7 +22,7 @@ import {
   renderUnsupported,
 } from "./screen-misc.js";
 import { initialPersonState, renderPerson } from "./screen-person.js";
-import { h, linkButton } from "./ui.js";
+import { externalLink, h, linkButton } from "./ui.js";
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const READ_ATTEMPTS = 3;
@@ -65,6 +65,7 @@ const api = createApi({
 const view = document.getElementById("view");
 const userBox = document.getElementById("user");
 const menu = document.getElementById("menu");
+const updateBox = document.getElementById("update");
 
 const ctx = {
   state,
@@ -113,7 +114,15 @@ const SCREEN_RENDERERS = {
   [SCREENS.LIST]: renderList,
 };
 
+function renderUpdate() {
+  const notice = state.me ? updateNotice(state.me, chrome.runtime.getManifest().version, state.connection) : null;
+  updateBox.hidden = !notice;
+  updateBox.replaceChildren();
+  if (notice) updateBox.append(`Jest nowa wersja wtyczki (${notice.version}). `, externalLink("Pobierz z NEXUSA ↗", notice.url));
+}
+
 function renderHeader() {
+  renderUpdate();
   userBox.replaceChildren();
   if (state.me?.user) {
     userBox.append(

@@ -18,10 +18,16 @@ import { PAGE_KINDS, detectPage } from "./readers/kinds.js";
 export async function capturePage(cfg) {
   const captureUrl = location.href;
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  // Starszy układ podaje tekst dwa razy (widoczny + dla czytnika ekranu), a
+  // innerText skleja je bez separatora: „JavaJava”. Linia z dwóch równych połówek = jedna.
+  const undouble = (s) => {
+    const half = s.length / 2;
+    return s.length >= 4 && Number.isInteger(half) && s.slice(0, half) === s.slice(half) ? s.slice(0, half).trim() : s;
+  };
   const linesOf = (el) =>
     String((el && (el.innerText ?? el.textContent)) || "")
       .split("\n")
-      .map((s) => s.replace(/\s+/g, " ").trim())
+      .map((s) => undouble(s.replace(/\s+/g, " ").trim()))
       .filter(Boolean);
   const textOf = (el) => linesOf(el).join(" ");
   const isForeign = (el) => {
@@ -114,7 +120,9 @@ export async function capturePage(cfg) {
     scopes = [main];
   }
 
-  // Profil: imię to pierwszy h2 w main (zmierzone — h1 nie ma); Recruiter: h1 albo h2.
+  // Profil: imię to pierwszy h2 w main (zmierzone — h1 nie ma); starszy układ ma
+  // imię w h1 karty górnej, a h2 to nagłówki sekcji, więc h1 w sekcji idzie pierwszy.
+  // Recruiter: h1 albo h2.
   let heading = null;
   for (const sel of cfg.headingSelectors) {
     heading = heading || [...main.querySelectorAll(sel)].find((h) => !isForeign(h) && textOf(h)) || null;
@@ -226,7 +234,7 @@ export function captureConfig(url) {
     foreign: FOREIGN_REGIONS,
     recruiterProfile: kind === PAGE_KINDS.RECRUITER_PROFILE,
     scroll: kind === PAGE_KINDS.PROFILE || kind === PAGE_KINDS.RECRUITER_PROFILE,
-    headingSelectors: kind === PAGE_KINDS.PROFILE ? ["h2", "h1"] : kind === PAGE_KINDS.RECRUITER_PROFILE ? [...CAPTURE.recruiterNames, "h1, h2"] : ["h1, h2"],
+    headingSelectors: kind === PAGE_KINDS.PROFILE ? ["section h1", "h2", "h1"] : kind === PAGE_KINDS.RECRUITER_PROFILE ? [...CAPTURE.recruiterNames, "h1, h2"] : ["h1, h2"],
   };
 }
 

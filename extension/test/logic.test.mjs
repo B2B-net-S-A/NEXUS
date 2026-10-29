@@ -26,6 +26,7 @@ import {
   tenureMonths,
   todayLabel,
   usageLabel,
+  updateNotice,
 } from "../src/view/logic.js";
 
 const NOW = new Date("2026-10-28T10:00:00Z");
@@ -157,4 +158,22 @@ test("kontakt zapisany w panelu trafia od razu na oś osoby (bez nowego odczytu)
   assert.equal(next.contacts.length, 2);
   assert.deepEqual(next.contacts[0], { at: "2026-10-28T12:00:00Z", user_name: "Jan Testowy", channel_label: "InMail", note: "rekrutacja: Java Developer" });
   assert.equal(lookup.contacts.length, 1, "bez mutacji wejścia");
+});
+
+test("updateNotice: nowsza wersja w NEXUSIE → baner z linkiem do /wtyczka", () => {
+  const conn = { frontUrl: "https://nexus.b2bnetwork.pl" };
+  assert.deepEqual(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn), {
+    version: "1.0.4",
+    url: "https://nexus.b2bnetwork.pl/wtyczka",
+  });
+  assert.deepEqual(updateNotice({ latest_version: "1.10.0" }, "1.9.9", conn)?.version, "1.10.0", "liczbowo, nie tekstowo");
+});
+
+test("updateNotice: ta sama albo starsza wersja, brak danych → bez banera", () => {
+  const conn = { frontUrl: "https://nexus.b2bnetwork.pl" };
+  assert.equal(updateNotice({ latest_version: "1.0.3" }, "1.0.3", conn), null);
+  assert.equal(updateNotice({ latest_version: "1.0.2" }, "1.0.3", conn), null, "wersja ze sklepu bywa nowsza niż backend");
+  assert.equal(updateNotice({}, "1.0.3", conn), null, "stary backend bez pola");
+  assert.equal(updateNotice({ latest_version: "abc" }, "1.0.3", conn), null);
+  assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", null), null);
 });

@@ -30,7 +30,13 @@ describe("job-background-events", () => {
       "Po publikacji rekrutacji: 5 propozycji.",
     );
     expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 3 }))).toBe(
-      "System wycofał z „Nowych” 3 swoje osoby — stawka ponad 25% nad budżetem.",
+      "System wycofał z „Nowych” 3 swoje osoby — stawka ponad budżetem.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 1, why: "not_looking" }))).toBe(
+      "System wycofał z „Nowych” 1 swoją osobę — „Nie szuka pracy” z innej rekrutacji.",
+    );
+    expect(backgroundEventMessage(ev({ kind: "autofill_withdrawn", count: 2, why: "client" }))).toBe(
+      "System wycofał z „Nowych” 2 swoje osoby — odrzucenie na cały klient w innej rekrutacji.",
     );
   });
 

@@ -43,15 +43,47 @@ IMPORT_COUNTS = IMPORT_COUNTS_REQUIRED | {
     "notes_skipped_empty",
     "leads_skipped_closed",
     "leads_skipped_existing_client",
+    # Poprawki po audycie importu (28.10.2026).
+    "companies_owner_label",
+    "companies_kept_by_domain_or_registry",
+    "companies_redirected_to_merge_target",
+    "companies_merge_cycle",
+    "company_contacts_imported",
+    "company_contacts_primary",
+    "company_contacts_not_reinserted",
+    "company_contacts_skipped_unresolved",
+    "activities_external_id_too_long",
+    "notes_candidate_prep_skipped",
+    "notes_candidate_prep_removed",
+    "transcripts_imported",
+    "transcripts_skipped_deal_not_imported",
+    "transcripts_candidate_prep_skipped",
+    "leads_skipped_job_board",
+    "leads_job_board_removed",
 }
+# Liczniki z nazwą pola albo tabeli: wartość spoza słownika NEXUSA i wiersze
+# zmienione w NEXUSIE po poprzednim imporcie (ochrona przed nadpisaniem).
+IMPORT_COUNT_PATTERNS = (
+    re.compile(r"invalid_[a-z][a-z_]{0,40}"),
+    re.compile(r"edited_in_nexus_sales_[a-z_]{1,40}"),
+)
+FILE_KINDS = ("files", "offer_files")  # załączniki i archiwum ofert z Atlasa
 FILE_COUNTS_COMMON = {
-    "files_already_copied",
     "files_external_reference",
-    "files_skipped_owner_not_imported",
+    *(
+        f"{kind}_{suffix}"
+        for kind in FILE_KINDS
+        for suffix in ("already_copied", "skipped_owner_not_imported")
+    ),
 }
 FILE_COUNTS_BY_MODE = {
-    "files-dry-run": FILE_COUNTS_COMMON | {"files_would_copy"},
-    "files-apply": FILE_COUNTS_COMMON | {"files_missing_in_storage", "files_copied"},
+    "files-dry-run": FILE_COUNTS_COMMON | {f"{kind}_would_copy" for kind in FILE_KINDS},
+    "files-apply": FILE_COUNTS_COMMON
+    | {
+        f"{kind}_{suffix}"
+        for kind in FILE_KINDS
+        for suffix in ("missing_in_storage", "copied")
+    },
 }
 
 
@@ -119,7 +151,11 @@ def validate_report(message: str, mode: str) -> dict[str, Any]:
     if mode.startswith("files-"):
         if not set(counts) <= FILE_COUNTS_BY_MODE[mode]:
             raise ReportValidationError
-    elif not IMPORT_COUNTS_REQUIRED <= set(counts) <= IMPORT_COUNTS:
+    elif not IMPORT_COUNTS_REQUIRED <= set(counts) or not all(
+        key in IMPORT_COUNTS
+        or any(pattern.fullmatch(key) for pattern in IMPORT_COUNT_PATTERNS)
+        for key in counts
+    ):
         raise ReportValidationError
     return {"applied": expected_applied, **counts}
 
