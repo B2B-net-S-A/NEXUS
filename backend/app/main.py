@@ -334,6 +334,7 @@ from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
 from app.api import competence_team as competence_team_api
 from app.api import people_setup as people_setup_api
+from app.api import announcements as announcements_api
 from app.api import request_work_states as request_work_states_api
 from app.api import request_board as request_board_api
 
@@ -2217,6 +2218,12 @@ app.include_router(
     people_setup_api.router,
     prefix="/api/people-setup",
     tags=["people-setup"],
+)
+# 0619: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
+app.include_router(
+    announcements_api.router,
+    prefix="/api/announcements",
+    tags=["announcements"],
 )
 app.include_router(
     request_work_states_api.router,

@@ -44,6 +44,9 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.password_reset_requested,
         NotificationType.password_changed_by_admin,
         *HR_PERSONAL_NOTIFICATION_TYPES,
+        # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
+        # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
+        NotificationType.announcement_important,
     }
 )
 
