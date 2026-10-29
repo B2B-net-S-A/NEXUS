@@ -22,7 +22,7 @@ from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_stage_removal import CandidateStageRemoval
-from app.models.job import Job
+from app.models.job import Job, RemotePolicy
 from app.models.note import Note
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import ProcessStatus, RecruitmentProcess
@@ -202,3 +202,73 @@ async def test_a_saved_screening_or_scorecard_counts_as_touched(monkeypatch):
         assert await autofill_withdraw.plan(db, job_ids=[job_id]) == [
             (untouched, job_id)
         ]
+
+
+# ── Dalej niż 100 km od biura (29.10.2026) ──────────────────────────────────
+
+
+async def _cities(job_id: int, cities: dict[int, str]) -> None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.location = "Warszawa"
+        job.remote_policy = RemotePolicy.hybrid
+        for cid, city in cities.items():
+            (await db.get(Candidate, cid)).city = city
+        await db.commit()
+
+
+async def test_far_plan_takes_untouched_cards_far_from_every_office(monkeypatch):
+    """Karty dodane przed regułą km: zdejmuje osobę ponad 100 km od biura;
+    bliską, z nieznanym miastem i tę, która sama wskazała biuro — zostawia."""
+    world = await _system_cards(monkeypatch, 4)
+    job_id = world["job_id"]
+    krakow, pruszkow, declared, unknown = world["ids"]
+    await _cities(job_id, {krakow: "Kraków", pruszkow: "Pruszków", declared: "Wrocław"})
+    async with AsyncSessionLocal() as db:
+        (await db.get(Candidate, declared)).preferences = {
+            "office_cities": ["Warszawa"]
+        }
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        pairs = await autofill_withdraw.plan_far(db, job_ids=[job_id])
+        assert pairs == [(krakow, job_id)]
+        withdrawn = await autofill_withdraw.apply(
+            db, pairs, reason=autofill_withdraw.FAR_REMOVAL_REASON, check_far=True
+        )
+        await db.commit()
+    assert withdrawn == [(krakow, job_id)]
+
+    async with AsyncSessionLocal() as db:
+        [removal] = (
+            await db.scalars(
+                select(CandidateStageRemoval).where(
+                    CandidateStageRemoval.job_id == job_id,
+                    CandidateStageRemoval.candidate_id == krakow,
+                )
+            )
+        ).all()
+        assert removal.reason == autofill_withdraw.FAR_REMOVAL_REASON
+        [event] = (
+            await db.scalars(
+                select(Activity).where(
+                    Activity.entity_type == "job_automation",
+                    Activity.entity_id == job_id,
+                    Activity.action == autofill_withdraw.ACTION,
+                )
+            )
+        ).all()
+        assert event.details["why"] == "far"
+
+
+async def test_far_plan_leaves_remote_recruitments(monkeypatch):
+    world = await _system_cards(monkeypatch, 1)
+    job_id = world["job_id"]
+    [krakow] = world["ids"]
+    await _cities(job_id, {krakow: "Kraków"})
+    async with AsyncSessionLocal() as db:
+        (await db.get(Job, job_id)).remote_policy = RemotePolicy.remote
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        assert await autofill_withdraw.plan_far(db, job_ids=[job_id]) == []
