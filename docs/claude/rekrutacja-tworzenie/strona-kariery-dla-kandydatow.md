@@ -290,6 +290,33 @@ Reguły, które łatwo cofnąć:
     `layouts/brandFonts.css`, nigdy Google Fonts w buildzie).
   - Harness: `/preview/kariera?szablon=<id>`.
 
+- **Reszta ekranów kariery w tej samej ramie marki (decyzja Artura 29.10.2026,
+  makiety przed/po https://claude.ai/artifact/6AiPNeFPmHz6URWk1oNFuP).** Po
+  #2789 tablica, strona rekrutera, podziękowanie, zamknięta rekrutacja, 404,
+  RODO, ekran ładowania i grafiki OG zostały w oknie terminala (`$ ls`,
+  `whoami`, mono) z samymi nowymi kolorami. Teraz wszystkie stoją na
+  `components/career/brand/` (`BrandPage`: pasek z logo B2B, stopka
+  z `COMPANY_LEGAL_LINE`, `brandPage.module.css` w języku szablonu Grafit).
+  - Tablica `/` i strona rekrutera `/<slug>`: **Grafit** (wybór Artura z
+    wariantów Grafit/Jasny). Tablica = karty (kategoria, tytuł, podtytuł, do 4
+    wymagań, miasto · tryb, rekruter) w dwóch kolumnach; podgląd sceny
+    (`BoardPreview.tsx`) i dolny przyklejony „Zostaw CV” odeszły — „Zostaw CV”
+    jest w przyklejonym pasku i otwiera formularz przez `#zostaw-cv`.
+  - Podziękowanie i zamknięta rekrutacja biorą kolory szablonu rekrutacji
+    (`CareerThemeScope` w `CareerJobView`); formularze `tone="plain"`.
+  - **Grafika OG = `components/career/ogCard.tsx`** (bez Node, satori): logo,
+    status, tytuł 56–100 px wg długości (czerwone ostatnie słowo tylko z liter),
+    kafle Lokalizacja / Tryb pracy / Umowa w jednej linii („Warszawa +3”,
+    `ogJobTiles`), adres i wezwanie. Kolory **wg szablonu rekrutacji** (wybór
+    Artura), parametry ukryte przełącznikiem „pokaż” nie trafiają do grafiki.
+    Ten sam kadr, przeskalowany, rysuje podgląd posta w oknie „Udostępnij”
+    (`LinkedInPreviewCard`) — nie rysuj go drugi raz osobno.
+  - Fonty grafik OG: `Montserrat-{600,800}.ttf` i `SourceSans3-{400,600}.ttf`
+    w `src/app/fonts` (instancje z lokalnych woff2, satori nie czyta woff2).
+  - `CareerMotion` (SplitText, ScrambleText, Lenis), `TerminalChrome`,
+    `CareerHero` i `CareerFooter` usunięte; dawne opisy etapu 7 niżej są
+    historią.
+
 - **Strona główna = tablica otwartych rekrutacji (etap 6, decyzje Artura
   D1 = A i D2 = A, 20.10.2026, makiety 8aVZkzVxkVnkVVNBUDgL4h, plansze 6b,
   6c, 6e).** `GET /api/public/career/jobs` (publiczna, 60/min, cache 60 s
@@ -342,12 +369,11 @@ Reguły, które łatwo cofnąć:
     `lib/career/board.ts`): kategorie z licznikami (liczone po szukaniu
     i trybie, bez samej kategorii; puste kategorie schowane), szukanie bez
     polskich znaków (każde słowo w tytule, podtytule, mieście albo
-    wymaganiach), tryb pracy (kilka = „lub”), 12 wierszy i „pokaż kolejne”,
-    znak i podgląd sceny w barwach szablonu (`BoardPreview.tsx`, etap 7),
-    na telefonie kategorie łamane w wiersze i przyklejone „Zostaw CV”,
-    znikające, gdy sekcja jest na ekranie. „Brak otwartych rekrutacji” tylko przy udanym odczycie;
+    wymaganiach), tryb pracy (kilka = „lub”), 12 kart i „Pokaż kolejne”,
+    na telefonie kategorie w jednym przewijanym wierszu (od 29.10.2026 karty
+    marki, wyżej). „Brak otwartych rekrutacji” tylko przy udanym odczycie;
     awaria API = komunikat „Chwilowa przerwa”, nigdy pusta lista. Kontrast
-    tekstu kart i etykiet scen ≥ 4,5:1 pilnuje `CareerBoardView.test.tsx`.
+    tekstu kart ≥ 4,5:1 w każdym szablonie pilnuje `CareerBoardView.test.tsx`.
     Harness: `/preview/kariera#tablica` (plus `#tablica-pusta`,
     `#tablica-awaria`).
 - **Jedna ścieżka zapisu zgłoszenia:** `services/public_apply.submit_application`
@@ -370,8 +396,9 @@ Reguły, które łatwo cofnąć:
   `CAREER_PUBLIC_BASE_URL` = `PUBLIC_BASE_URL/kariera`). `AppShellV2` renderuje
   gołą stronę po segmencie `kariera` — po rewrite `usePathname()` zwraca adres
   widoczny, nie wewnętrzny.
-- **Fonty strony kariery (Geist, JetBrains Mono) są lokalne** i ładowane tylko w
-  jej layoucie; grafiki OG czytają TTF przez `fs`, stąd
+- **Fonty strony kariery są lokalne** (Geist i JetBrains Mono w layoucie,
+  Montserrat i Source Sans 3 w `layouts/brandFonts.css`); grafiki OG czytają
+  TTF przez `fs`, stąd
   `outputFileTracingIncludes` w `next.config.ts` (obraz standalone).
 - Klauzula `/kariera/rodo`: kontakt rodo@b2bnetwork.pl, okres przechowywania
   3 lata od zgłoszenia lub do cofnięcia zgody (decyzja Artura 27.09.2026, F16).
@@ -408,7 +435,8 @@ Reguły, które łatwo cofnąć:
   ScrollTrigger, Lenis) są na planszach 7a–7c kanwy
   https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h i w prototypie
   https://claude.ai/artifact/TsUgULCMSSjVTiYWvoGN3b.
-- **Tablica jako lista z żywym podglądem (etap 7, D2 = A, 21.10.2026):**
+- **Tablica jako lista z żywym podglądem (etap 7, D2 = A, 21.10.2026; od
+  29.10.2026 karty marki bez podglądu — wyżej):**
   karty zastąpiła lista wierszy (znak szablonu, tytuł, podtytuł, „miejsce ·
   kategoria · rekruter”, „Zobacz”). Od 1024 px obok listy stoi przyklejony
   podgląd (`BoardPreview.tsx`): najechanie albo fokus na wierszu buduje szkic
@@ -426,7 +454,8 @@ Reguły, które łatwo cofnąć:
   odeszły razem ze scenami 28.10.2026 (`FitSection`, `ProcessSteps`,
   `ApplyDock`). Odpowiedniki są w układach: karta „Co już masz?” w Terminalu,
   sekcja „Proces rekrutacji” i przyklejony pasek „Aplikuj” na telefonie.
-- **Moment otwarcia i płynny scroll (etap 7, PR D, D3 = A, 21.10.2026):**
+- **Moment otwarcia i płynny scroll (etap 7, PR D, D3 = A, 21.10.2026;
+  usunięte 29.10.2026 razem z oknem terminala — wyżej):**
   `CareerMotion.tsx` (montują go widoki tablicy, rekrutacji i rekrutera, nie
   układ `/kariera` — strona za `loading.tsx` dochodzi strumieniem i efekt
   w układzie ruszał przed hydratacją tytułu; po jednym na korzeń `.kr-root`) przy każdym adresie wysuwa linie tytułu `.kr-title` spod maski

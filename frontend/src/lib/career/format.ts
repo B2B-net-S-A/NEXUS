@@ -5,7 +5,7 @@
  * `[hybryda · 2 dni]`. Pusta wartość = wiersz znika (nie „[—]"), bo pusty
  * parametr na stronie publicznej czyta się jak błąd, nie jak brak informacji.
  */
-import type { CareerJob, CareerJobParams, CareerRecruiterJob, RemotePolicy } from "./api";
+import type { CareerJobParams, CareerRecruiterJob, RemotePolicy } from "./api";
 
 const REMOTE_LABEL: Record<RemotePolicy, string> = {
   remote: "zdalnie",
@@ -82,29 +82,6 @@ export function paramsSummary(params: CareerJobParams | null | undefined): strin
     .join(" · ");
 }
 
-/** Tytuł w dwóch liniach: ostatnie słowo na bordo, z kropką jak w makiecie. */
-export function splitTitle(title: string): { first: string; second: string } {
-  const words = title.trim().split(/\s+/).filter(Boolean);
-  const last = words[words.length - 1] ?? "";
-  return {
-    first: words.slice(0, -1).join(" "),
-    // Kropka tylko po literze/cyfrze — nie po „)", „.", „?" itd. („(ZOB-3003)." wyglądało jak błąd).
-    second: /[\p{L}\p{N}]$/u.test(last) ? `${last}.` : last,
-  };
-}
-
-/** Ścieżka w pasku okna i poleceniach: slug bez losowego sufiksu, jeśli jest. */
-export function jobHandle(job: Pick<CareerJob, "slug" | "title">): string {
-  const fromTitle = job.title
-    .toLocaleLowerCase("pl-PL")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return fromTitle || job.slug;
-}
-
 /** Nazwa wymagania jako „identyfikator": „Java 17+ i Spring Boot" → java_17_i_spring_boot. */
 export function requirementHandle(name: string): string {
   const handle = name
@@ -149,14 +126,3 @@ export function genitiveName(firstName: string): string {
   return `${name}a`; // Tomasz → Tomasza
 }
 
-/** Login w stylu `marta@b2bnetwork`. */
-export function recruiterLogin(firstName: string): string {
-  const base = firstName
-    .trim()
-    .toLocaleLowerCase("pl-PL")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/ł/g, "l")
-    .replace(/[^a-z0-9]+/g, "");
-  return `${base || "rekrutacja"}@b2bnetwork`;
-}
