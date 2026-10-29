@@ -651,12 +651,18 @@ async def _require_client_rule_access(
     client_id: int,
     *,
     write: bool,
+    central_lock: bool = True,
 ) -> None:
-    """Enforce the authoritative client graph below the section ceiling."""
+    """Enforce the authoritative client graph below the section ceiling.
+
+    ``central_lock=False`` — zapis spoza katalogu zasad centralnych (wzór
+    „Karty przed CV”, ``cover_sheets.py``): katalog go nie prowadzi, więc
+    blokada zasad centralnych go nie dotyczy; graf klienta tak.
+    """
 
     from app.services.cv_generator_b2b import central_policies
 
-    if write and central_policies.enabled():
+    if write and central_lock and central_policies.enabled():
         raise HTTPException(403, "Reguły CV są zarządzane centralnie w backendzie.")
     access = await resolve_client_access(db, user, client_id, purpose="org")
     allowed = access.can_edit_knowledge if write else access.can_view_knowledge

@@ -197,7 +197,6 @@ async def test_recruiter_never_sees_the_sheet(app_client, app_auth_headers):
     ).status_code == 403
 
 
-
 @pytest.mark.asyncio
 async def test_second_save_waits_for_the_first_and_keeps_its_field():
     # Dwa zapisy naraz na parze bez poprawek, każdy we własnej transakcji
@@ -218,3 +217,24 @@ async def test_second_save_waits_for_the_first_and_keeps_its_field():
         assert other.id == form.id
         assert other.fields["location"]["value"] == "Gdańsk"
         await second.rollback()
+
+
+@pytest.mark.asyncio
+async def test_template_upload_works_with_central_cv_policies(
+    app_client, app_auth_headers, monkeypatch
+):
+    # Produkcja: reguły generatora CV prowadzi katalog w backendzie i ich
+    # zapis daje 403. Wzór karty to osobny dokument klienta — katalog go nie
+    # zna, więc blokada zasad centralnych go nie dotyczy (29.10.2026).
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "CV_CENTRAL_POLICIES_ENABLED", True)
+    client_id, job_id, candidate_id = await _pair()
+    uploaded = await _upload(app_client, app_auth_headers, client_id, cover_docx())
+    assert uploaded.status_code == 200, uploaded.text
+    url = f"/api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet"
+    assert (await app_client.get(url, headers=app_auth_headers)).json()["enabled"]
+    removed = await app_client.delete(
+        f"/api/clients/{client_id}/cover-sheet-template", headers=app_auth_headers
+    )
+    assert removed.status_code in (200, 204), removed.text
