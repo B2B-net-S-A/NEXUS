@@ -166,6 +166,7 @@ import {
   recruitmentRateHintsQueryKey,
 } from "@/lib/api/recruitmentRateHints";
 import { sentLine, useClientRateHistory } from "@/lib/api/clientRateHistory";
+import { downloadCoverSheet, useCoverSheet } from "@/lib/api/coverSheet";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
@@ -1403,6 +1404,25 @@ export function PipelineCandidateDock({
     !split && clientRateText != null && canViewClientRate(authUser),
   ).data;
   const clientRateLock = clientRateHistory?.order_lock ?? null;
+  // „Karta przed CV” (29.10.2026): po wysyłce DL pobiera kartę także stąd —
+  // tylko u klienta z wzorem karty i tylko rola, która widzi stawkę.
+  const coverSheetEnabled =
+    useCoverSheet(
+      item.candidate_id,
+      jobId,
+      !split && clientRateText != null && canViewClientRate(authUser),
+    ).data?.enabled === true;
+  const [coverSheetBusy, setCoverSheetBusy] = useState(false);
+  const downloadSheet = async () => {
+    setCoverSheetBusy(true);
+    try {
+      await downloadCoverSheet(item.candidate_id, jobId);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się pobrać karty przed CV."));
+    } finally {
+      setCoverSheetBusy(false);
+    }
+  };
   const clientRateHint = clientRateHistory
     ? [
         sentLine(clientRateHistory),
@@ -1532,6 +1552,17 @@ export function PipelineCandidateDock({
                       className="ml-1.5 text-xs font-medium text-primary hover:underline"
                     >
                       Zmień
+                    </button>
+                  ) : null}
+                  {coverSheetEnabled ? (
+                    <button
+                      type="button"
+                      data-testid="dock-cover-sheet-download"
+                      disabled={coverSheetBusy}
+                      onClick={() => void downloadSheet()}
+                      className="ml-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                    >
+                      Karta (Word)
                     </button>
                   ) : null}
                 </>

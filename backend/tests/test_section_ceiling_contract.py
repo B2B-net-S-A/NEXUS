@@ -113,6 +113,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/settings/client-playbooks": "źródło Pomoc → Klienci; decyzja: odczyt org-wide",
     # ── Kontrola sekcji w treści handlera ───────────────────────────────────
     "GET /api/clients/{client_id}/cv-rule": "_require_shared_rule_section_read: Delivery albo Pipeline w handlerze",
+    "GET /api/clients/{client_id}/cover-sheet-template": "jak GET cv-rule — _require_shared_rule_section_read w handlerze (karta przed CV, 29.10.2026)",
     "GET /api/search/": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     "GET /api/search/global": "wyszukiwarka globalna filtruje każdy kubełek po sekcji w handlerze",
     # ── Jarvis (0330) — asystent dostępny dla każdej roli ──────────────────

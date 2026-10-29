@@ -1,0 +1,38 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board"
+ ],
+ "routes": {
+  "DELETE /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
+  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/clients/{client_id}/cover-sheet-template": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "PUT /api/candidates/{candidate_id}/recruitments/{job_id}/cover-sheet": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "PUT /api/clients/{client_id}/cover-sheet-template": "PDDPDDDDPPPDDDPDDDDDDDDDDD"
+ }
+}

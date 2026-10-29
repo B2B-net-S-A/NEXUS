@@ -51,6 +51,7 @@ import {
   type RecommendationCard,
 } from "@/lib/api/recommendationCards";
 import { dlMatchKeys, type DlMatchSuggestions } from "@/lib/dl-match-api";
+import { coverSheetKey } from "@/lib/api/coverSheet";
 import { useAuthStore } from "@/store/auth";
 
 const CANDIDATE_ID = 101;
@@ -630,6 +631,8 @@ function seededClient(): QueryClient {
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
   qc.setQueryData(dlMatchKeys.one(JOB_ID, CANDIDATE_ID), MATCH, fresh);
+  // Klient bez wzoru „Karty przed CV” — pigułki karty nie ma.
+  qc.setQueryData(coverSheetKey(CANDIDATE_ID, JOB_ID), { enabled: false }, fresh);
   // „@” w uwadze dla rekrutera (22.10.2026): lista osób do oznaczenia —
   // klucz `useMentionableUsers` dla zakresu rekrutacji.
   qc.setQueryData(

@@ -49,6 +49,7 @@ import {
   type LintResponse,
 } from "@/lib/cv-rules";
 import { Button } from "@/components/ui/button";
+import { CoverSheetTemplateSection } from "@/components/cv-rules/CoverSheetTemplateSection";
 
 const TOKENS = ["{STANOWISKO}", "{IMIE_NAZWISKO}", "{PROJEKT}", "{DATA}"];
 
@@ -345,6 +346,9 @@ export function CvRuleSettingsTab({
           </div>
         </div>
       </Group>
+
+      {/* 29.10.2026: wzór „Karty przed CV” — zapis od razu, osobno od reguły. */}
+      <CoverSheetTemplateSection clientId={clientId} />
 
       <Group icon={Wand2} title="Pogrubienia w CV" subtitle="Ta sama reguła w DOCX, HTML i publicznym CV; niezależnie od trybu redakcji." always>
         <label className="block text-xs font-medium" htmlFor="cvrule-highlights">Co pogrubiać</label>

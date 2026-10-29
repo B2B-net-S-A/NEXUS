@@ -3384,6 +3384,22 @@
    "file": "components/v2/request-board/RequestBoard.tsx",
    "marker": "request-row-set-p0",
    "v3_home": "Daily → wiersz requestu"
+  },
+  {
+   "id": "dl-review.cover-sheet",
+   "area": "przegląd DL",
+   "opis": "„Karta przed CV” (Credit Agricole, 29.10.2026): pigułka „Karta do klienta” u klienta z wzorem karty w regule CV — kartka jak w Wordzie, źródło przy każdym polu, poziom do sprawdzenia, wynagrodzenie za MD na żywo ze stawki do klienta, „Word”; linia „Karta przed CV gotowa” nad decyzją",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<ClientCoverSheet",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "panel.cover-sheet-download",
+   "area": "panel",
+   "opis": "„Karta (Word)” przy „Do klienta” w panelu osoby — karta przed CV po wysyłce, tylko u klienta z wzorem karty i dla ról ze stawką do klienta (29.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-cover-sheet-download",
+   "v3_home": "panel → Do klienta → Karta (Word)"
   }
  ]
 }

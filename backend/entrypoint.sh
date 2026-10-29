@@ -6286,6 +6286,9 @@ END $$""",
     "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
     "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
+    # 0626: wzór „Karty przed CV” klienta (Credit Agricole) — lustro 1:1
+    # z `app/services/cover_sheet_schema.TABLE_DDL` (pilnuje test_cover_sheet_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS client_cover_sheet_templates (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, content BYTEA NOT NULL, sha256 VARCHAR(64) NOT NULL, fields JSONB NOT NULL DEFAULT '[]'::jsonb, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).

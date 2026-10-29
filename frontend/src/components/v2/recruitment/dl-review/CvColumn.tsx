@@ -20,6 +20,7 @@
  * `heavy-bundle-boundaries.test.ts`), dopiero gdy DL przełączy podgląd.
  */
 
+import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { Loader2, ShieldCheck } from "lucide-react";
 
@@ -45,7 +46,8 @@ const CandidateCvPreview = dynamic(
   },
 );
 
-export type CvView = "company" | "original";
+// „client_sheet” — „Karta przed CV” klienta z wzorem karty (29.10.2026).
+export type CvView = "company" | "original" | "client_sheet";
 
 /**
  * „Szukaj w CV” zlecone z wymagań. Kształt `DocumentSearchRequest` spisany
@@ -60,6 +62,7 @@ export interface CvSearchRequest {
 const VIEWS: ReadonlyArray<{ value: CvView; label: string }> = [
   { value: "company", label: "CV firmowe" },
   { value: "original", label: "CV oryginalne" },
+  { value: "client_sheet", label: "Karta do klienta" },
 ];
 
 /**
@@ -95,15 +98,25 @@ export interface CvToolbarProps {
   requirements?: { active: boolean; missing: number; onSelect: () => void } | null;
   onOpenQc: () => void;
   className?: string;
+  /** Pigułka „Karta do klienta” — tylko gdy klient ma wzór karty (serwer: `enabled`). */
+  coverSheet?: boolean;
 }
 
-export function CvToolbar({ task, view, onViewChange, requirements = null, onOpenQc, className }: CvToolbarProps) {
+export function CvToolbar({
+  task,
+  view,
+  onViewChange,
+  requirements = null,
+  onOpenQc,
+  className,
+  coverSheet = false,
+}: CvToolbarProps) {
   const requirementsActive = requirements?.active ?? false;
   return (
     <div className={cn("flex min-w-0 flex-wrap items-center gap-2", className)} data-testid="dl-review-cv-toolbar">
       <div className="inline-flex flex-wrap rounded-md border border-border bg-muted/30 p-0.5">
         <div role="group" aria-label="Które CV pokazać" className="inline-flex">
-          {VIEWS.map((option) => {
+          {VIEWS.filter((option) => option.value !== "client_sheet" || coverSheet).map((option) => {
             const active = !requirementsActive && view === option.value;
             return (
               <button
@@ -156,6 +169,8 @@ export interface CvColumnProps {
   previewLoaders?: CvPreviewLoaders;
   searchRequest?: CvSearchRequest | null;
   className?: string;
+  /** Treść widoku „Karta do klienta” (`ClientCoverSheet`). */
+  coverSheet?: ReactNode;
 }
 
 export function CvColumn({
@@ -166,6 +181,7 @@ export function CvColumn({
   previewLoaders,
   searchRequest = null,
   className,
+  coverSheet = null,
 }: CvColumnProps) {
   return (
     <section
@@ -174,7 +190,9 @@ export function CvColumn({
       className={cn("flex min-w-0 flex-col", fill && "min-h-0", className)}
       data-testid="dl-review-cv"
     >
-      {view === "company" ? (
+      {view === "client_sheet" && coverSheet ? (
+        <div className={fill ? "flex min-h-0 flex-1 flex-col" : undefined}>{coverSheet}</div>
+      ) : view === "company" || view === "client_sheet" ? (
         // Ten sam `div` w każdym układzie: zmiana szerokości okna nie montuje
         // podglądu od nowa (plik CV pobiera się przy montowaniu).
         <div className={fill ? "relative min-h-0 flex-1 overflow-y-auto" : undefined}>

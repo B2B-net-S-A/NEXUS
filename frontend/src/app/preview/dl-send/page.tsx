@@ -46,6 +46,7 @@ import { recommendationCardQueryKey, type RecommendationCard } from "@/lib/api/r
 import { screeningFormQueryKey, type ScreeningFormState } from "@/lib/api/screeningForm";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 import { useUrlWriter } from "@/lib/url-selection";
+import { coverSheetKey } from "@/lib/api/coverSheet";
 import { DlSendPanel, DlSendPill } from "@/components/v2/shell/DlSendTopbarButton";
 import { useAuthStore } from "@/store/auth";
 
@@ -577,6 +578,7 @@ function seededClient(state: State): QueryClient {
     qc.setQueryData(candidateQueryKeys.cvDocuments(row.candidate_id), cvDocuments(row), fresh);
     qc.setQueryData(stageBrandedQueryKey(row.stage_id), brandedNone(row), fresh);
     qc.setQueryData(dlReviewContextQueryKey(row.job_id, row.candidate_id), reviewContext(row), fresh);
+    qc.setQueryData(coverSheetKey(row.candidate_id, row.job_id), { enabled: false }, fresh);
     qc.setQueryData(screeningFormQueryKey(row.job_id, row.candidate_id), screeningForm(row), fresh);
     qc.setQueryData(recommendationCardQueryKey(row.candidate_id, row.job_id), recommendationCard(row), fresh);
     qc.setQueryData(

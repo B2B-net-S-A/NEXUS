@@ -18,6 +18,7 @@ from sqlalchemy import select
 from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.cv_generated_document import CvGeneratedDocument
+from app.models.user import User
 from app.services.new_cv_company_cv import INTENT_ACTION, REPLACE_ACTION
 from tests.test_stage_cv_upload import (
     CLIENT_CV_NAME,
@@ -103,9 +104,14 @@ async def _edit(stage_id: int) -> None:
 async def _attach(stage_id: int, generated_id: int) -> bool:
     from app.services.cv_auto_generate import attach_as_stage_draft
 
+    # Istniejąca osoba, nie „1”: w shardzie CI po innych plikach użytkownika
+    # o id 1 nie ma, a klucz obcy na autorze wpisu dawał IntegrityError, który
+    # `attach_as_stage_draft` połyka jako „nie podpięto” (29.10.2026).
+    async with AsyncSessionLocal() as db:
+        actor_id = await db.scalar(select(User.id).order_by(User.id).limit(1))
     return await attach_as_stage_draft(
         stage_id=stage_id,
-        user_id=1,
+        user_id=actor_id,
         generated_id=generated_id,
         activity_action="branded_cv_attached_after_generation",
     )

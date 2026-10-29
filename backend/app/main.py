@@ -190,6 +190,7 @@ from app.api import contract_folder_docs
 from app.api import jarvis as jarvis_api
 from app.api import candidate_stage_cv as candidate_stage_cv_api
 from app.api import client_forms as client_forms_api
+from app.api import cover_sheets as cover_sheets_api
 from app.api import cv_editor_import as cv_editor_import_api
 from app.api import cv_pdf_preview as cv_pdf_preview_api
 from app.api import cv_ai_sources as cv_ai_sources_api
@@ -1844,6 +1845,8 @@ app.include_router(
     candidate_stage_cv_api.router, prefix="/api", tags=["candidate-stage-cv"]
 )
 app.include_router(client_forms_api.router, prefix="/api", tags=["client-forms"])
+# 0626: „Karta przed CV” (Credit Agricole) — wzór klienta i karta pary.
+app.include_router(cover_sheets_api.router, prefix="/api", tags=["cover-sheets"])
 # Edytor CV 2 (PR 5): podgląd importu Worda — trasa z limitem, osobny moduł.
 app.include_router(
     cv_editor_import_api.router, prefix="/api", tags=["candidate-stage-cv"]
@@ -3450,6 +3453,7 @@ async def api_health_deep_check():
     )
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
+    from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
@@ -3752,6 +3756,8 @@ async def api_health_deep_check():
         ("job_files", JobFile),
         # 0522: formularz CV klienta pary — brak tabeli = 500 w karcie osoby.
         ("candidate_client_forms", CandidateClientForm),
+        # 0626: wzór „Karty przed CV” — brak tabeli = 500 w przeglądzie DL-a.
+        ("client_cover_sheet_templates", ClientCoverSheetTemplate),
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),

@@ -12,6 +12,7 @@ vi.mock("@/lib/use-element-width", () => ({
 
 const get = vi.fn();
 const post = vi.fn();
+const put = vi.fn();
 const showSuccess = vi.fn();
 const showError = vi.fn();
 const showActionToast = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("@/lib/api", () => ({
   default: {
     get: (...a: unknown[]) => get(...a),
     post: (...a: unknown[]) => post(...a),
+    put: (...a: unknown[]) => put(...a),
   },
   // Lista osób do „@” (`useMentionableUsers`) czyta nazwany eksport.
   api: {
@@ -206,14 +208,19 @@ function mockApi({
   context = CONTEXT,
   form = FORM,
   match = null,
+  coverSheet = { enabled: false },
 }: {
   cvs?: Array<Record<string, unknown>>;
   availability?: Record<string, unknown> | null;
   context?: Record<string, unknown> | null;
   form?: ScreeningFormState;
   match?: Record<string, unknown> | null;
+  coverSheet?: Record<string, unknown> | null;
 } = {}) {
   get.mockImplementation((url: string) => {
+    if (url === "/api/candidates/21/recruitments/31/cover-sheet") {
+      return coverSheet ? Promise.resolve({ data: coverSheet }) : Promise.reject(new Error("boom"));
+    }
     if (url === "/api/dl-match/candidates/21" && match) return Promise.resolve({ data: match });
     if (url === "/api/dl-review/context") {
       return context ? Promise.resolve({ data: context }) : Promise.reject(new Error("boom"));
@@ -1431,5 +1438,156 @@ describe("DlReviewPanel — odrzucenie z uzasadnieniem i rozmowa u tego managera
     renderPanel();
     await screen.findByText("Kraków");
     expect(screen.queryByTestId("dl-review-same-manager")).toBeNull();
+  });
+});
+
+// „Karta przed CV” (29.10.2026): klient z wzorem karty (Credit Agricole).
+// Dane fikcyjne; opiekun to „Anna Przykładowa”, jak w teście wzoru na backendzie.
+function coverField(id: string, label: string, value: string | null, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    label,
+    value,
+    source: value ? "profile" : null,
+    source_label: value ? "z profilu" : null,
+    suffix: "",
+    to_check: false,
+    editable: false,
+    options: null,
+    ...extra,
+  };
+}
+
+const COVER_SHEET = {
+  enabled: true,
+  template: { filename: "Karta przed CV.docx" },
+  layout: [
+    { kind: "text", text: "B2B.NET S.A.", bold: false },
+    ...["name", "role", "level", "experience", "profile", "rate"].map((id) => ({ kind: "field", id })),
+    { kind: "text", text: "Opiekun po stronie dostawcy:", bold: true },
+    { kind: "text", text: "Anna Przykładowa, tel. +48 000 000 000", bold: false },
+  ],
+  fields: [
+    coverField("name", "", "Anna Nowak"),
+    coverField("role", "Rola:", "Java Developer"),
+    coverField("level", "Poziom doświadczenia:", "Specjalista", {
+      to_check: true,
+      editable: true,
+      options: ["Junior", "Specjalista", "Expert"],
+      source: "years",
+      source_label: "z 7 lat stażu — sprawdź",
+    }),
+    coverField("experience", "Staż:", "7 lat", { suffix: " doświadczenia komercyjnego", editable: true }),
+    coverField("profile", "Profil kompetencji:", "Java, Spring", { editable: true }),
+    coverField("rate", "Wynagrodzenie:", null, { suffix: " PLN netto za 1 MD" }),
+  ],
+  md_rate: null,
+  md_rate_label: null,
+  rate_origin: null,
+  rate_problem: "Wpisz stawkę do klienta — bez niej karta nie ma wynagrodzenia.",
+  missing: ["rate"],
+};
+
+describe("DlReviewPanel — karta przed CV", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuthStore.setState({ user: { id: 1, role: "delivery_lead" } } as never);
+    renderDocxSafely.mockResolvedValue(undefined);
+    post.mockResolvedValue({ data: {} });
+    loadJobRejectionReasons.mockResolvedValue([]);
+  });
+
+  it("bez wzoru karty u klienta nie ma pigułki „Karta do klienta”", async () => {
+    mockApi();
+    renderPanel();
+    await screen.findByText("Kraków");
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith("/api/candidates/21/recruitments/31/cover-sheet"),
+    );
+    expect(screen.queryByRole("button", { name: "Karta do klienta" })).toBeNull();
+    expect(screen.queryByTestId("cover-sheet-note")).toBeNull();
+  });
+
+  it("rekruter o kartę nie pyta — ma stawkę do klienta", async () => {
+    useAuthStore.setState({ user: { id: 2, role: "recruiter" } } as never);
+    mockApi({ coverSheet: COVER_SHEET });
+    renderPanel();
+    await screen.findByText("Kraków");
+    expect(get.mock.calls.some(([url]) => String(url).includes("cover-sheet"))).toBe(false);
+    expect(screen.queryByRole("button", { name: "Karta do klienta" })).toBeNull();
+  });
+
+  it("bez stawki karta mówi „tylko DL”, a ze stawką godzinową liczy MD × 8", async () => {
+    mockApi({ coverSheet: COVER_SHEET });
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Karta do klienta" }));
+    const sheet = await screen.findByTestId("cover-sheet");
+    expect(within(sheet).getByText("tylko DL")).toBeTruthy();
+    expect(within(sheet).getByRole("button", { name: /Word/ })).toBeDisabled();
+    expect(screen.getByTestId("cover-sheet-note")).toHaveTextContent("Karta przed CV czeka na stawkę");
+    // Opiekun ze wzoru stoi na kartce jak w Wordzie.
+    expect(within(sheet).getByText("Anna Przykładowa, tel. +48 000 000 000")).toBeTruthy();
+
+    await userEvent.type(screen.getByLabelText("Stawka do klienta"), "162,33");
+    expect(within(sheet).getByTestId("cover-sheet-wage")).toHaveTextContent("1 298,64 PLN netto za 1 MD");
+    expect(within(sheet).getByText("Twoja stawka × 8 h")).toBeTruthy();
+    expect(within(sheet).getByRole("button", { name: /Word/ })).toBeEnabled();
+    expect(screen.getByTestId("cover-sheet-note")).toHaveTextContent(
+      "Karta przed CV gotowa · 1 298,64 zł/MD · poziom do sprawdzenia",
+    );
+  });
+
+  it("poziom jest do sprawdzenia, a wybór zapisuje się od razu", async () => {
+    mockApi({ coverSheet: COVER_SHEET });
+    put.mockResolvedValue({
+      data: {
+        ...COVER_SHEET,
+        fields: COVER_SHEET.fields.map((field) =>
+          field.id === "level"
+            ? { ...field, value: "Expert", source: "dl", source_label: "wpisane przez DL — sprawdź" }
+            : field,
+        ),
+      },
+    });
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Karta do klienta" }));
+    const sheet = await screen.findByTestId("cover-sheet");
+    expect(within(sheet).getByText("z 7 lat stażu — sprawdź")).toBeTruthy();
+    await userEvent.selectOptions(within(sheet).getByLabelText("Poziom doświadczenia"), "Expert");
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith("/api/candidates/21/recruitments/31/cover-sheet", {
+        fields: { level: "Expert" },
+      }),
+    );
+    expect(await within(sheet).findByText("wpisane przez DL — sprawdź")).toBeTruthy();
+    expect(within(sheet).getByLabelText("Poziom doświadczenia")).toHaveValue("Expert");
+  });
+
+  it("drugi zapis karty czeka na pierwszy", async () => {
+    mockApi({ coverSheet: COVER_SHEET });
+    let finishFirst: (value: { data: unknown }) => void = () => undefined;
+    put
+      .mockImplementationOnce(() => new Promise((resolve) => (finishFirst = resolve)))
+      .mockResolvedValue({ data: COVER_SHEET });
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Karta do klienta" }));
+    const sheet = await screen.findByTestId("cover-sheet");
+    const profile = within(sheet).getByLabelText("Profil kompetencji");
+    await userEvent.clear(profile);
+    await userEvent.type(profile, "Java");
+    await userEvent.selectOptions(within(sheet).getByLabelText("Poziom doświadczenia"), "Expert");
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(1));
+    expect(put.mock.calls[0][1]).toEqual({ fields: { profile: "Java" } });
+    finishFirst({ data: COVER_SHEET });
+    await waitFor(() => expect(put).toHaveBeenCalledTimes(2));
+    expect(put.mock.calls[1][1]).toEqual({ fields: { level: "Expert" } });
+  });
+
+  it("awaria zapytania o kartę nie udaje klienta bez karty", async () => {
+    mockApi({ coverSheet: null });
+    renderPanel();
+    expect(await screen.findByTestId("cover-sheet-error")).toHaveTextContent(
+      "Nie udało się sprawdzić, czy klient chce karty przed CV.",
+    );
   });
 });

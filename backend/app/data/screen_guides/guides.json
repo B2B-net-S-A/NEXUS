@@ -172,7 +172,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Nowe CV: „Wgraj nowe CV” — CV do klienta powstanie z niego samo albo po pytaniu; „B2B_…” od razu jest CV do klienta. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Klient z własnym formularzem (np. CEZ): „Wypełnij z CV i screeningu”, braki — „Uzupełnij braki”, plik — „Pobierz Word”. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "„Wgraj nowe CV”: CV do klienta powstaje samo albo po pytaniu, „B2B_…” od razu. „Sprawdź i popraw” → „Gotowe, przekaż do DL”. Formularz klienta (CEZ): „Wypełnij z CV i screeningu”, „Uzupełnij braki”, „Pobierz Word”. PKO BP: po zgodzie RODO. Karta przed CV (CA, tylko DL): „Przejrzyj i wyślij” → „Karta do klienta”, po wysyłce „Karta (Word)”."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
