@@ -26,6 +26,7 @@ function job(id: number, extra: Partial<AlsoFitsManualJob> = {}): AlsoFitsManual
     client_reference: `${42700 + id}`,
     delivery_lead_name: "Marcin K.",
     joinable: true,
+    in_my_team: true,
     ...extra,
   };
 }
@@ -46,7 +47,7 @@ describe("„+ Dodaj inną rekrutację” w „Screening dla” (29.10.2026)", (
   beforeEach(() => vi.clearAllMocks());
 
   it("szuka od 2 znaków, pomija rekrutacje już na liście i dołącza z zespołu", async () => {
-    search.mockResolvedValue([job(42), job(7), job(9, { joinable: false })]);
+    search.mockResolvedValue([job(42), job(7), job(9, { joinable: false, in_my_team: false }), job(11, { in_my_team: false })]);
     const onAdd = vi.fn();
     withQuery(<JointAddJob candidateId={4860} fromJobId={763073} listedIds={new Set([7])} onAdd={onAdd} />);
     await openAndType("42742");
@@ -57,6 +58,10 @@ describe("„+ Dodaj inną rekrutację” w „Screening dla” (29.10.2026)", (
     expect(within(mine).getByText("Nordea Bank Abp · Twój zespół")).toBeInTheDocument();
     const foreign = screen.getByTestId("joint-add-9");
     expect(within(foreign).getByRole("button", { name: "+ Dodaj do Nowych" })).toBeInTheDocument();
+    // Cudzy zespół, ale para dozwolona — dołącza, z opisem „inny zespół”.
+    const other = screen.getByTestId("joint-add-11");
+    expect(within(other).getByText("Nordea Bank Abp · inny zespół · DL: Marcin K.")).toBeInTheDocument();
+    expect(within(other).getByRole("button", { name: "+ Dodaj i dołącz" })).toBeInTheDocument();
 
     await userEvent.setup().click(within(mine).getByRole("button", { name: "+ Dodaj i dołącz" }));
     expect(onAdd).toHaveBeenCalledWith(expect.objectContaining({ job_id: 42, joinable: true }));
@@ -88,8 +93,8 @@ describe("„+ Dodaj inną rekrutację” w „Screening dla” (29.10.2026)", (
   });
 
   it("opis zespołu: inny zespół z imieniem DL-a albo bez niego", () => {
-    expect(manualJobContext(job(1, { joinable: false }))).toBe("Nordea Bank Abp · inny zespół · DL: Marcin K.");
-    expect(manualJobContext(job(1, { joinable: false, delivery_lead_name: null, client_name: null }))).toBe("inny zespół");
+    expect(manualJobContext(job(1, { in_my_team: false }))).toBe("Nordea Bank Abp · inny zespół · DL: Marcin K.");
+    expect(manualJobContext(job(1, { in_my_team: false, delivery_lead_name: null, client_name: null }))).toBe("inny zespół");
   });
 
   it("sekcja „Screening dla” stoi także bez podpowiedzi i innych rekrutacji osoby", () => {

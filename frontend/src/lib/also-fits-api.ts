@@ -41,8 +41,10 @@ export interface AlsoFitsManualJob {
   client_name: string | null;
   client_reference?: string | null;
   delivery_lead_name?: string | null;
-  /** Patrzący jest w zespole — tylko wtedy rekrutacja wchodzi do wspólnej rozmowy. */
+  /** Rekrutacja może wejść do tej rozmowy (reguła par „Screening dla”). */
   joinable: boolean;
+  /** Patrzący naprawdę jest w jej zespole — „Twój zespół”, na górze listy. */
+  in_my_team: boolean;
 }
 
 /** Od tylu znaków szukamy (lustro `SEARCH_MIN_CHARS` serwera). */

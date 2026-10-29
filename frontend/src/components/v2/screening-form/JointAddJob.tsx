@@ -8,9 +8,11 @@
  * (`DlMatchAddJob`): otwarte rekrutacje całej firmy bez tej osoby, bez oceny,
  * Twoje zespoły na górze (serwer: `also_fits.search_open_jobs`).
  *
- * Rekrutacja z Twojego zespołu wchodzi do tej rozmowy („+ Dodaj i dołącz”),
- * inna trafia tylko do „Nowych” — pary spoza zespołu „Screening dla” nie
- * pokazuje (`joint-context`), a jej rekruter dostaje dzwonek.
+ * Rekrutacja, którą `joint-context` przyjąłby jako parę (`joinable`), wchodzi
+ * do tej rozmowy („+ Dodaj i dołącz”); pozostała — i każda przy komplecie
+ * rekrutacji w rozmowie — trafia tylko do „Nowych”. Rekruter tamtej
+ * rekrutacji dostaje dzwonek. „Twój zespół” liczy serwer bez obejścia ról
+ * (`in_my_team`) — od #1742 rekruter przechodzi bramkę zespołu wszędzie.
  */
 
 import { useState } from "react";
@@ -29,8 +31,10 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 
 /** Drugi wiersz wyniku: klient i czyj to zespół. */
-export function manualJobContext(job: Pick<AlsoFitsManualJob, "client_name" | "joinable" | "delivery_lead_name">): string {
-  const team = job.joinable
+export function manualJobContext(
+  job: Pick<AlsoFitsManualJob, "client_name" | "in_my_team" | "delivery_lead_name">,
+): string {
+  const team = job.in_my_team
     ? "Twój zespół"
     : `inny zespół${job.delivery_lead_name ? ` · DL: ${job.delivery_lead_name}` : ""}`;
   return [job.client_name, team].filter(Boolean).join(" · ");

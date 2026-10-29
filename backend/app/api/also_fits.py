@@ -25,6 +25,7 @@ from app.core.scheduling import business_today
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.job_membership import is_member_of_job
 from app.services.also_fits import (
     SEARCH_LIMIT,
     SOURCE_OUR_CONSULTANT,
@@ -112,9 +113,13 @@ class ManualJobOut(BaseModel):
     client_name: Optional[str] = None
     client_reference: Optional[str] = None
     delivery_lead_name: Optional[str] = None
-    #: Rekruter jest w zespole — ta sama reguła co pary „Screening dla”
-    #: (``joint-context``): tylko wtedy rekrutacja wchodzi do wspólnej rozmowy.
+    #: Rekrutacja może wejść do wspólnej rozmowy — ta sama reguła co pary
+    #: „Screening dla” (``joint-context``: ``ensure_job_membership``; od #1742
+    #: rekruter, DL, HoR i TCM przechodzą ją w każdej rekrutacji).
     joinable: bool
+    #: Patrzący naprawdę jest w zespole (prowadzi, DL, współpracownik,
+    #: przypisanie) — bez obejścia ról. „Twój zespół” i kolejność wyników.
+    in_my_team: bool
 
 
 @router.get(
@@ -154,6 +159,9 @@ async def candidate_also_fits_search(
             joinable = True
         except HTTPException:
             joinable = False
+        in_my_team = await is_member_of_job(
+            db, current_user, hit.job_id, admin_bypass=False
+        )
         rows.append(
             ManualJobOut(
                 job_id=hit.job_id,
@@ -162,8 +170,9 @@ async def candidate_also_fits_search(
                 client_reference=hit.client_reference,
                 delivery_lead_name=hit.delivery_lead_name,
                 joinable=joinable,
+                in_my_team=in_my_team,
             )
         )
     # Stabilnie: kolejność z bazy (najnowsze) w obrębie każdej grupy.
-    rows.sort(key=lambda r: not r.joinable)
+    rows.sort(key=lambda r: not r.in_my_team)
     return rows[:SEARCH_LIMIT]

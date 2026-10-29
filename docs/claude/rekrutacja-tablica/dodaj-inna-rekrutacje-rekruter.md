@@ -20,13 +20,18 @@ https://claude.ai/artifact/P8kozdrrMZLEpkGtkktmvR.
   tytule dla rekrutera, numerze u klienta, kliencie i id, od 2 znaków,
   najwyżej 8, **bez oceny** (rekruter wie, czemu dodaje). Bramka jak trasa
   „Pasuje też do” (wzorzec authz ten sam).
-- **`joinable` = rekruter jest w zespole tamtej rekrutacji** — ta sama reguła
-  (`ensure_job_membership`) co pary „Screening dla” z `joint-context`. Takie
-  rekrutacje są na górze i mają „+ Dodaj i dołącz”: dodanie do „Nowych”
-  z rezerwacją 12 h i wejście do tej rozmowy (limit 4 rekrutacji w rozmowie
-  bez zmian). Rekrutacja innego zespołu, albo komplet w rozmowie, ma
-  „+ Dodaj do Nowych”: samo dodanie i komunikat „Dodano do „Nowych”: …” —
-  para spoza zespołu i tak nie wejdzie do wspólnego formularza.
+- **Dwa pola, dwie reguły.** `joinable` = rekrutacja może wejść do wspólnej
+  rozmowy — ta sama reguła (`ensure_job_membership`) co pary „Screening dla”
+  z `joint-context`; od #1742 rekruter, DL, HoR i TCM przechodzą ją
+  w każdej rekrutacji, więc „+ Dodaj i dołącz” (dodanie do „Nowych”
+  z rezerwacją 12 h i wejście do tej rozmowy) mają prawie zawsze.
+  `in_my_team` = patrzący naprawdę jest w zespole (`is_member_of_job`
+  z `admin_bypass=False`: prowadzi, DL, TAC, współpracownik, przypisanie) —
+  tylko z niego „Twój zespół” i kolejność wyników. Liczenie „Twojego
+  zespołu” z `ensure_job_membership` (pierwsza wersja, przegląd przed PR-em
+  29.10) dawało „Twój zespół” przy każdej rekrutacji. Bez `joinable` albo
+  przy komplecie 4 rekrutacji w rozmowie przycisk mówi „+ Dodaj do Nowych”:
+  samo dodanie i komunikat „Dodano do „Nowych”: …”.
 - **Źródło `also_manual`** w `proposals/bulk` (i w telemetrii
   `PIPELINE_ADD_SOURCES`), żeby statystyka podpowiedzi nie liczyła ręcznych
   wyborów. Wpis w historii i dzwonek do rekruterów rekrutacji B jak przy

@@ -321,7 +321,10 @@ async def test_manual_search_same_pool_team_first(app_client):
     assert resp.status_code == 200, resp.text
     rows = resp.json()
     assert [r["job_id"] for r in rows] == [mine_id, foreign_id]
-    assert [r["joinable"] for r in rows] == [True, False]
+    assert [r["in_my_team"] for r in rows] == [True, False]
+    # Do rozmowy wchodzi każda — rekruter przechodzi bramkę zespołu (#1742),
+    # jak pary „Screening dla” z `joint-context`.
+    assert [r["joinable"] for r in rows] == [True, True]
     assert not hidden & {r["job_id"] for r in rows}
     assert rows[0]["client_reference"] == f"{token}-2"
 
