@@ -17,8 +17,8 @@ Liczymy od 12.10.2026 — od tego dnia zespół pracuje w NEXUSIE.
   ustawiony z NEXUSA trwający ≥ 30 min w tej godzinie; liczona 8:00–18:00.
   Godzina z samych drobnych akcji przy jednym kandydacie się nie liczy.
 * **Czas pracy** (29.10.2026) — suma odcinków, w których osoba coś robi
-  w NEXUSIE: akcje z punktami i prepy. 30 min bez akcji i bez prepa = przerwa,
-  nie praca. Minimum to 8 h dziennie (``min_work_hours``); poniżej średnio
+  w NEXUSIE: akcje (także te bez punktów, poza automatem) i prepy. 30 min
+  bez akcji i bez prepa = przerwa, nie praca. Minimum to 8 h dziennie (``min_work_hours``); poniżej średnio
   8 h nikt nie jest wzorem ani nie ma „wysokiej” intensywności.
 * **Intensywność dnia (0–100)** — ½ × godziny pracy / norma godzin + ½ ×
   punkty dnia / norma punktów, każda część najwyżej 1. Pół dnia urlopu
@@ -718,7 +718,9 @@ def build_cells(
         for e, points, reason in items:
             hour = e.ts.hour
             cell.points[hour] += points
-            if points > 0:
+            # Akcja bez punktów (podgląd ponad limit, powtórka) to wciąż chwila
+            # pracy — liczy się do czasu pracy; automat nie (Artur 29.10.2026).
+            if reason != "automat":
                 cell.stamps.append(e.ts)
             if reason is None:
                 cell.counts[hour] += 1
