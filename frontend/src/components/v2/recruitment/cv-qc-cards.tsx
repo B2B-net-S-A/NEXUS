@@ -926,6 +926,26 @@ export function CheckRow({ check, ctx, sourceLabel }: { check: QcCheck; ctx: Act
   );
 }
 
+/**
+ * Znacznik „z pliku Word” w QC (29.10.2026) — ten sam, co w karcie „CV do
+ * klienta”. CV kandydatki wgrane z dysku przeszło QC jako CV do klienta, bo
+ * przy kontroli nic nie mówiło, że układ przyszedł z pliku, a nie z generatora.
+ */
+export function QcWordFileNote({ cv, className }: { cv: QcResult["cv"] | null | undefined; className?: string }) {
+  if (!cv?.from_word_file) return null;
+  return (
+    <p
+      className={cn("flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground", className)}
+      data-testid="qc-cv-word-file"
+    >
+      <Badge size="sm" variant="neutral">
+        z pliku Word
+      </Badge>
+      Treść przeniesiona bez AI — sprawdź układ przed wysyłką.
+    </p>
+  );
+}
+
 /** Zaliczone i niedotyczące — jedna linia, szczegóły po rozwinięciu. */
 export function PassedChecks({ passed, skipped, ctx }: { passed: QcCheck[]; skipped: QcCheck[]; ctx: ActionContext }) {
   const [open, setOpen] = useState(false);

@@ -34,6 +34,7 @@ import {
   workModeLabel,
 } from "@/lib/job-twins-api";
 
+import { RuleChips } from "./OpenSimilarTile";
 import { TwinLinkDialog } from "./TwinLinkDialog";
 
 function pluralTwins(n: number): string {
@@ -77,6 +78,7 @@ export function TwinSuggestionList({ items, onLink, onDismiss, busyKey }: TwinSu
             <div className="grid min-w-0 gap-1">
               <JobLine job={item.job} />
               <JobLine job={item.other} />
+              <RuleChips warnings={item.warnings} />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs tabular-nums text-muted-foreground">≈ {item.similarity}%</span>
@@ -121,8 +123,8 @@ export function TwinSuggestionsButton() {
           <DialogHeader>
             <DialogTitle>Możliwe bliźniaki</DialogTitle>
             <DialogDescription id="twin-suggestions-desc">
-              Otwarte rekrutacje bardzo podobne do siebie (≈ {query.data.min_similarity}% i więcej), prowadzone przez
-              różnych Delivery Leadów. Połączone weryfikujecie w jednej rozmowie.
+              Otwarte rekrutacje podobne do siebie (≈ {query.data.min_similarity}% i więcej), które spełniają zasady
+              wymagane z Ustawień → Rekrutacja → Zasady bliźniaków. Połączone weryfikujecie w jednej rozmowie.
             </DialogDescription>
           </DialogHeader>
           <DialogBody>

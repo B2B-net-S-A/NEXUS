@@ -48,6 +48,7 @@ export type SettingsItemId =
   | "ranking"
   | "prep-review"
   | "kpi-targets"
+  | "twin-rules"
   | "novelties"
   | "mail"
   | "skills"
@@ -246,6 +247,18 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Publikuje HoR i admin (`can_edit` z serwera). W menu bez rekrutera —
     // jego Ustawienia to samo „Moje konto”; stronę otwiera linkiem „Jak
     // liczona jest ocena” z oceny prepu (middleware i `ConfigReader` go wpuszczają).
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
+      required: "read",
+    },
+  },
+  {
+    id: "twin-rules", area: "rec", title: "Zasady bliźniaków", group: "Proces",
+    description: "Kiedy dwie rekrutacje są bliźniakami: podobieństwo, krytyczne, lokalizacja, budżet.",
+    keywords: "bliźniak bliźniaki twin podobne rekrutacje zasady krytyczne lokalizacja budżet tryb pracy",
+    route: "/settings/twin-rules",
+    // Odczyt DL, HoR, admin w sekcji Pipeline; zapis (HoR, admin) — serwer.
     gate: {
       roles: ["admin", "delivery_lead", "head_of_recruitment"],
       section: "pipeline",

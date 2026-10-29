@@ -78,3 +78,9 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   20.10.2026): `candidate_phone` obok `candidate_email` w `PairInfo`, za tą
   samą bramką odczytu kandydatów; numer = `tel:`, e-mail = `mailto:`,
   „Kopiuj oba”. Bez obu linii nie ma (`CandidateContactLine`).
+- **Twórca wydarzenia zostaje jego właścicielem** także wtedy, gdy otwarte
+  wydarzenie ma innego `operational_owner_id` (`user_owns_event`). DL zakłada
+  rozmowę u klienta z rekruterem jako właścicielem i poprawia termin, gdy
+  klient go przesunie; od #1390 do 29.10.2026 edycja kończyła się 404
+  „Wydarzenie nie znalezione”, choć lista pokazywała DL-owi ten wpis.
+  Zastępca widzi tylko otwarte wydarzenia osoby, którą zastępuje — to bez zmian.

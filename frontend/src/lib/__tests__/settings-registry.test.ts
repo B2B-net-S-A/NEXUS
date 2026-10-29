@@ -394,6 +394,7 @@ describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", ()
       "stages",
       "ranking",
       "prep-review",
+      "twin-rules",
       "kpi-targets",
     ]);
     expect(groups.find((g) => g.name === "Teksty")!.items.map((i) => i.id)).toEqual([

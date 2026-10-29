@@ -691,6 +691,44 @@ def _names(value: Any) -> list[str]:
     return [str(name)[:200] for name in (value or []) if isinstance(name, str)][:20]
 
 
+# Punkty „Wymagane” i „Mile widziane” z ogłoszenia (29.10.2026, uwaga
+# rekruterki): słowa do szukania („bankowości”, „dostawców zewnętrznych”)
+# wycięte ze zdań klienta nic kandydatowi nie mówiły. „Opublikuj na stronie”
+# zapisuje w migawce punkty ogłoszenia, które rekruter widzi i poprawia
+# w oknie „Ogłoszenie”. Słowa w migawce (``must``/``nice``) zostają: czytają
+# je tablica, plakat, portale API i ``approved_content_stale``.
+APPROVED_POINTS_KEY = "points"
+_POINTS_MAX = 15
+_POINT_MAX = 300
+
+
+def requirement_points(must: Any, nice: Any) -> Optional[dict[str, list[str]]]:
+    """Punkty ogłoszenia do migawki; ``None``, gdy ogłoszenie nie ma żadnego."""
+
+    def clean(value: Any) -> list[str]:
+        out: list[str] = []
+        for item in value if isinstance(value, (list, tuple)) else []:
+            text = (
+                " ".join(str(item).split())[:_POINT_MAX]
+                if isinstance(item, str)
+                else ""
+            )
+            if text:
+                out.append(text)
+        return out[:_POINTS_MAX]
+
+    points = {"must": clean(must), "nice": clean(nice)}
+    return points if points["must"] or points["nice"] else None
+
+
+def approved_points(sections: Any) -> Optional[dict[str, list[str]]]:
+    """Punkty ogłoszenia zapisane przy zatwierdzeniu (strona rekrutacji)."""
+    stored = (stored_approved_content(sections) or {}).get(APPROVED_POINTS_KEY)
+    if not isinstance(stored, dict):
+        return None
+    return requirement_points(stored.get("must"), stored.get("nice"))
+
+
 # Parametry, które znikają z danych publicznych razem z wyłączoną sekcją
 # „parametry”. ``contract`` zostaje: to stała firmy (każda rekrutacja to B2B),
 # a nie dana rekrutacji — czyta ją też sekcja „proces”.
@@ -726,8 +764,13 @@ def public_job_payload(
     about: Optional[str],
     sections: Any,
     respect_show: bool = True,
+    points: Optional[dict[str, list[str]]] = None,
 ) -> dict[str, Any]:
     """Kształt ``job`` z ``GET /api/public/career/r/{slug}`` — biała lista.
+
+    ``points`` (``approved_points``) = punkty ogłoszenia zamiast słów
+    must/nice — tylko strona rekrutacji i kontrola przy publikacji z
+    ogłoszenia; tablica, plakat i portale dostają słowa.
 
     ``sections`` z migawką zatwierdzenia (``APPROVED_CONTENT_KEY``) = must/nice,
     miasto, start i długość z chwili zatwierdzenia. Bez migawki (opisy
@@ -750,6 +793,8 @@ def public_job_payload(
     else:
         must = _names(snapshot.get("must"))
         nice = _names(snapshot.get("nice"))
+    if points is not None:
+        must, nice = list(points["must"]), list(points["nice"])
     params = approved_params(job, sections)
     if respect_show:
         must = must if show["must"] else []
@@ -996,11 +1041,18 @@ async def keep_published_text(
 
 
 async def approve_profile(
-    db: AsyncSession, job: Job, profile: JobPublicProfile, *, user_id: int
+    db: AsyncSession,
+    job: Job,
+    profile: JobPublicProfile,
+    *,
+    user_id: int,
+    points: Optional[dict[str, list[str]]] = None,
 ) -> None:
     """Zatwierdzenie = publikacja na stronie kariery. Jedna droga dla okna
     „Udostępnij” i dla „Opublikuj na stronie” z ogłoszenia (21.10.2026).
 
+    ``points`` = punkty wymagań ogłoszenia (``requirement_points``) — tylko
+    z „Opublikuj na stronie”; zatwierdzenie w „Udostępnij” wraca do słów.
     ``ProfileFindings`` przy każdym znalezisku kontroli; zapis i commit
     zostają u wołającego.
     """
@@ -1018,7 +1070,19 @@ async def approve_profile(
         sections=normalize_sections(profile.sections),
         respect_show=False,
     )
-    findings = await lint_payload(db, job, preview)
+    checked = preview
+    if points is not None:
+        # Kontrola czyta słowa i punkty: kody RITM/REQ czy nazwę klienta
+        # w punkcie ogłoszenie tylko odradza, strona ich nie przyjmie.
+        checked = {
+            **preview,
+            "must": [
+                *preview["must"],
+                *({"name": name, "note": None} for name in points["must"]),
+            ],
+            "nice": [*preview["nice"], *points["nice"]],
+        }
+    findings = await lint_payload(db, job, checked)
     if findings:
         raise ProfileFindings(findings)
     profile.approved_at = datetime.now(timezone.utc)
@@ -1029,9 +1093,10 @@ async def approve_profile(
     # Strona i portale pokazują must/nice, miasto, start i długość z chwili
     # zatwierdzenia (audyt 25.09.2026, r3) — ich późniejsza zmiana w
     # rekrutacji wymaga ponownego zatwierdzenia.
-    profile.sections = sections_with_approved_content(
-        profile.sections, approved_content(preview, client_id=job.client_id)
-    )
+    snapshot = approved_content(preview, client_id=job.client_id)
+    if points is not None:
+        snapshot[APPROVED_POINTS_KEY] = points
+    profile.sections = sections_with_approved_content(profile.sections, snapshot)
     # Runda 8 (R8-N4-2): adres linku powstał z tytułu, którego kontrola nie
     # widziała — slug z nazwą klienta albo nazwiskiem dostaje nowy adres.
     await rotate_unsafe_job_slugs(db, job, effective_title)

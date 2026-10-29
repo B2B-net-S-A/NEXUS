@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   selectDocument: vi.fn(),
   sources: vi.fn(),
   otherDialogProps: null as null | Record<string, unknown>,
+  originalUpload: vi.fn(),
   downloadAuthenticatedFile: vi.fn(),
   postAuthenticatedDownload: vi.fn(),
   downloadBlob: vi.fn(),
@@ -71,7 +72,10 @@ vi.mock("@/lib/api", () => ({
       selectDocument: (...a: unknown[]) => mocks.selectDocument(...a),
       sources: (...a: unknown[]) => mocks.sources(...a),
     },
-    original: { get: (...a: unknown[]) => mocks.originalGet(...a) },
+    original: {
+      get: (...a: unknown[]) => mocks.originalGet(...a),
+      upload: (...a: unknown[]) => mocks.originalUpload(...a),
+    },
   },
 }));
 vi.mock("@/lib/authenticated-files", () => ({
@@ -1295,6 +1299,34 @@ describe("CvToClientCard — „Użyj innego CV” (12.10.2026)", () => {
     expect(screen.getByTestId("use-other-cv-dialog")).toBeInTheDocument();
     expect(mocks.otherDialogProps).toMatchObject({ replaces: false });
     expect(screen.queryByTestId("ready-cv-hint")).toBeNull();
+  });
+
+  it("„Wygeneruj z tego pliku”: plik idzie jako CV kandydata, a karta otwiera panel generowania (29.10.2026)", async () => {
+    mocks.originalUpload.mockResolvedValue({ data: { outcome: "original", has_snapshot: true } });
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Użyj gotowego CV/ }));
+    const generateFromFile = mocks.otherDialogProps?.onGenerateFromFile as (file: File) => void;
+    const file = new File(["docx"], "CV_kandydatki.docx");
+
+    await act(async () => generateFromFile(file));
+
+    // CV kandydata, także gdy plik nazywa się „B2B_…” — nie CV do klienta.
+    expect(mocks.originalUpload).toHaveBeenCalledWith(expect.any(Number), file, { mode: "original" });
+    expect(await screen.findByTestId("cv-generate-panel")).toBeInTheDocument();
+    expect(screen.queryByTestId("use-other-cv-dialog")).toBeNull();
+  });
+
+  it("nieudane wgranie pliku jako CV kandydata zostawia okno otwarte i nie otwiera generowania", async () => {
+    mocks.originalUpload.mockRejectedValue(new Error("network"));
+    renderCard();
+    await userEvent.click(await screen.findByRole("button", { name: /Użyj gotowego CV/ }));
+    const generateFromFile = mocks.otherDialogProps?.onGenerateFromFile as (file: File) => void;
+
+    await act(async () => generateFromFile(new File(["docx"], "CV_kandydatki.docx")));
+
+    await waitFor(() => expect(mocks.showError).toHaveBeenCalled());
+    expect(screen.getByTestId("use-other-cv-dialog")).toBeInTheDocument();
+    expect(screen.queryByTestId("cv-generate-panel")).toBeNull();
   });
 
   it("tylko do odczytu: bez paska, bez okna i bez pytania o gotowe CV", async () => {

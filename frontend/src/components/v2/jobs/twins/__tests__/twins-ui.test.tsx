@@ -78,3 +78,20 @@ describe("Możliwe bliźniaki dla HoR (0614)", () => {
     expect(onDismiss).toHaveBeenCalledWith(pair);
   });
 });
+
+describe("Zasady bliźniaków przy parze (29.10.2026)", () => {
+  it("shows ✕ for failed required rules and ⚠ for warnings, and the compliance note", async () => {
+    const { RuleChips } = await import("../OpenSimilarTile");
+    const { TwinRulesCompliance } = await import("../TwinLinkDialog");
+    const crit = { key: "critical" as const, label: "Umiejętności krytyczne", mode: "required" as const, ok: false, detail: "„analiza systemowa” — nie ma w drugiej" };
+    const mode = { key: "work_mode" as const, label: "Tryb pracy", mode: "warning" as const, ok: false, detail: "1 dni z biura vs zdalnie → osobna stawka" };
+    const budget = { key: "budget" as const, label: "Budżet", mode: "warning" as const, ok: true, detail: "do 110 vs brak" };
+    const { unmount } = render(<RuleChips failures={[crit]} warnings={[mode]} />);
+    expect(screen.getByText("✕ umiejętności krytyczne")).toBeInTheDocument();
+    expect(screen.getByText("⚠ tryb pracy")).toBeInTheDocument();
+    unmount();
+    render(<TwinRulesCompliance checks={[crit, mode, budget]} />);
+    expect(screen.getByTestId("twin-rules-compliance")).toHaveTextContent("✕");
+    expect(screen.getByRole("note")).toHaveTextContent("nie trafia na listę „Możliwe bliźniaki”. Połączyć ją możesz");
+  });
+});

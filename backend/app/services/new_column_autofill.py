@@ -36,6 +36,13 @@ Reguły, które łatwo cofnąć „przy okazji”:
   dalej o połowę rzadziej (18% wobec 36%) — wchodzi za resztą, nie odpada
   (7 z 39 takich osób poszło dalej). Co system wiedział (budżet, biuro,
   miasto), zapisuje ``entry_meta.cautions``; karta i panel to pokazują.
+* Dojazd do biura (29.10.2026, 23–29.10: 102 osoby od systemu w 115
+  rekrutacjach z biurem w Warszawie mieszkały ponad 100 km od każdego biura
+  albo za granicą): miasto dalej niż ``OFFICE_FAR_KM`` od najbliższego biura
+  rekrutacji z biurem (także hybryda bez liczby dni) = system nie dodaje;
+  ``OFFICE_NEAR_KM``–``OFFICE_FAR_KM`` = ostrzeżenie z km, za resztą; bliżej
+  = bez ostrzeżenia o mieście. Osoba, która sama wskazała miasto biura
+  (profil, notatki, relokacja), i miasto spoza słownika — jak dotąd.
 * „Nie szuka pracy” (decyzja Artura 28.10.2026): 9 z 44 odrzuceń, a ci sami
   ludzie czekali w „Nowych” innych rekrutacji. Profil „Nie szuka” bez daty
   albo z „Dostępny od” w przyszłości = system nie dodaje (``not_looking_now``).
@@ -97,6 +104,11 @@ _RULES_WINDOW = 150
 # 27.10.2026: 15% — osoby 15–25% nad budżetem szły dalej w 12%, ponad 25%
 # w 15%, a 0–15% w 40%, tyle co w budżecie).
 BUDGET_HARD_OVER = Decimal("0.15")
+# Miasto dalej niż tyle km (w linii prostej) od każdego biura rekrutacji =
+# system nie dodaje; bliżej niż ``OFFICE_NEAR_KM`` = bez ostrzeżenia o mieście
+# (29.10.2026). Od 100 km zaczyna się Łódź dla Warszawy (117 km).
+OFFICE_FAR_KM = 100
+OFFICE_NEAR_KM = 50
 # „Stawka od” poniżej tej kwoty to błąd odczytu (na produkcji 0,6 zł/h), nie
 # stawka — liczy się jak nieznana.
 _MIN_PLAUSIBLE_RATE = Decimal("20")
@@ -306,15 +318,37 @@ def budget_caution(rate, currency, *, budget_hourly: Optional[float]) -> Optiona
     }
 
 
+def office_km(person, office_tokens: frozenset[str]) -> Optional[int]:
+    """Km z miasta osoby do najbliższego biura rekrutacji. ``None`` = nie
+    wiemy (brak miasta, miasto spoza słownika) albo osoba sama wskazała miasto
+    biura — w profilu, w notatkach z rozmowy albo jako kierunek relokacji."""
+    from app.services.location_utils import (
+        candidate_office_tokens,
+        city_tokens,
+        nearest_km,
+        tokens_overlap,
+    )
+
+    if not office_tokens:
+        return None
+    if tokens_overlap(set(office_tokens), candidate_office_tokens(person)):
+        return None
+    home = city_tokens(person.location) | city_tokens(person.city)
+    km = nearest_km(home, set(office_tokens))
+    return None if km is None else round(km)
+
+
 def office_cautions(
     person,
     *,
     office_days: Optional[int],
     office_tokens: frozenset[str],
     office_label: Optional[str],
+    km: Optional[int] = None,
 ) -> list[dict]:
     """Biuro i miasto wg profilu — tymi samymi regułami co bramka wyszukiwania
-    (``dealbreaker_filters``); nieznane przechodzi bez ostrzeżenia."""
+    (``dealbreaker_filters``); nieznane przechodzi bez ostrzeżenia. Znane km
+    (``office_km``) zastępuje porównanie nazw miasta."""
     from app.services.dealbreaker_filters import (
         candidate_consents_more_office_days,
         office_city_mismatch,
@@ -322,35 +356,37 @@ def office_cautions(
         remote_only_refuses_office,
     )
 
-    if not office_days or office_days <= 0:
-        return []
+    days = office_days if office_days and office_days > 0 else None
     out: list[dict] = []
-    if not candidate_consents_more_office_days(person):
-        if office_days_exceeded(person, office_days):
+    if days and not candidate_consents_more_office_days(person):
+        if office_days_exceeded(person, days):
             out.append(
                 {
                     "key": "office_days",
                     "candidate_days": person.max_onsite_days_per_week,
-                    "required_days": office_days,
+                    "required_days": days,
                 }
             )
         elif remote_only_refuses_office(person):
-            out.append({"key": "remote_only", "required_days": office_days})
-    if office_city_mismatch(person, office_tokens, required_days=office_days):
-        out.append(
-            {
-                "key": "office_city",
-                "city": (person.city or person.location or "").strip()[:60] or None,
-                "office": (office_label or "").strip()[:60] or None,
-                "required_days": office_days,
-            }
-        )
+            out.append({"key": "remote_only", "required_days": days})
+    city = {
+        "key": "office_city",
+        "city": (person.city or person.location or "").strip()[:60] or None,
+        "office": (office_label or "").strip()[:60] or None,
+        "required_days": days,
+    }
+    if km is not None:
+        if km > OFFICE_NEAR_KM:
+            out.append({**city, "km": km})
+    elif days and office_city_mismatch(person, office_tokens, required_days=days):
+        out.append(city)
     return out
 
 
 async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
-    """Reguły z odrzuceń: bez osób daleko ponad budżetem i pracujących teraz
-    u klienta; osoby trochę ponad budżetem za resztą (kolejność wyniku
+    """Reguły z odrzuceń: bez osób daleko ponad budżetem, pracujących teraz
+    u klienta i mieszkających dalej niż ``OFFICE_FAR_KM`` od biura; osoby
+    trochę ponad budżetem za resztą (kolejność wyniku
     w obrębie poziomu zostaje), tak samo osoby z ostrzeżeniem o biurze albo
     mieście. Czyta tylko potrzebne kolumny — okno ma do ``_RULES_WINDOW``
     osób, a pełny wiersz kandydata niesie tekst CV."""
@@ -423,6 +459,9 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
             continue
         if client_off_limits.find_hit(person, labels, undated_counts=True):
             continue
+        km = office_km(person, inputs.office_tokens) if inputs.wants_office else None
+        if km is not None and km > OFFICE_FAR_KM:
+            continue
         cautions = [
             c
             for c in (
@@ -437,6 +476,7 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
             office_days=inputs.onsite_days_per_week,
             office_tokens=inputs.office_tokens,
             office_label=office_label,
+            km=km,
         )
         cautions.extend(office)
         tiered.append(

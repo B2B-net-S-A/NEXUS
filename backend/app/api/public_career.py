@@ -202,6 +202,7 @@ async def get_career_job(
         subtitle=version.subtitle,
         about=version.about,
         sections=version.sections,
+        points=jpp.approved_points(version.sections),
     )
     theme = ct.resolve_theme(
         profile.theme, version.title, await ct.job_category_slug(db, job)
