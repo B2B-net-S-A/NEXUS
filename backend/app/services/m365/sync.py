@@ -54,7 +54,11 @@ from app.models.m365 import (
     M365SyncStatus,
 )
 from app.services.m365 import attachment_handler, matcher
-from app.services.m365.access import connection_owner_is_eligible
+from app.services.m365.access import (
+    CANDIDATE_SCOPE,
+    MailboxScope,
+    connection_mailbox_scope,
+)
 from app.services.calendar_all_day import normalize_all_day
 from app.services.calendar_privacy import (
     PRIVATE_EVENT_FIELDS,
@@ -66,25 +70,39 @@ from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.matcher import IncomingMessage
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
+from app.services.sales import outlook_activities as sales_outlook
 
 logger = logging.getLogger(__name__)
 
 MESSAGE_SELECT = (
     "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,"
     "sentDateTime,receivedDateTime,bodyPreview,body,hasAttachments,isRead,"
-    "categories,parentFolderId"
+    "categories,parentFolderId,webLink"
 )
 EVENT_SELECT = (
     "id,changeKey,subject,bodyPreview,body,start,end,"
     "organizer,attendees,location,seriesMasterId,type,isCancelled,isAllDay,"
-    "sensitivity"
+    "sensitivity,iCalUId,webLink"
 )
 # Stary kursor delty pamięta $select, z którym powstał — bez `sensitivity`
 # prywatne spotkania dalej przychodziłyby jako zwykłe. Każde połączenie robi
 # raz pełny odczyt okna ± 1 rok zamiast delty (znacznik w `app_settings`),
 # a zapisane już prywatne spotkania dostają przy tym treść „Spotkanie
-# prywatne” (R3-7).
-EVENT_SELECT_RESET_KEY = "m365_event_select_sensitivity_reset"
+# prywatne” (R3-7). Nowy klucz = nowy pełny odczyt: 0624 dołożyło `iCalUId`
+# i `webLink` (spotkania handlowców w Sprzedaży, „Otwórz w Outlooku”).
+EVENT_SELECT_RESET_KEY = "m365_event_select_ical_uid_reset"
+# Kursory folderów poczty też pamiętają $select, ale ich nie zerujemy (pełny
+# odczyt 12 miesięcy każdej skrzynki) — brak `webLink` w starej delcie
+# uzupełnia link zbudowany z id wiadomości (`_message_web_link`).
+OWA_READ_ITEM_URL = (
+    "https://outlook.office365.com/owa/?ItemID={item_id}"
+    "&exvsurl=1&viewmodel=ReadMessageItem"
+)
+# Skrzynka z „Sprzedaż: podgląd” raz po podłączeniu (albo po wdrożeniu 0624)
+# przechodzi przez maile już zapisane w NEXUSIE z tego okna — luka między
+# importem z Atlasa a pierwszą synchronizacją.
+SALES_CATCH_UP_KEY = "m365_sales_mail_catch_up"
+SALES_CATCH_UP_DAYS = 30
 
 
 @dataclass
@@ -165,7 +183,11 @@ async def sync_connection(
       chodziłoby o tę samą robotę.
     """
     result = SyncResult(connection_id=conn.id)
-    if not await connection_owner_is_eligible(db, conn):
+    # Zakres liczony raz na przebieg: skrzynka handlowca bez dostępu do
+    # kandydatów synchronizuje się, ale jej poczta nie trafia do kandydatów
+    # (dopasowanie, CV z załączników) — tylko do Sprzedaży.
+    scope = await connection_mailbox_scope(db, conn)
+    if not scope.any:
         logger.warning(
             "m365 sync refused for ineligible connection owner: connection_id=%s",
             conn.id,
@@ -185,7 +207,7 @@ async def sync_connection(
 
     async with lock:
         _resync_requested.discard(conn.id)
-        result = await _sync_connection_locked(db, conn, result)
+        result = await _sync_connection_locked(db, conn, result, scope)
         for _ in range(_MAX_TRAILING_RESYNCS):
             if conn.id not in _resync_requested:
                 break
@@ -196,13 +218,16 @@ async def sync_connection(
                 conn.id,
             )
             result = await _sync_connection_locked(
-                db, conn, SyncResult(connection_id=conn.id)
+                db, conn, SyncResult(connection_id=conn.id), scope
             )
         return result
 
 
 async def _sync_connection_locked(
-    db: AsyncSession, conn: M365Connection, result: SyncResult
+    db: AsyncSession,
+    conn: M365Connection,
+    result: SyncResult,
+    scope: MailboxScope = CANDIDATE_SCOPE,
 ) -> SyncResult:
     """Właściwy przebieg — wołany wyłącznie z trzymanym lockiem połączenia."""
     conn.last_sync_status = M365SyncStatus.running
@@ -212,9 +237,11 @@ async def _sync_connection_locked(
     try:
 
         async def _run() -> None:
-            async with GraphClient(conn, db) as gc:
-                await _sync_messages(db, gc, conn, result)
-                await _sync_events(db, gc, conn, result)
+            async with GraphClient(conn, db, sales_ok=True) as gc:
+                await _sync_messages(db, gc, conn, result, scope=scope)
+                await _sync_events(db, gc, conn, result, scope=scope)
+            if scope.sales:
+                await _sales_catch_up(db, conn)
 
         await asyncio.wait_for(_run(), timeout=_SYNC_TIMEOUT_SECONDS)
     except asyncio.TimeoutError:
@@ -328,6 +355,8 @@ async def _sync_messages(
     gc: GraphClient,
     conn: M365Connection,
     result: SyncResult,
+    *,
+    scope: MailboxScope = CANDIDATE_SCOPE,
 ) -> None:
     """Pull messages via delta query (or initial backfill) and upsert them.
 
@@ -350,7 +379,7 @@ async def _sync_messages(
         any_backfill = any_backfill or is_backfill
         try:
             await _sync_messages_for_folder(
-                db, gc, conn, result, folder, cursor_attr, is_backfill
+                db, gc, conn, result, folder, cursor_attr, is_backfill, scope=scope
             )
         except GraphRequestError as exc:
             if exc.status == 410:
@@ -453,6 +482,8 @@ async def _sync_messages_for_folder(
     folder: str,
     cursor_attr: str,
     is_backfill: bool,
+    *,
+    scope: MailboxScope = CANDIDATE_SCOPE,
 ) -> None:
     """Phase 2.5 — `cursor_attr` is "delta_token_inbox" or "delta_token_sent",
     so each folder maintains its own deltaLink independently."""
@@ -528,7 +559,7 @@ async def _sync_messages_for_folder(
         )
         for msg in page.get("value", []):
             try:
-                upserted = await _upsert_message(db, gc, conn, msg, folder)
+                upserted = await _upsert_message(db, gc, conn, msg, folder, scope=scope)
                 if upserted is not None:
                     result.messages_ingested += 1
             except Exception as exc:  # noqa: BLE001
@@ -630,6 +661,8 @@ async def _upsert_message(
     conn: M365Connection,
     msg: dict,
     folder_hint: str,
+    *,
+    scope: MailboxScope = CANDIDATE_SCOPE,
 ) -> Optional[Email]:
     """Insert-or-update by `m365_message_id`. Returns the Email row or None if skipped."""
     m365_id = msg.get("id")
@@ -726,15 +759,23 @@ async def _upsert_message(
         else EmailDirection.received
     )
 
+    web_link = _message_web_link(msg)
+
     # Matching (skip for private-filtered).
     if existing and existing.candidate_id is not None:
         match_method = existing.match_method
         match_confidence = existing.match_confidence
         matched_at = existing.matched_at
         candidate_id = existing.candidate_id
-    elif is_private or (existing is not None and matcher.manually_unlinked(existing)):
+    elif (
+        is_private
+        or not scope.candidates
+        or (existing is not None and matcher.manually_unlinked(existing))
+    ):
         # Runda 6 audytu: ręczne odpięcie jest decyzją — sync nie przypina
         # maila z powrotem przy każdej zmianie wiadomości w Outlooku.
+        # Skrzynka handlowca bez dostępu do kandydatów (28.10.2026) nie
+        # dopasowuje maili do kandydatów — jej poczta idzie tylko do Sprzedaży.
         match_method = EmailMatchMethod.unmatched
         match_confidence = None
         matched_at = existing.matched_at if existing is not None else None
@@ -780,6 +821,7 @@ async def _upsert_message(
             candidate_id=candidate_id,
             categories=categories,
         )
+        row.web_link = web_link
         try:
             # SAVEPOINT: `emails.m365_message_id` ma indeks UNIQUE, a to jest
             # SELECT-then-INSERT. Gdy ten sam mail wejdzie równolegle (drugi
@@ -823,9 +865,12 @@ async def _upsert_message(
             match_confidence=match_confidence,
             matched_at=matched_at,
         )
+        row.web_link = web_link or row.web_link
 
     # Attachments — only for non-filtered messages and when we actually have any.
-    if not is_private and has_attachments:
+    # Załączniki skrzynki handlowca bez dostępu do kandydatów nie są pobierane:
+    # z nich pętla `m365_cv_parse` zakłada i uzupełnia kandydatów.
+    if not is_private and has_attachments and scope.candidates:
         # Download and persist the durable attachment row inside the page
         # transaction.  CV parsing may call external AI providers and used
         # to keep this Graph page open for minutes.  The dedicated worker
@@ -838,7 +883,107 @@ async def _upsert_message(
         # i ponawia go pętla ``m365_cv_parse``.
         await attachment_handler.download_for_email(db, gc, row)
 
+    if scope.sales:
+        await _record_sales_mail(db, conn, row)
+
     return row
+
+
+def _message_web_link(msg: dict) -> Optional[str]:
+    """``webLink`` z Graphu albo ten sam adres zbudowany z id (stara delta)."""
+    link = (msg.get("webLink") or "").strip()
+    if link:
+        return link[:2000]
+    from urllib.parse import quote
+
+    return OWA_READ_ITEM_URL.format(item_id=quote(msg["id"], safe=""))[:2000]
+
+
+async def _record_sales_mail(
+    db: AsyncSession, conn: M365Connection, row: Email
+) -> None:
+    """Mail handlowca przy firmach Sprzedaży (``services/sales/outlook_activities``).
+
+    W savepoincie: konflikt na UNIQUE aktywności (ten sam mail w dwóch
+    skrzynkach naraz) nie może zatruć sesji strony. Błąd idzie wyżej — wiadomość
+    liczy się jako nieudana, kursor stoi, a zapis jest idempotentny.
+    """
+    internet_id = (row.m365_internet_message_id or "").strip()
+    if not internet_id:
+        return
+    if row.candidate_id is not None:
+        # Mail z kandydatem (także wysłany z NEXUSA) nie idzie na oś firmy —
+        # zespół Sprzedaży nie ma dostępu do kandydatów (przegląd 28.10.2026).
+        return
+    async with db.begin_nested():
+        if row.is_private_filtered:
+            await sales_outlook.forget(
+                db, sales_outlook.EMAIL_SOURCE, internet_id, upcoming_only=False
+            )
+            return
+        await sales_outlook.record(
+            db,
+            sales_outlook.OutlookItem(
+                source=sales_outlook.EMAIL_SOURCE,
+                external_id=internet_id[:255],
+                owner_user_id=conn.user_id,
+                owner_address=conn.mailbox_upn,
+                addresses=[
+                    row.from_address,
+                    *_addresses_of(row.to_addresses),
+                    *_addresses_of(row.cc_addresses),
+                ],
+                subject=row.subject,
+                preview=row.body_preview,
+                occurred_at=row.sent_at
+                if row.direction == EmailDirection.sent and row.sent_at
+                else row.received_at,
+                web_link=row.web_link,
+                direction="out" if row.direction == EmailDirection.sent else "in",
+            ),
+        )
+
+
+def _addresses_of(recipients) -> list[str]:
+    return [
+        r["address"]
+        for r in (recipients or [])
+        if isinstance(r, dict) and r.get("address")
+    ]
+
+
+async def _sales_catch_up(db: AsyncSession, conn: M365Connection) -> None:
+    """Raz na skrzynkę: maile z ostatnich ``SALES_CATCH_UP_DAYS`` dni już w bazie."""
+    row = await db.get(AppSetting, SALES_CATCH_UP_KEY)
+    done = (row.value or {}).get("connection_ids") if row is not None else None
+    if conn.id in set(done or []):
+        return
+    since = datetime.now(timezone.utc) - timedelta(days=SALES_CATCH_UP_DAYS)
+    last_id = 0
+    while True:
+        batch = list(
+            (
+                await db.scalars(
+                    select(Email)
+                    .where(
+                        Email.user_id == conn.user_id,
+                        Email.received_at >= since,
+                        Email.candidate_id.is_(None),
+                        Email.id > last_id,
+                    )
+                    .order_by(Email.id)
+                    .limit(200)
+                )
+            ).all()
+        )
+        if not batch:
+            break
+        for email in batch:
+            await _record_sales_mail(db, conn, email)
+        last_id = batch[-1].id
+        await db.commit()
+    await _append_connection_marker(db, SALES_CATCH_UP_KEY, conn)
+    await db.commit()
 
 
 async def _adopt_by_internet_message_id(
@@ -1041,6 +1186,8 @@ async def _sync_events(
     gc: GraphClient,
     conn: M365Connection,
     result: SyncResult,
+    *,
+    scope: MailboxScope = CANDIDATE_SCOPE,
 ) -> None:
     """Pull calendar events via delta view around today ± 1 year."""
     # Kursor sprzed `sensitivity` nie jest kasowany od razu: po nieudanym
@@ -1081,7 +1228,7 @@ async def _sync_events(
         async for page in gc.paginate(url, params=params):
             for ev in page.get("value", []):
                 try:
-                    if await _upsert_event(db, conn, ev):
+                    if await _upsert_event(db, conn, ev, scope=scope):
                         result.events_ingested += 1
                 except Exception as exc:  # noqa: BLE001
                     logger.exception("Failed to ingest event %s", ev.get("id"))
@@ -1143,11 +1290,15 @@ async def _event_select_reset_pending(db: AsyncSession, conn: M365Connection) ->
 
 
 async def _mark_event_select_reset(db: AsyncSession, conn: M365Connection) -> None:
+    await _append_connection_marker(db, EVENT_SELECT_RESET_KEY, conn)
+
+
+async def _append_connection_marker(
+    db: AsyncSession, key: str, conn: M365Connection
+) -> None:
     # Upsert w bazie — dwie skrzynki kończące pełny odczyt naraz nie mogą
     # wywrócić się na UNIQUE klucza ani nadpisać sobie listy.
-    stmt = pg_insert(AppSetting).values(
-        key=EVENT_SELECT_RESET_KEY, value={"connection_ids": [conn.id]}
-    )
+    stmt = pg_insert(AppSetting).values(key=key, value={"connection_ids": [conn.id]})
     await db.execute(
         stmt.on_conflict_do_update(
             index_elements=[AppSetting.key],
@@ -1269,10 +1420,17 @@ async def _scrub_old_private_events(
     await db.commit()
 
 
-async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> bool:
+async def _upsert_event(
+    db: AsyncSession,
+    conn: M365Connection,
+    ev: dict,
+    *,
+    scope: MailboxScope = CANDIDATE_SCOPE,
+) -> bool:
     graph_id = ev.get("id")
     if not graph_id:
         return False
+    ical_uid = (ev.get("iCalUId") or "").strip()[:255] or None
 
     existing = await db.scalar(
         select(CalendarEvent).where(
@@ -1303,6 +1461,8 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         return False
 
     if ev.get("@removed") or ev.get("isCancelled"):
+        if scope.sales:
+            await _forget_sales_meeting(db, ev, existing, ical_uid)
         if existing:
             existing.status = EventStatus.cancelled
             await maybe_remove_calendar_handoff(
@@ -1325,6 +1485,14 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
         existing is None or not _created_in_nexus(existing)
     )
     change_key = ev.get("changeKey")
+    if existing is not None and ical_uid and existing.m365_ical_uid != ical_uid:
+        existing.m365_ical_uid = ical_uid
+    if scope.sales and ical_uid:
+        # Przed pominięciem „bez zmian”: pełny odczyt po 0624 przechodzi przez
+        # spotkania już zapisane i dopiero teraz zapisuje je w Sprzedaży.
+        await _record_sales_meeting(
+            db, conn, ev, ical_uid, private=private, skip_candidates=scope.candidates
+        )
     if (
         existing
         and existing.m365_change_key == change_key
@@ -1356,7 +1524,9 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
     addrs = matcher.external_addresses(
         [a["address"] for a in attendee_rows], getattr(conn, "mailbox_upn", None)
     )
-    if addrs:
+    # Kalendarz handlowca bez dostępu do kandydatów nie przypina spotkań
+    # do kandydatów (28.10.2026).
+    if addrs and scope.candidates:
         from app.models.candidate import Candidate
 
         # Runda 9 (R9-N10-8): adresy uczestników są już małymi literami, adres
@@ -1383,6 +1553,7 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
             external_id=graph_id,
             m365_change_key=change_key,
             m365_series_master_id=ev.get("seriesMasterId"),
+            m365_ical_uid=ical_uid,
             created_by=conn.user_id,
         )
         db.add(row)
@@ -1402,6 +1573,114 @@ async def _upsert_event(db: AsyncSession, conn: M365Connection, ev: dict) -> boo
             existing.candidate_id = candidate_id
 
     return True
+
+
+async def _record_sales_meeting(
+    db: AsyncSession,
+    conn: M365Connection,
+    ev: dict,
+    ical_uid: str,
+    *,
+    private: bool,
+    skip_candidates: bool = False,
+) -> None:
+    """Spotkanie handlowca przy firmach Sprzedaży (savepoint jak przy mailu).
+
+    ``skip_candidates`` — skrzynka z dostępem do kandydatów: spotkanie
+    z kandydatem (rozmowa u klienta, prep) nie idzie na oś firmy.
+    """
+    async with db.begin_nested():
+        if private:
+            # Prywatne w Outlooku = w NEXUSIE sam termin; w Sprzedaży nic.
+            await sales_outlook.forget(
+                db, sales_outlook.EVENT_SOURCE, ical_uid, upcoming_only=False
+            )
+            return
+        start = _parse_graph_datetime((ev.get("start") or {}).get("dateTime"))
+        end = _parse_graph_datetime((ev.get("end") or {}).get("dateTime"))
+        if start is None:
+            return
+        duration = (
+            max(1, int((end - start).total_seconds() // 60))
+            if end is not None and end > start and not ev.get("isAllDay")
+            else None
+        )
+        organizer = ((ev.get("organizer") or {}).get("emailAddress") or {}).get(
+            "address"
+        )
+        attendees = [
+            ((a or {}).get("emailAddress") or {}).get("address")
+            for a in ev.get("attendees") or []
+        ]
+        addresses = [a for a in (organizer, *attendees) if a]
+        if skip_candidates and await _has_candidate_attendee(db, conn, addresses):
+            return
+        await sales_outlook.record(
+            db,
+            sales_outlook.OutlookItem(
+                source=sales_outlook.EVENT_SOURCE,
+                external_id=ical_uid,
+                owner_user_id=conn.user_id,
+                owner_address=conn.mailbox_upn,
+                addresses=addresses,
+                subject=ev.get("subject"),
+                preview=ev.get("bodyPreview"),
+                occurred_at=start,
+                web_link=(ev.get("webLink") or "").strip()[:2000] or None,
+                duration_minutes=duration,
+            ),
+        )
+
+
+async def _has_candidate_attendee(
+    db: AsyncSession, conn: M365Connection, addresses: list[str]
+) -> bool:
+    """Czy wśród uczestników spoza firmy jest kandydat (adres jak w indeksie 0391)."""
+    from app.models.candidate import Candidate
+
+    external = matcher.external_addresses(addresses, conn.mailbox_upn)
+    if not external:
+        return False
+    return bool(
+        await db.scalar(
+            select(
+                exists().where(func.lower(func.btrim(Candidate.email)).in_(external))
+            )
+        )
+    )
+
+
+async def _forget_sales_meeting(
+    db: AsyncSession,
+    ev: dict,
+    existing: Optional[CalendarEvent],
+    ical_uid: Optional[str],
+) -> None:
+    """Odwołane albo usunięte spotkanie znika z osi firmy, jeśli jeszcze się nie odbyło.
+
+    ``@removed`` niesie samo id wydarzenia — klucz spotkania bierzemy z wiersza.
+    Usunięcie z jednego kalendarza (uczestnik odrzucił) nie zdejmuje spotkania,
+    które dalej stoi w kalendarzu innej osoby z NEXUSA.
+    """
+    uid = ical_uid or (existing.m365_ical_uid if existing is not None else None)
+    if not uid:
+        return
+    if ev.get("@removed") and not ev.get("isCancelled"):
+        still_live = await db.scalar(
+            select(
+                exists().where(
+                    CalendarEvent.m365_ical_uid == uid,
+                    CalendarEvent.status != EventStatus.cancelled,
+                    CalendarEvent.id != (existing.id if existing is not None else -1),
+                )
+            )
+        )
+        if still_live:
+            return
+    async with db.begin_nested():
+        await sales_outlook.forget(
+            db, sales_outlook.EVENT_SOURCE, uid, upcoming_only=True
+        )
 
 
 def _graph_event_fields(ev: dict) -> Optional[dict]:

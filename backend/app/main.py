@@ -251,6 +251,7 @@ from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
@@ -2083,6 +2084,7 @@ app.include_router(
 app.include_router(
     sales_opportunities_api.summary_router, prefix="/api/sales/summary", tags=["sales"]
 )
+app.include_router(sales_kpi_api.router, prefix="/api/sales/kpi", tags=["sales"])
 app.include_router(
     sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
 )
@@ -3490,6 +3492,7 @@ async def api_health_deep_check():
         SalesCompany,
         SalesOpportunity,
         SalesPipelineStage,
+        SalesTarget,
     )
 
     core_checks = [
@@ -3770,6 +3773,8 @@ async def api_health_deep_check():
         ("sales_pipeline_stages", SalesPipelineStage),
         ("sales_opportunities", SalesOpportunity),
         ("sales_activities", SalesActivity),
+        # 0623: cele i KPI tygodniowe handlowców.
+        ("sales_targets", SalesTarget),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),

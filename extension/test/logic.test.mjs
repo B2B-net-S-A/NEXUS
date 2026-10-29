@@ -177,3 +177,10 @@ test("updateNotice: ta sama albo starsza wersja, brak danych → bez banera", ()
   assert.equal(updateNotice({ latest_version: "abc" }, "1.0.3", conn), null);
   assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", null), null);
 });
+
+test("updateNotice: wtyczka z update_url (sklep, .crx z Intune) aktualizuje się sama → bez banera", () => {
+  const conn = { frontUrl: "https://nexus.b2bnetwork.pl" };
+  assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, "https://nexus.b2bnetwork.pl/wtyczka/update.xml"), null);
+  assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, "https://clients2.google.com/service/update2/crx"), null);
+  assert.ok(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, undefined), "ZIP (bez update_url) dalej dostaje baner");
+});

@@ -567,3 +567,75 @@ HISTORY_DDL: tuple[str, ...] = (
 HISTORY_DOWNGRADE_DDL: tuple[str, ...] = (
     "DROP TABLE IF EXISTS sales_opportunity_events",
 )
+
+
+# ── 0623: cele i KPI tygodniowe handlowców (decyzja Artura 28.10.2026) ─────
+# * ``sales_targets`` — cele tygodniowe osoby (spotkania, leady kwalifikowane,
+#   wejścia na etap „Oferta wysłana”), opcjonalny cel marży (netto MRR)
+#   z terminem i drużyna. Wiersz bez ``user_id`` to cel firmy (netto MRR),
+#   który w Atlasie był stałą w kodzie. Kwot nie ma w kodzie — wpisuje admin.
+# * KPI „Oferty” liczy wejścia na etap ``offer-sent`` z historii zmian szansy
+#   (``sales_opportunity_events``, 0618) — NEXUS nie ma ofert.
+
+TARGETS_DDL: tuple[str, ...] = (
+    """CREATE TABLE IF NOT EXISTS sales_targets (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE CASCADE,
+    meetings INTEGER NOT NULL DEFAULT 0,
+    qualified INTEGER NOT NULL DEFAULT 0,
+    offers_stage INTEGER NOT NULL DEFAULT 0,
+    margin_goal_amount NUMERIC(14, 2) NULL,
+    margin_goal_deadline DATE NULL,
+    team VARCHAR(60) NULL,
+    updated_by_user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_targets_weekly CHECK (meetings >= 0 AND qualified >= 0 AND offers_stage >= 0),
+    CONSTRAINT ck_sales_targets_margin CHECK (margin_goal_amount IS NULL OR margin_goal_amount >= 0)
+)""",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_targets_user "
+    "ON sales_targets (user_id) WHERE user_id IS NOT NULL",
+    # Jeden wiersz firmowy: wszystkie mają tę samą wartość wyrażenia.
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_targets_company "
+    "ON sales_targets ((user_id IS NULL)) WHERE user_id IS NULL",
+)
+
+TARGETS_DOWNGRADE_DDL: tuple[str, ...] = ("DROP TABLE IF EXISTS sales_targets",)
+
+
+# ── 0624: bieżąca poczta i kalendarz Outlooka handlowców (28.10.2026) ──────
+# * ``emails.web_link`` — „Otwórz w Outlooku” (Graph ``webLink``).
+# * ``calendar_events.m365_ical_uid`` — klucz spotkania wspólny dla wszystkich
+#   skrzynek i dla historii z Atlasa; ``@removed`` z Graphu niesie samo id
+#   wydarzenia, więc bez tej kolumny nie da się zdjąć odwołanego spotkania.
+# * indeksy dopasowania (adres kontaktu, domena firmy, id z Outlooka) i UNIQUE
+#   na wierszach synchronizacji NEXUSA — tylko bez ``external_ref`` (historia
+#   z Atlasa ma go zawsze), więc indeks nie może się wywrócić na danych z importu.
+
+OUTLOOK_SYNC_DDL: tuple[str, ...] = (
+    "ALTER TABLE emails ADD COLUMN IF NOT EXISTS web_link VARCHAR(2000) NULL",
+    "ALTER TABLE calendar_events ADD COLUMN IF NOT EXISTS m365_ical_uid VARCHAR(255) NULL",
+    "CREATE INDEX IF NOT EXISTS ix_calendar_events_m365_ical_uid "
+    "ON calendar_events (m365_ical_uid) WHERE m365_ical_uid IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sales_activities_external_id "
+    "ON sales_activities (external_source, external_id) "
+    "WHERE external_id IS NOT NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_sales_activities_outlook "
+    "ON sales_activities (external_source, external_id, company_id) "
+    "WHERE external_id IS NOT NULL AND external_ref IS NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sales_contacts_email_lower "
+    "ON sales_contacts (lower(btrim(email))) WHERE email IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_sales_companies_mail_domain "
+    "ON sales_companies ((regexp_replace(lower(btrim(domain)), "
+    "'^([a-z]+://)?(www\\.)?([^/:?#]+).*$', '\\3')))",
+)
+
+OUTLOOK_SYNC_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP INDEX IF EXISTS ix_sales_companies_mail_domain",
+    "DROP INDEX IF EXISTS ix_sales_contacts_email_lower",
+    "DROP INDEX IF EXISTS ux_sales_activities_outlook",
+    "DROP INDEX IF EXISTS ix_sales_activities_external_id",
+    "DROP INDEX IF EXISTS ix_calendar_events_m365_ical_uid",
+    "ALTER TABLE calendar_events DROP COLUMN IF EXISTS m365_ical_uid",
+    "ALTER TABLE emails DROP COLUMN IF EXISTS web_link",
+)

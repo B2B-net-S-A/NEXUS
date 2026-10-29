@@ -9,6 +9,8 @@ import { TabbedNav } from "@/components/ds/TabbedNav";
 import { RequirePermission } from "@/components/RequirePermission";
 import { permissionLabel } from "@/lib/permissions";
 
+import { SalesMailboxStatus } from "./SalesMailboxStatus";
+
 export type SalesSection = "summary" | "opportunities" | "companies" | "contacts" | "leads" | "tasks";
 
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
@@ -69,6 +71,7 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
             }}
           />
         )}
+        {!hideNav && <SalesMailboxStatus />}
         {children}
       </div>
     </RequirePermission>
