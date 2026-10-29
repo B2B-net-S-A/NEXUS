@@ -1280,7 +1280,7 @@ except Exception as _hr_bundle_err:  # noqa: BLE001
     _HR_DATA_DDL = []
     _HR_CONSTRAINT_DDL = []
 
-# Nowości do przeklikania (0624): postęp osoby przy nowości — JEDNO źródło
+# Nowości do przeklikania (0625): postęp osoby przy nowości — JEDNO źródło
 # z migracją (`app/services/novelty_schema.py`).
 try:
     from app.services import novelty_schema as _novelty_schema
@@ -6905,7 +6905,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
-    # 0624: nowości do przeklikania (`app/services/novelty_schema.py`).
+    # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
 ]
 

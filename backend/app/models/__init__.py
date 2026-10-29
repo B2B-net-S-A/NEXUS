@@ -897,5 +897,5 @@ from app.models import sales as _sales_models  # noqa: F401,E402
 # 0619: „Ogłoszenia” na pulpicie (HoR i admin publikują, przeczytane per osoba).
 from app.models import announcement as _announcement_models  # noqa: F401,E402
 
-# 0624: Nowości do przeklikania — postęp osoby przy nowości.
+# 0625: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402

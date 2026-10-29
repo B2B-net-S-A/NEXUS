@@ -3819,7 +3819,7 @@ async def api_health_deep_check():
         ("candidate_job_owners", CandidateJobOwner),
         # 0621: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
         ("pair_departure_care", PairDepartureCare),
-        # 0624: nowości do przeklikania — kropki i lista „Nowości” czytają ją
+        # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
     ]
