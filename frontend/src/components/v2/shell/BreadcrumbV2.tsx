@@ -53,6 +53,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   pipeline: "Pipeline",
   scoring: "Ranking kandydatów",
   "prep-review": "Ocena prepów",
+  "twin-rules": "Zasady bliźniaków",
   "pipeline-templates": "Procesy",
   "contract-templates": "Wzory umów",
   compare: "Porównanie",

@@ -95,3 +95,39 @@ Serwis `services/job_twins.py`, trasy `api/job_twins.py`, DDL
   „Zweryfikowany” jako `twin_skips` — z formularza wspólnego i pojedynczego —
   i zostaje w Historii zdarzeń. Pominięcie dotyczy tej rozmowy; nie
   zapisujemy go na stałe przy osobie.
+
+## Zasady bliźniaków w Ustawieniach (decyzje Artura 29.10.2026)
+
+Pytanie Olafa: „Mogę zmodyfikować warunki matchowania bliźniaków?”. Makieta:
+https://claude.ai/artifact/QTD7Sk3jBqL386Jq5LYs6m. Serwis
+`services/job_twin_rules.py`, ekran Ustawienia → Rekrutacja → „Zasady
+bliźniaków” (`/settings/twin-rules`, `components/settings/TwinRulesSettings`).
+
+- **Jedno ustawienie dla całej firmy** w `app_settings` (klucz
+  `job_twin_rules`), zmieniają Head of Recruitment i admin (`PUT
+  /api/job-twins/rules`, inni 403), odczyt DL/HoR/admin. Każdy zapis zostawia
+  `Activity job_twin_rules_changed` z różnicą przed/po. Zły wpis = zasady
+  startowe (nigdy wyłączone bliźniaki).
+- **Tryby:** „Wymagane” TYLKO filtruje listę „Możliwe bliźniaki” (decyzja
+  Artura) — w kaflu „Otwarte podobne” para dostaje „✕ …”, a w oknie łączenia
+  „Zgodność z zasadami” z notą; ręcznie połączyć wolno. „Ostrzeżenie” = „⚠ …”
+  przy parze i w oknie. „Wyłączone” = zasada nie działa.
+- **Zasady startowe (jak w makiecie):** podobieństwo od 80% (pole 70–95,
+  pula listy liczona od 70%), krytyczne wymagane, różni DL wymagane (tylko
+  lista HoR), wymagania ≥ 50% / lokalizacja / tryb pracy / budżet ± 10 zł/h
+  jako ostrzeżenia, klient i kategoria wyłączone. Do tego najwięcej
+  bliźniaków na rekrutację (1–3), pozycje kafla (4–15) i śmiałość podpowiedzi
+  par pytań (0,3 / 0,2 / 0,15).
+- **Jak liczone:** krytyczne (`critical_skills.effective_critical`) i
+  wymagania (`job_explicit_must_skills`) porównuje się po tekście albo po
+  rdzeniach słów (5 liter) — „analiza systemowa” ≈ „Analityk Systemowy”
+  dopiero z opcją „szukaj też w tytule”. Miasta z wolnego tekstu lokalizacji
+  tylko z listy znanych miast (`KNOWN_CITIES`), bo lokalizacja bywa zdaniem
+  („Sporadycznie, 1-2 dni w miesiącu…”). Poziom (seniority) pominięty: pusty
+  w 138 z 138 rekrutacji z par na kopii z 22.10.
+- **Podgląd przed zapisem** (`POST /api/job-twins/rules/preview`): ile par
+  od progu spełnia zasady wymagane, ile z ostrzeżeniem, ile możliwych
+  bliźniaków teraz i po zapisie, licznik „spełnia N z M” per zasada
+  i przykłady par, które wypadną albo dojdą. Pomiar na kopii z 22.10 (53 pary
+  od 80%): krytyczne 46, lokalizacja 35, tryb pracy 29, budżet 43, klient 46,
+  różni DL 9; przy zasadach startowych 7 możliwych bliźniaków zamiast 9.

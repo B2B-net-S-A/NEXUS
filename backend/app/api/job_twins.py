@@ -37,7 +37,7 @@ from app.models.client import Client
 from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
-from app.services import job_twins
+from app.services import job_twin_rules, job_twins
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -171,8 +171,12 @@ async def preview_job_twin(
             "Delivery Lead łączy tylko swoje rekrutacje. "
             "Rekrutacje innych DL-i łączy Head of Recruitment albo admin.",
         )
+    rules = await job_twin_rules.load(db)
     own_q = job_twins.question_texts(job)
     other_q = job_twins.question_texts(other)
+    checks = job_twin_rules.evaluate(
+        rules, job_twin_rules.facts_of(job), job_twin_rules.facts_of(other)
+    )
     existing = next(
         (
             row
@@ -195,8 +199,13 @@ async def preview_job_twin(
         "question_pairs": (
             existing.question_pairs or []
             if existing is not None
-            else job_twins.suggest_question_pairs(own_q, other_q)
+            else job_twins.suggest_question_pairs(
+                own_q, other_q, job_twin_rules.PAIR_HINT_THRESHOLDS[rules.pair_hint]
+            )
         ),
+        # Zasady z Ustawień (29.10.2026): „Wymagane” tylko filtruje listę —
+        # łączyć wolno, okno pokazuje, czego para nie spełnia.
+        "rules": [c.as_dict() for c in checks],
         "verified_not_in_other": await _verified_missing(db, job.id, other.id),
         "verified_not_in_job": await _verified_missing(db, other.id, job.id),
     }
@@ -258,10 +267,12 @@ async def get_open_similar_jobs(
     """Kafel „Otwarte podobne” — tylko otwarte, P1 na górze. Zamknięte zostają
     w „Podobnych rekrutacjach” (przepięcia)."""
     job = await _job(db, user, job_id)
-    ranked = await job_twins.open_similar(db, job)
+    rules = await job_twin_rules.load(db)
+    ranked = await job_twins.open_similar(db, job, rules.open_similar_limit)
     briefs = await _briefs(db, [jid for jid, _ in ranked])
+    facts = await job_twin_rules.facts_for(db, [job.id, *(jid for jid, _ in ranked)])
     twins = set(await job_twins.twin_ids(db, job.id))
-    full = len(twins) >= job_twins.MAX_TWINS
+    full = len(twins) >= min(job_twins.MAX_TWINS, rules.max_twins)
     can_any = await job_twins.can_manage(db, user, job)
     items = []
     for jid, similarity in ranked:
@@ -275,6 +286,22 @@ async def get_open_similar_jobs(
             and not full
             and await job_twins.can_link(db, user, job, other)
         )
+        checks = (
+            job_twin_rules.evaluate(rules, facts[job.id], facts[jid])
+            if job.id in facts and jid in facts
+            else []
+        )
+        failed = job_twin_rules.required_failures(checks)
+        if not job_twin_rules.similarity_ok(rules, similarity):
+            failed = [
+                job_twin_rules.RuleCheck(
+                    "similarity",
+                    "required",
+                    False,
+                    f"{similarity}% (od {rules.min_similarity}%)",
+                ),
+                *failed,
+            ]
         items.append(
             {
                 **brief,
@@ -282,6 +309,9 @@ async def get_open_similar_jobs(
                 "twin": jid in twins,
                 "can_twin": can_twin,
                 "twin_limit_reached": full and jid not in twins,
+                # Zasady bliźniaków: niespełnione wymagane i ostrzeżenia.
+                "rule_failures": [c.as_dict() for c in failed],
+                "rule_warnings": [c.as_dict() for c in job_twin_rules.warnings(checks)],
             }
         )
     return {"job_id": job.id, "items": items}
@@ -341,20 +371,68 @@ def _require_hor(user: User) -> None:
 @router.get("/job-twins/suggestions")
 async def get_twin_suggestions(user: RecruiterPlus, db: AsyncSession = Depends(get_db)):
     _require_hor(user)
+    rules = await job_twin_rules.load(db)
     items = await job_twins.suggestions(db)
-    briefs = await _briefs(db, [i.job_id for i in items] + [i.other_id for i in items])
+    briefs = await _briefs(
+        db, [i.job_id for i, _ in items] + [i.other_id for i, _ in items]
+    )
     return {
-        "min_similarity": round(job_twins.SUGGESTION_MIN_COSINE * 100),
+        "min_similarity": rules.min_similarity,
         "items": [
             {
                 "similarity": item.similarity,
                 "job": briefs[item.job_id],
                 "other": briefs[item.other_id],
+                "warnings": [c.as_dict() for c in warns],
             }
-            for item in items
+            for item, warns in items
             if item.job_id in briefs and item.other_id in briefs
         ],
     }
+
+
+# ── Zasady bliźniaków (Ustawienia → Rekrutacja, 29.10.2026) ────────────────
+
+
+def _rules_payload(rules: job_twin_rules.TwinRules, user: User) -> dict[str, Any]:
+    return {
+        "rules": rules.model_dump(),
+        "defaults": job_twin_rules.defaults().model_dump(),
+        "labels": job_twin_rules.RULE_LABELS,
+        "can_edit": user.has_any_role(*job_twins.LINK_ALL_ROLES),
+    }
+
+
+@router.get("/job-twins/rules")
+async def get_twin_rules(user: RecruiterPlus, db: AsyncSession = Depends(get_db)):
+    return _rules_payload(await job_twin_rules.load(db), user)
+
+
+@router.put("/job-twins/rules")
+async def save_twin_rules(
+    body: job_twin_rules.TwinRules,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    if not user.has_any_role(*job_twins.LINK_ALL_ROLES):
+        raise HTTPException(
+            403, "Zasady bliźniaków zmienia Head of Recruitment i admin."
+        )
+    saved = await job_twin_rules.save(db, body, user_id=user.id)
+    job_twins.reset_suggestion_cache()
+    await db.commit()
+    return _rules_payload(saved, user)
+
+
+@router.post("/job-twins/rules/preview")
+async def preview_twin_rules(
+    body: job_twin_rules.TwinRules,
+    user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Ile par przejdzie przy zasadach z formularza — przed zapisem."""
+    _require_hor(user)
+    return await job_twins.rules_preview(db, body)
 
 
 class DismissTwinBody(BaseModel):
