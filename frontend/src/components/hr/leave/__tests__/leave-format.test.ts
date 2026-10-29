@@ -5,6 +5,7 @@ import type { CalendarAbsence } from "@/lib/api/hr-leave";
 import {
   absenceBadgeText,
   calendarCells,
+  cproSubstituteMissing,
   daysLabel,
   formatRange,
   leaveInputFrom,
@@ -218,5 +219,25 @@ describe("leaveInputFrom — dane wniosku ze stanu okna", () => {
       note: "Zwolnienie od lekarza",
     });
     expect(leaveInputFrom(values(), "on_behalf")?.note).toBeNull();
+  });
+});
+
+describe("cproSubstituteMissing — osoba od Cpro wskazuje zastępcę do Cpro", () => {
+  const form = { start: "2026-11-02", end: "2026-11-03", halfDay: "full", cproSubstitute: "none" };
+
+  it("własny wniosek osoby od Cpro na pełne dni bez wyboru = brak", () => {
+    expect(cproSubstituteMissing(form, true, false)).toBe(true);
+    expect(cproSubstituteMissing({ ...form, cproSubstitute: undefined }, true, false)).toBe(true);
+    expect(cproSubstituteMissing({ ...form, cproSubstitute: "9" }, true, false)).toBe(false);
+  });
+
+  it("pół dnia, wpis za pracownika i zwykła osoba nie wymagają wyboru", () => {
+    const half = { ...form, end: form.start, halfDay: "morning" };
+    expect(cproSubstituteMissing(half, true, false)).toBe(false);
+    expect(cproSubstituteMissing(form, true, true)).toBe(false);
+    expect(cproSubstituteMissing(form, false, false)).toBe(false);
+    expect(cproSubstituteMissing(form, undefined, false)).toBe(false);
+    // „Pół dnia” przy kilku dniach się nie liczy — to pełne dni.
+    expect(cproSubstituteMissing({ ...form, halfDay: "morning" }, true, false)).toBe(true);
   });
 });

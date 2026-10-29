@@ -59,6 +59,16 @@ async def test_manual_lead_converts_into_company_and_opportunity(app_client) -> 
         rep.id,
     )
     assert opp["company"]["name"] == f"Czapla Logistyka {tag}"
+    # Zamiana leada to założenie szansy — w historii jak z formularza.
+    events = (
+        await app_client.get(
+            f"/api/sales/opportunities/{ids['opportunity_id']}/history",
+            headers=_headers(rep),
+        )
+    ).json()
+    assert [(e["kind"], e["new_label"], e["user"]["id"]) for e in events] == [
+        ("created", "Lead", rep.id)
+    ]
 
     after = (await app_client.get(f"{URL}/{lead['id']}", headers=_headers(rep))).json()
     assert (after["status"], after["opportunity_id"]) == (

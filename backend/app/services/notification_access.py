@@ -44,6 +44,9 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.password_reset_requested,
         NotificationType.password_changed_by_admin,
         *HR_PERSONAL_NOTIFICATION_TYPES,
+        # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
+        # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
+        NotificationType.announcement_important,
     }
 )
 
@@ -175,8 +178,12 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_ad_nudge: ProductSection.pipeline,
     NotificationType.job_p0_set: ProductSection.pipeline,
     NotificationType.job_p0_requested: ProductSection.pipeline,
+    # 0617: rekrutacje bez ruchu — link prowadzi na rekrutację.
+    NotificationType.job_idle_reminder: ProductSection.pipeline,
     # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
     NotificationType.job_closed_people_waiting: ProductSection.pipeline,
+    # 0621: link prowadzi na listę „Po osobach, które odeszły”.
+    NotificationType.departed_pairs_care: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,

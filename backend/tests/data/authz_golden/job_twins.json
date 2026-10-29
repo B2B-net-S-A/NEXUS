@@ -29,6 +29,7 @@
  ],
  "routes": {
   "DELETE /api/jobs/{job_id}/twins/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "GET /api/job-twins/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/job-twins/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "GET /api/jobs/{job_id}/open-similar": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/jobs/{job_id}/twins": "PPPPPPDDPPPPPPPPPPPPDPPPPD",

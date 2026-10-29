@@ -108,12 +108,16 @@ async def test_all_triggers_return_zero_when_no_data(empty_db):
         "client_job_opened",
         # 27.10.2026: przypomnienia o brakujących ogłoszeniach (`job_ad.reminders`).
         "job_ad_reminders",
+        # 28.10.2026: odejście rekrutera — nadrobione przekazania i przypomnienia.
+        "departed_care",
     }
     assert all(isinstance(v, int) and v >= 0 for v in results.values())
     # Time-gated trigger musi zwrócić 0 o 21:00.
     assert results["client_feedback_eobd"] == 0
     # Przypomnienia o ogłoszeniach chodzą tylko 8–17.
     assert results["job_ad_reminders"] == 0
+    # Przypomnienia DL-om po odejściu też tylko 8–17 w dni robocze.
+    assert results["departed_care"] == 0
 
 
 # ── stage_stuck_7d (audyt 17.09.2026) ─────────────────────────────────────────

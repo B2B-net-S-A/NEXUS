@@ -183,7 +183,12 @@ async def test_deleted_account_is_deactivated_like_admin_delete(enforce) -> None
     assert after.is_active is False
     assert after.authorization_version == before.authorization_version + 1
     assert after.tokens_valid_after is not None
-    assert await _actions(user_id) == [sweep.DEACTIVATION_ACTION]
+    # Wyłączenie konta dzieli też jego kandydatów między Delivery Leadów
+    # (``departure_care``, 28.10.2026) — ślad przekazania stoi zaraz po nim.
+    assert await _actions(user_id) == [
+        sweep.DEACTIVATION_ACTION,
+        "departure_care_assigned",
+    ]
     async with AsyncSessionLocal() as db:
         entry = await db.scalar(
             select(Activity).where(
@@ -352,7 +357,11 @@ async def test_admin_reenable_after_sweep_wins(enforce) -> None:
     assert user_id in result["kept_by_admin"]
     assert user_id not in result["deactivated"]
     assert (await _user(user_id)).is_active is True
-    assert await _actions(user_id) == [sweep.DEACTIVATION_ACTION, "active_changed"]
+    assert await _actions(user_id) == [
+        sweep.DEACTIVATION_ACTION,
+        "departure_care_assigned",
+        "active_changed",
+    ]
 
 
 @pytest.mark.asyncio

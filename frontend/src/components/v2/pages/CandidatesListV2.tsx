@@ -218,6 +218,7 @@ import {
   type ListTextModeApplied,
 } from "@/components/v2/candidates/ListSearchInterpretation";
 import { CandidateBulkBar } from "@/components/v2/candidates/CandidateBulkBar";
+import { AssessWithAiButton } from "@/components/v2/recruitment/AiAssessmentPanel";
 import { PageNumberButtons } from "@/components/v2/candidates/PageNumberButtons";
 import { RequestSearchDialog } from "@/components/v2/candidates/RequestSearchDialog";
 import {
@@ -607,6 +608,18 @@ export interface CandidatesListEmbed {
    * dostaje „Dodaj” zamiast „Dodano” (15.10.2026).
    */
   undone?: ReadonlySet<number>;
+  /**
+   * „✦ Oceń z AI” na zaznaczonych (28.10.2026): okno pokazuje panel oceny,
+   * a „Dodaj „Dzwoń” do Nowych” wraca przez `add` — tę samą drogę co
+   * „Dodaj N do Nowych” (dodani schodzą z zaznaczenia i z listy).
+   */
+  onAssessWithAi?: (request: CandidatesListAiRequest) => void;
+}
+
+/** Zaznaczone osoby do „Oceń z AI” i dodanie tą samą drogą co lista. */
+export interface CandidatesListAiRequest {
+  people: CandidatesListAddedPerson[];
+  add: (candidateIds: number[]) => Promise<readonly number[]>;
 }
 
 /** Osoba dodana z listy osadzonej w rekrutacji. */
@@ -1569,16 +1582,20 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  });
  }, [embedUndone]);
  const addToEmbedJob = useCallback(
- async (candidateIds: number[]) => {
- if (embedJobId == null || candidateIds.length === 0) return;
+ async (candidateIds: number[], chunkSize?: number): Promise<readonly number[]> => {
+ if (embedJobId == null || candidateIds.length === 0) return [];
  setAddingIds((prev) => new Set([...prev, ...candidateIds]));
  try {
  // U3: zaznaczenie przeżywa zmianę strony — paczki po 100.
- const result = await proposalsBulkApi.addInChunks(embedJobId, {
+ const body = {
  candidate_ids: candidateIds,
  initial_stage_legacy: "new",
- source: "manual_search",
- });
+ source: "manual_search" as const,
+ };
+ // `chunkSize` tylko z „Oceń z AI” (po jednej osobie); zwykłe dodanie bez zmian.
+ const result = chunkSize
+ ? await proposalsBulkApi.addInChunks(embedJobId, body, chunkSize)
+ : await proposalsBulkApi.addInChunks(embedJobId, body);
  const summary = summarizeBulkResult(result);
  const parts = [
  result.total_added > 0
@@ -1613,8 +1630,10 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
  })),
  );
  }
+ return result.added;
  } catch (err) {
  showError(apiErrorMessage(err, "Nie udało się dodać kandydatów do rekrutacji."));
+ return [];
  } finally {
  setAddingIds((prev) => {
  const next = new Set(prev);
@@ -3042,13 +3061,31 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
             </span>
             <Button
               size="sm"
-              variant="primary"
+              // Makieta C (28.10.2026): obok „Oceń z AI” dodanie jest drugą akcją.
+              variant={embed.onAssessWithAi ? "outline" : "primary"}
               className="ml-auto"
               disabled={embed.readOnly || addingIds.size > 0}
               onClick={() => void addToEmbedJob(Array.from(selectedIds))}
             >
               <UserPlus className="h-3.5 w-3.5" aria-hidden /> Dodaj {selectedIds.size} do Nowych
             </Button>
+            {embed.onAssessWithAi ? (
+              <AssessWithAiButton
+                primary
+                count={selectedIds.size}
+                disabled={embed.readOnly}
+                onClick={() =>
+                  embed.onAssessWithAi?.({
+                    people: Array.from(selectedIds, (candidateId) => ({
+                      candidateId,
+                      fullName: namesSeen.current.get(candidateId) ?? `Kandydat #${candidateId}`,
+                    })),
+                    // Po jednej osobie, w kolejności podanej przez panel.
+                    add: (ids) => addToEmbedJob(ids, 1),
+                  })
+                }
+              />
+            ) : null}
             <Button size="sm" variant="ghost" onClick={clearSelection}>
               Wyczyść
             </Button>

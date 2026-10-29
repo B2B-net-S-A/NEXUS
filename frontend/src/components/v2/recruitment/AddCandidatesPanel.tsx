@@ -112,6 +112,8 @@ import {
   useHiddenByCritical,
 } from "./HiddenByCriticalSection";
 import { ManualSearchPanel } from "./ManualSearchPanel";
+import { AssessWithAiButton } from "./AiAssessmentPanel";
+import { useAiAssessmentWindow } from "./useAiAssessmentWindow";
 import { PersonPreview } from "./PersonPreview";
 import { alsoFitsSlot } from "./also-fits-block";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
@@ -383,6 +385,9 @@ function AddCandidatesPanelOpen({
   const [undoing, setUndoing] = useState<ReadonlySet<number>>(() => new Set());
   const [previewId, setPreviewId] = useState<number | null>(null);
   const previewTrigger = useRef<HTMLElement | null>(null);
+
+  // „Oceń z AI” (28.10.2026): panel nad oknem, dodanie drogą zakładki.
+  const aiWindow = useAiAssessmentWindow({ jobId, readOnly, onAdded: onManualAdded });
 
   // „Pasuje też do” (14.10.2026): inne rekrutacje dla osób dodanych w tym oknie.
   const alsoFits = useAlsoFitsJobs({ fromJobId: jobId, addedIds, enabled: !readOnly });
@@ -732,8 +737,12 @@ function AddCandidatesPanelOpen({
    * komunikat wyniku). Dodani zostają na liście z „Cofnij”; zamknięta karta
    * i inne odmowy zostają jak dotąd z komunikatem.
    */
-  const addIds = (ids: readonly number[], perRow: boolean) => {
-    if (readOnly || ids.length === 0 || listTab == null) return;
+  const addIds = (
+    ids: readonly number[],
+    perRow: boolean,
+    oneByOne = false,
+  ): Promise<readonly number[]> => {
+    if (readOnly || ids.length === 0 || listTab == null) return Promise.resolve([]);
     const tabNow = listTab;
     const snapshot = new Map<number, KeptEntry>();
     const hiddenSnapshot = new Map<number, KeptHidden>();
@@ -746,8 +755,13 @@ function AddCandidatesPanelOpen({
       }
     }
     if (perRow) setRowAdding((prev) => new Set([...prev, ...ids]));
+    // „Oceń z AI” czeka na wynik, żeby oznaczyć dodanych w panelu.
+    let settle: (added: readonly number[]) => void = () => undefined;
+    const done = new Promise<readonly number[]>((resolve) => {
+      settle = resolve;
+    });
     // Osoby z sekcji ukrytych źródła okna nie znają — idą jak propozycje.
-    proposals.addToJob([...ids], { unlistedSource: "proposal_inbox" }, {
+    proposals.addToJob([...ids], { unlistedSource: "proposal_inbox", ...(oneByOne ? { oneByOne } : {}) }, {
       onSuccess: (response) => {
         const added = response.added.filter((id) => snapshot.has(id) || hiddenSnapshot.has(id));
         setKept((prev) => {
@@ -768,17 +782,30 @@ function AddCandidatesPanelOpen({
         });
         setAddedIds((prev) => new Set([...prev, ...added]));
         undoWindow.start(added);
+        settle(added);
       },
       onSettled: () => {
         if (perRow) setRowAdding((prev) => new Set([...prev].filter((id) => !ids.includes(id))));
+        settle([]);
       },
     });
     setSelectedByTab((prev) => ({
       ...prev,
       [tabNow]: new Set([...(prev[tabNow] ?? [])].filter((id) => !ids.includes(id))),
     }));
+    return done;
   };
-  const addSelected = () => addIds([...selectedIds], false);
+  const addSelected = () => void addIds([...selectedIds], false);
+  const assessSelected = () => {
+    const names = new Map(listEntries.map((e) => [e.row.candidateId, e.row.fullName]));
+    aiWindow.open({
+      people: [...selectedIds].map((candidateId) => ({
+        candidateId,
+        fullName: names.get(candidateId) ?? `Kandydat #${candidateId}`,
+      })),
+      add: (ids) => addIds(ids, false, true),
+    });
+  };
   /** „Cofnij”: wiersz wraca do zwykłego stanu, gdy źródła już go znów mają. */
   const undoAdd = (candidateId: number) => {
     if (readOnly) return;
@@ -934,6 +961,7 @@ function AddCandidatesPanelOpen({
           >
             Pomiń zaznaczone ({count})
           </Button>
+          <AssessWithAiButton size="md" count={count} onClick={assessSelected} />
           <Button
             onClick={addSelected}
             disabled={count === 0 || proposals.adding}
@@ -1203,7 +1231,14 @@ function AddCandidatesPanelOpen({
   // swoją zakładką) — filtry i zaznaczenia przeżywają przełączanie.
   const manualBody = visited.has("manual") ? (
     <div hidden={tab !== "manual"} data-testid="manual-search-tab">
-      <ManualSearchPanel jobId={jobId} job={job} onBulkAdded={onManualAdded} readOnly={readOnly} />
+      <ManualSearchPanel
+        jobId={jobId}
+        job={job}
+        onBulkAdded={onManualAdded}
+        readOnly={readOnly}
+        onAssessWithAi={readOnly ? undefined : aiWindow.open}
+        onOpenLatestAi={readOnly ? undefined : () => aiWindow.open({ people: null })}
+      />
     </div>
   ) : null;
 
@@ -1224,7 +1259,16 @@ function AddCandidatesPanelOpen({
       }
       footer={slots.footer}
       sidePane={slots.sidePane}
-      onEscapeKeyDown={slots.onEscapeKeyDown}
+      overlayPane={aiWindow.overlay}
+      onEscapeKeyDown={(event) => {
+        // Esc zamyka najpierw panel „Ocena AI”, potem resztę.
+        if (aiWindow.isOpen) {
+          event.preventDefault();
+          aiWindow.close();
+          return;
+        }
+        slots.onEscapeKeyDown(event);
+      }}
       data-testid="add-candidates-panel"
     >
       <div

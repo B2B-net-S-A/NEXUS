@@ -74,6 +74,12 @@ regexes = [
   # zastąpiona składaniem z kawałków, ale skan zakresu PR-a widzi stary
   # commit. Zakotwiczona, dokładna wartość (sam prefiks z cyframi 0–f po kolei).
   '''^nxe_v1_0123456789abcdef01234567_$''',
+  # Pole ``key`` z extension/manifest.json (29.10.2026) — KLUCZ PUBLICZNY RSA
+  # wtyczki Chrome, z którego Chrome liczy stałe id wtyczki zespołu
+  # (pmnonjpommkjblgacmpaclgacjmipplm). Jest publiczny z definicji (Chrome
+  # pokazuje go w każdej zainstalowanej wtyczce); połówka prywatna nie jest
+  # w repo. Zakotwiczona, dokładna wartość.
+  '''^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7gGBeDeJ/ZyiNg6nYdV\+A3/uN9H1EhMvhkfoTZ66XFtsWHbgnx0Ypv2smHihKHxZS86aVWdLu2xF1AFx0NpZOZQAoykJcq\+EBwx1k4ImZgHidfPu3eKz\+judWOF8uo7kkbID4GdEd20PZbJFgoUPvxmhpQExHeRcxVcehLnE3KRWnZJHjDoMTcET40an/W2hCckZ\+zcHkEGpmkX3Sw7f/JXd0O7qLTan083AjaftbRkH1wUX\+8sqvUwKzw77slKj91/1HkdGpBm7najbub6p9HMA8ILVW8yJw00XeYVFDClIZEFFN8NpzwMeFCWg77AMtBEbOcr/n2RGmGcBFd3HfwIDAQAB$''',
   # Stały, publiczny nagłówek JWT — base64 z ``{"alg":"HS256","typ":"JWT"}``.
   # Nie niesie ŻADNEGO materiału klucza (podpis to trzeci segment, którego tu
   # nie ma), a pojawia się w testach redakcji logów jako realistyczna atrapa.
@@ -128,6 +134,10 @@ regexes = [
   # Test składa go już w locie (f4e432b6d), ale wartość zostaje w historii
   # gałęzi, a skan PR-a obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
   '''^3f2b1c4e-0000-4000-8000-000000000001$''',
+  # Fikcyjny ``batch_id`` w teście panelu „Oceń z AI” (PR #2778). Test składa
+  # go już z kawałków, ale wartość zostaje w historii gałęzi, a skan PR-a
+  # obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
+  '''^00000000-0000-4000-8000-000000000000$''',
 ]
 
 [[rules]]

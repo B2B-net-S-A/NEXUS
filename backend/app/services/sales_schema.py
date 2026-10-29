@@ -524,3 +524,46 @@ GAPS_DOWNGRADE_DDL: tuple[str, ...] = (
     "DROP INDEX IF EXISTS ix_sales_companies_owner_label",
     "ALTER TABLE sales_companies DROP COLUMN IF EXISTS owner_label",
 )
+
+
+# ── 0618: historia zmian szansy (jak „Historia zmian” w Atlasie) ─────────────
+# Jeden wiersz na zmienione pole: kto (``user_id``), kiedy, co było i co jest.
+# Wartości jako tekst (id etapu, opiekuna, firmy, kwota, data ISO) — nazwy
+# etapów i osób dokłada odczyt, więc w tabeli nie ma nazwisk. Wejście na etap
+# to ``field = 'stage_id'`` (także przy założeniu szansy) — z tego samego
+# źródła liczy się KPI „ofert” per etap. Import z Atlasa zdarzeń nie zapisuje
+# (historia zaczyna się od pracy w NEXUSIE).
+
+
+class OpportunityEventKind(StrEnum):
+    created = "created"
+    updated = "updated"
+    archived = "archived"
+    restored = "restored"
+    company_merged = "company_merged"
+
+
+OPPORTUNITY_EVENT_KINDS = _values(OpportunityEventKind)
+CK_OPPORTUNITY_EVENT_KIND = f"kind IN ({quoted(OPPORTUNITY_EVENT_KINDS)})"
+
+HISTORY_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_opportunity_events (
+    id BIGSERIAL PRIMARY KEY,
+    opportunity_id INTEGER NOT NULL REFERENCES sales_opportunities(id) ON DELETE CASCADE,
+    user_id INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+    kind VARCHAR(20) NOT NULL,
+    field VARCHAR(40) NULL,
+    old_value TEXT NULL,
+    new_value TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_sales_opportunity_events_kind CHECK ({CK_OPPORTUNITY_EVENT_KIND})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunity_events_opportunity "
+    "ON sales_opportunity_events (opportunity_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_sales_opportunity_events_field "
+    "ON sales_opportunity_events (field, created_at)",
+)
+
+HISTORY_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_opportunity_events",
+)

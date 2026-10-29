@@ -273,6 +273,27 @@ export interface AtlasMotion {
   subscription_items: Record<string, unknown>[];
 }
 
+export type OpportunityEventKind =
+  | "created"
+  | "updated"
+  | "archived"
+  | "restored"
+  | "company_merged";
+
+/** Wpis „Historii zmian” szansy: kto, kiedy, które pole, co było i co jest. */
+export interface OpportunityEvent {
+  id: number;
+  kind: OpportunityEventKind;
+  field: string | null;
+  old_value: string | null;
+  new_value: string | null;
+  /** Nazwa etapu, opiekuna albo firmy dla pól z identyfikatorem. */
+  old_label: string | null;
+  new_label: string | null;
+  user: Ref | null;
+  created_at: string;
+}
+
 export interface OpportunityDetail extends Opportunity {
   contacts: OpportunityContact[];
   atlas_motion: AtlasMotion | null;
@@ -436,6 +457,7 @@ export const salesKeys = {
   opportunities: (filters: OpportunityFilters) =>
     ["sales", "opportunities", filters] as const,
   opportunity: (id: number) => ["sales", "opportunity", id] as const,
+  opportunityHistory: (id: number) => ["sales", "opportunity", id, "history"] as const,
   contacts: (companyId: number | null, q: string, extra?: Record<string, unknown>) =>
     ["sales", "contacts", companyId, q, extra ?? {}] as const,
   activities: (scope: ActivityScope) => ["sales", "activities", scope] as const,
@@ -599,6 +621,15 @@ export function useOpportunity(id: number) {
     queryFn: async () =>
       (await api.get<OpportunityDetail>(`/api/sales/opportunities/${id}`)).data,
     enabled: Number.isFinite(id) && id > 0,
+  });
+}
+
+export function useOpportunityHistory(id: number, enabled = true) {
+  return useQuery({
+    queryKey: salesKeys.opportunityHistory(id),
+    queryFn: async () =>
+      (await api.get<OpportunityEvent[]>(`/api/sales/opportunities/${id}/history`)).data,
+    enabled: enabled && Number.isFinite(id) && id > 0,
   });
 }
 

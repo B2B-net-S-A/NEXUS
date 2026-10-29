@@ -2,6 +2,7 @@
 // (nic nie doklejamy do LinkedIna, zero voyagera, zero zewnętrznych skryptów).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,12 +22,24 @@ const JS = SRC.filter((p) => p.endsWith(".js"));
 test("manifest: MV3, nazwa, wersja, panel boczny i service worker istnieją", () => {
   assert.equal(manifest.manifest_version, 3);
   assert.equal(manifest.name, "NEXUS — LinkedIn");
-  assert.equal(manifest.version, "1.0.2");
+  assert.equal(manifest.version, "1.0.3");
   assert.ok(existsSync(join(ROOT, manifest.side_panel.default_path)));
   assert.ok(existsSync(join(ROOT, manifest.background.service_worker)));
   assert.equal(manifest.background.type, "module");
   for (const icon of [...Object.values(manifest.icons), ...Object.values(manifest.action.default_icon)]) assert.ok(existsSync(join(ROOT, icon)), icon);
   assert.equal(manifest.default_locale, undefined);
+});
+
+// Id wtyczki z ZIP-a zespołu (instalacja „Wczytaj rozpakowane”) wynika z pola
+// `key` — to samo na każdym laptopie. Musi być na LINKEDIN_EXTENSION_IDS
+// produkcji; zmiana klucza = nowe id = nikt się nie połączy do czasu zmiany env.
+const TEAM_EXTENSION_ID = "pmnonjpommkjblgacmpaclgacjmipplm";
+
+test("manifest: pole key daje stałe id wtyczki zespołu", () => {
+  assert.match(manifest.key, /^[A-Za-z0-9+/]+=*$/);
+  const hex = createHash("sha256").update(Buffer.from(manifest.key, "base64")).digest("hex").slice(0, 32);
+  const id = [...hex].map((c) => String.fromCharCode(97 + parseInt(c, 16))).join("");
+  assert.equal(id, TEAM_EXTENSION_ID);
 });
 
 test("manifest: tylko potrzebne uprawnienia i hosty", () => {

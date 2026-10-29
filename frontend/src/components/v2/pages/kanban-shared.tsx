@@ -76,6 +76,12 @@ export interface KanbanItem {
  owner_assigned_by_name?: string | null;
  owner_assigned_at?: string | null;
  owner_previous_name?: string | null;
+ /** Odejście z firmy (28.10.2026): osoba, która prowadziła parę, ma
+  *  wyłączone konto, a parę domyka Delivery Lead. Pola są tylko przy opiece. */
+ care_user_id?: number | null;
+ care_user_name?: string | null;
+ care_departed_name?: string | null;
+ care_since?: string | null;
  /** „Biorę” zmienia osobę karty (27.10.2026): ostatnia osoba, która wzięła,
   *  także po 12 h — do pierwszej weryfikacji. Wygrywa z dodającym. */
  taken_by_user_id?: number | null;

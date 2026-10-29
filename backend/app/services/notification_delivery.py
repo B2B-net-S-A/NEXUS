@@ -148,6 +148,30 @@ CATALOG = (
         "ten, kto ją dodał; bez osoby, która zamknęła. W mailu: rekrutacja, klient, "
         "powód zamknięcia i lista osób.",
     ),
+    # Mail obowiązkowy (28.10.2026) — `services/departure_care.py`.
+    dict(
+        id="departed_care",
+        label="Kandydaci po osobie, która odeszła",
+        module="Rekrutacje",
+        trigger="Konto rekrutera zostało wyłączone (odejście z firmy), a w Twoich "
+        "rekrutacjach zostali jego kandydaci. Przypomnienie po 5 dniach roboczych, "
+        "gdy coś jeszcze nie jest domknięte.",
+        recipient_rule="Delivery Lead rekrutacji; bez niego główny Delivery Lead "
+        "klienta, a bez niego Head of Recruitment. W mailu: kto odszedł, ile osób "
+        "w ilu rekrutacjach i na jakich etapach.",
+    ),
+    # Mail obowiązkowy (28.10.2026) — `services/job_idle.py`.
+    dict(
+        id="job_idle",
+        label="Rekrutacje bez ruchu",
+        module="Rekrutacje",
+        trigger="Od 14 dni w rekrutacji nie poszło CV do klienta ani nie wpisano "
+        "odpowiedzi klienta. Po 21 dniach także do Head of Recruitment, po 28 "
+        "NEXUS zamyka rekrutację. „Jeszcze trwa” liczy od nowa.",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment); "
+        "po 21 dniach i przy zamknięciu także Head of Recruitment. Jeden zbiorczy "
+        "mail dziennie na osobę.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -230,6 +254,16 @@ CATALOG = (
         "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
         "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
+    ),
+    # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
+    dict(
+        id="announcement",
+        label="Ważne ogłoszenie",
+        module="System",
+        trigger="Head of Recruitment albo administrator opublikował na pulpicie "
+        "ogłoszenie oznaczone „ważne”.",
+        recipient_rule="Odbiorcy ogłoszenia (wszyscy albo wybrane role), bez autora. "
+        "W mailu: tytuł, treść i do kiedy ogłoszenie jest widoczne.",
     ),
     # 0612 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
     dict(
@@ -404,6 +438,9 @@ CLIENT_JOB_KIND = "client_job_opened"
 JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
 JOB_CLOSED_KIND = "job_closed"
+DEPARTED_CARE_KIND = "departed_care"
+ANNOUNCEMENT_KIND = "announcement"
+JOB_IDLE_KIND = "job_idle"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -420,6 +457,9 @@ REQUIRED_KINDS = frozenset(
         JOB_AD_KIND,
         JOB_P0_KIND,
         JOB_CLOSED_KIND,
+        DEPARTED_CARE_KIND,
+        ANNOUNCEMENT_KIND,
+        JOB_IDLE_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -505,6 +545,9 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
+    DEPARTED_CARE_KIND: ("departed_pairs_care",),
+    ANNOUNCEMENT_KIND: ("announcement_important",),
+    JOB_IDLE_KIND: ("job_idle_reminder",),
 }
 
 

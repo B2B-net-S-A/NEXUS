@@ -194,6 +194,8 @@ export function ScreeningWorkbench({
   });
   const [jointIds, setJointIds] = useState<ReadonlySet<number>>(() => new Set());
   const [addingJobId, setAddingJobId] = useState<number | null>(null);
+  // Bliźniaki (0614), w których osoba nie bierze udziału — powód idzie z ruchem.
+  const [twinSkips, setTwinSkips] = useState<ReadonlyMap<number, string>>(() => new Map());
   const consumeIntent = useJointScreeningIntent((s) => s.consume);
   const intent = useJointScreeningIntent((s) => s.intent);
   const queryClient = useQueryClient();
@@ -240,6 +242,7 @@ export function ScreeningWorkbench({
       setRestoredAt(memoryHasEntries(saved) ? saved.updatedAt : null);
       setPickerNotice(null);
       setJointSession(null);
+      setTwinSkips(new Map());
     }
     if (candidateId <= 0 || intent?.candidateId !== candidateId) return;
     const ids = consumeIntent(candidateId);
@@ -339,12 +342,41 @@ export function ScreeningWorkbench({
   const jointSuggestions = (Array.isArray(alsoFitsQuery.data?.jobs) ? alsoFitsQuery.data.jobs : []).filter(
     (job) => !inContext.has(job.job_id),
   );
+  // Bliźniaki (0614) są w rozmowie zawsze — przed wyborem rekrutera, bez odznaczania.
+  const twinIds = jointPairs
+    .filter((p) => p.twin === true && p.selectable && !twinSkips.has(p.job_id))
+    .map((p) => p.job_id);
+  const skipTwin = (id: number, reason: string | null) => {
+    setTwinSkips((prev) => {
+      const next = new Map(prev);
+      if (reason) next.set(id, reason);
+      else next.delete(id);
+      return next;
+    });
+    if (reason) {
+      const next = new Set([...jointIds].filter((j) => j !== id));
+      setJointIds(next);
+      rememberSelection(next);
+    }
+  };
+  const twinSkipsPayload =
+    twinSkips.size > 0 ? Object.fromEntries([...twinSkips].map(([id, reason]) => [String(id), reason])) : undefined;
+  const jointMissingTwins = Array.isArray(jointContext.data?.missing_twins) ? jointContext.data.missing_twins : [];
   const selectedJoint = new Set(
-    [...jointIds].filter((id) => jointPairs.some((p) => p.job_id === id && p.selectable)).slice(0, JOINT_MAX_OTHERS),
+    [
+      ...twinIds,
+      ...[...jointIds].filter(
+        (id) => !twinSkips.has(id) && jointPairs.some((p) => p.job_id === id && p.selectable),
+      ),
+    ].slice(
+      0,
+      JOINT_MAX_OTHERS,
+    ),
   );
   const selectedPairs = jointPairs.filter((p) => selectedJoint.has(p.job_id));
   // Odznaczenie chowa rekrutację, wpisy zostają w pamięci (D1 A) — z „Cofnij”.
   const toggleJoint = (id: number) => {
+    if (twinIds.includes(id)) return;
     const title = jointPairs.find((p) => p.job_id === id)?.title ?? "";
     const memory = memorySummary.byJob.get(id);
     // Od tego, co widać — zaznaczenie przywrócone z pamięci może mieć rekrutację,
@@ -502,6 +534,9 @@ export function ScreeningWorkbench({
             selected={selectedJoint}
             onToggle={toggleJoint}
             onAddAndJoin={addAndJoin}
+            missingTwins={jointMissingTwins}
+            twinSkips={twinSkips}
+            onTwinSkip={skipTwin}
             addingJobId={addingJobId}
             error={jointError}
             memory={memorySummary.byJob}
@@ -523,6 +558,7 @@ export function ScreeningWorkbench({
               clientName: activeJoint.anchor.client_name,
               budgetHourly: jobBudgetHourly ?? activeJoint.anchor.budget_hourly,
               verifiedStageDefId: activeJoint.verifiedStageDefId,
+              workMode: activeJoint.anchor,
             }}
             others={activeJoint.others}
             onMoved={onMoved}
@@ -534,6 +570,7 @@ export function ScreeningWorkbench({
             memory={memoryLink}
             pendingMemory={pendingMemory}
             onReselect={toggleJoint}
+            twinSkips={twinSkipsPayload}
           />
         ) : (
         <ScreeningFullForm
@@ -551,6 +588,7 @@ export function ScreeningWorkbench({
           noteFill={noteFill}
           onOpenChampion={() => onTabChange("champion")}
           memory={jointEnabled ? memoryLink : undefined}
+          twinSkips={twinSkipsPayload}
           pendingMemory={jointEnabled ? pendingMemory : undefined}
           onReselect={toggleJoint}
           onSaved={onFormSaved}

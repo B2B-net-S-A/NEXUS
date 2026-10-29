@@ -127,6 +127,9 @@ decyduje o słowach i o przebiegu nieobecności.
 - Nowy wniosek: powiadomienie do przełożonego i do zastępcy („w zastępstwie
   za …”); L4 — zastępca dostaje „do wiadomości” bez rodzaju.
 - Ślad decyzji: `details.as_substitute_for` = „w zastępstwie za …” (+ id).
+- Osoba od Cpro wskazuje we wniosku osobnego zastępcę do Cpro
+  (`cpro_substitute_user_id`, 29.10.2026) — reguła w
+  `rekrutacja-tablica/cpro-zastepca-z-wniosku-urlopowego.md`.
 - Plakietka przy osobie poza „Ludźmi” (lista „@”, kolumna „Rekruter” na
   `/jobs`) bierze `GET /api/hr/leave/absence` raz na listę i tylko przy
   otwartym module urlopów; awaria = brak plakietki, nie błąd ekranu. Po
@@ -713,6 +716,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   przechodzi istniejącymi ścieżkami zapisu — rekrutacje, DL rekrutacji, klienci
   DL, „Moi ludzie”, podwładni), wyłączenie konta dzień później — ale dopiero po przekazaniu
   całej pracy (inaczej „Wyłącz konto teraz” z jawnym „mimo to”, zapisanym w śladzie).
+  Samo wyłączenie konta (każdą drogą) dzieli dodatkowo żywe pary kandydatów
+  osoby między Delivery Leadów ich rekrutacji, którzy je domykają (28.10.2026,
+  `rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-leada.md`).
   Sprawy z nieprzekazaną pracą nie da się zamknąć; przejmujący nie może sam odchodzić
   do dnia przekazania. Konto wyłącza wyłącznie sprawa odejścia (nie brak osoby na
   liście), raz na sprawę; admina nie wyłącza automat; przebieg z więcej niż limitem

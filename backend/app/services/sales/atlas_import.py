@@ -133,10 +133,14 @@ EDIT_TOLERANCE = literal_column("INTERVAL '1 second'", type_=Interval)
 # Notatki Fireflies z rozmów przygotowujących KANDYDATA do spotkania z klientem
 # trafiały w Atlasie do szansy, bo spotkanie dotyczyło klienta. To rekrutacja,
 # nie sprzedaż: w treści są dane osobowe kandydata (doświadczenie, stawka,
-# dostępność), których handlowcy nie powinni dostać. Notatka musi mieć oba
-# znaczniki (bez rozróżniania wielkości liter).
+# dostępność), których handlowcy nie powinni dostać. Rozpoznajemy je po
+# tytule spotkania „Przygotowanie do spotkania z <klient> - <kandydat>”:
+# na produkcji 28.10.2026 wszystkie 153 takie notatki miały uczestnika spoza
+# firmy, a tylko 7 miało w tytule słowo „Klientem” (bez rozróżniania wielkości liter).
 FIREFLIES_SUMMARY_MARKER = "podsumowanie spotkania (fireflies"
 CANDIDATE_PREP_MARKER = "przygotowanie do spotkania z klientem"
+CANDIDATE_PREP_TITLE = re.compile(r"\s*przygotowanie do spotkania z\s", re.IGNORECASE)
+_FIREFLIES_TITLE = re.compile(r"\*\*Spotkanie:\*\*\s*([^\n]+)")
 
 #: Kierunek wiadomości z Outlooka w Atlasie (``incoming``/``outgoing``) → NEXUS.
 DIRECTIONS = {
@@ -181,11 +185,23 @@ def is_junk_company(name: Optional[str]) -> bool:
     return not (name or "").strip() or looks_like_person_name(name or "")
 
 
+def is_candidate_prep_title(title: Optional[str]) -> bool:
+    """Tytuł spotkania przygotowującego kandydata do rozmowy u klienta."""
+
+    return bool(CANDIDATE_PREP_TITLE.match(title or ""))
+
+
 def is_candidate_prep_note(content: Optional[str]) -> bool:
     """Podsumowanie Fireflies z przygotowania kandydata (patrz znaczniki wyżej)."""
 
-    lowered = (content or "").lower()
-    return FIREFLIES_SUMMARY_MARKER in lowered and CANDIDATE_PREP_MARKER in lowered
+    text = content or ""
+    lowered = text.lower()
+    if FIREFLIES_SUMMARY_MARKER not in lowered:
+        return False
+    title = _FIREFLIES_TITLE.search(text)
+    return CANDIDATE_PREP_MARKER in lowered or bool(
+        title and is_candidate_prep_title(title.group(1))
+    )
 
 
 def _has_identifiers(company: Mapping[str, Any]) -> bool:
@@ -1245,7 +1261,8 @@ async def _import_activities(
             continue
         title = row.get("meeting_title") or ""
         if (
-            CANDIDATE_PREP_MARKER
+            is_candidate_prep_title(title)
+            or CANDIDATE_PREP_MARKER
             in f"{title}\n{row.get('summary_overview') or ''}".lower()
         ):
             report.add("transcripts_candidate_prep_skipped")

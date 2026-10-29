@@ -161,6 +161,11 @@ class NotificationType(str, enum.Enum):
     # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
     # mail od razu (`services/new_person_setup.py`).
     new_person_signed_in = "new_person_signed_in"
+    # 0619 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
+    # oznaczone „ważne” — do odbiorców ogłoszenia (wszyscy albo wybrane role),
+    # bez autora; related_entity=(announcement, id). Mail obowiązkowy
+    # (`services/announcements.py`).
+    announcement_important = "announcement_important"
     # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
     # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
     # dzienna lista do dopisania, tylko admini, mail od razu
@@ -282,10 +287,20 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
+    # 0621 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
+    # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
+    # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail
+    # obowiązkowy „Kandydaci po osobie, która odeszła” (`services/departure_care.py`).
+    departed_pairs_care = "departed_pairs_care"
     # 0610 (28.10.2026): Delivery Lead prosi o P0 dla swojej rekrutacji —
     # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
     # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
     job_p0_requested = "job_p0_requested"
+    # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
+    # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
+    # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
+    # Mail obowiązkowy (`services/job_idle.py`).
+    job_idle_reminder = "job_idle_reminder"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"

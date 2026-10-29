@@ -180,6 +180,7 @@ class LeaveInput:
     forward_mail_consent: bool = False
     oof_internal_message: Optional[str] = None
     oof_external_message: Optional[str] = None
+    cpro_substitute_user_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -228,6 +229,50 @@ async def _validate_substitute(
             "Zastępcą może być osoba z kartoteką pracownika w NEXUSIE."
         )
     return substitute
+
+
+CPRO_SUBSTITUTE_REQUIRED = (
+    "Wrzucasz kandydatów Nordei do Cpro — wskaż, kto zrobi to w tym czasie."
+)
+CPRO_SUBSTITUTE_NOT_SENDER = (
+    "Zastępcę do Cpro wskazuje tylko osoba, która wrzuca kandydatów Nordei do Cpro."
+)
+
+
+async def _is_cpro_sender(db: AsyncSession, user_id: int) -> bool:
+    from app.services import cpro_sender  # noqa: PLC0415 — cykl importu
+
+    return (await cpro_sender.firm_sender(db)).user_id == user_id
+
+
+async def _validate_cpro_substitute(
+    db: AsyncSession, *, subject_id: int, data: LeaveInput, for_self: bool
+) -> Optional[User]:
+    """Zastępca do Cpro (decyzja Artura 29.10.2026).
+
+    Wymagany we własnym wniosku osoby od Cpro na pełne dni — bez niego
+    kolejka Cpro i dzwonki czekały na nieobecną osobę. Pół dnia go nie
+    wymaga (osoba od Cpro jest wtedy w pracy). Wybór jak w „Zmień” przy
+    kolejce: aktywna osoba z zespołu rekrutacji (``load_assignee``).
+    """
+
+    is_sender = await _is_cpro_sender(db, subject_id)
+    if data.cpro_substitute_user_id is None:
+        if is_sender and for_self and data.half_day is None:
+            raise LeavePolicyError(CPRO_SUBSTITUTE_REQUIRED)
+        return None
+    if not is_sender:
+        raise LeavePolicyError(CPRO_SUBSTITUTE_NOT_SENDER)
+    if data.cpro_substitute_user_id == subject_id:
+        raise LeavePolicyError("Nie można wybrać siebie na zastępcę do Cpro.")
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.services import board_tasks  # noqa: PLC0415 — cykl importu
+
+    try:
+        return await board_tasks.load_assignee(db, data.cpro_substitute_user_id)
+    except HTTPException as exc:
+        raise LeavePolicyError(str(exc.detail)) from exc
 
 
 def _assert_forward_target(substitute: Optional[User]) -> None:
@@ -356,6 +401,8 @@ async def preview(
         "work": {"total": 0, "by_kind": [], "items": []},
         "substitute_absent": False,
         "return_on": None,
+        # Osoba od Cpro — okno pyta, kto wrzuca do Cpro w tym czasie.
+        "cpro_sender": await _is_cpro_sender(db, subject.id),
     }
     try:
         validate_shape(
@@ -525,6 +572,9 @@ async def submit(
     )
     if for_self and data.forward_mail_consent:
         _assert_forward_target(substitute)
+    cpro_substitute = await _validate_cpro_substitute(
+        db, subject_id=subject.id, data=data, for_self=for_self
+    )
     words = terms(profile.employment_type)
     approved = on_behalf or data.leave_type in AUTO_APPROVED_TYPES or reported
     now = datetime.now(timezone.utc)
@@ -538,6 +588,7 @@ async def submit(
         half_day=data.half_day,
         note=_clean(data.note),
         substitute_user_id=substitute.id if substitute else None,
+        cpro_substitute_user_id=cpro_substitute.id if cpro_substitute else None,
         forward_mail_consent=bool(
             for_self and substitute is not None and data.forward_mail_consent
         ),
@@ -654,6 +705,21 @@ async def _after_approval(
             ),
             ntype=NotificationType.hr_leave_substitute,
             link=LINK_CALENDAR,
+        )
+    if request.cpro_substitute_user_id is not None and request.end_date >= today:
+        # Bez rodzaju nieobecności (D6) — zastępca do Cpro nie jest w kręgu.
+        await notify(
+            db,
+            [request.cpro_substitute_user_id],
+            exclude={actor.id},
+            title="Wysyłasz kandydatów do Cpro",
+            message=(
+                f"{format_range(request.start_date, request.end_date)} wrzucasz "
+                f"kandydatów Nordei do Cpro w zastępstwie za {subject.name}. "
+                "W te dni kolejka Cpro jest u Ciebie w „Czeka na Ciebie”."
+            ),
+            ntype=NotificationType.cpro_send_assigned,
+            link="/dashboard#czeka-na-ciebie",
         )
     await _enqueue_m365(db, request, "approved", today=today)
     # „Mój miesiąc” (E2): godziny wpisane na pełne dni urlopu znikają, płatny

@@ -52,6 +52,7 @@ import { AuditLogTab } from "./AuditLogTab";
 import { ImportTab } from "./ImportTab";
 import { NewPersonSetupDialog } from "@/components/v2/dashboard/NewPersonSetupDialog";
 import { AdminToolsGrid } from "./AdminToolsGrid";
+import { DeactivateAccountDialog } from "./DeactivateAccountDialog";
 import { DISCARD_PERMISSION_CHANGES, PermissionsTab } from "./PermissionsTab";
 import {
   ADMIN_SUBTAB_PARAM,
@@ -211,12 +212,19 @@ export function AdminUsersTab({
     },
   });
 
+  // Wyłączenie idzie przez okno z listą Delivery Leadów, którzy przejmą
+  // kandydatów (28.10.2026); włączenie zostaje jednym kliknięciem.
+  const [deactivating, setDeactivating] = useState<AdminUser | null>(null);
   const toggleActiveMutation = useMutation({
     mutationFn: (u: AdminUser) =>
       u.is_active
         ? adminApi.deactivateUser(u.id)
         : adminApi.updateUser(u.id, { is_active: true }),
-    onSuccess: () => invalidateAccounts(),
+    onSuccess: () => {
+      setDeactivating(null);
+      void invalidateAccounts();
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się zmienić konta.")),
   });
 
   const resetPasswordMutation = useMutation({
@@ -371,6 +379,12 @@ export function AdminUsersTab({
   return (
     <div className="space-y-6">
       {confirmDialog}
+      <DeactivateAccountDialog
+        user={deactivating}
+        loading={toggleActiveMutation.isPending}
+        onConfirm={() => deactivating && toggleActiveMutation.mutate(deactivating)}
+        onCancel={() => setDeactivating(null)}
+      />
       <NewPersonSetupDialog
         person={
           setupFor && setupFor.setup_pending_since
@@ -639,13 +653,17 @@ export function AdminUsersTab({
                               <KeyRound className="mr-2 h-4 w-4" aria-hidden />
                               Resetuj hasło
                             </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => toggleActiveMutation.mutate(u)}>
+                            <DropdownMenuItem
+                              onSelect={() =>
+                                u.is_active ? setDeactivating(u) : toggleActiveMutation.mutate(u)
+                              }
+                            >
                               {u.is_active ? (
                                 <UserX className="mr-2 h-4 w-4" aria-hidden />
                               ) : (
                                 <UserCheck className="mr-2 h-4 w-4" aria-hidden />
                               )}
-                              {u.is_active ? "Dezaktywuj" : "Aktywuj"}
+                              {u.is_active ? "Wyłącz konto…" : "Aktywuj"}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>

@@ -265,6 +265,14 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("PUT", "/api/users/me/email-notifications/{kind}"),
     # Własny pulpit (0337): sam układ kafelków właściciela; dane kafelków
     # pobierają ich własne endpointy za bramkami sekcji.
+    # Ogłoszenia na pulpicie (0619, decyzja Artura 28.10.2026): pulpit ma każde
+    # konto, także „Pracownik” i Rada, więc odczyt nie stoi za sekcją. Odbiorców
+    # (wszyscy albo wybrane role) filtruje serwer w `announcements.list_for`,
+    # a „Przeczytane” na ogłoszeniu nie do patrzącego daje 404
+    # (`test_announcements.py`). Publikacja, poprawka i zdjęcie — sekcja
+    # Rekrutacje + Head of Recruitment albo admin.
+    ("GET", "/api/announcements"),
+    ("POST", "/api/announcements/{announcement_id}/read"),
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard/panels/{panel}"),

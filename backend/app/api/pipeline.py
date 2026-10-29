@@ -3669,6 +3669,11 @@ async def build_kanban_view(
     from app.services.pair_owner import owners_for_job
 
     pair_owners = await owners_for_job(db, job_id)
+    # Odejście z firmy (28.10.2026): karta osoby z wyłączonym kontem pokazuje
+    # Delivery Leada, który ją domyka (``departure_care``).
+    from app.services.departure_care import open_care
+
+    pair_care = {row.candidate_id: row for row in await open_care(db, job_id=job_id)}
     owner_ids = {card[1] for card in process_cards.values() if card[1] is not None}
     # Pipeline v4 (0352): blokada 12 h, źródło wejścia i przepięcie.
     v4_processes = await _process_v4_cards(
@@ -4092,6 +4097,12 @@ async def build_kanban_view(
             payload["owner_assigned_by_name"] = assigned.assigned_by_name
             payload["owner_assigned_at"] = assigned.assigned_at
             payload["owner_previous_name"] = assigned.previous_owner_name
+        care = pair_care.get(e.candidate_id)
+        if care is not None:
+            payload["care_user_id"] = care.caretaker_user_id
+            payload["care_user_name"] = care.caretaker_name
+            payload["care_departed_name"] = care.departed_name
+            payload["care_since"] = care.since
         if e.task_assignee_id is not None:
             payload["task_assignee_name"] = user_name_by_id.get(e.task_assignee_id)
         if e.stage in _CLOSED_CARD_STAGES:

@@ -905,6 +905,16 @@ body:has(aside[data-person-panel]:not([hidden])) [data-jarvis-mascot] {
   display: none;
 }
 
+/* Postać „Moi ludzie” z dymkiem i ikona Jarvisa chowają się, gdy otwarty
+   jest boczny panel szczegółów (`ListDetailLayout`: Kontrakty, Zamówienia,
+   Kontraktorzy). Przy 1280 × 720 dymek leżał na stopce panelu i nie dało
+   się kliknąć „Zakończ współpracę…” (29.10.2026). Podbicie `z-index` panelu
+   nic nie da — żyje w kontekście warstw treści strony (`animate-fadeIn`).
+   Licznik „Moich ludzi” zostaje w topbarze. */
+body:has([data-list-detail-panel]) :is([data-floating-corner], [data-jarvis-mascot]) {
+  display: none;
+}
+
 /* Panel osoby na całą szerokość okna (podgląd CV po lewej, przegląd Delivery
    Leada) zakrywa też menu boczne (09.10.2026). Menu ma `z-40`, a panel żyje
    w kontekście warstw treści strony (`animate-fadeIn`), więc samym `z-index`

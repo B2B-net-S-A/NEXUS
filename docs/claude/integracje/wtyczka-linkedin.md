@@ -91,9 +91,34 @@ Pomiar DOM Recruitera i lokalna instalacja ZIP-a nie zastępują pełnej ścież
 zainstalowanej wtyczki z kontem rekrutera i produkcyjnym NEXUSEM. Ten etap
 wymaga osobnego potwierdzenia po połączeniu wtyczki.
 
+## Dystrybucja: ZIP z NEXUSA i Web Store (29.10.2026)
+
+Prośba Artura z 29.10: wtyczka ma działać u zespołu także wtedy, gdy Google nie
+zaakceptuje jej w sklepie — ludzie instalują ZIP sami, a działa tylko z kontem
+NEXUSA.
+
+- **ZIP zespołu** `frontend/public/wtyczka/nexus-linkedin.zip`, strona
+  `/wtyczka` (za logowaniem) z instrukcją „Wczytaj rozpakowane”. Manifest ma pole
+  `key` → stałe id `pmnonjpommkjblgacmpaclgacjmipplm` na każdym laptopie; to id
+  jest na `LINKEDIN_EXTENSION_IDS`. **Nie zmieniaj ani nie usuwaj `key`** — nowe
+  id odetnie wszystkich do czasu zmiany env.
+- **Paczka do sklepu** bez `key` (`pack.sh` usuwa pole), id sklepu
+  `iaajabmhhcchodnkkgdffclgihdeipmo` też na liście.
+- **Konto NEXUSA jest warunkiem:** ZIP sam nic nie robi (kod i tak jest w
+  publicznym repo); połączenie wymaga zalogowania i roli z `RecruiterPlus`
+  (z finansami, decyzja z 19.08), klucz działa tylko na `/api/extension/*`.
+- **Aktualizacje:** ZIP się nie aktualizuje — panel pokazuje „Jest nowa wersja”
+  (`latest_version` z `/me`). Wydanie: podbij wersję w 4 miejscach i `pack.sh`
+  (`extension/README.md` → „Wydanie nowej wersji”); testy pilnują zgodności.
+- **Opcja na później:** laptopy firmowe przez politykę Chrome
+  (`ExtensionInstallForcelist`, własny `update.xml` + `.crx` podpisany kluczem
+  z `key`) — bez trybu dewelopera i z automatycznymi aktualizacjami. Wymaga
+  decyzji Artura i zarządzania Chrome przez Intune.
+
 ## Gdy LinkedIn zmieni stronę
 
 Selektory czytników są w jednym pliku: `extension/src/readers/selectors.js`.
-Poprawka = nowa wersja wtyczki w sklepie (aktualizuje się sama). Testy
+Poprawka = nowa wersja wtyczki: w sklepie aktualizuje się sama, z ZIP-a — po
+banerze „Jest nowa wersja” w panelu. Testy
 czytników działają na syntetycznych stronach (`node --test extension/test`) —
 bez prawdziwych danych z LinkedIna w repo.

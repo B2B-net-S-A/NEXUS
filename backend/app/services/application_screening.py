@@ -55,6 +55,19 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_priority import PriorityOriginKind
 from app.services.ai_models import fallbacks_for, model_for
 from app.services.ai_quota import ai_feature
+from app.services.cv_quoted_evidence import (  # noqa: F401 — dawne nazwy modułu
+    DEAL_BREAKER_MAX,
+    JOB_TEXT_LIMIT,
+    QUOTE_MAX,
+    REASON_LIMIT,
+    REASON_TEXT_MAX,
+    deal_breaker_conditions,
+    job_prompt_block,
+    keep_quoted_reasons,
+    must_facts,
+    normalize,
+)
+from app.services.cv_quoted_evidence import model_json as _model_json
 from app.services.llm_prompts import APPLICATION_SCREENING
 from app.services.prompt_fencing import fence
 
@@ -72,11 +85,6 @@ VERDICTS = (VERDICT_FITS, VERDICT_UNCLEAR, VERDICT_NOT_FIT)
 MUST_RATIO_NOT_FIT = 0.5
 
 CV_CHAR_LIMIT = 24_000
-JOB_TEXT_LIMIT = 4_000
-REASON_LIMIT = 4
-REASON_TEXT_MAX = 300
-QUOTE_MAX = 300
-DEAL_BREAKER_MAX = 300
 
 # Pętla: wiersz nowego kandydata czeka na odczyt CV (`cv_parsed_at`), najdłużej
 # `WAIT_FOR_CV` — potem rusza z tym, co jest (tekst z formularza).
@@ -93,55 +101,6 @@ DIGEST_HOUR_LOCAL = 8
 # ── Reguła (czyste funkcje) ────────────────────────────────────────────────
 
 
-def normalize(text: Optional[str]) -> str:
-    """Porównanie cytatu z CV: bez różnic w białych znakach i wielkości liter."""
-    return " ".join((text or "").replace("**", "").split()).casefold()
-
-
-def keep_quoted_reasons(
-    raw_reasons: Any, haystacks: Iterable[Optional[str]]
-) -> list[dict[str, str]]:
-    """Powody z cytatem obecnym w CV albo profilu; reszta wypada.
-
-    Zwraca najwyżej ``REASON_LIMIT`` powodów ``{"text", "quote"}``. Powód bez
-    cytatu też wypada — zdanie o kandydacie bez dowodu z jego CV jest
-    zgadywaniem, a na nim nie wolno nikogo odrzucić.
-    """
-    if not isinstance(raw_reasons, list):
-        return []
-    hay = "\n".join(normalize(h) for h in haystacks if h)
-    kept: list[dict[str, str]] = []
-    for item in raw_reasons:
-        if not isinstance(item, dict):
-            continue
-        text = str(item.get("text") or "").strip()
-        quote = str(item.get("quote") or "").strip()
-        if not text or not quote:
-            continue
-        needle = normalize(quote)
-        if len(needle) < 3 or needle not in hay:
-            continue
-        kept.append({"text": text[:REASON_TEXT_MAX], "quote": quote[:QUOTE_MAX]})
-        if len(kept) >= REASON_LIMIT:
-            break
-    return kept
-
-
-def _model_json(raw: Optional[str]) -> dict:
-    text = (raw or "").strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end == -1:
-        raise ValueError("brak JSON-a w odpowiedzi")
-    data = json.loads(text[start : end + 1])
-    if not isinstance(data, dict):
-        raise ValueError("odpowiedź nie jest obiektem")
-    return data
-
-
 def parse_model(raw: Optional[str]) -> tuple[Optional[str], list]:
     """JSON modelu → (werdykt albo ``None``, surowe powody). Rzuca przy braku JSON-a."""
     data = _model_json(raw)
@@ -149,22 +108,6 @@ def parse_model(raw: Optional[str]) -> tuple[Optional[str], list]:
     verdict = verdict if verdict in VERDICTS else None
     reasons = data.get("reasons")
     return verdict, reasons if isinstance(reasons, list) else []
-
-
-def deal_breaker_conditions(job: Any) -> list[str]:
-    """Warunki „Odpada, gdy…” z pytań screeningowych Championa (bez pustych)."""
-    from app.services import champion_view
-
-    out: list[str] = []
-    for question in champion_view.screening_questions(
-        getattr(job, "champion_profile", None)
-    ):
-        if not isinstance(question, dict):
-            continue
-        condition = " ".join(str(question.get("deal_breaker") or "").split())
-        if condition and condition not in out:
-            out.append(condition[:DEAL_BREAKER_MAX])
-    return out
 
 
 def keep_quoted_deal_breaker(
@@ -251,54 +194,6 @@ class ScreeningResult:
     @property
     def model_assessed(self) -> bool:
         return self.error is None and self.model is not None
-
-
-def job_prompt_block(job: Any) -> str:
-    """Rola dla modelu: tytuł, must, nice i „O projekcie” — bez stawek i klienta."""
-    from app.services import champion_view
-    from app.services.requirement_contract import (
-        requirement_labels,
-        requirements_for_job,
-    )
-
-    labels = requirement_labels(requirements_for_job(job))
-    project = champion_view.project(getattr(job, "champion_profile", None))
-    about = "\n".join(
-        str(p).strip()
-        for p in (project.get("about"), project.get("responsibilities"))
-        if p and str(p).strip()
-    )
-    title = getattr(job, "working_title", None) or getattr(job, "title", "") or ""
-    lines = [f"Rola: {title}"]
-    if labels.get("must"):
-        lines.append("Wymagane (must-have): " + ", ".join(labels["must"]))
-    if labels.get("nice"):
-        lines.append("Mile widziane: " + ", ".join(labels["nice"]))
-    if about:
-        lines.append("O projekcie:\n" + about)
-    conditions = deal_breaker_conditions(job)
-    if conditions:
-        # 04.10.2026: model może wskazać warunek, który CV łamie — z cytatem.
-        lines.append("Odpada, gdy:\n" + "\n".join(f"- {c}" for c in conditions))
-    return fence("rekrutacja", "\n".join(lines)[:JOB_TEXT_LIMIT])
-
-
-def must_facts(job: Any, candidate: Any, cv_text: str) -> tuple[int, int]:
-    """(znalezione, wszystkie) must-have technologie w profilu i CV."""
-    from app.services.must_text_evidence import text_met_labels
-    from app.services.requirement_contract import search_dealbreaker_inputs
-
-    inputs = search_dealbreaker_inputs(job)
-    must = list(inputs.must_skills)
-    if not must:
-        return 0, 0
-    met = text_met_labels(
-        candidate,
-        must,
-        note_texts=[cv_text] if cv_text else (),
-        options=inputs.gate_options,
-    )
-    return len(met), len(must)
 
 
 def entry_meta(result: ScreeningResult, *, overridden: bool = False) -> dict:
