@@ -517,7 +517,7 @@ export function usePipelineMove({
   // i pytania klienta, potem TEN SAM ruch.
   const [twinRequired, setTwinRequired] = useState<{
     refusal: TwinScreeningRequired;
-    retry: (skips: Record<string, string>) => Promise<void>;
+    resend: (skips: Record<string, string>) => Promise<void>;
   } | null>(null);
   const [debriefRequired, setDebriefRequired] = useState<{
     /** `null` — rozmowy nie ma w kalendarzu; okno pyta, kiedy była. */
@@ -835,7 +835,7 @@ export function usePipelineMove({
           await refreshAfterMove();
           setTwinRequired({
             refusal: twinRefusal,
-            retry: async (skips) => {
+            resend: async (skips) => {
               setTwinRequired(null);
               const moved = await sendMoveRef.current?.(item, dst, reason, {
                 ...opts,
@@ -1811,7 +1811,7 @@ export function usePipelineMove({
       {twinRequired ? (
         <TwinSkipDialog
           refusal={twinRequired.refusal}
-          onSkip={(skips) => void twinRequired.retry(skips)}
+          onSkip={(skips) => void twinRequired.resend(skips)}
           onClose={() => setTwinRequired(null)}
         />
       ) : null}
