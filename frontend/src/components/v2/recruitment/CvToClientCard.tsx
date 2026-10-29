@@ -142,7 +142,6 @@ import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
-import { useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
 // Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
