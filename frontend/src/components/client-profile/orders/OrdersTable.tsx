@@ -318,7 +318,6 @@ export function OrdersTable({
 }: OrdersTableProps) {
   const query = searchQuery.trim();
   const hit = (name: string) => query !== "" && consultantMatchesQuery(name, query);
-
   return (
     <div className="flex flex-col gap-4" data-orders-table data-help="client.orders.table">
       {sections.map((section) => {
@@ -363,14 +362,16 @@ export function OrdersTable({
                 </table>
               </div>
             ) : (
-              // Jedna karta na sekcję: nagłówki kolumn RAZ, pod nimi zamówienia
-              // jako pasy (nagłówek zamówienia + wiersze osób). Wspólny przewijany
-              // kontener i `table-fixed` z tym samym <colgroup> trzymają kolumny
-              // w jednej linii. Każde zamówienie zostaje osobną tabelą z własnym
-              // <thead> dla czytników ekranu — widoczny rząd nad nimi jest ozdobą.
-              <div className="relative overflow-x-auto rounded-lg border border-border bg-card">
-                <div className="min-w-[940px] [&>div:last-child>table>tbody>tr:last-child]:border-b-0">
-                  <table aria-hidden="true" data-orders-columns className="w-full table-fixed border-collapse">
+              // Nagłówki kolumn RAZ, pod nimi każde zamówienie osobną kartą
+              // (nagłówek zamówienia + wiersze osób) z odstępem — w jednej
+              // wspólnej karcie zamówienia zlewały się w ciąg (prośba zespołu
+              // 29.10.2026, makieta B). Wspólny przewijany kontener i `table-fixed`
+              // z tym samym <colgroup> trzymają kolumny w jednej linii. Każde
+              // zamówienie zostaje osobną tabelą z własnym <thead> dla czytników
+              // ekranu — widoczny rząd nad nimi jest ozdobą.
+              <div className="relative overflow-x-auto">
+                <div className="flex min-w-[940px] flex-col gap-2.5">
+                  <table aria-hidden="true" data-orders-columns className="-mb-1 w-full table-fixed border-collapse">
                     <TileColumns scopedMd={scopedMd} />
                     <thead>
                       <tr className={HEAD_ROW}>
@@ -387,7 +388,14 @@ export function OrdersTable({
                     </thead>
                   </table>
                   {buildSectionTiles(section.rows).map((tile) => (
-                    <div key={tile.key} data-order-tile={tile.header ? "group" : "contractor"}>
+                    <div
+                      key={tile.key}
+                      data-order-tile={tile.header ? "group" : "contractor"}
+                      // `overflow-clip`, nie `hidden`: karta nie może być kontenerem
+                      // przewijania, bo przyklejona kolumna osoby (`sticky left-0`)
+                      // przestałaby trzymać się przy przewijaniu w bok.
+                      className="overflow-clip rounded-lg border border-border bg-card shadow-sm [&>table>tbody>tr:last-child]:border-b-0"
+                    >
                       <table className="w-full table-fixed border-collapse text-sm tabular-nums">
                         <TileColumns scopedMd={scopedMd} />
                         <thead>
