@@ -83,7 +83,7 @@ def test_migration_reads_the_shared_module() -> None:
         encoding="utf-8"
     )
     assert "for stmt in schema.HISTORY_DDL:" in history
-    targets = (ROOT / "alembic/versions/0619_sales_targets_kpi.py").read_text(
+    targets = (ROOT / "alembic/versions/0620_sales_targets_kpi.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.TARGETS_DDL:" in targets
