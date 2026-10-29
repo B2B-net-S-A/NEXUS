@@ -198,6 +198,10 @@ SPECS: dict[str, _Spec] = {
     # 0612: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
     # „Ustaw” na pulpicie (`?nowa-osoba=`), decyzja zapada dopiero w oknie.
     "new_person_signed_in": _Spec("Zdecyduj, kim jest nowa osoba", label="Zdecyduj"),
+    # 0619: ważne ogłoszenie — temat to tytuł ogłoszenia.
+    "announcement_important": _Spec(
+        "Ważne ogłoszenie", chip="Ogłoszenie", label="Otwórz pulpit", use_title=True
+    ),
     # Czas i ludzie — temat bez rodzaju nieobecności.
     "hr_leave_requested": _Spec("Zatwierdź nieobecność", label="Zatwierdź"),
     "hr_absence_reported": _Spec(

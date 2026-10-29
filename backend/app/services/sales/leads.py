@@ -18,6 +18,7 @@ from app.models.sales import (
 from app.services import sales_schema as schema
 from app.services.client_duplicates import find_same_name_clients
 from app.services.company_names import normalize_company_name
+from app.services.sales import history
 from app.services.sales.lifecycle import apply_stage
 
 
@@ -101,6 +102,7 @@ async def convert(
     apply_stage(opportunity, stage, stages, now=now)
     db.add(opportunity)
     await db.flush()
+    history.record_created(db, opportunity, user_id=owner_user_id)
     lead.company_id = company_id
     lead.opportunity_id = opportunity.id
     lead.status = "converted"

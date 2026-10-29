@@ -835,6 +835,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
     # 0612: nowa osoba po pierwszym logowaniu — do HoR i adminów.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
+    # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1229,12 +1231,27 @@ try:
         *_sales_schema.LEADS_DDL,
         # 0614: luki importu Atlasa (opiekun z Atlasa, Outlook, kontakt w wielu firmach).
         *_sales_schema.GAPS_DDL,
+        # 0618: historia zmian szansy.
+        *_sales_schema.HISTORY_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
+
+# Ogłoszenia na pulpicie (0619): tabele i indeksy — JEDNO źródło z migracją
+# (`app/services/announcements_schema.py`).
+try:
+    from app.services import announcements_schema as _announcements_schema
+
+    _ANNOUNCEMENTS_DDL = [
+        *_announcements_schema.TABLE_DDL,
+        *_announcements_schema.INDEX_DDL,
+    ]
+except Exception as _announcements_schema_err:  # noqa: BLE001
+    print(f"announcements schema unavailable: {_announcements_schema_err!r}")
+    _ANNOUNCEMENTS_DDL = []
 
 # „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
@@ -6863,6 +6880,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
+    # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
+    *_ANNOUNCEMENTS_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

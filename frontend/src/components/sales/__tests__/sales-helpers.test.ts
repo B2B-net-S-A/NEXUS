@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { Opportunity, Stage } from "@/lib/api/sales";
+import type { Opportunity, OpportunityEvent, Stage } from "@/lib/api/sales";
 
 import { localInputToIso } from "../ActivityTimeline";
 import { duplicatesFromError } from "../CompanyFormDialog";
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber, safeHref } from "../format";
 import { boardStages, summarize } from "../OpportunitiesView";
+import { describeEvent } from "../OpportunityHistory";
 import { parseAmount, parseRoles, rolesToText } from "../OpportunityFormDialog";
 import { datesNote, period } from "../WhoWeKnowPanel";
 
@@ -115,5 +116,58 @@ describe("Sprzedaż — „Kogo znamy”", () => {
     expect(datesNote({ status: "done", total: 7, updated: 7 })).toBe("Daty uzupełnione: 7 z 7 osób");
     expect(datesNote({ status: "partial", total: 9, updated: 3 })).toContain("przerwane");
     expect(datesNote({ status: "failed" })).toContain("nie powiodło się");
+  });
+});
+
+const event = (patch: Partial<OpportunityEvent>): OpportunityEvent => ({
+  id: 1,
+  kind: "updated",
+  field: null,
+  old_value: null,
+  new_value: null,
+  old_label: null,
+  new_label: null,
+  user: null,
+  created_at: "2026-10-28T12:00:00Z",
+  ...patch,
+});
+
+describe("Sprzedaż — historia zmian szansy", () => {
+  it("etap i opiekun po nazwie, usunięty etap jako identyfikator", () => {
+    expect(
+      describeEvent(
+        event({ field: "stage_id", old_value: "1", new_value: "4", old_label: "Lead", new_label: "Oferta wysłana" }),
+      ),
+    ).toBe("Etap: Lead → Oferta wysłana");
+    expect(describeEvent(event({ field: "stage_id", old_value: "9", new_value: "4", new_label: "Wygrana" }))).toBe(
+      "Etap: #9 → Wygrana",
+    );
+  });
+
+  it("kwoty, marża, data i status po polsku, puste jako kreska", () => {
+    expect(describeEvent(event({ field: "value", old_value: "40000", new_value: "45000" }))).toMatch(
+      /^Wartość: 40\s000 zł → 45\s000 zł$/,
+    );
+    expect(describeEvent(event({ field: "margin_pct", old_value: "20", new_value: "22.5" }))).toBe(
+      "Marża: 20% → 22.5%",
+    );
+    expect(describeEvent(event({ field: "expected_close_date", new_value: "2026-12-15" }))).toBe(
+      "Planowane zamknięcie: — → 15.12.2026",
+    );
+    expect(describeEvent(event({ field: "status", old_value: "open", new_value: "lost" }))).toBe(
+      "Status: otwarta → przegrana",
+    );
+  });
+
+  it("założenie, archiwum i scalenie firm", () => {
+    expect(describeEvent(event({ kind: "created", field: "stage_id", new_value: "1", new_label: "Lead" }))).toBe(
+      "Założenie szansy na etapie „Lead”",
+    );
+    expect(describeEvent(event({ kind: "archived" }))).toBe("Przeniesienie do archiwum");
+    expect(
+      describeEvent(
+        event({ kind: "company_merged", field: "company_id", old_value: "2", new_value: "3", old_label: "A", new_label: "B" }),
+      ),
+    ).toBe("Scalenie firm: A → B");
   });
 });
