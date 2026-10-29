@@ -93,8 +93,8 @@ CHAIN = (
     ),
     # Zastępca do Cpro we wniosku urlopowym (29.10.2026).
     (
-        "0621_leave_cpro_substitute",
-        "0620_candidate_ai_assessments",  # down_revision — przepina rechain_migration.py
+        "0622_leave_cpro_substitute",
+        "0621_pair_departure_care",  # down_revision — przepina rechain_migration.py
         "hr_leave_cpro_schema",
     ),
 )
