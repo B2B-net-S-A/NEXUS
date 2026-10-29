@@ -31,6 +31,7 @@ const GUARD_KEYS = [
   "bulk_per_minute",
   "contacts_per_day",
   "thin_hour_candidates",
+  "break_minutes",
 ] as const;
 
 /** Ochrona przed nabijaniem (decyzja Artura 29.10.2026); limit 0 = bez limitu. */
@@ -51,7 +52,7 @@ function toDraft(rules: WorkRhythmRules): Draft {
   rules.hour_levels.forEach((v, i) => (draft[`lvl_${i}`] = String(v)));
   for (const key of [
     "work_hour_min_points",
-    "norm_work_hours",
+    "min_work_hours",
     "norm_day_points",
     "level_high",
     "level_mid",
@@ -76,7 +77,7 @@ export function draftToRules(draft: Draft): WorkRhythmRules {
     weights,
     hour_levels: [num(draft.lvl_0), num(draft.lvl_1), num(draft.lvl_2)],
     work_hour_min_points: num(draft.work_hour_min_points),
-    norm_work_hours: num(draft.norm_work_hours),
+    min_work_hours: num(draft.min_work_hours),
     norm_day_points: num(draft.norm_day_points),
     level_high: Math.round(num(draft.level_high)),
     level_mid: Math.round(num(draft.level_mid)),
@@ -90,6 +91,7 @@ export function draftToRules(draft: Draft): WorkRhythmRules {
     bulk_per_minute: Math.round(num(draft.bulk_per_minute)),
     contacts_per_day: Math.round(num(draft.contacts_per_day)),
     thin_hour_candidates: Math.round(num(draft.thin_hour_candidates)),
+    break_minutes: Math.round(num(draft.break_minutes)),
   };
 }
 
@@ -99,12 +101,13 @@ export function draftProblem(rules: WorkRhythmRules): string | null {
     ...Object.values(rules.weights),
     ...rules.hour_levels,
     rules.work_hour_min_points,
-    rules.norm_work_hours,
+    rules.min_work_hours,
     rules.norm_day_points,
     ...GUARD_KEYS.map((key) => rules[key]),
   ];
   if (values.some((v) => !Number.isFinite(v))) return "Wpisz liczby we wszystkich polach.";
   if (GUARD_KEYS.some((key) => rules[key] < 0)) return "Limity i punkty ochrony nie mogą być ujemne.";
+  if (rules.break_minutes < 10 || rules.break_minutes > 180) return "Przerwa musi mieć od 10 do 180 minut.";
   const [low, mid, high] = rules.hour_levels;
   if (!(low > 0 && low < mid && mid < high)) {
     return "Progi godziny muszą rosnąć: robocza < intensywna < bardzo intensywna.";
@@ -205,8 +208,9 @@ export function RhythmRulesDialog({
           <Field id="rytm-lvl-1" label="Intensywna" value={draft.lvl_1} onChange={set("lvl_1")} suffix="pkt" />
           <Field id="rytm-lvl-2" label="Bardzo intensywna" value={draft.lvl_2} onChange={set("lvl_2")} suffix="pkt" />
           <p className="pt-2 text-sm font-semibold text-foreground">Norma dnia</p>
-          <Field id="rytm-work-min" label="Godzina pracy od" value={draft.work_hour_min_points} onChange={set("work_hour_min_points")} suffix="pkt" />
-          <Field id="rytm-norm-hours" label="Godzin pracy" value={draft.norm_work_hours} onChange={set("norm_work_hours")} suffix="h" />
+          <Field id="rytm-work-min" label="Godzina intensywna od" value={draft.work_hour_min_points} onChange={set("work_hour_min_points")} suffix="pkt" />
+          <Field id="rytm-norm-hours" label="Minimalny czas pracy dziennie" value={draft.min_work_hours} onChange={set("min_work_hours")} suffix="h" />
+          <Field id="rytm-break" label="Przerwa od (bez akcji i prepa)" value={draft.break_minutes} onChange={set("break_minutes")} suffix="min" />
           <Field id="rytm-norm-points" label="Punktów dnia" value={draft.norm_day_points} onChange={set("norm_day_points")} suffix="pkt" />
           <p className="pt-2 text-sm font-semibold text-foreground">Poziomy i podpowiedź</p>
           <Field id="rytm-high" label="Wysoka intensywność od" value={draft.level_high} onChange={set("level_high")} />

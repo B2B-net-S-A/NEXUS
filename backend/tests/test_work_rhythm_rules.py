@@ -26,7 +26,7 @@ def test_defaults_match_decision():
     assert RULES.weights["screening"] == 5
     assert RULES.weights["action"] == 1
     assert RULES.hour_levels == (4, 11, 25)
-    assert RULES.norm_work_hours == 7
+    assert RULES.min_work_hours == 8
     assert RULES.norm_day_points == 120
 
 
@@ -35,7 +35,7 @@ def test_partial_saved_rules_keep_defaults():
     assert rules.weights["screening"] == 8
     assert rules.weights["note"] == DEFAULT_RULES["weights"]["note"]
     assert rules.norm_day_points == 100
-    assert rules.norm_work_hours == 7
+    assert rules.min_work_hours == 8
 
 
 def test_hour_points_use_weights_and_ignore_unknown_kinds():
@@ -62,9 +62,9 @@ def test_day_index_full_day_and_caps_at_100():
 
 
 def test_day_index_half_and_half():
-    # 7 godzin po 4 pkt = pełne pokrycie, 28 pkt z 120 = 0,23.
-    points = {h: 4.0 for h in range(9, 16)}
-    assert day_index(points, [], RULES) == round((1 + 28 / 120) / 2 * 100)
+    # 8 godzin po 4 pkt = pełne pokrycie (norma 8 h), 32 pkt z 120 = 0,27.
+    points = {h: 4.0 for h in range(9, 17)}
+    assert day_index(points, [], RULES) == round((1 + 32 / 120) / 2 * 100)
 
 
 def test_full_leave_day_is_not_counted():
@@ -95,23 +95,105 @@ def test_intensity_levels(index, level):
 
 
 @pytest.mark.parametrize(
-    ("index", "pct", "diag"),
+    ("index", "pct", "hours", "diag"),
     [
-        (90, 120, "model"),
-        (90, 40, "quality"),
-        (40, 120, "more_volume"),
-        (40, 40, "more_work"),
-        (60, 80, "model"),
-        (59, 79, "more_work"),
+        (90, 120, 8.5, "model"),
+        (90, 40, 8.0, "quality"),
+        (40, 120, 9.0, "idle"),
+        (40, 40, 9.0, "idle"),
+        (60, 80, 8.0, "model"),
+        # Poniżej 8 h nikt nie jest wzorem (decyzja Artura 29.10.2026).
+        (90, 200, 7.9, "short_good"),
+        (90, 40, 6.0, "more_work"),
     ],
 )
-def test_diagnosis_quadrants(index, pct, diag):
-    assert diagnose(index, pct, RULES) == diag
+def test_diagnosis_needs_eight_hours_first(index, pct, hours, diag):
+    assert diagnose(index, pct, RULES, work_time=hours) == diag
 
 
-def test_diagnosis_needs_both_numbers():
-    assert diagnose(None, 100, RULES) is None
-    assert diagnose(80, None, RULES) is None
+def test_diagnosis_needs_all_numbers():
+    assert diagnose(None, 100, RULES, work_time=9) is None
+    assert diagnose(80, None, RULES, work_time=9) is None
+    assert diagnose(80, 100, RULES, work_time=None) is None
+
+
+def test_below_eight_hours_caps_intensity_below_high():
+    from app.services.work_rhythm import gate_index
+
+    assert gate_index(96, 7.5, RULES) == RULES.level_high - 1
+    assert gate_index(60, 7.5, RULES) == 60
+    assert gate_index(96, 8.0, RULES) == 96
+    assert gate_index(None, 8.0, RULES) is None
+
+
+def _t(h, m):
+    return datetime(2026, 10, 20, h, m)
+
+
+def test_work_time_merges_actions_closer_than_break():
+    """30 min bez akcji i bez prepa = przerwa, nie praca (decyzja Artura 29.10.2026)."""
+    from app.services.work_rhythm import worked_time
+
+    hours, spans = worked_time([_t(9, 0), _t(9, 29), _t(9, 50)], [], RULES)
+    assert hours == pytest.approx(50 / 60)
+    assert spans == [(_t(9, 0), _t(9, 50))]
+
+
+def test_thirty_minutes_without_action_is_a_break():
+    from app.services.work_rhythm import worked_time
+
+    hours, spans = worked_time([_t(9, 0), _t(9, 20), _t(9, 50), _t(10, 5)], [], RULES)
+    assert hours == pytest.approx((20 + 15) / 60)
+    assert len(spans) == 2
+
+
+def test_prep_counts_whole_and_bridges_gaps():
+    from app.services.work_rhythm import worked_time
+
+    hours, spans = worked_time([_t(9, 0), _t(10, 40)], [(_t(9, 20), _t(10, 20))], RULES)
+    assert spans == [(_t(9, 0), _t(10, 40))]
+    assert hours == pytest.approx(100 / 60)
+
+
+def test_single_action_alone_is_no_work_time():
+    from app.services.work_rhythm import worked_time
+
+    assert worked_time([_t(12, 0)], [], RULES)[0] == 0
+    assert worked_time([], [], RULES) == (0.0, [])
+
+
+def test_break_threshold_is_a_rule():
+    from app.services.work_rhythm import worked_time
+
+    rules = rules_from_json({"break_minutes": 60})
+    assert worked_time([_t(9, 0), _t(9, 50)], [], rules)[0] == pytest.approx(50 / 60)
+
+
+def test_eight_hour_defaults():
+    assert RULES.min_work_hours == 8
+    assert RULES.break_minutes == 30
+
+
+def test_period_work_time_and_full_days():
+    from app.services.work_rhythm import summarize_days
+
+    def d(work_time, leave=0.0):
+        return {
+            "before_start": False,
+            "in_progress": False,
+            "leave": leave,
+            "index": 50,
+            "work_hours": 4,
+            "day_points": 60.0,
+            "work_time": work_time,
+        }
+
+    summary = summarize_days(
+        [d(8.5), d(6.0), d(4.0, leave=0.5), d(None, leave=1.0)], RULES
+    )
+    # Pół dnia urlopu: 4 h z 4 wymaganych = pełny dzień, liczony jako 8 h na pełen etat.
+    assert summary["avg_work_time"] == pytest.approx((8.5 + 6.0 + 8.0) / 3, abs=0.05)
+    assert summary["full_days"] == 2
 
 
 def test_meeting_hours_need_30_minutes_in_the_hour():
@@ -197,7 +279,7 @@ def test_valid_rules_payload_round_trips():
         {"level_mid": 80, "level_high": 75},
         {"weights": {"screening": 5}},
         {"weights": {**DEFAULT_RULES["weights"], "screening": 50}},
-        {"norm_work_hours": 0},
+        {"min_work_hours": 0},
     ],
 )
 def test_invalid_rules_are_refused(over):
@@ -232,10 +314,11 @@ def test_unfinished_today_does_not_enter_period_numbers():
             "index": index,
             "work_hours": 5,
             "day_points": 80.0,
+            "work_time": 8.0,
         }
 
     days = [d(64) for _ in range(9)] + [d(10, in_progress=True)]
-    summary = summarize_days(days)
+    summary = summarize_days(days, RULES)
     assert summary["index"] == 64
     assert summary["worked_days"] == 9
     assert summary["leave_days"] == 0
@@ -458,3 +541,61 @@ def test_cv_without_candidate_is_its_own_entity():
 
     sql = " ".join(_EVENTS_SQL.split())
     assert "'g' || g.id" in sql
+
+
+def test_break_minutes_validated():
+    from pydantic import ValidationError
+
+    from app.api.insights_work_rhythm import WorkRhythmRulesIn
+
+    assert WorkRhythmRulesIn(**_payload(break_minutes=45)).break_minutes == 45
+    with pytest.raises(ValidationError):
+        WorkRhythmRulesIn(**_payload(break_minutes=5))
+
+
+def test_old_saved_seven_hour_norm_does_not_lower_the_minimum():
+    """Reguły zapisane przed 29.10 mają „norm_work_hours: 7” — minimum to i tak 8 h."""
+    assert rules_from_json({"norm_work_hours": 7}).min_work_hours == 8
+
+
+def test_short_day_cannot_reach_high_intensity():
+    """Dzień 6 h 50 z dużą liczbą punktów to najwyżej 74, nie 100 (przegląd 29.10)."""
+    from app.services.work_rhythm import gated_day_index
+
+    points = {h: 30.0 for h in range(8, 18)}
+    assert gated_day_index(points, [], RULES, available=1.0, work_time=6.8) == 74
+    assert gated_day_index(points, [], RULES, available=1.0, work_time=8.2) == 100
+    # Pół dnia urlopu: 4 h z wymaganych 4 to pełny dzień.
+    assert gated_day_index(points, [], RULES, available=0.5, work_time=4.0) == 100
+    assert gated_day_index(points, [], RULES, available=0.0, work_time=None) is None
+
+
+def test_just_below_eight_hours_never_counts_as_full():
+    """7:59:46 to nie 8 h — ani w dniu, ani w średniej, ani we „wzorze” (przegląd 29.10)."""
+    from app.services.work_rhythm import summarize_days, worked_time
+
+    start = datetime(2026, 10, 20, 8, 0)
+    stamps = [start + (datetime(2026, 10, 20, 8, 25) - start) * i for i in range(19)]
+    stamps.append(datetime(2026, 10, 20, 15, 59, 46))
+    hours, _ = worked_time(stamps, [], RULES)
+    assert hours < 8
+
+    def d(work_time):
+        return {
+            "before_start": False,
+            "in_progress": False,
+            "leave": 0.0,
+            "index": 74,
+            "work_hours": 8,
+            "day_points": 200.0,
+            "work_time": work_time,
+        }
+
+    summary = summarize_days([d(7.96)] * 10, RULES)
+    assert summary["full_days"] == 0
+    assert summary["avg_work_time"] < 8
+    assert (
+        diagnose(summary["index"], 150, RULES, work_time=summary["avg_work_time"])
+        == "short_good"
+    )
+    assert summary["timed_days"] == 10

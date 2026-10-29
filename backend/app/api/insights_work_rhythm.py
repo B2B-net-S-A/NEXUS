@@ -53,7 +53,7 @@ class WorkRhythmRulesIn(BaseModel):
     weights: dict[str, float]
     hour_levels: list[float] = Field(min_length=3, max_length=3)
     work_hour_min_points: float = Field(gt=0, le=100)
-    norm_work_hours: float = Field(ge=1, le=10)
+    min_work_hours: float = Field(ge=1, le=10)
     norm_day_points: float = Field(ge=10, le=1000)
     level_high: int = Field(ge=1, le=100)
     level_mid: int = Field(ge=1, le=100)
@@ -74,6 +74,7 @@ class WorkRhythmRulesIn(BaseModel):
     thin_hour_candidates: int = Field(
         DEFAULT_RULES["thin_hour_candidates"], ge=0, le=10
     )
+    break_minutes: int = Field(DEFAULT_RULES["break_minutes"], ge=10, le=180)
 
     @model_validator(mode="after")
     def _consistent(self) -> "WorkRhythmRulesIn":

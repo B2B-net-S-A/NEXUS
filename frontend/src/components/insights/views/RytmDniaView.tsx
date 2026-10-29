@@ -45,23 +45,50 @@ const DIAGNOSIS: Record<
   WorkRhythmDiagnosis,
   { label: string; hint: string; variant: "success" | "warning" | "info" | "danger" }
 > = {
-  model: { label: "Wzór", hint: "Pracuje dużo i z wynikiem", variant: "success" },
+  model: { label: "Wzór", hint: "Pełne godziny, intensywnie i z wynikiem", variant: "success" },
   quality: {
     label: "Pomóż z jakością",
-    hint: "Dużo pracy, mało przechodzi: przegląd notatek i doboru z DL",
+    hint: "Pełne godziny i dużo pracy, mało przechodzi: przegląd notatek i doboru z DL",
     variant: "warning",
   },
-  more_volume: {
-    label: "Skutecznie, ale mało",
-    hint: "Wynik jest, czasu w pracy mało: więcej rozmów",
+  idle: {
+    label: "Jest, ale mało robi",
+    hint: "Pełne godziny w NEXUSIE, mało punktów: co robi między akcjami",
     variant: "info",
+  },
+  short_good: {
+    label: "Dobre wyniki, poniżej 8 h",
+    hint: "Wynik jest, ale nie przepracowuje minimum — nie jest wzorem",
+    variant: "warning",
   },
   more_work: {
     label: "Za mało pracy",
-    hint: "Mało pracy i słabe wyniki: rozmowa i plan dnia",
+    hint: "Poniżej minimum godzin i słabe wyniki: rozmowa i plan dnia",
     variant: "danger",
   },
 };
+
+function fmtHours(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  // W dół do pełnej minuty — 7 h 59 z kawałkiem nie może wyglądać jak 8 h.
+  const total = Math.floor(value * 60 + 1e-6);
+  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")}`;
+}
+
+function WorkTime({ value, norm }: { value: number | null; norm: number }) {
+  if (value === null) return <span className="text-xs text-muted-foreground">—</span>;
+  const ok = value >= norm - 1e-9;
+  const max = Math.max(norm * 1.25, 10);
+  return (
+    <span className="flex items-center gap-2" title={`Czas pracy ${fmtHours(value)} · minimum ${fmtNumber(norm)} h`}>
+      <span className="relative h-2 w-20 rounded-full bg-muted">
+        <span className={cn("absolute inset-y-0 left-0 rounded-full", ok ? "bg-success" : "bg-destructive")} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
+        <span className="absolute -top-0.5 h-3 w-0.5 bg-foreground" style={{ left: `${(norm / max) * 100}%` }} />
+      </span>
+      <span className={cn("text-sm font-semibold tabular-nums", ok ? "text-foreground" : "text-destructive")}>{fmtHours(value)}</span>
+    </span>
+  );
+}
 
 function fmtNumber(value: number): string {
   return String(value).replace(".", ",");
@@ -251,10 +278,13 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
             <b className="text-foreground">Poziom godziny</b> = suma punktów w tej godzinie: lekka poniżej {fmtNumber(low)}, robocza od {fmtNumber(low)}, intensywna od {fmtNumber(mid)}, bardzo intensywna od {fmtNumber(high)}.
           </p>
           <p>
-            <b className="text-foreground">Godzina pracy</b> = co najmniej {fmtNumber(rules.work_hour_min_points)} pkt albo prep ustawiony z NEXUSA ≥ 30 min, liczona 8:00–18:00.
+            <b className="text-foreground">Czas pracy</b> = odcinki, w których coś się dzieje w NEXUSIE (akcje z punktami i prepy); {rules.break_minutes} min bez akcji i bez prepa to przerwa i się nie liczy. Minimum: {fmtNumber(rules.min_work_hours)} h dziennie.
           </p>
           <p>
-            <b className="text-foreground">Intensywność dnia (0–100)</b> = ½ × godziny pracy / {fmtNumber(rules.norm_work_hours)} + ½ × punkty dnia / {fmtNumber(rules.norm_day_points)}, każda część najwyżej 1.
+            <b className="text-foreground">Godzina intensywna</b> = co najmniej {fmtNumber(rules.work_hour_min_points)} pkt albo prep ustawiony z NEXUSA ≥ 30 min, liczona 8:00–18:00.
+          </p>
+          <p>
+            <b className="text-foreground">Intensywność dnia (0–100)</b> = ½ × godziny intensywne / {fmtNumber(rules.min_work_hours)} + ½ × punkty dnia / {fmtNumber(rules.norm_day_points)}, każda część najwyżej 1.
           </p>
         </div>
         <div className="min-w-0 space-y-1.5 text-xs text-muted-foreground">
@@ -266,7 +296,7 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
             <b className="text-foreground">Poziom:</b> wysoka ≥ {rules.level_high}, średnia {rules.level_mid}–{rules.level_high - 1}, niska &lt; {rules.level_mid}.
           </p>
           <p>
-            <b className="text-foreground">Podpowiedź dla lidera:</b> intensywność ≥ {rules.diag_intensity} i CV do klienta ≥ {rules.diag_results_pct}% mediany zespołu → wzór; dużo pracy i mało CV → pomóż z jakością; mało pracy i dobre CV → więcej rozmów; mało i mało → plan dnia.
+            <b className="text-foreground">Podpowiedź dla lidera:</b> najpierw średnio ≥ {fmtNumber(rules.min_work_hours)} h czasu pracy — poniżej nikt nie jest wzorem, a intensywność to najwyżej {rules.level_high - 1}. Przy pełnych godzinach: intensywność ≥ {rules.diag_intensity} i CV do klienta ≥ {rules.diag_results_pct}% mediany → wzór; intensywnie, a mało CV → pomóż z jakością; mało punktów → jest, ale mało robi.
           </p>
           <p>Rozmowy z telefonu i praca na LinkedIn poza wtyczką nie są widoczne.</p>
         </div>
@@ -320,7 +350,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 // ── Widok „Dzień” ───────────────────────────────────────────────────────────
 
-const DAY_COLS = "170px 1fr 54px 54px 60px 150px";
+const DAY_COLS = "160px 1fr 48px 48px 140px 62px 140px";
 
 function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: string; onOpen: OpenDay }) {
   return (
@@ -332,7 +362,8 @@ function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: stri
             <HoursHeader />
             <span className="text-right">Start</span>
             <span className="text-right">Koniec</span>
-            <span className="text-right">Godz. pracy</span>
+            <span>Czas pracy (min. {fmtNumber(data.rules.min_work_hours)} h)</span>
+            <span className="text-right">Brakuje</span>
             <span>Intensywność dnia</span>
           </div>
           {data.people.map((p) => {
@@ -353,7 +384,18 @@ function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: stri
                 {off ? <OffBand day={d} /> : <HourCells day={d} />}
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.first ?? "—"}</span>
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.last ?? "—"}</span>
-                <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.work_hours ?? "—"}</span>
+                {off ? <span className="text-sm text-muted-foreground">—</span> : <WorkTime value={d.work_time} norm={data.rules.min_work_hours * (1 - d.leave)} />}
+                <span className="text-right text-sm font-semibold tabular-nums">
+                  {off || d.work_time === null ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : d.in_progress ? (
+                    <span className="text-xs font-normal text-muted-foreground">trwa</span>
+                  ) : d.work_time >= data.rules.min_work_hours * (1 - d.leave) - 1e-9 ? (
+                    <span className="text-success">✓</span>
+                  ) : (
+                    <span className="text-destructive">−{fmtHours(data.rules.min_work_hours * (1 - d.leave) - d.work_time)}</span>
+                  )}
+                </span>
                 <span className="flex items-center gap-2">
                   <IntensityMeter value={d.index} rules={data.rules} compact />
                   {d.leave > 0 && d.leave < 1 ? <span className="text-[11px] text-info-muted-foreground">½ urlopu</span> : null}
@@ -385,7 +427,7 @@ function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRh
       </div>
       <p className="mb-2 text-xs tabular-nums text-muted-foreground">
         {start !== null && end !== null ? `zwykle ${fromMin(start)}–${fromMin(end)} · ` : ""}
-        {p.avg_work_hours !== null ? `${fmtNumber(p.avg_work_hours)} h pracy dziennie · ` : ""}
+        {p.avg_work_time !== null ? `${fmtHours(p.avg_work_time)} pracy dziennie (min. ${fmtNumber(rules.min_work_hours)} h) · ${p.full_days} dni z pełnymi godzinami · ` : ""}
         {p.median_points !== null ? `${p.median_points} pkt` : "brak dni pracy"}
         {p.leave_days > 0 ? (
           <span className="ml-1 inline-flex items-center gap-1 text-info-muted-foreground">
@@ -424,17 +466,18 @@ function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRh
 
 function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
   const leader = data.with_results;
-  const rows = [...data.people].sort((a, b) => (b.index ?? -1) - (a.index ?? -1));
-  const cols = leader ? "170px 190px 80px 70px 70px 110px 1fr" : "170px 190px 80px 70px 70px";
+  const rows = [...data.people].sort((a, b) => (b.avg_work_time ?? -1) - (a.avg_work_time ?? -1));
+  const cols = leader ? "160px 150px 60px 150px 56px 56px 90px 1fr" : "160px 150px 60px 150px 56px 56px";
   return (
     <div className="grid gap-4">
       <Card className="min-w-0 p-4">
         <div className="overflow-x-auto">
-          <div className={leader ? "min-w-[940px]" : "min-w-[640px]"}>
+          <div className={leader ? "min-w-[980px]" : "min-w-[680px]"}>
             <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: cols }}>
               <span>Rekruter</span>
+              <span>Czas pracy / dzień (min. {fmtNumber(data.rules.min_work_hours)} h)</span>
+              <span className="text-right">Dni z min.</span>
               <span>Intensywność ({fmtDay(data.from)} – {fmtDay(data.to)})</span>
-              <span className="text-right">Godz. pracy / dzień</span>
               <span className="text-right">Pkt / dzień</span>
               <span className="text-right">Urlop</span>
               {leader ? <span className="text-right">CV do klienta / dzień</span> : null}
@@ -448,8 +491,9 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
                     <Initials name={p.name} />
                     <span className="truncate">{p.name}</span>
                   </span>
-                  <IntensityMeter value={p.index} rules={data.rules} />
-                  <span className="text-right text-sm tabular-nums text-foreground">{p.avg_work_hours !== null ? fmtNumber(p.avg_work_hours) : "—"}</span>
+                  <WorkTime value={p.avg_work_time} norm={data.rules.min_work_hours} />
+                  <span className="text-right text-sm tabular-nums text-foreground">{p.avg_work_time !== null ? `${p.full_days}/${p.timed_days}` : "—"}</span>
+                  <IntensityMeter value={p.index} rules={data.rules} compact />
                   <span className="text-right text-sm tabular-nums text-foreground">{p.median_points ?? "—"}</span>
                   <span className="text-right text-sm tabular-nums text-muted-foreground">{p.leave_days > 0 ? `${fmtNumber(p.leave_days)} d.` : "—"}</span>
                   {leader ? (
@@ -479,7 +523,7 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
           {leader
-            ? `Intensywność i CV do klienta z tego samego okresu. W nawiasie % mediany zespołu${data.team_cv_per_day_median !== null ? ` (${data.team_cv_per_day_median.toFixed(2).replace(".", ",")} CV dziennie)` : ""}.`
+            ? `Czas pracy = odcinki z akcjami i prepami; ${data.rules.break_minutes} min bez akcji to przerwa. Poniżej ${fmtNumber(data.rules.min_work_hours)} h intensywność najwyżej ${data.rules.level_high - 1}. CV do klienta w nawiasie: % mediany zespołu${data.team_cv_per_day_median !== null ? ` (${data.team_cv_per_day_median.toFixed(2).replace(".", ",")} CV dziennie)` : ""}.`
             : "Bez wyników w tym widoku."}
         </p>
       </Card>
@@ -487,18 +531,23 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
         <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
           <Quadrant data={data} />
           <Card className="min-w-0 space-y-3 p-4 text-sm">
-            <p className="font-semibold text-foreground">Co robi lider z każdą ćwiartką</p>
+            <p className="font-semibold text-foreground">Co robi lider z każdą podpowiedzią</p>
+            <p className="text-xs text-muted-foreground">Najpierw minimum {fmtNumber(data.rules.min_work_hours)} h dziennie — poniżej nikt nie jest wzorem.</p>
             <p>
               <Badge variant="success" size="sm">Wzór</Badge>{" "}
               <span className="text-muted-foreground">nic nie zmieniać; dobry materiał na wspólny przegląd notatek dla zespołu.</span>
             </p>
             <p>
               <Badge variant="warning" size="sm">Pomóż z jakością</Badge>{" "}
-              <span className="text-muted-foreground">pracuje dużo, a CV nie przechodzą: DL przegląda 3 ostatnie notatki i odrzucenia, sprawdza dobór kandydatów do wymagań.</span>
+              <span className="text-muted-foreground">pracuje pełne godziny i dużo, a CV nie przechodzą: DL przegląda 3 ostatnie notatki i odrzucenia.</span>
             </p>
             <p>
-              <Badge variant="info" size="sm">Skutecznie, ale mało</Badge>{" "}
-              <span className="text-muted-foreground">wynik jest, czasu w pracy mało: więcej rozmów, kandydaci z „Propozycji z bazy”.</span>
+              <Badge variant="info" size="sm">Jest, ale mało robi</Badge>{" "}
+              <span className="text-muted-foreground">godziny są, punktów mało: zobacz rozkład dnia, co dzieje się między akcjami.</span>
+            </p>
+            <p>
+              <Badge variant="warning" size="sm">Dobre wyniki, poniżej 8 h</Badge>{" "}
+              <span className="text-muted-foreground">wynik jest, minimum godzin nie: rozmowa o pełnym dniu pracy.</span>
             </p>
             <p>
               <Badge variant="danger" size="sm">Za mało pracy</Badge>{" "}
@@ -517,34 +566,36 @@ function Quadrant({ data }: { data: WorkRhythmResponse }) {
   const pad = 34;
   const rules = data.rules;
   const resultsCap = 200;
-  const x = (v: number) => pad + (v / 100) * (W - pad * 2);
+  const hoursCap = 10;
+  const norm = rules.min_work_hours;
+  const x = (v: number) => pad + (Math.min(v, hoursCap) / hoursCap) * (W - pad * 2);
   const y = (v: number) => H - pad - (Math.min(v, resultsCap) / resultsCap) * (H - pad * 2);
-  const dots = data.people.filter((p) => p.index !== null && p.results_pct !== null && p.results_pct !== undefined);
+  const dots = data.people.filter((p) => p.avg_work_time !== null && p.results_pct !== null && p.results_pct !== undefined);
   return (
     <Card className="min-w-0 p-4">
-      <p className="text-sm font-semibold text-foreground">Intensywność × wyniki</p>
-      <p className="mb-2 text-xs text-muted-foreground">Oś X: intensywność. Oś Y: CV do klienta wobec mediany zespołu.</p>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Intensywność a wyniki">
-        <rect x={x(rules.diag_intensity)} y={y(rules.diag_results_pct)} width={W - pad - x(rules.diag_intensity)} height={H - pad - y(rules.diag_results_pct)} className="fill-warning/15" />
-        <rect x={pad} y={y(rules.diag_results_pct)} width={x(rules.diag_intensity) - pad} height={H - pad - y(rules.diag_results_pct)} className="fill-destructive/10" />
-        <rect x={pad} y={pad} width={x(rules.diag_intensity) - pad} height={y(rules.diag_results_pct) - pad} className="fill-info/10" />
-        <rect x={x(rules.diag_intensity)} y={pad} width={W - pad - x(rules.diag_intensity)} height={y(rules.diag_results_pct) - pad} className="fill-success/10" />
+      <p className="text-sm font-semibold text-foreground">Czas pracy × wyniki</p>
+      <p className="mb-2 text-xs text-muted-foreground">Oś X: czas pracy dziennie (kreska = minimum {fmtNumber(norm)} h). Oś Y: CV do klienta wobec mediany zespołu.</p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Czas pracy a wyniki">
+        <rect x={x(norm)} y={y(rules.diag_results_pct)} width={W - pad - x(norm)} height={H - pad - y(rules.diag_results_pct)} className="fill-warning/15" />
+        <rect x={pad} y={y(rules.diag_results_pct)} width={x(norm) - pad} height={H - pad - y(rules.diag_results_pct)} className="fill-destructive/10" />
+        <rect x={pad} y={pad} width={x(norm) - pad} height={y(rules.diag_results_pct) - pad} className="fill-warning/10" />
+        <rect x={x(norm)} y={pad} width={W - pad - x(norm)} height={y(rules.diag_results_pct) - pad} className="fill-success/10" />
         <line x1={pad} x2={W - pad} y1={H - pad} y2={H - pad} className="stroke-muted-foreground/40" />
         <line x1={pad} x2={pad} y1={pad} y2={H - pad} className="stroke-muted-foreground/40" />
         <text x={W - pad - 4} y={pad + 12} textAnchor="end" className="fill-success-muted-foreground text-[11px] font-semibold">wzór</text>
-        <text x={pad + 4} y={pad + 12} className="fill-info-muted-foreground text-[10px] font-semibold">skutecznie, ale mało</text>
+        <text x={pad + 4} y={pad + 12} className="fill-warning-muted-foreground text-[10px] font-semibold">dobre wyniki, poniżej {fmtNumber(norm)} h</text>
         <text x={W - pad - 4} y={H - pad - 6} textAnchor="end" className="fill-warning-muted-foreground text-[10px] font-semibold">pomóż z jakością</text>
         <text x={pad + 4} y={H - pad - 6} className="fill-destructive-muted-foreground text-[10px] font-semibold">za mało pracy</text>
-        {[0, 50, 100].map((t) => (
-          <text key={t} x={x(t)} y={H - pad + 13} textAnchor="middle" className="fill-muted-foreground text-[10px]">{t}</text>
+        {[0, 2, 4, 6, 8, 10].map((t) => (
+          <text key={t} x={x(t)} y={H - pad + 13} textAnchor="middle" className="fill-muted-foreground text-[10px]">{t} h</text>
         ))}
         {[0, 50, 100, 150, 200].map((t) => (
           <text key={t} x={pad - 5} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground text-[10px]">{t}%</text>
         ))}
         {dots.map((p) => {
           const pct = p.results_pct as number;
-          const idx = p.index as number;
-          const right = idx > 85;
+          const idx = p.avg_work_time as number;
+          const right = idx > 8.5;
           return (
             <g key={p.user_id}>
               <circle cx={x(idx)} cy={y(pct)} r={4} className="fill-primary" />

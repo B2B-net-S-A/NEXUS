@@ -32,7 +32,7 @@ export interface WorkRhythmRules {
   /** Progi poziomu godziny: od ilu punktów robocza, intensywna, bardzo intensywna. */
   hour_levels: [number, number, number];
   work_hour_min_points: number;
-  norm_work_hours: number;
+  min_work_hours: number;
   norm_day_points: number;
   level_high: number;
   level_mid: number;
@@ -47,6 +47,8 @@ export interface WorkRhythmRules {
   stage_return_points: number;
   contacts_per_day: number;
   thin_hour_candidates: number;
+  /** Tyle minut bez akcji i bez prepa to przerwa, nie praca. */
+  break_minutes: number;
 }
 
 /** Powody, dla których akcja nie dała punktów — lustro `SKIP_REASONS` z serwera. */
@@ -87,13 +89,16 @@ export interface WorkRhythmDay {
   first: string | null;
   last: string | null;
   work_hours: number | null;
+  /** Czas pracy dnia w godzinach; `null` = dzień nie liczy się (urlop, przed kontem). */
+  work_time: number | null;
   day_points: number;
   /** `null` = dzień nie liczy się (urlop, przed startem). */
   index: number | null;
 }
 
 export type WorkRhythmLevel = "high" | "mid" | "low";
-export type WorkRhythmDiagnosis = "model" | "quality" | "more_volume" | "more_work";
+/** Podpowiedź: najpierw minimum 8 h, potem intensywność i wyniki (29.10.2026). */
+export type WorkRhythmDiagnosis = "model" | "quality" | "idle" | "short_good" | "more_work";
 
 export interface WorkRhythmPerson {
   user_id: number;
@@ -105,6 +110,12 @@ export interface WorkRhythmPerson {
   leave_days: number;
   days_before_start: number;
   avg_work_hours: number | null;
+  /** Średni czas pracy dziennie (h): odcinki z akcjami i prepami, 30 min ciszy = przerwa. */
+  avg_work_time: number | null;
+  /** Dni z pełnym minimum godzin (pół dnia urlopu = połowa minimum). */
+  full_days: number;
+  /** Dni z policzonym czasem pracy (mianownik dla `full_days`). */
+  timed_days: number;
   median_points: number | null;
   /** Tylko dla widzów zakładki (admin, Head of Recruitment). */
   cv_sent?: number;
@@ -146,6 +157,9 @@ export interface WorkRhythmDayDetail {
   meetings: boolean[];
   thin: boolean[];
   skipped: Partial<Record<WorkRhythmSkipReason, number>>;
+  work_time: number;
+  /** Odcinki pracy [od, do] (HH:MM); między nimi przerwy. */
+  spans: [string, string][];
   events: WorkRhythmDayEvent[];
 }
 
