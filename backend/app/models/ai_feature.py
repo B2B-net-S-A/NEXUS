@@ -186,7 +186,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
     # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
     linkedin_message_draft = "linkedin_message_draft"
-    # 0617 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
+    # 0618 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
     # „Kandydaci do dodania” — Dzwoń / Może / Nie pasuje z cytatem z CV.
     candidate_ai_assessment = "candidate_ai_assessment"
 

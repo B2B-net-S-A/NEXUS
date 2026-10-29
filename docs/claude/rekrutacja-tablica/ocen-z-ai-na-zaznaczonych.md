@@ -37,7 +37,7 @@ Decyzja Artura: wariant C z makiet https://claude.ai/artifact/TBHtexa3vvyK76HW2v
   osoba zostaje na liście i da się ją dodać.
 - **Model:** F39 `candidate_ai_assessment` w rejestrze (GPT-6 Luna, zapas
   Sonnet 5, env `CANDIDATE_AI_ASSESSMENT_MODEL`), wywołanie w `ai_feature()`.
-  Klucz w enumie, seedzie `ai_features`, migracji 0617 i lustrze w
+  Klucz w enumie, seedzie `ai_features`, migracji 0618 i lustrze w
   `entrypoint.sh`.
 - **Zapis przy rekrutacji:** `candidate_ai_assessments` (kto, kiedy, kogo,
   werdykt, powody; DDL w `candidate_ai_assessment_schema.py`). `GET
