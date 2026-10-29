@@ -561,6 +561,9 @@ export function AllocationRulesPanel() {
     ? { rules: team.data.rules, mode: team.data.mode }
     : null
   const current = draft ?? saved
+  const savedKey = JSON.stringify(saved)
+  // Nowe zapisane zasady (także cudzy zapis) zerują formularz, więc i szkic podglądu.
+  useEffect(() => setDraft(null), [savedKey])
   useEffect(() => {
     const id = setTimeout(() => setDebounced(current), 350)
     return () => clearTimeout(id)
@@ -628,7 +631,7 @@ export function AllocationRulesPanel() {
   return (
     <>
       <AllocationRulesView
-        key={JSON.stringify(saved)}
+        key={savedKey}
         saved={saved}
         preview={preview.data}
         previewError={preview.isError ? preview.error : null}
