@@ -190,6 +190,7 @@ import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
 } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelErrorBoundary } from "@/components/v2/jobs/PersonPanelErrorBoundary";
 import {
  colId,
  columnLabel,
@@ -4440,6 +4441,7 @@ headerAction={
  hidden={reviewOpen}
  inert={reviewOpen || undefined}
  >
+ <PersonPanelErrorBoundary key={dockItem.candidate_id} onClose={closeDock}>
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
@@ -4561,6 +4563,7 @@ headerAction={
  ) : null
  }
  />
+ </PersonPanelErrorBoundary>
  </div>
  )}
  {dlReviewTask ? (
