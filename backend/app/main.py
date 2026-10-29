@@ -3758,7 +3758,7 @@ async def api_health_deep_check():
         ("sales_pipeline_stages", SalesPipelineStage),
         ("sales_opportunities", SalesOpportunity),
         ("sales_activities", SalesActivity),
-        # 0621: cele i KPI tygodniowe handlowców.
+        # 0622: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
