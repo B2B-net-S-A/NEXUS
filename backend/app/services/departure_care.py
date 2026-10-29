@@ -707,12 +707,35 @@ async def open_care(
 async def caretaker_ids(
     db: AsyncSession, pairs: Iterable[tuple[int, int]]
 ) -> dict[tuple[int, int], int]:
-    """Opiekun otwartej opieki dla par — follow-upy i domyślne rozmowy."""
+    """Opiekun par osoby z wyłączonym kontem — follow-upy i domyślne rozmowy.
+
+    Jedno lekkie zapytanie: konto dalej wyłączone, „Prowadzi” dalej przy osobie,
+    która odeszła. Żywość pary sprawdza wołający (liczy tylko pary w toku).
+    """
     wanted = list(dict.fromkeys(pairs))
     if not wanted:
         return {}
-    rows = await open_care(db, pairs=wanted)
-    return {(r.candidate_id, r.job_id): r.caretaker_user_id for r in rows}
+    rows = await db.execute(
+        select(
+            PairDepartureCare.candidate_id,
+            PairDepartureCare.job_id,
+            PairDepartureCare.caretaker_user_id,
+        )
+        .join(User, User.id == PairDepartureCare.departed_user_id)
+        .join(
+            CandidateJobOwner,
+            (CandidateJobOwner.candidate_id == PairDepartureCare.candidate_id)
+            & (CandidateJobOwner.job_id == PairDepartureCare.job_id)
+            & (CandidateJobOwner.owner_user_id == PairDepartureCare.departed_user_id),
+        )
+        .where(
+            tuple_(PairDepartureCare.candidate_id, PairDepartureCare.job_id).in_(
+                wanted
+            ),
+            User.is_active.is_not(True),
+        )
+    )
+    return {(cid, jid): uid for cid, jid, uid in rows.all()}
 
 
 def _column_rank(column: str) -> int:

@@ -1,4 +1,4 @@
-"""Opieka po odejściu — para osoby z wyłączonym kontem i jej Delivery Lead (0616).
+"""Opieka po odejściu — para osoby z wyłączonym kontem i jej Delivery Lead (0617).
 
 DDL w ``services/departure_care_schema.py``; reguły w
 ``docs/claude/rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-leada.md``.

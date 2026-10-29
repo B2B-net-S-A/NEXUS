@@ -1,7 +1,7 @@
 """Opieka po odejściu: pary osoby z wyłączonym kontem → Delivery Lead.
 
-Revision ID: 0616_pair_departure_care
-Revises: 0615_job_twins
+Revision ID: 0617_pair_departure_care
+Revises: 0616_autofill_more_reasons
 
 Decyzje Artura 28.10.2026: gdy rekruter odchodzi z firmy (konto wyłączone),
 jego żywe pary w otwartych rekrutacjach domyka Delivery Lead rekrutacji —
@@ -15,8 +15,8 @@ from alembic import op
 
 from app.services import departure_care_schema as schema
 
-revision = "0616_pair_departure_care"
-down_revision = "0615_job_twins"
+revision = "0617_pair_departure_care"
+down_revision = "0616_autofill_more_reasons"
 branch_labels = None
 depends_on = None
 
@@ -37,7 +37,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'departed_pairs_care'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0616 odmawia: notifications ma wpisy departed_pairs_care, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0617 odmawia: notifications ma wpisy departed_pairs_care, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
