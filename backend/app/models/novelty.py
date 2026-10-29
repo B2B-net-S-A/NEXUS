@@ -1,4 +1,4 @@
-"""Postęp osoby przy nowości NEXUSA (0616) — patrz ``app/data/novelties``."""
+"""Postęp osoby przy nowości NEXUSA (0617) — patrz ``app/data/novelties``."""
 
 from datetime import datetime
 from typing import Optional

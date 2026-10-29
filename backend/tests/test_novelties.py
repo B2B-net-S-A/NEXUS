@@ -1,4 +1,4 @@
-"""Nowości do przeklikania (0616, decyzja Artura 28.10.2026).
+"""Nowości do przeklikania (0617, decyzja Artura 28.10.2026).
 
 Nowość pokazuje się kropką na przycisku i zalicza przeklikaniem albo użyciem
 w pracy; zmianę procesu można odłożyć tylko raz; panel „kto już umie” widzą
@@ -183,7 +183,7 @@ def test_entrypoint_and_migration_use_the_one_ddl_source() -> None:
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert "from app.services import novelty_schema as _novelty_schema" in entrypoint
     assert "*_NOVELTY_TABLE_DDL," in entrypoint
-    migration = (BACKEND / "alembic/versions/0616_novelty_progress.py").read_text(
+    migration = (BACKEND / "alembic/versions/0617_novelty_progress.py").read_text(
         encoding="utf-8"
     )
     assert "from app.services.novelty_schema import TABLE_DDL" in migration
