@@ -97,9 +97,16 @@ def user_is_read_override(user: User) -> bool:
 
 def user_owns_event(event: CalendarEvent, user: User) -> bool:
     owner = getattr(event, "operational_owner_id", None) or event.created_by
+    # Twórca zostaje właścicielem także otwartego wydarzenia przekazanego
+    # komuś innemu: DL zakłada rozmowę u klienta z rekruterem jako
+    # właścicielem i musi poprawić termin, gdy klient go przesunie. Lista
+    # (`personal_event_visibility_filter`) i tak pokazuje mu własne wpisy,
+    # więc bez tego edycja kończyła się 404 (29.10.2026).
+    if event.created_by is not None and event.created_by == user.id:
+        return True
     if event.status == EventStatus.scheduled:
         return owner in operational_owner_ids(user)
-    return owner == user.id or event.created_by == user.id
+    return owner == user.id
 
 
 def operational_event_filter(user: User) -> ColumnElement[bool]:

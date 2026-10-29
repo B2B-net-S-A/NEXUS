@@ -22,6 +22,7 @@ from app.services.workforce_availability import (
 )
 from app.api.calendar_access import (
     user_can_mutate_event,
+    user_can_view_event,
     personal_event_visibility_filter,
 )
 
@@ -343,6 +344,23 @@ def test_calendar_substitute_can_complete_open_event_but_cannot_read_unrelated_h
         assert "operational_owner_id" in str(
             personal_event_visibility_filter(substitute)
         )
+
+
+def test_creator_keeps_edit_of_open_event_handed_to_another_owner():
+    # DL zakłada rozmowę u klienta z rekruterem jako właścicielem operacyjnym.
+    # Lista pokazuje jej to wydarzenie (`created_by`), więc odczyt i edycja nie
+    # mogą kończyć się 404 „Wydarzenie nie znalezione” (Credit Agricole, 29.10).
+    with Session() as session:
+        creator, owner, stranger = user(1), user(3), user(4)
+        session.add_all([creator, owner, stranger])
+        event = CalendarEvent(
+            created_by=1, operational_owner_id=3, status=EventStatus.scheduled
+        )
+        assert user_can_view_event(event, creator)
+        assert user_can_mutate_event(event, creator)
+        assert user_can_mutate_event(event, owner)
+        assert not user_can_view_event(event, stranger)
+        assert not user_can_mutate_event(event, stranger)
 
 
 def test_favorite_pause_is_visible_and_does_not_block_lower_priority_work():
