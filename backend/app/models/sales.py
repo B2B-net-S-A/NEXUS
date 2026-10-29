@@ -568,7 +568,7 @@ class SalesOpportunityEvent(Base):
 
 
 class SalesTarget(Base, TimestampMixin):
-    """Cele tygodniowe handlowca albo (``user_id`` pusty) cel netto MRR firmy (0622)."""
+    """Cele tygodniowe handlowca albo (``user_id`` pusty) cel netto MRR firmy (0623)."""
 
     __tablename__ = "sales_targets"
     __table_args__ = (

@@ -569,7 +569,7 @@ HISTORY_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0622: cele i KPI tygodniowe handlowców (decyzja Artura 28.10.2026) ─────
+# ── 0623: cele i KPI tygodniowe handlowców (decyzja Artura 28.10.2026) ─────
 # * ``sales_targets`` — cele tygodniowe osoby (spotkania, leady kwalifikowane,
 #   wejścia na etap „Oferta wysłana”), opcjonalny cel marży (netto MRR)
 #   z terminem i drużyna. Wiersz bez ``user_id`` to cel firmy (netto MRR),
