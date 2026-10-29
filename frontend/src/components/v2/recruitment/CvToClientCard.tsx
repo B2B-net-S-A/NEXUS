@@ -139,6 +139,7 @@ import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
+import { useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
 // Edytor CV to TipTap — za granicą `dynamic()`, jak w doku kanbana.
@@ -481,6 +482,18 @@ export function CvToClientCard({
       setOtherOpen(false);
       // Wybrane CV kończy czekanie na generację zleconą z tej karty.
       setPending(null);
+    },
+  });
+  // „Wygeneruj z tego pliku” z okna (29.10.2026): plik jako CV kandydata, jak
+  // z kafelka „Wgraj nowe CV”, a potem panel generowania w tej karcie.
+  const candidateCvUpload = useStageCvUpload({
+    candidateId,
+    stageId,
+    jobId,
+    onUploaded: (kind) => {
+      if (kind !== "original") return;
+      setOtherOpen(false);
+      openGenerator();
     },
   });
   const bestReady = hintWanted && !choice.isPending ? bestReadyCv(choice.options) : null;
@@ -1297,6 +1310,7 @@ export function CvToClientCard({
         />
       ) : null}
       {choice.confirmDialog}
+      {candidateCvUpload.confirmDialog}
       {otherOpen && canReplace ? (
         <UseOtherCvDialog
           open
@@ -1306,6 +1320,8 @@ export function CvToClientCard({
           jobLabel={jobLabel}
           choice={choice}
           replaces={hasCv}
+          onGenerateFromFile={candidateCvUpload.uploadAsOriginal}
+          generatingFromFile={candidateCvUpload.isPending}
         />
       ) : null}
       {previewOpen ? (

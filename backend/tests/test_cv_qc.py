@@ -2197,6 +2197,55 @@ def test_qc_reports_the_draft_version_it_was_computed_on() -> None:
     assert qc._cv_payload(src)["edit_revision"] is None
 
 
+class _OneRow:
+    def __init__(self, row):
+        self.row = row
+
+    def scalar_one_or_none(self):
+        return self.row
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (
+            {
+                "source": "document",
+                "origin": {"kind": "upload", "label": "CV_kandydatki.docx"},
+            },
+            (True, "CV_kandydatki.docx"),
+        ),
+        ({"source": "document", "origin": None}, (True, None)),
+        ({"source": "generator"}, (False, None)),
+        (None, (False, None)),
+    ],
+    ids=["plik-z-dysku", "plik-bez-nazwy", "generator", "bez-metadanych"],
+)
+async def test_qc_marks_a_draft_read_from_a_word_file(metadata, expected) -> None:
+    """29.10.2026: CV kandydatki wgrane z dysku weszło do klienta 1:1, a okno
+    QC nie mówiło, że układ przyszedł z pliku, a nie z generatora."""
+    row = SimpleNamespace(
+        branded_status="draft",
+        branded_render_metadata=metadata,
+        candidate_stage_id=5,
+        generated_document_id=None,
+        branded_finalized_at=None,
+        branded_updated_at=None,
+        edit_revision=2,
+        branded_draft_html="<p>CV</p>",
+    )
+
+    class _Db:
+        async def execute(self, _query):
+            return _OneRow(row)
+
+    generated = await dz._generated_cv(_Db(), 1, 2)
+    src = SimpleNamespace(generated=generated, bold_known=True, blocks=[])
+    payload = qc._cv_payload(src)
+
+    assert (payload["from_word_file"], payload["filename"]) == expected
+
+
 def test_fix_never_rewrites_the_consent_clause() -> None:
     """Pisownia chodzi po całym tekście, a usuwanie terminu pomija tylko
     nagłówki — klauzula zgody RODO jest stała także dla poprawek QC."""

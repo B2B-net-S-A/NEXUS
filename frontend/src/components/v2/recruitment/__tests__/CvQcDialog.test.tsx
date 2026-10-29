@@ -394,6 +394,26 @@ describe("CvQcDialog — QC CV", () => {
     expect(await screen.findByTestId("cv-editor")).toBeInTheDocument();
   });
 
+  it("szkic wczytany z pliku Word ma ten sam znacznik co karta „CV do klienta” (29.10.2026)", async () => {
+    serve(result({ cv: { ...result().cv!, from_word_file: true, filename: "CV_kandydatki.docx" } }));
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+
+    const note = await within(dialog).findByTestId("qc-cv-word-file");
+    expect(note).toHaveTextContent("z pliku Word");
+    expect(note).toHaveTextContent("Treść przeniesiona bez AI — sprawdź układ przed wysyłką.");
+    expect(within(dialog).getByText(/CV_kandydatki\.docx/)).toBeInTheDocument();
+  });
+
+  it("CV z generatora nie ma znacznika „z pliku Word”", async () => {
+    serve(result());
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText(/Szkic CV firmowego/);
+
+    expect(within(dialog).queryByTestId("qc-cv-word-file")).toBeNull();
+  });
+
   it("CV z pliku (bez edycji) — zamiast edytora link do panelu osoby", async () => {
     serve(result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }));
     renderDialog();

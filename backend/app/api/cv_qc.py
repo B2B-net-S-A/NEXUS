@@ -115,6 +115,8 @@ class QcCv(BaseModel):
     generated_document_id: Optional[int] = None
     document_id: Optional[int] = None
     filename: Optional[str] = None
+    # Szkic etapu wczytany z pliku Word bez AI (`source: document` w metadanych).
+    from_word_file: bool = False
     bold_known: bool = True
     updated_at: Optional[datetime] = None
     # Wersja szkicu CV etapu, na której policzono QC (brak dla CV bez szkicu).

@@ -621,9 +621,11 @@ async def test_import_preview_converts_the_file_and_saves_nothing(
 
     assert preview.status_code == 200, preview.text
     # Ta sama konwersja (z sanitizerem) co przy `…/upload`.
+    expected = docx_to_editor_html(corrected)
     assert preview.json() == {
-        "content_html": docx_to_editor_html(corrected).html,
+        "content_html": expected.html,
         "filename": "CV_po_poprawkach.docx",
+        "b2b_template": expected.b2b_template,
     }
     assert AFTER_WORD in preview.json()["content_html"]
     assert await _untouchable(world) == before

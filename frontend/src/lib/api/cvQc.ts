@@ -118,6 +118,8 @@ export interface QcCv {
   generated_document_id: number | null;
   document_id: number | null;
   filename: string | null;
+  /** Szkic etapu wczytany z pliku Word bez AI (brak w wynikach sprzed 29.10.2026). */
+  from_word_file?: boolean;
   /** `false` = pogrubień nie da się odczytać (CV z PDF-a). */
   bold_known: boolean;
   updated_at: string | null;
