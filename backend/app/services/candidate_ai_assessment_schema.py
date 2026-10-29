@@ -1,4 +1,4 @@
-"""DDL ocen „Oceń z AI” — JEDNO źródło dla migracji 0616 i siatki
+"""DDL ocen „Oceń z AI” — JEDNO źródło dla migracji 0617 i siatki
 w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``candidate_ai_assessments``: jeden wiersz na osobę ocenioną w jednym
