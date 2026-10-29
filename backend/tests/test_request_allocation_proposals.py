@@ -731,7 +731,7 @@ async def test_planner_sees_people_who_work_without_an_assignment_row() -> None:
         LiveAssignment(adopted_job, adopted, "recruiter", "owner", "active"),
     ]
     async with AsyncSessionLocal() as db:
-        staffed, extra_load = await _unseen_workers(db, requests, live)
+        staffed, extra_load, _who = await _unseen_workers(db, requests, live)
     assert staffed == frozenset({proposed_owner_job, collaborator_job, standard_job})
     assert extra_load == {owner: 1, collaborator: 1}
 

@@ -30,7 +30,9 @@
  "routes": {
   "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "GET /api/competence-team/rules/history": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "POST /api/competence-team/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }

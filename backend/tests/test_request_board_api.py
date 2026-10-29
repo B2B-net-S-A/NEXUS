@@ -461,7 +461,70 @@ async def test_rules_validation_is_polish_and_strict(
         headers=app_auth_headers,
     )
     assert good.status_code == 200, good.text
-    assert good.json() == {"review_time": "08:30"}
+    body = good.json()
+    assert body["review_time"] == "08:30"
+    assert "sourcer_threshold" not in body
+    # Brak nowych pól (stara karta) = wartości domyślne, czyli dotychczasowe zachowanie.
+    assert body["include_p2"] is False and body["max_load"] is None
+
+
+async def test_rules_save_writes_history_and_preview_writes_nothing(
+    app_client: AsyncClient, app_auth_headers: dict
+) -> None:
+    """Zasady w Ustawieniach (29.10.2026): zapis trafia do historii z polami
+    przed/po, podgląd na sucho zwraca dziś i szkic i niczego nie zapisuje."""
+    from sqlalchemy import func
+
+    from app.core.database import AsyncSessionLocal
+    from app.models.job_work_assignment import JobWorkAssignment
+
+    defaults = (
+        await app_client.get("/api/competence-team", headers=app_auth_headers)
+    ).json()["rules"]
+    try:
+        bad = await app_client.put(
+            "/api/competence-team/rules",
+            json={**defaults, "people_per_p1": 5},
+            headers=app_auth_headers,
+        )
+        assert bad.status_code == 422
+        assert bad.json()["detail"] == "Osób na rekrutację P1: od 1 do 3."
+
+        saved = await app_client.put(
+            "/api/competence-team/rules",
+            json={**defaults, "max_load": 6, "include_p2": True},
+            headers=app_auth_headers,
+        )
+        assert saved.status_code == 200, saved.text
+        history = (
+            await app_client.get(
+                "/api/competence-team/rules/history", headers=app_auth_headers
+            )
+        ).json()
+        assert history[0]["changed"] == {
+            "include_p2": [defaults["include_p2"], True],
+            "max_load": [defaults["max_load"], 6],
+        }
+        assert history[0]["actor_name"]
+
+        async with AsyncSessionLocal() as db:
+            before = await db.scalar(select(func.count(JobWorkAssignment.id)))
+        preview = await app_client.post(
+            "/api/competence-team/rules/preview",
+            json={**defaults, "people_per_p1": 3},
+            headers=app_auth_headers,
+        )
+        assert preview.status_code == 200, preview.text
+        body = preview.json()
+        assert set(body) == {"today", "draft"}
+        assert {"pool", "new_people", "waiting", "people"} <= set(body["draft"])
+        async with AsyncSessionLocal() as db:
+            after = await db.scalar(select(func.count(JobWorkAssignment.id)))
+        assert after == before
+    finally:
+        await app_client.put(
+            "/api/competence-team/rules", json=defaults, headers=app_auth_headers
+        )
 
 
 async def test_manual_add_needs_a_request_in_work(
