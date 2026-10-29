@@ -50,6 +50,7 @@ import {
 } from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
 import { PlacementsExportDialog } from "@/components/v2/modals/PlacementsExportDialog";
+import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { placementsExportFilename, type PlacementsRange } from "@/lib/placements-export";
 import {
  Table,
@@ -607,6 +608,14 @@ export function ContractsListV2({
  const canBulkAct =
  !impersonating &&
  hasAnyPermission(user, "contracts_orders_edit", "contract_status");
+ // Rozwiązanie umowy z wiersza listy — to samo uprawnienie co
+ // „Zakończ współpracę”.
+ const canRecordAgreement = !impersonating && hasPermission(user, "contract_status");
+ const [recordAgreementFor, setRecordAgreementFor] = useState<{
+ id: number;
+ candidateName: string | null;
+ projectEnd: string | null;
+ } | null>(null);
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
  // `status=all`, so a return from details can never be confused with a new
@@ -1144,6 +1153,14 @@ export function ContractsListV2({
  )}
  </PopoverContent>
  </Popover>}
+ {recordAgreementFor && (
+ <ContractAgreementRecordDialog
+ contractId={recordAgreementFor.id}
+ candidateName={recordAgreementFor.candidateName}
+ projectEnd={recordAgreementFor.projectEnd}
+ onClose={() => setRecordAgreementFor(null)}
+ />
+ )}
  {canExport && (
  <PlacementsExportDialog
  open={placementsOpen}
@@ -1820,6 +1837,28 @@ export function ContractsListV2({
  </StatusDot>
  ) : (
  <span className={cn("text-xs", CALM_EMPTY)}>—</span>
+ )}
+ {/* Zgłoszenie zespołu 29.10.2026: rozwiązanie umowy podpisane
+ poza NEXUSEM zapisuje się wprost z listy „Umowa nierozwiązana”. */}
+ {canRecordAgreement &&
+ agreementNotTerminated &&
+ m.contract_type === "b2b" &&
+ (m.status === "ended" || m.status === "ending") && (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ setRecordAgreementFor({
+ id: m.id,
+ candidateName: c.candidate_name ?? null,
+ projectEnd: m.end_date ?? null,
+ });
+ }}
+ className="mt-1 block whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
+ title="Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+ >
+ + Rozwiązanie
+ </button>
  )}
  </TableCell>
  </TableRow>

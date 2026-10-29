@@ -130,6 +130,23 @@ describe("statusEventDetailsText", () => {
   });
 });
 
+describe("statusEventDetailsText — rozwiązanie zapisane po zakończeniu", () => {
+  it("opisuje porozumienie podpisane poza NEXUSEM", () => {
+    expect(
+      statusEventDetailsText({
+        source: "agreement_termination_recorded",
+        contract_id: 318,
+        agreement_terminated: true,
+        mode: "mutual_agreement",
+        agreement_last_day: "2026-09-30",
+      }),
+    ).toBe(
+      "Rozwiązanie umowy zapisane po zakończeniu (kontrakt #318) · Porozumienie stron · " +
+        "ostatni dzień umowy 30.09.2026",
+    );
+  });
+});
+
 describe("statusEventDetailsText — powiązanie z kontraktem", () => {
   it("opisuje, z którym kontraktem powiązano umowę", () => {
     expect(

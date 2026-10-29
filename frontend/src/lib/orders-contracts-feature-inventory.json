@@ -875,6 +875,20 @@
    "file": "app/contracts/[id]/page.tsx",
    "marker": "agreement-not-terminated",
    "b_home": "Strona kontraktu: karta „Zakończenie współpracy”"
+  },
+  {
+   "id": "k.agreement-recorded-outside-nexus",
+   "opis": "Rozwiązanie umowy B2B podpisane poza NEXUSEM: okno „Zapisz rozwiązanie umowy” na karcie kontraktu",
+   "file": "app/contracts/[id]/page.tsx",
+   "marker": "Zapisz rozwiązanie umowy",
+   "b_home": "Strona kontraktu: przypomnienie o nierozwiązanej umowie"
+  },
+  {
+   "id": "k.agreement-recorded-from-list",
+   "opis": "„+ Rozwiązanie” w wierszu listy „Umowa nierozwiązana” otwiera to samo okno",
+   "file": "components/v2/pages/ContractsListV2.tsx",
+   "marker": "+ Rozwiązanie",
+   "b_home": "Tabela, kolumna Status"
   }
  ]
 }
