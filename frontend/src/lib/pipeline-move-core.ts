@@ -62,6 +62,8 @@ export interface PipelineMovePayload {
   autofill_rate_hourly?: number;
   candidate_offer_response?: "pending" | "accepted" | "declined";
   ended_by?: string;
+  /** Bliźniaki (0614): rekrutacja → kod powodu pominięcia (`TwinSkipDialog`). */
+  twin_skips?: Record<string, string>;
   expected_rate_value?: number | string;
   expected_rate_unit?: RateUnit;
   expected_rate_currency?: string;
@@ -107,7 +109,16 @@ export type MoveRefusal =
   | { kind: "verified_missing"; info: VerifiedRequirementsMissing; message: string }
   | { kind: "cv_qc_failed"; failure: CvQcFailure; message: string }
   | { kind: "version_conflict"; message: string }
+  | { kind: "twin_required"; twin: TwinScreeningRequired; message: string }
   | { kind: "other"; message: string };
+
+/** 409 `TWIN_SCREENING_REQUIRED` (0614): „Zweryfikowany” bez screeningu pod bliźniaka. */
+export interface TwinScreeningRequired {
+  message: string;
+  twins: Array<{ job_id: number; reference_number: string | null; title: string }>;
+  /** Kod powodu → etykieta (`job_twins.SKIP_REASONS`). */
+  skipReasons: Record<string, string>;
+}
 
 const DEFAULT_MOVE_ERROR = "Nie udało się przenieść kandydata.";
 
@@ -145,6 +156,24 @@ export function debriefRequiredOf(error: unknown): { eventId: number | null } | 
 }
 
 /** Jaką odmowę dał serwer — jedna reguła dla każdego ekranu z ruchem. */
+export function twinRequiredOf(error: unknown): TwinScreeningRequired | null {
+  const detail = conflictDetail(error);
+  if (!detail || detail.code !== "TWIN_SCREENING_REQUIRED" || !Array.isArray(detail.twins)) return null;
+  const reasons = detail.skip_reasons;
+  return {
+    message: typeof detail.message === "string" ? detail.message : "Ta osoba idzie też do bliźniaka.",
+    twins: (detail.twins as Array<Record<string, unknown>>).map((t) => ({
+      job_id: Number(t.job_id),
+      reference_number: typeof t.reference_number === "string" ? t.reference_number : null,
+      title: typeof t.title === "string" ? t.title : `#${String(t.job_id)}`,
+    })),
+    skipReasons:
+      reasons && typeof reasons === "object" && !Array.isArray(reasons)
+        ? Object.fromEntries(Object.entries(reasons).filter(([, v]) => typeof v === "string")) as Record<string, string>
+        : {},
+  };
+}
+
 export function classifyMoveError(error: unknown, fallback = DEFAULT_MOVE_ERROR): MoveRefusal {
   if (isEligibilityWarning(error)) {
     return {
@@ -164,6 +193,8 @@ export function classifyMoveError(error: unknown, fallback = DEFAULT_MOVE_ERROR)
   if (verified) return { kind: "verified_missing", info: verified, message: verified.message };
   const qc = cvQcFailureOf(error);
   if (qc) return { kind: "cv_qc_failed", failure: qc, message: qc.message };
+  const twin = twinRequiredOf(error);
+  if (twin) return { kind: "twin_required", twin, message: twin.message };
   if (isPipelineVersionConflict(error)) {
     return { kind: "version_conflict", message: PIPELINE_VERSION_CONFLICT_MESSAGE };
   }

@@ -72,6 +72,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/users/me/dashboard": "własny układ kafelków pulpitu; dane kafelków mają własne bramki sekcji",
     "PUT /api/users/me/dashboard": "zapis własnego układu kafelków pulpitu, bez danych domenowych",
     "PUT /api/users/me/dashboard/panels/{panel}": "własny pulpit: usunięcie albo przywrócenie listy nad kafelkami, bez danych domenowych",
+    "GET /api/announcements": "ogłoszenia na pulpicie każdego konta; odbiorców filtruje serwer po roli, publikacja ma bramkę sekcji",
+    "POST /api/announcements/{announcement_id}/read": "własne „przeczytane” ogłoszenia; cudze albo wygasłe = 404",
     "GET /api/settings/candidates-columns": "własny układ kolumn tabeli, bez danych domenowych",
     "GET /api/user-email-templates": "prywatne szablony maili autora, zakres = właściciel",
     "GET /api/user-email-templates/{template_id}": "prywatny szablon autora, zakres = właściciel",

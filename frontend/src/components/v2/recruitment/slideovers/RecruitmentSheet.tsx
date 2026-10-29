@@ -59,6 +59,12 @@ export interface RecruitmentSheetProps {
    * od panelu; na węższym ekranie przykrywa panel i sama musi dać powrót.
    */
   sidePane?: ReactNode;
+  /**
+   * Panel przykrywający prawą część okna (np. „Ocena AI”, 28.10.2026) — nad
+   * treścią i stopką, w tym samym dialogu, więc fokus i Esc działają jak w oknie.
+   * Warstwa `z-40` — nad przyklejonym paskiem zaznaczonych listy (`z-30`).
+   */
+  overlayPane?: ReactNode;
   /** Np. Esc zamyka najpierw kartę z `sidePane`, a nie cały panel. */
   onEscapeKeyDown?: (event: KeyboardEvent) => void;
   children: ReactNode;
@@ -92,6 +98,7 @@ export function RecruitmentSheet({
   footer,
   bodyClassName,
   sidePane,
+  overlayPane,
   onEscapeKeyDown,
   children,
   "data-testid": testId,
@@ -126,6 +133,14 @@ export function RecruitmentSheet({
             data-testid="recruitment-sheet-side-pane"
           >
             {sidePane}
+          </div>
+        ) : null}
+        {overlayPane ? (
+          <div
+            className="absolute inset-y-0 right-0 z-40 flex w-full flex-col overflow-hidden border-l border-border bg-card shadow-xl sm:w-[min(640px,100%)]"
+            data-testid="recruitment-sheet-overlay-pane"
+          >
+            {overlayPane}
           </div>
         ) : null}
       </SheetContent>

@@ -1078,6 +1078,72 @@ async def get_closing_candidates(
     )
 
 
+class DepartedCareRow(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    column: str
+    moved_at: Optional[datetime] = None
+    caretaker_user_id: int
+    caretaker_name: str
+
+
+class DepartedCareGroup(BaseModel):
+    departed_user_id: int
+    departed_name: str
+    since: datetime
+    pairs: int
+    jobs: int
+    clients: list[str]
+    columns: dict[str, int]
+    rows: list[DepartedCareRow]
+
+
+class DepartedCareOverdue(BaseModel):
+    user_id: int
+    name: str
+    pairs: int
+    departed: list[str]
+    since: datetime
+
+
+class DepartedCareResponse(BaseModel):
+    """Kandydaci po osobach, które odeszły — opieka Delivery Leada (28.10.2026)."""
+
+    groups: list[DepartedCareGroup]
+    total: int
+    # Head of Recruitment i admin: niedomknięte po 10 dniach roboczych, per DL.
+    overdue: list[DepartedCareOverdue] = []
+    escalate_after_days: int
+
+
+@router.get("/departed-care", response_model=DepartedCareResponse)
+async def get_departed_care(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DepartedCareResponse:
+    """Kafel „Po osobach, które odeszły” i lista do domknięcia
+    (``services/departure_care.py``)."""
+    from app.services import departure_care
+
+    groups = departure_care.rows_payload(
+        await departure_care.open_care(db, caretaker_id=current_user.id)
+    )
+    overdue = (
+        await departure_care.overdue_by_caretaker(db)
+        if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+        else []
+    )
+    return DepartedCareResponse(
+        groups=groups,
+        total=sum(g["pairs"] for g in groups),
+        overdue=overdue,
+        escalate_after_days=departure_care.ESCALATE_AFTER_DAYS,
+    )
+
+
 class CvCheckRow(BaseModel):
     """Auto-CV gotowe do sprawdzenia (`cv_topic.load_to_check`)."""
 

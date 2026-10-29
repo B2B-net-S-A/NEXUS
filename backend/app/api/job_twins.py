@@ -9,6 +9,9 @@
 * ``DELETE /api/jobs/{id}/twins/{other_id}`` — rozłącz (nikt nie znika).
 * ``GET    /api/jobs/{id}/open-similar`` — kafel „Otwarte podobne”: otwarte
   podobne rekrutacje, P1 na górze, z informacją, czy patrzący może połączyć.
+* ``GET    /api/job-twins/candidates?client_id=`` — „Czy to bliźniak?” na
+  stronie tworzenia: DL — jego otwarte rekrutacje (najpierw tego klienta),
+  HoR/admin — otwarte rekrutacje tego klienta.
 * ``GET    /api/job-twins/suggestions`` — HoR/admin: możliwe bliźniaki
   z różnymi DL-ami (lista rekrutacji).
 * ``POST   /api/job-twins/dismiss`` — HoR/admin: „To nie bliźniak”.
@@ -31,7 +34,7 @@ from app.api.deps import OperationalUser, RecruiterPlus, get_db
 from app.api.job_similar import _job
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.models.client import Client
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.services import job_twins
@@ -282,6 +285,50 @@ async def get_open_similar_jobs(
             }
         )
     return {"job_id": job.id, "items": items}
+
+
+CANDIDATES_LIMIT = 30
+
+
+@router.get("/job-twins/candidates")
+async def get_twin_candidates(
+    user: RecruiterPlus,
+    client_id: Optional[int] = Query(None, gt=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rekrutacje do zaznaczenia jako bliźniak nowej rekrutacji (przed zapisem).
+
+    Połączenie powstaje po utworzeniu (``POST …/twins``) i tam przechodzi
+    pełne sprawdzenie uprawnień — ta lista tylko podpowiada."""
+    from sqlalchemy import case  # noqa: PLC0415
+
+    if user.has_any_role(*job_twins.LINK_ALL_ROLES):
+        if client_id is None:
+            return {"items": []}
+        scope = Job.client_id == client_id
+    elif user.has_any_role("delivery_lead"):
+        scope = Job.delivery_lead_id == user.id
+    else:
+        return {"items": []}
+    order = [Job.created_at.desc(), Job.id.desc()]
+    if client_id is not None:
+        order.insert(0, case((Job.client_id == client_id, 0), else_=1))
+    ids = list(
+        (
+            await db.execute(
+                select(Job.id)
+                .where(
+                    scope,
+                    Job.status != JobStatus.closed,
+                    Job.work_state.in_(job_twins._work_states()),  # noqa: SLF001
+                )
+                .order_by(*order)
+                .limit(CANDIDATES_LIMIT)
+            )
+        ).scalars()
+    )
+    briefs = await _briefs(db, ids)
+    return {"items": [briefs[i] for i in ids if i in briefs]}
 
 
 def _require_hor(user: User) -> None:

@@ -337,6 +337,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
     # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
+    # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -793,6 +795,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
+    # 0621: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'departed_pairs_care'",
     # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
     # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
@@ -833,6 +837,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
     # 0612: nowa osoba po pierwszym logowaniu — do HoR i adminów.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
+    # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1189,6 +1195,26 @@ except Exception as _linkedin_extension_err:  # noqa: BLE001
     print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
     _LINKEDIN_EXTENSION_DDL = []
 
+# Oceny „Oceń z AI” (migracja 0620) — JEDNO źródło z migracją
+# (`app/services/candidate_ai_assessment_schema.py`).
+try:
+    from app.services import candidate_ai_assessment_schema as _ai_assessment_schema
+
+    _CANDIDATE_AI_ASSESSMENT_DDL = list(_ai_assessment_schema.TABLE_DDL)
+except Exception as _ai_assessment_err:  # noqa: BLE001
+    print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
+    _CANDIDATE_AI_ASSESSMENT_DDL = []
+
+# Opieka po odejściu (migracja 0621) — JEDNO źródło z migracją
+# (`app/services/departure_care_schema.py`).
+try:
+    from app.services import departure_care_schema as _departure_care_schema
+
+    _DEPARTURE_CARE_DDL = list(_departure_care_schema.TABLE_DDL)
+except Exception as _departure_care_err:  # noqa: BLE001
+    print(f"departure care DDL unavailable: {_departure_care_err!r}")
+    _DEPARTURE_CARE_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1219,7 +1245,9 @@ try:
         *_sales_schema.GAPS_DDL,
         # 0618: historia zmian szansy.
         *_sales_schema.HISTORY_DDL,
-        # 0623: bieżąca poczta i kalendarz Outlooka handlowców.
+        # 0623: cele i KPI tygodniowe handlowców.
+        *_sales_schema.TARGETS_DDL,
+        # 0624: bieżąca poczta i kalendarz Outlooka handlowców.
         *_sales_schema.OUTLOOK_SYNC_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
@@ -1227,6 +1255,19 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
+
+# Ogłoszenia na pulpicie (0619): tabele i indeksy — JEDNO źródło z migracją
+# (`app/services/announcements_schema.py`).
+try:
+    from app.services import announcements_schema as _announcements_schema
+
+    _ANNOUNCEMENTS_DDL = [
+        *_announcements_schema.TABLE_DDL,
+        *_announcements_schema.INDEX_DDL,
+    ]
+except Exception as _announcements_schema_err:  # noqa: BLE001
+    print(f"announcements schema unavailable: {_announcements_schema_err!r}")
+    _ANNOUNCEMENTS_DDL = []
 
 # „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
@@ -1267,6 +1308,8 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
+    *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -6854,6 +6897,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
+    # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
+    *_ANNOUNCEMENTS_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7637,6 +7682,11 @@ _DATA_STATEMENTS = [
     "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'linkedin_message_draft')",
+    # 0620: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

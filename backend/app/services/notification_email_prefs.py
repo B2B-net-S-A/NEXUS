@@ -60,7 +60,9 @@ from app.services.notification_delivery import (
     JOB_AD_KIND,
     HR_BONUS_KIND,
     HR_MAIL_KIND,
+    DEPARTED_CARE_KIND,
     JOB_CLOSED_KIND,
+    ANNOUNCEMENT_KIND,
     JOB_IDLE_KIND,
     JOB_P0_KIND,
     REQUIRED_KINDS,
@@ -200,6 +202,11 @@ def _new_person(user: User, _: _Context) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
+def _announcement(user: User, _: _Context) -> bool:
+    # Ogłoszenie może trafić do każdej roli (odbiorców wybiera autor).
+    return user_may_receive_type(user, NotificationType.announcement_important)
+
+
 def _chat_unread(user: User, _: _Context) -> bool:
     # Lustro zapytania `chat_email_fallback`: rola z dostępem do kandydatów,
     # bez Finansów i roli podglądu wśród ról. Nadawca patrzy na rolę główną;
@@ -306,11 +313,13 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
     "new_person": _new_person,
+    ANNOUNCEMENT_KIND: _announcement,
     "client_interview": _candidate_bell(NotificationType.interview_slot_confirmed),
     "prep_change": _candidate_bell(NotificationType.prep_changed_yours),
     "client_accepted": _candidate_bell(NotificationType.client_accepted),
     JOB_P0_KIND: _candidate_bell(NotificationType.job_p0_set),
     JOB_CLOSED_KIND: _candidate_bell(NotificationType.job_closed_people_waiting),
+    DEPARTED_CARE_KIND: _candidate_bell(NotificationType.departed_pairs_care),
     JOB_IDLE_KIND: _candidate_bell(NotificationType.job_idle_reminder),
     "pre_contract": _candidate_bell(NotificationType.pre_contract),
     "team_task": _candidate_bell(NotificationType.note_reply),

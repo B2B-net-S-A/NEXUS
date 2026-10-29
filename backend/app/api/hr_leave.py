@@ -148,6 +148,8 @@ class LeaveFields(BaseModel):
     half_day: Optional[HalfDay] = None
     note: Optional[str] = Field(default=None, max_length=2000)
     substitute_user_id: Optional[int] = None
+    # Kto wrzuca do Cpro w tym czasie — tylko wniosek osoby od Cpro (29.10.2026).
+    cpro_substitute_user_id: Optional[int] = None
 
 
 class LeaveIn(LeaveFields):
@@ -219,6 +221,7 @@ def _input(payload: LeaveFields) -> service.LeaveInput:
         half_day=payload.half_day,
         note=payload.note,
         substitute_user_id=payload.substitute_user_id,
+        cpro_substitute_user_id=payload.cpro_substitute_user_id,
         forward_mail_consent=getattr(payload, "forward_mail_consent", False),
         oof_internal_message=getattr(payload, "oof_internal_message", None),
         oof_external_message=getattr(payload, "oof_external_message", None),

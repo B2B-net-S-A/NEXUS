@@ -347,6 +347,7 @@ from app.models.service_account import (  # noqa: F401
 from app.models.linkedin_extension import (  # noqa: F401
     LinkedinExtensionConnection,
 )
+from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
@@ -747,6 +748,7 @@ from app.models.candidate_job_owner import (  # noqa: F401
     CandidateJobOwner,
     CandidateJobOwnerEvent,
 )
+from app.models.pair_departure_care import PairDepartureCare  # noqa: F401
 from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
 
@@ -891,3 +893,6 @@ from app.models import academy_logistics as _academy_logistics_models  # noqa: F
 
 # 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
 from app.models import sales as _sales_models  # noqa: F401,E402
+
+# 0619: „Ogłoszenia” na pulpicie (HoR i admin publikują, przeczytane per osoba).
+from app.models import announcement as _announcement_models  # noqa: F401,E402

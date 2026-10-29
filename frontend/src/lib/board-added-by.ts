@@ -12,7 +12,11 @@
  * Osoby dodane przez silnik „Nowi na 20” (`entry_source = "system"`, 23.10.2026)
  * nie mają osoby dodającej — w menu to osobna pozycja „System”, nie „Brak danych”.
  *
- * Filtr żyje tylko w adresie strony (`?added_by=<numer>|none|system`); nowe wejście
+ * Karty osób z wyłączonym kontem, które domyka Delivery Lead (odejście z firmy,
+ * 28.10.2026, `lib/departed-care.ts`), mają własną pozycję „Po osobach, które
+ * odeszły” — z dowolną osobą karty.
+ *
+ * Filtr żyje tylko w adresie strony (`?added_by=<numer>|none|system|departed`); nowe wejście
  * w rekrutację pokazuje wszystkich (D3). Zasady:
  * docs/claude/rekrutacja-tablica/nastepna-osoba-po-odrzuceniu.md („Kolejka w kolumnie…”).
  */
@@ -22,7 +26,8 @@ export type AddedByFilter =
   | { kind: "all" }
   | { kind: "user"; userId: number }
   | { kind: "none" }
-  | { kind: "system" };
+  | { kind: "system" }
+  | { kind: "departed" };
 
 export const ADDED_BY_ALL: AddedByFilter = { kind: "all" };
 /** Parametr adresu strony rekrutacji. */
@@ -39,6 +44,8 @@ export interface AddedByItem {
   /** Ostatnia osoba, która kliknęła „Biorę” (do weryfikacji, 27.10.2026). */
   taken_by_user_id?: number | null;
   taken_by_name?: string | null;
+  /** Odejście z firmy (28.10.2026): para w opiece Delivery Leada. */
+  care_user_id?: number | null;
 }
 
 /** Osoba karty w filtrze: przypisana „Prowadzi”, potem ta, która wzięła
@@ -60,6 +67,7 @@ interface AddedByColumn extends StageLike {
 export function parseAddedBy(raw: string | null | undefined): AddedByFilter {
   if (raw === "none") return { kind: "none" };
   if (raw === "system") return { kind: "system" };
+  if (raw === "departed") return { kind: "departed" };
   if (raw && /^[1-9]\d{0,9}$/.test(raw)) return { kind: "user", userId: Number(raw) };
   return ADDED_BY_ALL;
 }
@@ -69,6 +77,7 @@ export function addedByParam(filter: AddedByFilter): string | null {
   if (filter.kind === "user") return String(filter.userId);
   if (filter.kind === "none") return "none";
   if (filter.kind === "system") return "system";
+  if (filter.kind === "departed") return "departed";
   return null;
 }
 
@@ -88,6 +97,7 @@ export function isSystemAdded(
 export function matchesAddedBy(item: AddedByItem, filter: AddedByFilter): boolean {
   if (filter.kind === "all") return true;
   if (filter.kind === "system") return isSystemAdded(item);
+  if (filter.kind === "departed") return item.care_user_id != null;
   if (isSystemAdded(item)) return false;
   const id = adderId(item);
   return filter.kind === "none" ? id == null : id === filter.userId;
@@ -139,7 +149,9 @@ export function addedByOptions(
   const byUser = new Map<number, { count: number; name: string | null }>();
   let withoutAdder = 0;
   let bySystem = 0;
+  let departed = 0;
   for (const person of people) {
+    if (person.care_user_id != null) departed += 1;
     if (isSystemAdded(person)) {
       bySystem += 1;
       continue;
@@ -167,6 +179,16 @@ export function addedByOptions(
       label: viewerName ? `Ty (${viewerName})` : "Ty",
       count: byUser.get(viewer.id)?.count ?? 0,
       isViewer: true,
+    });
+  }
+  if (departed > 0) {
+    const filter: AddedByFilter = { kind: "departed" };
+    options.push({
+      filter,
+      key: "departed",
+      label: "Po osobach, które odeszły",
+      count: departed,
+      isViewer: false,
     });
   }
   const others = Array.from(byUser.entries())
@@ -201,6 +223,7 @@ export function addedByChoiceLabel(filter: AddedByFilter, options: readonly Adde
   if (filter.kind === "all") return "wszyscy";
   if (filter.kind === "none") return "brak danych";
   if (filter.kind === "system") return "System";
+  if (filter.kind === "departed") return "po osobach, które odeszły";
   const option = options.find((o) => o.key === addedByKey(filter));
   if (option?.isViewer) return "Ty";
   return selectedUserLabel(filter, options);
@@ -214,6 +237,7 @@ export function addedByQueueSuffix(
   if (filter.kind === "all") return null;
   if (filter.kind === "none") return "bez danych o dodającym";
   if (filter.kind === "system") return "od systemu";
+  if (filter.kind === "departed") return "po osobach, które odeszły";
   const option = options.find((o) => o.key === addedByKey(filter));
   if (option?.isViewer) return "dodani przez Ciebie";
   return `dodani przez ${selectedUserLabel(filter, options)}`;
@@ -226,6 +250,7 @@ export function addedByEmptyColumnText(
 ): string {
   if (filter.kind === "none") return "Brak osób bez zapisanej osoby dodającej.";
   if (filter.kind === "system") return "Brak osób od systemu.";
+  if (filter.kind === "departed") return "Brak osób po osobach, które odeszły.";
   if (filter.kind === "user") {
     const option = options.find((o) => o.key === addedByKey(filter));
     if (option?.isViewer) return "Brak osób dodanych przez Ciebie.";

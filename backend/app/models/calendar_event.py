@@ -99,7 +99,7 @@ class CalendarEvent(Base, TimestampMixin):
         String(255), index=True
     )
     m365_change_key: Mapped[Optional[str]] = mapped_column(String(100))
-    # 0623 — ``iCalUId``: to samo spotkanie we wszystkich skrzynkach (Sprzedaż).
+    # 0624 — ``iCalUId``: to samo spotkanie we wszystkich skrzynkach (Sprzedaż).
     m365_ical_uid: Mapped[Optional[str]] = mapped_column(String(255))
 
     created_by: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))

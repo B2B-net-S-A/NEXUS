@@ -5,14 +5,18 @@ import { useState } from "react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatCard } from "@/components/ds/StatCard";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { usePipelines, useSalesSummary, type SummaryPeriod } from "@/lib/api/sales";
 import { CALM_AMOUNT, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { resolveViewState } from "@/lib/view-state";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 import { formatDealAmount, formatDealNumber } from "./format";
+import { SalesKpiPanel } from "./SalesKpiPanel";
 import { SalesSelect } from "./SalesSelect";
+import { SalesTargetsDialog } from "./SalesTargetsDialog";
 
 const STALE_DAYS = 14;
 const PERIODS: { value: SummaryPeriod; label: string }[] = [
@@ -24,12 +28,15 @@ const PERIODS: { value: SummaryPeriod; label: string }[] = [
 /**
  * Sprzedaż → Podsumowanie (zamiast pulpitu Atlasa): otwarte szanse lejka,
  * wartość, prognoza ważona, zespół i etapy. Definicje 1:1 z Atlasa
- * (`sales_dashboard_service.py`), liczone w API — bez limitu strony.
+ * (`sales_dashboard_service.py`), liczone w API — bez limitu strony. Pod
+ * lejkiem KPI tygodniowe handlowców i krzywa WON MRR (cele ustawia admin).
  */
 export function SalesSummary() {
   const pipelines = usePipelines();
   const [pipelineId, setPipelineId] = useState("");
   const [period, setPeriod] = useState<SummaryPeriod>("all");
+  const [editingTargets, setEditingTargets] = useState(false);
+  const isAdmin = hasRole(useAuthStore((s) => s.user), "admin");
   const summary = useSalesSummary(pipelineId ? Number(pipelineId) : null, period);
   const data = summary.data;
   const state = resolveViewState({
@@ -56,6 +63,11 @@ export function SalesSummary() {
           onValueChange={(value) => setPeriod((value || "all") as SummaryPeriod)}
           options={PERIODS}
         />
+        {isAdmin && (
+          <Button size="sm" variant="outline" className="ml-auto" onClick={() => setEditingTargets(true)}>
+            Cele
+          </Button>
+        )}
       </div>
       {state === "loading" ? (
         <p className="py-6 text-sm text-muted-foreground">Wczytywanie…</p>
@@ -135,6 +147,8 @@ export function SalesSummary() {
           </div>
         </>
       ) : null}
+      <SalesKpiPanel />
+      {editingTargets && <SalesTargetsDialog onClose={() => setEditingTargets(false)} />}
     </div>
   );
 }

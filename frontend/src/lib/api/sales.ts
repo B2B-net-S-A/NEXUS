@@ -1164,3 +1164,100 @@ export function useMergeCompany() {
     onSuccess: invalidate,
   });
 }
+
+// ── KPI tygodniowe i cele handlowców (decyzja Artura 28.10.2026, bez Ofert) ──
+
+export type KpiMetric = "meetings" | "qualified" | "offers_stage";
+export type KpiLight = "green" | "yellow" | "red";
+
+export interface KpiCell {
+  actual: number;
+  target: number;
+  light: KpiLight | null;
+}
+
+export interface SalesKpiPerson {
+  user_id: number;
+  name: string;
+  team: string | null;
+  has_targets: boolean;
+  targets: Record<KpiMetric, number>;
+  weeks: Record<KpiMetric, KpiCell>[];
+  margin_goal_amount: string | null;
+  margin_goal_deadline: string | null;
+  margin_actual: string;
+}
+
+export interface SalesKpi {
+  weeks: { start: string; iso_year: number; iso_week: number }[];
+  people: SalesKpiPerson[];
+  company: {
+    net_mrr_goal: string | null;
+    goal_deadline: string | null;
+    won_net_mrr: string;
+    missing_margin: number;
+    months: { month: string; net_mrr: string; cum_net_mrr: string }[];
+  };
+  offers_history_since: string | null;
+}
+
+export interface SalesPersonTarget {
+  user_id: number;
+  name: string;
+  is_active: boolean;
+  has_targets: boolean;
+  meetings: number;
+  qualified: number;
+  offers_stage: number;
+  margin_goal_amount: string | null;
+  margin_goal_deadline: string | null;
+  team: string | null;
+}
+
+export interface SalesCompanyTarget {
+  net_mrr_goal: string | null;
+  goal_deadline: string | null;
+}
+
+export interface SalesTargets {
+  company: SalesCompanyTarget;
+  people: SalesPersonTarget[];
+}
+
+export type SalesPersonTargetInput = Pick<
+  SalesPersonTarget,
+  "meetings" | "qualified" | "offers_stage" | "margin_goal_amount" | "margin_goal_deadline" | "team"
+>;
+
+export function useSalesKpi(weeks = 8) {
+  return useQuery({
+    queryKey: ["sales", "kpi", weeks] as const,
+    queryFn: async () => (await api.get<SalesKpi>("/api/sales/kpi", { params: { weeks } })).data,
+  });
+}
+
+export function useSalesTargets(enabled = true) {
+  return useQuery({
+    queryKey: ["sales", "kpi-targets"] as const,
+    queryFn: async () => (await api.get<SalesTargets>("/api/sales/kpi/targets")).data,
+    enabled,
+  });
+}
+
+export function useSetPersonTarget() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async ({ userId, ...body }: SalesPersonTargetInput & { userId: number }) =>
+      (await api.put<SalesPersonTarget>(`/api/sales/kpi/targets/${userId}`, body)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSetCompanyTarget() {
+  const invalidate = useInvalidateSales();
+  return useMutation({
+    mutationFn: async (body: SalesCompanyTarget) =>
+      (await api.put<SalesCompanyTarget>("/api/sales/kpi/targets/company", body)).data,
+    onSuccess: invalidate,
+  });
+}

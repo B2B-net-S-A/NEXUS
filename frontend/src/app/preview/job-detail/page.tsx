@@ -119,6 +119,7 @@ import {
   type SentPerson,
   type SimilarJobItem,
 } from "@/lib/similar-jobs-api";
+import { jobTwinsKeys } from "@/lib/job-twins-api";
 import {
   ADDED_BY_ALL,
   addedByOptions,
@@ -1257,6 +1258,42 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
   });
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, POSTINGS.map((p) => p.id)), POSTINGS.map(factsOf));
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, BASE.map((p) => p.id)), BASE.map(factsOf));
+
+  // Bliźniaki (0614): kafel „Otwarte podobne” i chip bliźniaka — dane fikcyjne.
+  const twinBrief = (id: number, title: string, over: Record<string, unknown> = {}) => ({
+    id,
+    title,
+    reference_number: null,
+    client_reference: `REQ-${id}`,
+    client_id: 1,
+    client_name: "Bank Wzorcowy",
+    delivery_lead_id: 3,
+    delivery_lead_name: "Olga Wzorcowa",
+    status: "published",
+    is_open: true,
+    p1: false,
+    budget_min_hourly: null,
+    budget_hourly: 110,
+    remote_policy: "remote",
+    onsite_days_per_week: null,
+    onsite_days_per_month: null,
+    location: null,
+    people_count: 12,
+    ...over,
+  });
+  seedFresh(qc, jobTwinsKeys.twins(JOB_ID), {
+    job_id: JOB_ID,
+    can_manage: false,
+    max_twins: 3,
+    twins: [{ ...twinBrief(1801, "Frontend Developer (Angular)"), question_pairs: [{ own: "q1", other: "q2" }] }],
+  });
+  seedFresh(qc, jobTwinsKeys.openSimilar(JOB_ID), {
+    job_id: JOB_ID,
+    items: [
+      { ...twinBrief(1830, "Angular Developer", { p1: true }), similarity: 79, twin: false, can_twin: false, twin_limit_reached: false },
+      { ...twinBrief(1801, "Frontend Developer (Angular)"), similarity: 77, twin: true, can_twin: false, twin_limit_reached: false },
+    ],
+  });
 
   // Podobne rekrutacje: w każdej najpierw wysłani do klienta, potem pozostali.
   seedFresh(qc, similarJobsKey(JOB_ID), {

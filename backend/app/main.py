@@ -251,6 +251,7 @@ from app.api import sales_clients as sales_clients_api
 from app.api import sales_contacts as sales_contacts_api
 from app.api import sales_files as sales_files_api
 from app.api import sales_leads as sales_leads_api
+from app.api import sales_kpi as sales_kpi_api
 from app.api import sales_opportunities as sales_opportunities_api
 from app.api import client_onboarding as client_onboarding_api
 from app.api import equipment_intune as equipment_intune_api
@@ -266,6 +267,7 @@ from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import application_screenings as application_screenings_api
+from app.api import candidate_ai_assessments as candidate_ai_assessments_api
 from app.api import recommendation_cards as recommendation_cards_api
 from app.api import recommendation_card_assist as recommendation_card_assist_api
 from app.api import candidate_rate_changes as candidate_rate_changes_api
@@ -333,6 +335,7 @@ from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
 from app.api import competence_team as competence_team_api
 from app.api import people_setup as people_setup_api
+from app.api import announcements as announcements_api
 from app.api import request_work_states as request_work_states_api
 from app.api import request_board as request_board_api
 
@@ -2080,6 +2083,7 @@ app.include_router(
 app.include_router(
     sales_opportunities_api.summary_router, prefix="/api/sales/summary", tags=["sales"]
 )
+app.include_router(sales_kpi_api.router, prefix="/api/sales/kpi", tags=["sales"])
 app.include_router(
     sales_contacts_api.router, prefix="/api/sales/contacts", tags=["sales"]
 )
@@ -2143,6 +2147,9 @@ app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
+app.include_router(
+    candidate_ai_assessments_api.router, prefix="/api", tags=["proposals"]
+)
 app.include_router(
     recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
 )
@@ -2213,6 +2220,12 @@ app.include_router(
     people_setup_api.router,
     prefix="/api/people-setup",
     tags=["people-setup"],
+)
+# 0619: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
+app.include_router(
+    announcements_api.router,
+    prefix="/api/announcements",
+    tags=["announcements"],
 )
 app.include_router(
     request_work_states_api.router,
@@ -3407,6 +3420,7 @@ async def api_health_deep_check():
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.pair_departure_care import PairDepartureCare
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3475,6 +3489,7 @@ async def api_health_deep_check():
         SalesCompany,
         SalesOpportunity,
         SalesPipelineStage,
+        SalesTarget,
     )
 
     core_checks = [
@@ -3755,6 +3770,8 @@ async def api_health_deep_check():
         ("sales_pipeline_stages", SalesPipelineStage),
         ("sales_opportunities", SalesOpportunity),
         ("sales_activities", SalesActivity),
+        # 0623: cele i KPI tygodniowe handlowców.
+        ("sales_targets", SalesTarget),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),
@@ -3802,6 +3819,8 @@ async def api_health_deep_check():
         ("care_board_states", CARE_BOARD_STATES),
         # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
         ("candidate_job_owners", CandidateJobOwner),
+        # 0621: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
+        ("pair_departure_care", PairDepartureCare),
     ]
 
     checks: dict[str, str] = {}

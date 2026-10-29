@@ -45,3 +45,7 @@ https://claude.ai/artifact/RYRUWbkuSfYWnW2NfJ6FUu.
 - **Lista osób w oknie** pochodzi z `/api/users/mentionable?include_inactive=true`
   (`useMentionableUsers` gubi `roles` i `is_active`, więc panel pyta wprost).
   Nieaktywne konto prowadzącego panel podpisuje „konto nieaktywne”.
+- **Odejście z firmy (28.10.2026):** wyłączenie konta przypina „Prowadzi”
+  żywych par do osoby, która odeszła (bez sprawdzania `can_own`), a parę
+  domyka Delivery Lead jako opiekun — Liga, KPI i premia nie przechodzą na
+  DL-a. → `odejscie-rekrutera-opieka-delivery-leada.md`

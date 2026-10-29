@@ -115,6 +115,7 @@ import {
  peopleInProgress,
  type AddedByFilter,
 } from "@/lib/board-added-by";
+import { cardCareLabel } from "@/lib/departed-care";
 import { myWaitingItems } from "@/lib/job-closed-waiting";
 import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
@@ -1006,6 +1007,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
  const criticalGap = criticalGapBadge(criticalGaps);
+ // Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem, którą
+ // domyka Delivery Lead — „Prowadzi” zostaje przy osobie, która odeszła.
+ const care =
+ item.care_user_id != null && item.care_departed_name
+ ? cardCareLabel(item.care_departed_name, item.care_user_id, item.care_user_name, v5?.viewerId ?? null)
+ : null;
  // Kolumny zamknięte (19.10.2026): powód widać bez otwierania karty, komentarz
  // i kto zamknął — w dymku i w opisie karty dla czytnika.
  const closed = closedReason(item);
@@ -1042,6 +1049,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
  ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
+ care ? `${care.departed}, ${care.caretaker}.` : null,
  item.employment_marker ? `${markerLabel(item.employment_marker)}.` : null,
  // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
  // kolejnym faktem o kandydacie.
@@ -1325,6 +1333,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span aria-hidden="true">{w.label}</span>
  </span>
  ))}
+ {care && (
+ <span
+ data-testid="card-departed-care"
+ className={cn(
+ "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-muted text-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={`${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`}
+ >
+ <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate" aria-hidden="true">{care.caretaker}</span>
+ </span>
+ )}
  {impliedBadges(cardStageBadge(item, stageBadge))
  .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
  .map((badge) => (
