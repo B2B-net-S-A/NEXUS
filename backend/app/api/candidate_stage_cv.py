@@ -131,6 +131,8 @@ from app.schemas.candidate_stage_cv import (
     CVEditorDismissRequest,
     CVEditorIssues,
     CVBrandedDiscard,
+    CVBrandedRegenerateFromOriginal,
+    CVBrandedRegenerateResponse,
     CVBrandedRestorePrevious,
     CVBrandedRewrite,
     CVBrandedSelectGenerated,
@@ -467,7 +469,7 @@ async def upload_original_cv(
         ...,
         description="Nowe CV kandydata (PDF, DOC, DOCX) albo gotowe CV do klienta (DOCX)",
     ),
-    mode: Literal["auto", "original"] = Form("auto"),
+    mode: Literal["auto", "original", "candidate"] = Form("auto"),
     replace_client_cv: bool = Form(False),
     db: AsyncSession = Depends(get_db),
 ) -> StageCvUploadResponse:
@@ -478,6 +480,8 @@ async def upload_original_cv(
     CV do klienta tej rekrutacji (`_upload_client_cv`) — bez głównego CV,
     bez odczytu AI i bez kopii oryginału. ``mode="original"`` wymusza
     dzisiejszą ścieżkę; tak działa „Cofnij” po wgraniu CV do klienta.
+    ``mode="candidate"`` (29.10.2026, „Dodaj CV” w profilu): plik jest CV
+    kandydata bez rozpoznawania po nazwie i bez cofania wgrania CV do klienta.
 
     Kafelek „Wgraj nowe CV” w panelu osoby i okno „Dodaj z CV”. Plik idzie tą
     samą ścieżką co `POST /api/candidates/{id}/documents` z `is_primary`
@@ -541,7 +545,7 @@ async def upload_original_cv(
                 user_id=current_user.id,
                 replace=replace_client_cv,
             )
-    else:
+    elif mode == "original":
         await _undo_client_cv_upload(db, csv_row, content, user_id=current_user.id)
 
     replaced_primary = await _primary_cv_before_change(db, candidate.id)
@@ -567,6 +571,16 @@ async def upload_original_cv(
             source="stage_upload",
         ),
     )
+    # 29.10.2026 (D1 = A): CV do klienta z nowego pliku. ``mode="original"``
+    # to „Cofnij” po wgraniu CV do klienta — przywróciło właśnie poprzednie,
+    # więc niczego nie generujemy.
+    plan = None
+    if mode != "original":
+        from app.services.new_cv_company_cv import plan_after_new_cv
+
+        plan = await plan_after_new_cv(
+            db, csv_row=csv, document_id=document.id, user_id=current_user.id
+        )
     await db.commit()
     await db.refresh(candidate)
     await db.refresh(document)
@@ -579,11 +593,20 @@ async def upload_original_cv(
         actor_user_id=current_user.id,
         replaced_primary=replaced_primary,
     )
+    if plan is not None and plan.durable_id is not None:
+        from app.services.cv_generator_b2b.durable_jobs import execute_job
+
+        background_tasks.add_task(execute_job, plan.durable_id)
     return StageCvUploadResponse(
         **_build_original_response(csv).model_dump(),
         outcome="original",
         uploaded_filename=document.filename,
         stored_in_profile=True,
+        uploaded_document_id=document.id,
+        company_cv=plan.plan if plan is not None else None,
+        company_cv_stage_id=plan.stage_id if plan is not None else None,
+        company_cv_status=plan.status if plan is not None else None,
+        regenerating_document_id=plan.generated_id if plan is not None else None,
     )
 
 
@@ -1548,6 +1571,75 @@ async def select_generated_cv(
             can_restore=snapshot is not None,
         )
     return response
+
+
+@router.post(
+    "/candidates/stages/{stage_id}/cv/branded/regenerate-from-original",
+    response_model=CVBrandedRegenerateResponse,
+    dependencies=SOURCING_SECTION_DEPENDENCIES,
+)
+async def regenerate_branded_from_original(
+    stage_id: int,
+    payload: CVBrandedRegenerateFromOriginal,
+    current_user: CandidateWriteAccess,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> CVBrandedRegenerateResponse:
+    """„Generuj z nowego CV” po wgraniu nowego CV (29.10.2026, D1 = A).
+
+    CV do klienta, które ktoś poprawiał, wybrał albo zatwierdził, nie
+    generuje się samo — panel pyta. Ta trasa robi to, co wgranie robi samo
+    przy nietkniętym szkicu: generacja z Oryginału CV rekrutacji z tymi
+    samymi źródłami, a gotowa wersja zastępuje CV (poprzednie w migawce i w
+    historii wersji), o ile od kliknięcia nikt go nie zmienił. Bramka sekcji
+    Sourcing jak przy generacji z karty.
+    """
+    from app.api.cv_ai_sources import _cv_files
+    from app.services.new_cv_company_cv import (
+        enqueue_regeneration,
+        locked_after_send,
+        pair_cv_row,
+    )
+
+    csv_row = await _load_csv_for_stage(db, stage_id, current_user, create_missing=True)
+    target = await pair_cv_row(db, csv_row)
+    if target is None or (target.branded_status or "none") == "none":
+        raise HTTPException(
+            409, "Ta osoba nie ma jeszcze CV do klienta — wygeneruj je w karcie."
+        )
+    check_revision(target, payload.expected_revision)
+    if await locked_after_send(db, target):
+        raise HTTPException(
+            409,
+            {
+                "code": "client_cv_locked_after_send",
+                "message": CLIENT_CV_LOCKED_MESSAGE,
+            },
+        )
+    # Plik kopii „Oryginał CV” rekrutacji — ten sam, który karta pokazuje
+    # jako domyślny plik generacji (`…/cv/ai-sources`).
+    stage = await db.get(CandidateStage, csv_row.candidate_stage_id)
+    original = next((f for f in await _cv_files(db, stage) if f.stage_original), None)
+    document_id = original.document_id if original is not None else None
+    if document_id is None:
+        raise HTTPException(
+            422, "Nie widzę nowego CV w profilu tej osoby — wgraj je jeszcze raz."
+        )
+    generated_id, durable_id = await enqueue_regeneration(
+        db,
+        target=target,
+        document_id=document_id,
+        user_id=current_user.id,
+        automatic=False,
+    )
+    await db.commit()
+    from app.services.cv_generator_b2b.durable_jobs import execute_job
+
+    background_tasks.add_task(execute_job, durable_id)
+    return CVBrandedRegenerateResponse(
+        generated_document_id=generated_id,
+        company_cv_stage_id=target.candidate_stage_id,
+    )
 
 
 @router.post(
