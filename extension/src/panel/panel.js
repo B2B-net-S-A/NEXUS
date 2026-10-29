@@ -115,7 +115,8 @@ const SCREEN_RENDERERS = {
 };
 
 function renderUpdate() {
-  const notice = state.me ? updateNotice(state.me, chrome.runtime.getManifest().version, state.connection) : null;
+  const manifest = chrome.runtime.getManifest();
+  const notice = state.me ? updateNotice(state.me, manifest.version, state.connection, manifest.update_url) : null;
   updateBox.hidden = !notice;
   updateBox.replaceChildren();
   if (notice) updateBox.append(`Jest nowa wersja wtyczki (${notice.version}). `, externalLink("Pobierz z NEXUSA ↗", notice.url));
