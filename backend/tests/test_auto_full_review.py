@@ -1665,8 +1665,9 @@ def _role_result(run_id, cid, score, *, met: int, total: int):
 
 async def test_tester_is_not_proposed_for_a_developer_job(monkeypatch):
     """Zgłoszenie DL-a: Senior QA Automation z 77% przy „Full Stack Developer”.
-    Tester bez większości „musi mieć” nie trafia ani do propozycji, ani do puli
-    dopełniania „Nowych”; tester z 8/10 zostaje, programista zostaje."""
+    Tester bez większości „musi mieć” nie trafia do propozycji; tester z 8/10
+    zostaje propozycją z oznaczeniem. Do puli dopełniania „Nowych” inna rola nie
+    wchodzi wcale (29.10.2026): karta stamtąd ląduje na tablicy bez człowieka."""
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
     monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
     owner_id, _ = await _user()
@@ -1703,4 +1704,78 @@ async def test_tester_is_not_proposed_for_a_developer_job(monkeypatch):
     proposed = {p.candidate_id for p in await _proposals(world["job_id"])}
     assert proposed == {developer, strong_tester}
     pooled = {p.candidate_id for p in await _pool(world["job_id"])}
-    assert pooled == {developer, strong_tester}
+    assert pooled == {developer}
+
+
+async def test_analyst_with_a_tool_list_is_not_pooled_for_devsecops(monkeypatch):
+    """Zgłoszenie rekrutera 29.10.2026: analityk systemowy z 20-letnim stażem
+    w „Nowych” rekrutacji „DevSecOps - inżynier” z 68% — lista technologii
+    architekta dała 7 z 8 „musi mieć”. Słowo „DevSecOps” nie było rozpoznane
+    jako DevOps, więc nic nie porównywało roli, a wyjątek 80% i tak by go
+    przepuścił."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 60.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=2)
+    devops, analyst = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"DevSecOps - inżynier (ZOB-{uuid.uuid4().hex[:6]})"
+        (await db.get(Candidate, devops)).cv_extracted_data = {
+            "current_position": "DevOps Engineer"
+        }
+        (await db.get(Candidate, analyst)).cv_extracted_data = {
+            "current_position": "Analityk Systemowy"
+        }
+        await db.commit()
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [
+            lambda r: _role_result(r, devops, 74, met=7, total=8),
+            lambda r: _role_result(r, analyst, 68, met=7, total=8),
+        ],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        await afr.refresh_autofill_pool(db, run)
+        await db.commit()
+
+    pooled = {p.candidate_id for p in await _pool(world["job_id"])}
+    assert pooled == {devops}
+
+
+async def test_role_history_skips_cards_the_engine_placed_itself():
+    """Karty „Nowych” wstawione przez system (`entry_source = "system"`) to nie
+    decyzja człowieka — jak karty scrapera nie mówią, kim osoba jest. Bez tego
+    silnik utwierdzałby się we własnych wyborach."""
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services.role_family import history_titles
+
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=1)
+    (candidate_id,) = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        jobs = []
+        for title, source in (
+            ("Analityk Systemowy (ZOB-1)", "proposal"),
+            ("Tester (ZOB-2)", "system"),
+            ("Tester (ZOB-3)", "auto_match"),
+        ):
+            job = Job(
+                title=title,
+                client_id=world["client_id"],
+                status=JobStatus.published,
+                recruiter_id=owner_id,
+            )
+            db.add(job)
+            await db.flush()
+            jobs.append(job)
+            db.add(
+                RecruitmentProcess(
+                    candidate_id=candidate_id, job_id=job.id, entry_source=source
+                )
+            )
+        await db.commit()
+        titles = await history_titles(db, [candidate_id])
+
+    assert titles == {candidate_id: ["Analityk Systemowy (ZOB-1)"]}
