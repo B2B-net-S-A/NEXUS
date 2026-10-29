@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   attach: vi.fn(),
   preview: vi.fn(),
   blockingReason: null as string | null,
+  cproSender: false,
   people: null as null | { data?: unknown; isSuccess?: boolean; isError?: boolean; error?: unknown },
 }));
 
@@ -38,6 +39,18 @@ vi.mock("@/lib/api/hr-leave", async (importOriginal) => ({
       isError: false,
     };
   },
+}));
+
+vi.mock("@/lib/api/boardTasks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api/boardTasks")>()),
+  useCproAssigneeOptions: () => ({
+    data: [
+      { id: 5, name: "Jan Testowy" },
+      { id: 9, name: "Ola Przykładowa" },
+    ],
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 vi.mock("@/components/ui/select", async () => {
@@ -127,6 +140,7 @@ function preview(blockingReason: string | null): LeavePreview {
     work: { total: 0, by_kind: [], items: [] },
     substitute_absent: false,
     return_on: null,
+    cpro_sender: mocks.cproSender,
   };
 }
 
@@ -153,6 +167,7 @@ beforeEach(() => {
   mocks.attach.mockReset();
   mocks.preview.mockReset();
   mocks.blockingReason = null;
+  mocks.cproSender = false;
 });
 
 describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
@@ -343,5 +358,51 @@ describe("wpis za pracownika — lista osób (audyt 19.10.2026)", () => {
     mocks.people = { data: undefined, isError: true, error: new Error("500") };
     const dialog = open("on_behalf");
     expect(within(dialog).getByText("Nie udało się wczytać listy osób.")).toBeInTheDocument();
+  });
+});
+
+describe("LeaveRequestDialog — osoba od Cpro wskazuje, kto wrzuca (29.10.2026)", () => {
+  it("bez wyboru zapis zablokowany; wybór idzie w ładunku, nie w podglądzie", async () => {
+    mocks.cproSender = true;
+    const user = userEvent.setup();
+    const dialog = open("self");
+    setDate(dialog, "Od", "2026-11-02");
+    setDate(dialog, "Do", "2026-11-03");
+
+    const field = await within(dialog).findByLabelText("Kto wrzuca do Cpro", {}, SETTLE);
+    const save = within(dialog).getByRole("button", { name: "Wyślij do akceptacji" });
+    // Podgląd przyszedł, ale bez osoby do Cpro wniosku nie da się wysłać.
+    await waitFor(() => expect(mocks.preview).toHaveBeenCalled(), SETTLE);
+    expect(save).toBeDisabled();
+
+    await user.selectOptions(field, "9");
+    await waitFor(() => expect(save).toBeEnabled(), SETTLE);
+    expect(mocks.preview.mock.lastCall?.[0]).not.toHaveProperty("cpro_substitute_user_id");
+    await user.click(save);
+    expect(mocks.submitOwn.mock.calls[0][0]).toMatchObject({ cpro_substitute_user_id: 9 });
+  });
+
+  it("pół dnia nie wymaga wyboru", async () => {
+    mocks.cproSender = true;
+    const user = userEvent.setup();
+    const dialog = open("self");
+    setDate(dialog, "Od", "2026-11-02");
+    setDate(dialog, "Do", "2026-11-02");
+    await user.selectOptions(within(dialog).getByLabelText("Wymiar"), "morning");
+    const save = within(dialog).getByRole("button", { name: "Wyślij do akceptacji" });
+    await waitFor(() => expect(save).toBeEnabled(), SETTLE);
+    await user.click(save);
+    expect(mocks.submitOwn.mock.calls[0][0]).not.toHaveProperty("cpro_substitute_user_id");
+  });
+
+  it("zwykła osoba: pola „Kto wrzuca do Cpro” nie ma", async () => {
+    const dialog = open("self");
+    setDate(dialog, "Od", "2026-11-02");
+    setDate(dialog, "Do", "2026-11-03");
+    await waitFor(
+      () => expect(within(dialog).getByRole("button", { name: "Wyślij do akceptacji" })).toBeEnabled(),
+      SETTLE,
+    );
+    expect(within(dialog).queryByLabelText("Kto wrzuca do Cpro")).toBeNull();
   });
 });

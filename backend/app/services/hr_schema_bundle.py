@@ -33,6 +33,7 @@ from app.services import hr_approvals_schema as approvals
 from app.services import hr_documents_schema as documents
 from app.services import hr_foundation_schema as foundation
 from app.services import hr_leave_proofs_schema as leave_proofs
+from app.services import hr_leave_cpro_schema as leave_cpro
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
@@ -66,6 +67,8 @@ MODULES = (
     care_board,
     # 0611: poprawka i anulowanie protokołu sprzętu (28.10.2026).
     equipment_cancel,
+    # 0616: zastępca do Cpro we wniosku urlopowym (29.10.2026).
+    leave_cpro,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

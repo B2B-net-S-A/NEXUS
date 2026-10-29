@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
+import { assigneeLabel, useCproAssigneeOptions } from "@/lib/api/boardTasks";
 import type { EmploymentType } from "@/lib/api/hr";
 import {
   enterablePeople,
@@ -33,11 +34,13 @@ import {
 import { employmentTerms, reportsAbsence } from "@/lib/hr-employment-terms";
 import { useDebounced } from "@/lib/use-debounced";
 import { warsawToday } from "@/lib/warsaw-date";
+import { useAuthStore } from "@/store/auth";
 
 import {
   FULL_DAY,
   LEAVE_TYPE_LABELS,
   NO_SUBSTITUTE,
+  cproSubstituteMissing,
   formatRange,
   leaveInputFrom,
   leaveToast,
@@ -96,6 +99,7 @@ export function LeaveRequestDialog({
   const [end, setEnd] = useState(today);
   const [halfDay, setHalfDay] = useState<string>(FULL_DAY);
   const [substitute, setSubstitute] = useState(NO_SUBSTITUTE);
+  const [cproSubstitute, setCproSubstitute] = useState(NO_SUBSTITUTE);
   const [note, setNote] = useState("");
   const [oofInternal, setOofInternal] = useState("");
   const [oofExternal, setOofExternal] = useState("");
@@ -134,6 +138,7 @@ export function LeaveRequestDialog({
     end,
     halfDay,
     substitute,
+    cproSubstitute,
     note,
     forward,
     oofInternal,
@@ -151,6 +156,12 @@ export function LeaveRequestDialog({
     : (employmentType ?? shown?.employment_type);
   const words = employmentTerms(form);
   const report = reportsAbsence(form);
+  // Osoba od Cpro (podgląd z serwera) wskazuje, kto wrzuca do Cpro w tym czasie.
+  const cproSender = shown?.cpro_sender === true;
+  const me = useAuthStore((state) => state.user);
+  const cproOptions = useCproAssigneeOptions(open && cproSender);
+  const subjectUserId = onBehalf ? subjectId : (me?.id ?? null);
+  const cproMissing = cproSubstituteMissing(values, shown?.cpro_sender, onBehalf);
 
   const reset = () => {
     setPersonId(fixedPerson);
@@ -159,6 +170,7 @@ export function LeaveRequestDialog({
     setEnd(today);
     setHalfDay(FULL_DAY);
     setSubstitute(NO_SUBSTITUTE);
+    setCproSubstitute(NO_SUBSTITUTE);
     setNote("");
     setOofInternal("");
     setOofExternal("");
@@ -176,7 +188,12 @@ export function LeaveRequestDialog({
 
   const pending = submitOwn.isPending || submitFor.isPending || attachProof.isPending;
   const blocked =
-    !input || stale || preview.isFetching || !shown || shown.blocking_reason !== null;
+    !input ||
+    stale ||
+    preview.isFetching ||
+    !shown ||
+    shown.blocking_reason !== null ||
+    cproMissing;
 
   const submit = () => {
     const payload = leaveInputFrom(values, mode);
@@ -279,6 +296,7 @@ export function LeaveRequestDialog({
                 onValueChange={(value) => {
                   setPersonId(value);
                   setSubstitute(NO_SUBSTITUTE);
+                  setCproSubstitute(NO_SUBSTITUTE);
                 }}
               >
                 <SelectTrigger id="leave-person">
@@ -366,6 +384,40 @@ export function LeaveRequestDialog({
               </SelectContent>
             </Select>
           </FormField>
+          {cproSender ? (
+            <FormField
+              label="Kto wrzuca do Cpro"
+              htmlFor="leave-cpro-substitute"
+              description={
+                cproOptions.isError
+                  ? undefined
+                  : "Wrzucasz kandydatów Nordei do Cpro. W dni nieobecności kolejka i powiadomienia trafią do tej osoby, potem wrócą do Ciebie."
+              }
+              error={
+                cproOptions.isError
+                  ? apiErrorMessage(cproOptions.error, "Nie udało się wczytać zespołu rekrutacji.")
+                  : undefined
+              }
+            >
+              <Select value={cproSubstitute} onValueChange={setCproSubstitute}>
+                <SelectTrigger id="leave-cpro-substitute">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_SUBSTITUTE}>
+                    {cproOptions.isLoading ? "Wczytywanie…" : "Wybierz osobę"}
+                  </SelectItem>
+                  {(cproOptions.data ?? [])
+                    .filter((option) => option.id !== subjectUserId)
+                    .map((option) => (
+                      <SelectItem key={option.id} value={String(option.id)}>
+                        {assigneeLabel(option)}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          ) : null}
           <FormField label="Notatka" htmlFor="leave-note">
             <Textarea
               id="leave-note"
