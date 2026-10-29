@@ -1,5 +1,11 @@
 name: Deploy
 
+# Bieg z budzika okna wdrożeń ma stały tytuł, bo API GitHuba nie zwraca
+# inputów biegu, a po tytule sonda `uptime-probe` (job `deploy-window-slot`)
+# sprawdza, czy budzik w ogóle działa (29.10.2026: dwa tygodnie bez tokenu
+# i nikt nie zauważył). Pusty `run-name` = domyślny tytuł pozostałych biegów.
+run-name: ${{ github.event_name == 'workflow_dispatch' && (inputs.window_slot == true || inputs.window_slot == 'true') && 'Deploy — slot budzika okna wdrożeń' || '' }}
+
 # Unified deployment workflow per ~/.claude/rules/deployment.md.
 # Identyczny pattern dla wszystkich 3 apek (Compass, NEXUS, LeadGen).
 #

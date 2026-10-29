@@ -495,3 +495,58 @@ jobs:
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash .github/scripts/alert_issue.sh resolve "Deploy NEXUS — noc bez wdrożenia" "Produkcja ma wszystkie merge'e sprzed okna ciszy."
+
+  deploy-window-slot:
+    # Budzik `deploy-window` od 15.10 do 29.10.2026 nie uruchomił Deploy ani
+    # razu (brak pliku z tokenem na serwerze). Log kontenera ginie przy każdym
+    # deployu, a ręczne wieczorne wdrożenia uciszały alarm „noc bez wdrożenia”.
+    # Ten job widzi ciszę budzika najpóźniej przy pierwszym przyjściu sondy po
+    # 18:20 (cron sondy przychodzi ok. 4 razy na dobę) — także w weekend.
+    name: Budzik okna wdrożeń (slot 18:05)
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Checkout (tylko .github/scripts)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Czy budzik uruchomił Deploy od ostatniego 18:05?
+        id: slot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/deploy_window_slot_check.py --repo "${{ github.repository }}"
+      - name: Alarm — slot budzika bez dispatchu
+        if: ${{ steps.slot.outputs.slot_alert != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REASON: ${{ steps.slot.outputs.slot_alert }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eu
+          {
+            echo "Budzik okna wdrożeń (kontener \`deploy-window\`) milczy: **${REASON}**."
+            echo
+            echo "Bez budzika dzienne merge'e wdraża tylko spóźniony cron GitHuba albo ręczny bieg."
+            echo "Co sprawdzić (opis w \`docs/claude/podstawy/ci-gotchas.md\`, akapit o budziku):"
+            echo "1. \`docker logs\` kontenera \`deploy-window-*\` na serwerze — „brak czytelnego tokenu” = plik"
+            echo "   \`/etc/nexus-deploy-window/token\` nie istnieje; HTTP 401/403 = token wygasł albo ma za mały zakres."
+            echo "2. Token wgrywa Artur w swoim terminalu (komenda w ci-gotchas.md); restart nie jest potrzebny."
+            echo
+            echo "Alarm zamknie się sam, gdy sonda zobaczy bieg „Deploy — slot budzika okna wdrożeń”."
+            echo
+            echo "Bieg: ${RUN_URL}"
+          } > "$RUNNER_TEMP/slot-alert.md"
+          bash .github/scripts/alert_issue.sh open "Budzik okna wdrożeń — slot bez dispatchu" "$RUNNER_TEMP/slot-alert.md"
+      - name: Zamknij alarm budzika
+        if: ${{ steps.slot.outputs.checked == 'true' && steps.slot.outputs.slot_alert == '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/scripts/alert_issue.sh resolve "Budzik okna wdrożeń — slot bez dispatchu" "Budzik znów uruchamia Deploy w slotach okna."
