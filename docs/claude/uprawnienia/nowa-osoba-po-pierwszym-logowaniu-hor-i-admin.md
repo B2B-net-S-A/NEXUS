@@ -20,8 +20,10 @@ https://claude.ai/artifact/1JHbBUC392K7peJotFXNgs.
   `new_person_setup_decided` i jest idempotentne.
 - **Dzwonek i mail od razu** (`new_person_signed_in`, rodzaj maila
   `new_person`, kategoria „Konto i system”) do aktywnych adminów i Head of
-  Recruitment. Mail nie jest obowiązkowy, każdy może go wyłączyć w „Moje
-  maile”. Przyciski „Zdecyduj” i „Zostaw jako Konsultanta” tylko otwierają
+  Recruitment. Od 29.10.2026 mail jest obowiązkowy (włącza się sam przy
+  starcie, nikt go sobie nie wyłączy): jako zwykły rodzaj startował
+  wyłączony dla firmy i pierwsza nowa osoba nie dała ani jednego maila
+  (`powiadomienia/maile-obowiazkowe.md`). Przyciski „Zdecyduj” i „Zostaw jako Konsultanta” tylko otwierają
   okno na pulpicie (`/dashboard?nowa-osoba=<id>[&zostaw=1]`). Decyzja zapada
   w oknie. Awaria powiadomienia nie blokuje logowania.
 - **„Czeka na Ciebie” → „Nowe osoby do ustawienia”** (`new_people`

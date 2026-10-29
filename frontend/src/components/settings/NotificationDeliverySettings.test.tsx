@@ -331,4 +331,46 @@ describe("NotificationDeliverySettings", () => {
     renderSettings();
     expect(await screen.findByText("Wstrzymany: awaria skrzynki")).toBeInTheDocument();
   });
+
+  // 29.10.2026: „Nowa osoba” i „Prep” startowały wyłączone dla firmy i nikt
+  // nie wiedział, że dzwonki nie idą mailem.
+  it("baner wymienia wyłączone rodzaje z dzwonkami; „Włącz” włącza rodzaj", async () => {
+    const data = enabledOverview();
+    data.silenced = [{ id: "job_deadline", label: "Termin rekrutacji", bells: 71, unread: 30 }];
+    data.silenced_window_days = 7;
+    mocks.get.mockResolvedValueOnce(data).mockResolvedValue({ ...data, silenced: [] });
+    mocks.update.mockImplementation(async () => ({ ...data, silenced: [] }));
+    renderSettings();
+    const banner = await screen.findByRole("region", { name: /wyłączone dla całej firmy/ });
+    expect(within(banner).getByText("Termin rekrutacji")).toBeInTheDocument();
+    expect(within(banner).getByText(/71 dzwonków w 7 dni bez maila, 30 nieprzeczytanych/)).toBeInTheDocument();
+    fireEvent.click(within(banner).getByRole("button", { name: "Włącz: Termin rekrutacji" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.types.find((type) => type.id === "job_deadline")).toEqual({ id: "job_deadline", email_enabled: true });
+    expect(payload.keep_off).toBeUndefined();
+    await waitFor(() => expect(screen.queryByRole("region", { name: /wyłączone dla całej firmy/ })).toBeNull());
+  });
+
+  it("„Zostaw wyłączone” zapisuje decyzję bez zmiany przełączników", async () => {
+    const data = enabledOverview();
+    data.silenced = [{ id: "pipeline_stage", label: "Zmiana etapu", bells: 1357, unread: 324 }];
+    data.silenced_window_days = 7;
+    mocks.get.mockResolvedValue(data);
+    mocks.update.mockImplementation(async () => data);
+    renderSettings();
+    const banner = await screen.findByRole("region", { name: /wyłączone dla całej firmy/ });
+    fireEvent.click(within(banner).getByRole("button", { name: "Zostaw wyłączone: Zmiana etapu" }));
+    await waitFor(() => expect(mocks.update).toHaveBeenCalledTimes(1));
+    const payload = mocks.update.mock.calls[0][0] as NotificationDeliveryUpdate;
+    expect(payload.keep_off).toEqual(["pipeline_stage"]);
+    expect(payload.types.find((type) => type.id === "pipeline_stage")).toEqual({ id: "pipeline_stage", email_enabled: false });
+  });
+
+  it("bez wyciszonych rodzajów nie ma banera", async () => {
+    mocks.get.mockResolvedValue(enabledOverview());
+    renderSettings();
+    expect(await screen.findByText("Rodzaje powiadomień")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /wyłączone dla całej firmy/ })).toBeNull();
+  });
 });

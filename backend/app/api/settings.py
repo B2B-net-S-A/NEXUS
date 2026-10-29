@@ -30,7 +30,11 @@ from app.api.deps import AdminUser, CurrentUser
 from app.core.database import get_db
 from app.models.app_setting import AppSetting
 from app.models.user import UserRole
-from app.services.notification_delivery import PAUSE_REASON_MAX, ROUTINE_KINDS
+from app.services.notification_delivery import (
+    ADMIN_DECIDES,
+    PAUSE_REASON_MAX,
+    ROUTINE_KINDS,
+)
 
 
 router = APIRouter()
@@ -61,6 +65,15 @@ class NotificationDeliveryUpdate(BaseModel):
     )
     # Wymagany przy wstrzymaniu maila obowiązkowego (26.10.2026).
     reason: Optional[str] = Field(default=None, max_length=PAUSE_REASON_MAX)
+    # „Zostaw wyłączone” z banera (29.10.2026) — tylko zwykłe rodzaje.
+    keep_off: list[str] = Field(default_factory=list, max_length=len(ADMIN_DECIDES))
+
+    @field_validator("keep_off")
+    @classmethod
+    def admin_decided_kinds(cls, value: list[str]) -> list[str]:
+        if not set(value) <= set(ADMIN_DECIDES):
+            raise ValueError("Ten rodzaj maila nie może zostać wyłączony na stałe")
+        return value
 
     @field_validator("types")
     @classmethod
@@ -99,6 +112,7 @@ async def put_notification_delivery(
             admin_id=admin.id,
             actor=admin,
             reason=payload.reason,
+            keep_off=set(payload.keep_off),
         )
     except RequiredKindReasonMissing as exc:
         await db.rollback()
