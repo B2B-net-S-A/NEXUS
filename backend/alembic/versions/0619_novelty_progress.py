@@ -1,7 +1,7 @@
 """Nowości do przeklikania: postęp osoby przy nowości NEXUSA.
 
-Revision ID: 0617_novelty_progress
-Revises: 0616_autofill_more_reasons
+Revision ID: 0619_novelty_progress
+Revises: 0618_sales_opportunity_events
 
 Decyzja Artura z 28.10.2026: nowości zamiast artefaktu „co nowego” pokazują
 się kropką na przycisku i zaliczają przeklikaniem albo użyciem w pracy. DDL
@@ -12,8 +12,8 @@ from alembic import op
 
 from app.services.novelty_schema import TABLE_DDL
 
-revision = "0617_novelty_progress"
-down_revision = "0616_autofill_more_reasons"
+revision = "0619_novelty_progress"
+down_revision = "0618_sales_opportunity_events"
 branch_labels = None
 depends_on = None
 

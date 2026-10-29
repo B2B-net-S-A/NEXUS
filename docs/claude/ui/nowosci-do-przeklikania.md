@@ -1,5 +1,5 @@
 # Nowości do przeklikania zamiast artefaktu „co nowego”
-<!-- indeks: rejestr `app/data/novelties/novelties.json`, trzy poziomy (dot/tour/process), zaliczenie z pracy, panel admin + HoR, `novelty_progress` (0617) -->
+<!-- indeks: rejestr `app/data/novelties/novelties.json`, trzy poziomy (dot/tour/process), zaliczenie z pracy, panel admin + HoR, `novelty_progress` (0619) -->
 
 Decyzja Artura z 28.10.2026 (makiety: https://claude.ai/artifact/Qmy51h287jZy4r9oCaA1i4).
 Ludzie nie czytali artefaktów „co nowego” ani dymków: w 30 dni do 27.10
@@ -35,5 +35,5 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
 - **Karta przy kropce wchodzi do wspólnego budżetu dymków (3 dziennie,
   `lib/jarvis/bubble-budget.ts`)**. Nie dokładaj osobnego źródła dymków.
   W trybie podglądu jako inna osoba zdarzenia się nie zapisują.
-- **Schemat:** `novelty_progress` (0617), DDL w `app/services/novelty_schema.py`,
+- **Schemat:** `novelty_progress` (0619), DDL w `app/services/novelty_schema.py`,
   lustro w `entrypoint.sh`, sonda w `/api/health/deep`.
