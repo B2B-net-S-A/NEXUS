@@ -287,6 +287,9 @@ export function MyLeaveTab() {
                     {row.forward_mail_consent ? (
                       <span className={CALM_SUBLINE}>przekierowanie poczty</span>
                     ) : null}
+                    {row.cpro_substitute_name ? (
+                      <span className={CALM_SUBLINE}>Cpro: {row.cpro_substitute_name}</span>
+                    ) : null}
                   </TableCell>
                   {report ? null : (
                     <TableCell>

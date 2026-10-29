@@ -1196,6 +1196,8 @@ export interface ScreeningFullFormProps {
   /** Odznaczone rekrutacje „Screening dla” z wpisami — zapis ich nie obejmie (D2 A). */
   pendingMemory?: readonly PendingMemoryItem[];
   onReselect?: (jobId: number) => void;
+  /** Bliźniaki pominięte w „Screening dla” (0614): rekrutacja → kod powodu. */
+  twinSkips?: Record<string, string>;
 }
 
 export function ScreeningFullForm({
@@ -1219,6 +1221,7 @@ export function ScreeningFullForm({
   memory,
   pendingMemory = [],
   onReselect,
+  twinSkips,
 }: ScreeningFullFormProps) {
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
@@ -1499,6 +1502,7 @@ export function ScreeningFullForm({
               }
             : {}),
           expected_state_version: current.process_state_version,
+          ...(twinSkips ? { twin_skips: twinSkips } : {}),
         },
         {
           candidateName,

@@ -12,7 +12,10 @@ import re
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.models.user import UserRole
+from app.services import requirement_row_counts
 from app.services.requirement_cleanup import (
     apply_payload,
     build_proposal,
@@ -27,6 +30,17 @@ SKILLS = {
     "Git": ("devops", ()),
 }
 BACKEND = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _empty_row_counts():
+    """Pamięć liczników jest na poziomie modułu: liczba z testu, który biegł
+    wcześniej w tym samym shardzie, robiła z „nie policzono” powód rare_word."""
+    from app.services import requirement_row_counts
+
+    requirement_row_counts.clear()
+    yield
+    requirement_row_counts.clear()
 
 
 def _job(profile, *, must=None, nice=None, **extra):
@@ -45,6 +59,10 @@ def _job(profile, *, must=None, nice=None, **extra):
 
 
 def _build(job):
+    # Liczniki osób wierszy żyją w pamięci procesu; test z bazą uruchomiony
+    # wcześniej (np. przydział kategorii w ``test_new_person_setup``) zostawia
+    # tam „Python” z liczbą 0, a wtedy powód ``rare_word`` przenosi go do rozmowy.
+    requirement_row_counts.clear()
     with hydrated_taxonomy(SKILLS):
         return build_proposal(job)
 

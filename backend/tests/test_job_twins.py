@@ -94,6 +94,18 @@ def test_question_pair_hint_never_pairs_rate_questions_by_words() -> None:
     assert job_twins.suggest_question_pairs(own, other) == []
 
 
+def test_skip_reasons_mirror_the_frontend() -> None:
+    """„Nie bierze udziału w tej rekrutacji…” w „Screening dla” wysyła kody
+    z `lib/job-twins-api.ts` — serwer przyjmuje tylko swoje."""
+    front = (
+        Path(__file__).resolve().parents[2] / "frontend/src/lib/job-twins-api.ts"
+    ).read_text(encoding="utf-8")
+    block = front[front.index("TWIN_SKIP_REASONS") :].split("];", 1)[0]
+    assert sorted(re.findall(r'code: "([a-z_]+)"', block)) == sorted(
+        job_twins.SKIP_REASONS
+    )
+
+
 def test_validate_question_pairs_refuses_unknown_and_repeated() -> None:
     with pytest.raises(HTTPException) as unknown:
         job_twins.validate_question_pairs(
@@ -623,3 +635,22 @@ async def test_person_rejected_in_the_twin_does_not_block(dl_skips_on) -> None:
                 )
                 await db.commit()
             await _cleanup(world, [dl_id])
+
+
+async def test_twin_candidates_for_a_new_request(app_client: AsyncClient) -> None:
+    dl_id, dl = await _user(UserRole.delivery_lead)
+    _rec_id, rec = await _user(UserRole.recruiter)
+    own = await _job(dl_id=dl_id)
+    client_id = await _client_of(own)
+    same_client_other_dl = await _job(dl_id=None, client_id=client_id)
+    closed = await _job(dl_id=dl_id, client_id=client_id, status=JobStatus.closed)
+    got = await app_client.get(
+        f"/api/job-twins/candidates?client_id={client_id}", headers=dl
+    )
+    assert got.status_code == 200, got.text
+    ids = [i["id"] for i in got.json()["items"]]
+    assert own in ids and same_client_other_dl not in ids and closed not in ids
+    nothing = await app_client.get(
+        f"/api/job-twins/candidates?client_id={client_id}", headers=rec
+    )
+    assert nothing.json()["items"] == []

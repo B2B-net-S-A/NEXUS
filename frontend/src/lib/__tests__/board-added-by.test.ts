@@ -190,3 +190,24 @@ describe("„Biorę” w filtrze „Kto dodał” (27.10.2026)", () => {
     expect(count("user:7")).toBe(1);
   });
 });
+
+describe("Po osobach, które odeszły (28.10.2026)", () => {
+  const cared = { ...person(1, 7, "Anna Przykładowa"), care_user_id: 5 };
+  const own = person(2, 5, "Maria Opiekunka");
+
+  it("filtr pokazuje karty w opiece niezależnie od osoby karty", () => {
+    expect(matchesAddedBy(cared, { kind: "departed" })).toBe(true);
+    expect(matchesAddedBy(own, { kind: "departed" })).toBe(false);
+    expect(parseAddedBy("departed")).toEqual({ kind: "departed" });
+    expect(addedByParam({ kind: "departed" })).toBe("departed");
+  });
+
+  it("menu ma pozycję z licznikiem tylko, gdy takie karty są", () => {
+    const options = addedByOptions([cared, own], { id: 5, name: "Maria Opiekunka" });
+    expect(options.find((o) => o.key === "departed")).toMatchObject({
+      label: "Po osobach, które odeszły",
+      count: 1,
+    });
+    expect(addedByOptions([own], { id: 5 }).some((o) => o.key === "departed")).toBe(false);
+  });
+});

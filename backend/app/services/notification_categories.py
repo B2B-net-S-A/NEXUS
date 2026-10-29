@@ -147,6 +147,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
     # zadanie (daj im znać), nie do wyciszenia jak przydział.
     _T.job_closed_people_waiting: _C.mentions,
+    # 0621: osoby po rekruterze, który odszedł — imienny obowiązek DL-a.
+    _T.departed_pairs_care: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
@@ -182,6 +184,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_p0_set: _C.reminders,
     # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
     _T.job_p0_requested: _C.reminders,
+    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    _T.job_idle_reminder: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
@@ -295,6 +299,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.automation_failing: _C.system,
     _T.candidate_data_access_alert: _C.system,
     _T.new_person_signed_in: _C.system,
+    # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
+    _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
 }
 
@@ -352,6 +358,7 @@ _SPLIT_GROUPS: dict[
             _T.client_job_opened,
             _T.job_p0_set,
             _T.job_p0_requested,
+            _T.job_idle_reminder,
             _T.request_allocation_proposals,
         ),
     ),

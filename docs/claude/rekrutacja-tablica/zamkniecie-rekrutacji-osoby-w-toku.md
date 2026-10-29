@@ -45,6 +45,8 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
 ### Decyzje Artura (21.10.2026)
 
 - **Przegrana** to WYŁĄCZNIE `competitor` — rekrutację wzięła inna firma.
+  Od 28.10.2026 także `no_activity` — NEXUS zamknął po 28 dniach bez ruchu
+  Delivery Leada (`rekrutacje-bez-ruchu-zamykaja-sie-same.md`).
 - **Wygrana**: zatrudnienie od nas (`analytics_first_milestones`), zwykle z powodem
   `filled_by_us`. Licznik hit ratio dalej liczy zatrudnienia, nie sam powód.
 - **Nie liczy się** (poza mianownikiem każdego hit ratio): `duplicate`,

@@ -1631,6 +1631,44 @@ APPLICATION_SCREENING = PromptTemplate(
 )
 
 
+CANDIDATE_AI_ASSESSMENT = PromptTemplate(
+    name="candidate_ai_assessment",
+    version=1,
+    expected_format="json",
+    system_prompt=(
+        "Pomagasz rekruterowi IT ułożyć kolejność telefonów. Czytasz CV i notatki "
+        "z rozmów JEDNEJ osoby z bazy i porównujesz je z rekrutacją: czy pracowała "
+        "w podobnej roli, z umiejętnościami krytycznymi i wymaganymi, na podobnym "
+        "poziomie, w podobnym kontekście. Uważaj na zbieżność nazw: nazwa "
+        "technologii użyta w innym znaczeniu (np. nazwa aplikacji z innej "
+        "dziedziny) nie jest doświadczeniem z tą technologią. "
+        "ZAKAZY: nie wnioskuj niczego z imienia, nazwiska, wieku, płci, "
+        "narodowości, miejsca urodzenia, zdjęcia ani wyglądu — tych danych nie "
+        "bierzesz pod uwagę wcale. Nie oceniasz stawki ani lokalizacji. "
+        "Każdy powód musi mieć DOSŁOWNY cytat z CV albo z notatki (skopiuj "
+        "fragment znak w znak, krótki — do jednego zdania); powód bez cytatu "
+        "zostanie odrzucony. "
+        "Werdykt: 'call' — doświadczenie wyraźnie pasuje, warto dzwonić od razu; "
+        "'maybe' — część pasuje albo czegoś ważnego nie widać w tekście, warto "
+        "dopytać; 'no_fit' — tekst pokazuje doświadczenie z innej dziedziny albo "
+        "brak kluczowego wymagania. W razie wątpliwości wybierz 'maybe'. "
+        "strength (1–5) mówi, jak mocno osoba pasuje — 5 to najlepsze dopasowanie. "
+        "Zdania po polsku, krótkie, konkretne. Odpowiadasz wyłącznie JSON-em."
+    ),
+    template=(
+        "{job}\n\n{cv}\n\n{notes}\n\n"
+        "Zwróć JSON dokładnie w tym kształcie:\n"
+        "{{\n"
+        '  "verdict": "call|maybe|no_fit",\n'
+        '  "strength": 1,\n'
+        '  "reasons": [\n'
+        '    {{"text": "jedno zdanie po polsku", "quote": "dosłowny cytat z CV albo notatki"}}\n'
+        "  ]\n"
+        "}}\n\n"
+        "Najwyżej 2 powody, najważniejszy pierwszy."
+    ),
+)
+
 LEGACY_INTERVIEW_QUESTIONS = PromptTemplate(
     name="legacy_interview_questions",
     version=1,
@@ -1885,5 +1923,6 @@ ALL_TEMPLATES: dict[str, PromptTemplate] = {
         AUTOFILL_QUALITY_REPORT,
         CLIENT_FORM_FILL,
         LINKEDIN_MESSAGE_DRAFT,
+        CANDIDATE_AI_ASSESSMENT,
     )
 }

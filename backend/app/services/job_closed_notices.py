@@ -65,6 +65,7 @@ CLOSE_REASON_LABELS: dict[str, str] = {
     "paused": "Wstrzymana przez klienta",
     "client_ghosted": "Klient przestał odpowiadać",
     "no_match": "Nie znaleźliśmy kandydata",
+    "no_activity": "28 dni bez ruchu — zamknął NEXUS",
     "other": "Inny",
 }
 # Tyle nazwisk w treści dzwonka i maila; reszta jako „i N innych”.

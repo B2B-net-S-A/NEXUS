@@ -83,6 +83,8 @@ export interface AddToJobOptions {
   initialStageLegacy?: string | null;
   note?: string | null;
   tags?: string[];
+  /** Po jednej osobie w kolejności `candidateIds` („Oceń z AI”, 28.10.2026). */
+  oneByOne?: boolean;
   /**
    * Źródło dla osób spoza listy propozycji — sekcja „Ukryci przez »musi
    * mieć«” (28.10.2026) dodaje osoby, których źródła okna nie zwracają.
@@ -104,6 +106,16 @@ interface AddGroup {
   ids: number[];
   source: BulkAddSource | null;
   runId: string | null;
+}
+
+/** Po jednej osobie w kolejności wołającego („Oceń z AI”, 28.10.2026). */
+function oneByOneInOrder(groups: readonly AddGroup[], candidateIds: readonly number[]): AddGroup[] {
+  const groupOf = new Map<number, AddGroup>();
+  for (const group of groups) for (const id of group.ids) groupOf.set(id, group);
+  return candidateIds.flatMap((id) => {
+    const group = groupOf.get(id);
+    return group ? [{ ...group, ids: [id] }] : [];
+  });
 }
 
 /**
@@ -402,6 +414,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       const unlisted = opts.unlistedSource ? candidateIds.filter((id) => !entryById.has(id)) : [];
       const groups = groupAddsByOrigin(picked, autoRunId);
       if (unlisted.length > 0) groups.push({ ids: unlisted, source: opts.unlistedSource ?? null, runId: null });
+      if (opts.oneByOne) groups.splice(0, groups.length, ...oneByOneInOrder(groups, candidateIds));
       const parts: BulkProposalsResponse[] = [];
       for (const group of groups) {
         const body: BulkProposalsRequest = { candidate_ids: group.ids };

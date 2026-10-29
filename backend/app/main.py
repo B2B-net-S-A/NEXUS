@@ -266,6 +266,7 @@ from app.api import hiring_manager_feedback as hiring_manager_feedback_api
 from app.api import proposals_bulk as proposals_bulk_api
 from app.api import job_proposals as job_proposals_api
 from app.api import application_screenings as application_screenings_api
+from app.api import candidate_ai_assessments as candidate_ai_assessments_api
 from app.api import recommendation_cards as recommendation_cards_api
 from app.api import recommendation_card_assist as recommendation_card_assist_api
 from app.api import candidate_rate_changes as candidate_rate_changes_api
@@ -274,6 +275,7 @@ from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
 from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
+from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
 from app.api import plain_brief_refresh as plain_brief_refresh_api
@@ -332,6 +334,7 @@ from app.api import priority_work as priority_work_api
 from app.api import recruitment_allocation as recruitment_allocation_api
 from app.api import competence_team as competence_team_api
 from app.api import people_setup as people_setup_api
+from app.api import announcements as announcements_api
 from app.api import request_work_states as request_work_states_api
 from app.api import request_board as request_board_api
 
@@ -821,6 +824,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.job_idle import job_idle_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
     from app.tasks.notification_email_outbox import notification_email_outbox_loop
@@ -969,6 +973,8 @@ async def lifespan(app: FastAPI):
         "pre_contract_sweeper": asyncio.create_task(pre_contract_sweeper_loop()),
         "dl_portal_expiry": asyncio.create_task(dl_portal_expiry_loop()),
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
+        # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
+        "job_idle": asyncio.create_task(job_idle_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
         # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
         "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
@@ -2140,6 +2146,9 @@ app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
 app.include_router(job_proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(application_screenings_api.router, prefix="/api", tags=["proposals"])
 app.include_router(
+    candidate_ai_assessments_api.router, prefix="/api", tags=["proposals"]
+)
+app.include_router(
     recommendation_cards_api.router, prefix="/api", tags=["recommendation-cards"]
 )
 app.include_router(
@@ -2158,6 +2167,7 @@ app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
 app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
+app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])
@@ -2208,6 +2218,12 @@ app.include_router(
     people_setup_api.router,
     prefix="/api/people-setup",
     tags=["people-setup"],
+)
+# 0619: „Ogłoszenia” na pulpicie (publikują HoR i admin) — `api/announcements.py`.
+app.include_router(
+    announcements_api.router,
+    prefix="/api/announcements",
+    tags=["announcements"],
 )
 app.include_router(
     request_work_states_api.router,
@@ -3402,6 +3418,7 @@ async def api_health_deep_check():
     )
     from app.services.care.board_state import CARE_BOARD_STATES
     from app.models.candidate_job_owner import CandidateJobOwner
+    from app.models.pair_departure_care import PairDepartureCare
     from app.models.job_board_connection import JobBoardConnection
     from app.models.trainee import TraineeCallItem, TraineeCallList, TraineeProgram
     from app.models.candidate_followup import CandidateFollowup
@@ -3797,6 +3814,8 @@ async def api_health_deep_check():
         ("care_board_states", CARE_BOARD_STATES),
         # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
         ("candidate_job_owners", CandidateJobOwner),
+        # 0621: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
+        ("pair_departure_care", PairDepartureCare),
     ]
 
     checks: dict[str, str] = {}

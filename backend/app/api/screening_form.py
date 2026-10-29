@@ -289,6 +289,7 @@ async def _missing_twins(
                 "client_id": twin.client_id,
                 "verified_stage_def_id": verified.id if verified else None,
                 "budget_hourly": float(budget) if budget is not None else None,
+                **form.joint_work_mode(twin),
             }
         )
     return out

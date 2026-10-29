@@ -31,6 +31,7 @@ const SHORT: Partial<Record<JobCloseReason, string>> = {
   paused: "wstrzymana",
   client_ghosted: "klient milczy",
   no_match: "bez kandydata",
+  no_activity: "28 dni bez ruchu",
 };
 
 export function JobCloseReasonBadge({

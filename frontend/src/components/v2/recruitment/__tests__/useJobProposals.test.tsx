@@ -153,6 +153,18 @@ describe("useJobProposals", () => {
     expect(mocks.add).not.toHaveBeenCalledWith(JOB, expect.objectContaining({ candidate_ids: [777, 2] }));
   });
 
+  it("`oneByOne` z osobą spoza listy dodaje po jednej w kolejności wołającego („Oceń z AI”)", async () => {
+    const { result } = setup();
+    await waitFor(() => expect(result.current.rows).toHaveLength(4));
+    act(() => result.current.addToJob([777, 2, 3], { unlistedSource: "proposal_inbox", oneByOne: true }));
+    await waitFor(() => expect(mocks.add).toHaveBeenCalledTimes(3));
+    expect(mocks.add.mock.calls.map(([, body]) => (body as { candidate_ids: number[] }).candidate_ids)).toEqual([
+      [777],
+      [2],
+      [3],
+    ]);
+  });
+
   it("dodanie oddaje wynik wołającemu (okno zostawia dodanych z „Cofnij”)", async () => {
     const { result } = setup();
     await waitFor(() => expect(result.current.rows).toHaveLength(4));

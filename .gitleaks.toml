@@ -134,6 +134,10 @@ regexes = [
   # Test składa go już w locie (f4e432b6d), ale wartość zostaje w historii
   # gałęzi, a skan PR-a obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
   '''^3f2b1c4e-0000-4000-8000-000000000001$''',
+  # Fikcyjny ``batch_id`` w teście panelu „Oceń z AI” (PR #2778). Test składa
+  # go już z kawałków, ale wartość zostaje w historii gałęzi, a skan PR-a
+  # obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
+  '''^00000000-0000-4000-8000-000000000000$''',
 ]
 
 [[rules]]

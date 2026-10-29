@@ -76,6 +76,8 @@ export const SEGMENT_LABELS: Record<string, string> = {
   new: "Nowy",
   "my-clients": "Panel klientów",
   "my-relationships": "Moje relacje",
+  // 28.10.2026: /departed-care — kandydaci po osobach, które odeszły (DL).
+  "departed-care": "Po osobach, które odeszły",
   "order-mail": "Zamówienia z maila",
   insights: "Insights",
   // 23.10.2026: /insights/autofill — „Jakość podpowiedzi systemu”.
