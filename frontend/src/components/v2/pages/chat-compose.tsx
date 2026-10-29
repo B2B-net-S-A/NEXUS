@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefCallback,
+  type RefObject,
+} from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 
 /**
@@ -36,24 +43,64 @@ export function composeKeyAction(e: ComposeKey, expanded: boolean): ComposeKeyAc
   return null;
 }
 
+interface ChatCompose {
+  /** Ref listy wiadomości — zamiast `ref={listRef}`. */
+  listCallbackRef: RefCallback<HTMLDivElement>;
+  composeExpanded: boolean;
+  setComposeExpanded: (expanded: boolean) => void;
+}
+
 /**
- * Rosnące pole zmniejsza listę wiadomości — lista, która była przy dole,
- * zostaje przy dole. Bez tego ostatnia wiadomość chowała się pod polem i
- * dlatego do 29.10.2026 pole w czacie nie rosło.
+ * Lista wiadomości obok rosnącego i rozwijanego pola:
+ *
+ * - pole rośnie → lista maleje; lista, która była przy dole, zostaje przy
+ *   dole (bez tego ostatnia wiadomość chowała się pod polem i dlatego do
+ *   29.10.2026 pole w czacie nie rosło). Obserwator wisi na ref-callbacku,
+ *   bo lista znika przy widoku błędu i wraca po „Spróbuj ponownie”;
+ * - rozwinięte pole ukrywa listę (`hidden` zeruje przewinięcie), więc po
+ *   zwinięciu lista wraca na dół albo tam, gdzie czytała osoba.
  */
-export function useListStaysAtBottomOnResize(
+export function useChatCompose(
   listRef: RefObject<HTMLDivElement | null>,
   stickToBottomRef: RefObject<boolean>,
-): void {
-  useEffect(() => {
+): ChatCompose {
+  const [composeExpanded, setExpanded] = useState(false);
+  const savedScrollTop = useRef(0);
+
+  const listCallbackRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      listRef.current = el;
+      if (!el || typeof ResizeObserver === "undefined") return;
+      const observer = new ResizeObserver(() => {
+        if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
+      });
+      observer.observe(el);
+      return () => observer.disconnect();
+    },
+    [listRef, stickToBottomRef],
+  );
+
+  const setComposeExpanded = useCallback(
+    (expanded: boolean) => {
+      if (expanded && listRef.current && !listRef.current.hidden) {
+        savedScrollTop.current = listRef.current.scrollTop;
+      }
+      setExpanded(expanded);
+    },
+    [listRef],
+  );
+
+  // Tylko przy zwinięciu — pierwszy render zostawia przewijanie listy w spokoju.
+  const wasExpanded = useRef(false);
+  useLayoutEffect(() => {
+    const collapsed = wasExpanded.current && !composeExpanded;
+    wasExpanded.current = composeExpanded;
     const el = listRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      if (stickToBottomRef.current) el.scrollTop = el.scrollHeight;
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [listRef, stickToBottomRef]);
+    if (!collapsed || !el) return;
+    el.scrollTop = stickToBottomRef.current ? el.scrollHeight : savedScrollTop.current;
+  }, [composeExpanded, listRef, stickToBottomRef]);
+
+  return { listCallbackRef, composeExpanded, setComposeExpanded };
 }
 
 interface ExpandComposeButtonProps {

@@ -52,7 +52,7 @@ import {
   EXPANDED_COMPOSE_HINT,
   ExpandComposeButton,
   composeKeyAction,
-  useListStaysAtBottomOnResize,
+  useChatCompose,
 } from "@/components/v2/pages/chat-compose";
 import { useMentionableUsers } from "@/hooks/useMentionableUsers";
 import {
@@ -157,10 +157,11 @@ export default function JobChatTab({
 
   // Auto-scroll do dołu tylko gdy user już jest blisko dołu
   const stickToBottomRef = useRef(true);
-  useListStaysAtBottomOnResize(listRef, stickToBottomRef);
-
-  // Pole rozwinięte na całe okno czatu (`chat-compose.tsx`).
-  const [composeExpanded, setComposeExpanded] = useState(false);
+  // Pole rośnie i rozwija się na całe okno czatu (`chat-compose.tsx`).
+  const { listCallbackRef, composeExpanded, setComposeExpanded } = useChatCompose(
+    listRef,
+    stickToBottomRef,
+  );
 
   const handleScroll = () => {
     const el = listRef.current;
@@ -517,7 +518,7 @@ export default function JobChatTab({
 
       {/* Message list */}
       <div
-        ref={listRef}
+        ref={listCallbackRef}
         onScroll={handleScroll}
         // Rozwinięte pole zajmuje miejsce listy; lista wraca po zwinięciu.
         hidden={composeExpanded}
@@ -638,7 +639,7 @@ export default function JobChatTab({
           <ExpandComposeButton
             expanded={composeExpanded}
             onToggle={() => {
-              setComposeExpanded((v) => !v);
+              setComposeExpanded(!composeExpanded);
               requestAnimationFrame(() => textareaRef.current?.focus());
             }}
           />
