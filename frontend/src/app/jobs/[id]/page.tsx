@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
   canEditJobContent,
   hasFullJobEditFallback,
@@ -764,6 +765,7 @@ export default function JobDetailPage() {
     }
   }, [jobId, queryClient, showError, showSuccess]);
 
+  const hydrated = useHydrated();
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
   // danych (audyt F-20).
@@ -773,7 +775,10 @@ export default function JobDetailPage() {
     error: jobError,
     isEmpty: !job,
   });
-  if (jobViewState === "loading")
+  // Okruszek w powłoce czyta rekrutację pod tym samym kluczem i hydratuje się
+  // wcześniej — jego odpowiedź bywała w cache'u, zanim React doszedł do tej
+  // strony. Do końca hydratacji ten sam stan co z serwera („Ładowanie...”).
+  if (!hydrated || jobViewState === "loading")
     return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
   if (jobViewState !== "ready")
     return (
