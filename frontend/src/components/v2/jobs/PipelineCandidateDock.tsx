@@ -51,6 +51,7 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneOff,
+  Rows3,
   Undo2,
   Send,
   Sparkles,
@@ -61,6 +62,7 @@ import {
 } from "lucide-react";
 
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
+import { usePersonPanelConversationMode } from "@/components/v2/person/PersonPanelSide";
 import { invalidatePreContract, preContractReadOnly } from "@/lib/api/preContracts";
 import api, {
   candidatesApi,
@@ -905,6 +907,8 @@ export function PipelineCandidateDock({
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
   const userId = useAuthStore((s) => s.user?.id);
+  // „Tryb rozmowy” (29.10.2026): tylko w rozwiniętym panelu od 1024 px okna.
+  const conversationMode = usePersonPanelConversationMode();
   const [noteText, setNoteTextState] = useState(() =>
     readNoteDraft(userId, jobId, item.candidate_id),
   );
@@ -1670,13 +1674,34 @@ export function PipelineCandidateDock({
               Panel osoby
             </span>
           )}
+          {expanded && conversationMode ? (
+            <button
+              type="button"
+              onClick={conversationMode.toggle}
+              aria-pressed={conversationMode.on}
+              data-testid="person-conversation-mode"
+              title="Tryb rozmowy: nagłówek osoby w jednej linii, „Screening dla” zwinięte — więcej miejsca na formularz"
+              className={cn(
+                "ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                conversationMode.on
+                  ? "bg-primary/10 text-primary hover:bg-primary/15"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <Rows3 className="h-3.5 w-3.5" aria-hidden="true" />
+              Tryb rozmowy
+            </button>
+          ) : null}
           {onToggleExpanded ? (
             <button
               type="button"
               onClick={onToggleExpanded}
               aria-pressed={expanded}
               data-help="jobs.person.expand"
-              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                !(expanded && conversationMode) && "ml-auto",
+                "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
             >
               {expanded ? (
                 <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1722,10 +1747,10 @@ export function PipelineCandidateDock({
         ) : null}
 
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground [[data-compact]_&]:hidden">
             {initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 [[data-compact]_&>*:not(:first-child)]:hidden">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold text-foreground">
                 {fullName}

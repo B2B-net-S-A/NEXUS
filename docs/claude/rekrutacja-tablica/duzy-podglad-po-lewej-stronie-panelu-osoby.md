@@ -111,3 +111,25 @@ Tylko front, bez API i migracji.
 - Harnessy: `/preview/screening-form` (ramka z prawdziwą strefą), `/preview/job-detail` (replika menu `z-40`
   i `animate-fadeIn`), `/preview/dl-review?layout=panel`. Każdą zmianę panelu sprawdź przy 1280 × 720: strona CV
   ma tam ok. 700–750 px szerokości.
+- **Szersza kolumna i „Tryb rozmowy” (29.10.2026, zgłoszenie Artura: formularz screeningu za ciasny na
+  laptopie; makiety https://claude.ai/artifact/TPK6bPozjvxQkJthmRdArJ, decyzja: wariant C + A, tryb domyślnie
+  wyłączony).** Pomiar przy 1280 × 720 przed zmianą: nagłówek osoby 212 px, przyklejona stopka formularza
+  134 px, „Screening dla” 388 px — na pola zostawało 268 px, a „Warunki” zaczynały się 566 px w dół, poza ekranem.
+  Wąskim gardłem była wysokość, nie szerokość: sama szersza kolumna (640 px) dawała 284 px.
+  - **Krawędź kolumny da się przeciągnąć** (`PersonPanelColumn`, uchwyt `role="separator"`): od 400 px do
+    „CV ma jeszcze 360 px” (`min(<px>, calc(100% - 360px))`, także po zmniejszeniu okna), strzałki ±40 px, Home
+    i dwuklik = domyślne 460/520 px. Tylko przy widocznym CV — przy zwiniętym kolumna zostaje regułą D2 (połowa).
+    Od ok. 600 px formularz układa pola po dwa w rzędzie (jego własne zapytania o kontener).
+  - **„Tryb rozmowy”** — przełącznik w pasku osoby obok „Zwiń”, tylko w rozwiniętym panelu od 1024 px
+    (`usePersonPanelConversationMode()`, `data-compact` na kolumnie). Chowa awatar, podtytuł, kontakt
+    i „Prowadzi” pod nazwiskiem; „Screening dla” zwija do jednej linii z wybranymi rekrutacjami i „Zmień”
+    (`JointScreeningPicker`, pełna lista także przy bliźniaku bez osoby, „Cofnij”, odmowie serwera i trwającym
+    „+ Dodaj i dołącz”); stopka formularza traci „Wersja N” / „jeszcze niezapisany” (ale nie „Niezapisane
+    zmiany”), a linia „brakuje: …” mieści się w jednej linii. Rząd akcji etapu („Inny etap”, „Odrzuć z powodem”,
+    „Zrezygnował”) zostaje. Domyślnie wyłączony — decyzja Artura, każdy włącza sam.
+  - Szerokość i tryb pamięta układ osoby (`columnWidth`, `compact` w `lib/person-preview-layout.ts`, ten sam
+    klucz co zwijanie). Po zmianie przy 1280 × 720 (tryb + 640 px): formularz widać od razu po otwarciu
+    (220 px w dół), na pola 404 px.
+  - Odrzucony wariant: „Wysuń” do pływającego okna w karcie przeglądarki — na jednym ekranie zasłaniał CV
+    i miał ok. 220 px na pola. Okno na drugi monitor (Document Picture-in-Picture) to osobny etap: rozwijane
+    listy i `useConfirmV2()` otwierają się w głównym oknie.

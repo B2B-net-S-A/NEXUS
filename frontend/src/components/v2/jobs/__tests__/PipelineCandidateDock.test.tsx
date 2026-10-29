@@ -11,7 +11,7 @@
  * zapytania do innych endpointów, niepowiązane z tym, co testujemy tutaj.
  */
 
-import { useContext, type ComponentProps } from "react";
+import { useContext, type ComponentProps, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -116,6 +116,7 @@ vi.mock("@/lib/authenticated-files", async (importOriginal) => ({
 }));
 
 import { PipelineCandidateDock, nowSectionForStage, earlyQcSentence } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { WorkbenchBelowTabsContext } from "@/components/v2/person/WorkbenchBelowTabs";
 import type { KanbanColumn, KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -163,7 +164,7 @@ type DockProps = ComponentProps<typeof PipelineCandidateDock>;
 
 let lastQueryClient: QueryClient | null = null;
 
-function renderDock(overrides: Partial<DockProps> = {}) {
+function renderDock(overrides: Partial<DockProps> = {}, wrap: (dock: ReactNode) => ReactNode = (dock) => dock) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   lastQueryClient = qc;
   const props: DockProps = {
@@ -182,9 +183,7 @@ function renderDock(overrides: Partial<DockProps> = {}) {
   };
   render(
     <QueryClientProvider client={qc}>
-      <TooltipProvider>
-        <PipelineCandidateDock {...props} />
-      </TooltipProvider>
+      <TooltipProvider>{wrap(<PipelineCandidateDock {...props} />)}</TooltipProvider>
     </QueryClientProvider>
   );
   return props;
@@ -1808,6 +1807,59 @@ describe("PipelineCandidateDock — rozwinięty panel i dane kontaktowe (09.10.2
     expect(within(fold).getByTestId("dock-facts")).toBeTruthy();
     expect(within(fold).getByTestId("dock-contact-row")).toBeTruthy();
     expect(await within(fold).findByTestId("dock-next-stage")).toBeTruthy();
+  });
+
+  describe("Tryb rozmowy (29.10.2026)", () => {
+    const originalMatchMedia = window.matchMedia;
+    function inPanel(split: boolean) {
+      return function InPanel(dock: ReactNode) {
+        return (
+          <PersonPanelSideProvider>
+            <PersonPanelColumn split={split}>{dock}</PersonPanelColumn>
+          </PersonPanelSideProvider>
+        );
+      };
+    }
+
+    beforeEach(() => {
+      window.matchMedia = ((query: string) => ({
+        matches: true,
+        media: query,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia;
+      window.localStorage.clear();
+    });
+
+    afterEach(() => {
+      window.matchMedia = originalMatchMedia;
+      window.localStorage.clear();
+    });
+
+    it("rozwinięty panel ma przełącznik obok „Zwiń”; klik ustawia tryb na kolumnie", async () => {
+      const user = userEvent.setup();
+      renderDock(
+        { item: baseItem({ stage: "screening" }), expanded: true, split: true, onToggleExpanded: vi.fn() },
+        inPanel(true),
+      );
+      const toggle = screen.getByRole("button", { name: "Tryb rozmowy" });
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByRole("button", { name: "Zwiń" })).toBeTruthy();
+
+      await user.click(toggle);
+      expect(screen.getByRole("button", { name: "Tryb rozmowy" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("person-panel-column")).toHaveAttribute("data-compact", "");
+      // Rząd akcji etapu zostaje w trybie rozmowy.
+      expect(screen.getByRole("button", { name: /Odrzuć z powodem/ })).toBeTruthy();
+    });
+
+    it("wąski dok i dok poza panelem nie mają przełącznika", () => {
+      renderDock({ item: baseItem({ stage: "screening" }), expanded: false, onToggleExpanded: vi.fn() }, inPanel(false));
+      expect(screen.queryByRole("button", { name: "Tryb rozmowy" })).toBeNull();
+      cleanup();
+      renderDock({ item: baseItem({ stage: "screening" }), expanded: true, onToggleExpanded: vi.fn() });
+      expect(screen.queryByRole("button", { name: "Tryb rozmowy" })).toBeNull();
+    });
   });
 
   it("zakładka z własnym ruchem i własnymi warunkami (Screening w „Nowych”) nie ma linii", async () => {

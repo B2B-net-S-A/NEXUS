@@ -901,6 +901,8 @@ describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
     expect(JSON.parse(window.localStorage.getItem("nexus:person-preview-layout:7") ?? "null")).toEqual({
       cvCollapsed: false,
       infoCollapsed: false,
+      columnWidth: null,
+      compact: false,
     });
   });
 

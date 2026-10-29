@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import type { JointContextPair } from "@/lib/api/screeningForm";
+import { useAuthStore } from "@/store/auth";
 
 import { JointScreeningPicker } from "../JointScreeningPicker";
 
@@ -246,5 +249,96 @@ describe("JointScreeningPicker — kandydat nie bierze udziału w bliźniaku (06
     expect(screen.queryByRole("button", { name: "+ Dodaj do bliźniaka" })).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Cofnij" })[0]);
     expect(onTwinSkip).toHaveBeenLastCalledWith(2, null);
+  });
+});
+
+/** Rozwinięty panel osoby w szerokim oknie z zapamiętanym „Trybem rozmowy”. */
+function InConversationMode({ children }: { children: ReactNode }) {
+  return (
+    <PersonPanelSideProvider>
+      <PersonPanelColumn split>{children}</PersonPanelColumn>
+    </PersonPanelSideProvider>
+  );
+}
+
+describe("JointScreeningPicker — tryb rozmowy (29.10.2026)", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  function conversationModeOn() {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    useAuthStore.setState({ user: { id: 7 } as never, hydrated: true });
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ compact: true }));
+  }
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    window.localStorage.clear();
+    useAuthStore.setState({ user: null });
+  });
+
+  const baseProps = {
+    anchorTitle: "Senior ETL / Snowflake Engineer",
+    anchorReference: "43020",
+    pairs: [
+      pair({ job_id: 2, title: "Data Engineer" }),
+      pair({ job_id: 3, title: "BI Developer" }),
+    ],
+    suggestions: [{ job_id: 4, title: "Data Architect", client_name: null, score: 74, matching_must: [], gap_must: [] }],
+    selected: new Set([2]),
+    onToggle: vi.fn(),
+    onAddAndJoin: vi.fn(),
+    addingJobId: null,
+  };
+
+  it("lista zwija się do jednej linii z wybranymi; „Zmień” ją rozwija, „Zwiń do linii” zwija", () => {
+    conversationModeOn();
+    render(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} />
+      </InConversationMode>,
+    );
+    const line = screen.getByTestId("joint-screening-picker");
+    expect(line).toHaveAttribute("data-collapsed");
+    expect(line).toHaveTextContent("Senior ETL / Snowflake Engineer + 1 rekrutacja");
+    expect(line).toHaveTextContent("pasuje też do 1");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień rekrutacje w tej rozmowie" }));
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByRole("checkbox", { name: /Data Engineer/ })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zwiń do linii" }));
+    expect(screen.getByTestId("joint-screening-picker")).toHaveAttribute("data-collapsed");
+  });
+
+  it("bliźniak bez tej osoby, „Cofnij” i odmowa serwera pokazują pełną listę", () => {
+    conversationModeOn();
+    const { rerender } = render(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} error="Ta osoba ma zamkniętą kartę w tej rekrutacji." />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zwiń do linii" })).not.toBeInTheDocument();
+
+    rerender(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} addingJobId={4} />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+  });
+
+  it("poza trybem rozmowy lista wygląda jak dotąd", () => {
+    render(<JointScreeningPicker {...baseProps} />);
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.queryByRole("button", { name: "Zmień rekrutacje w tej rozmowie" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zwiń do linii" })).not.toBeInTheDocument();
   });
 });
