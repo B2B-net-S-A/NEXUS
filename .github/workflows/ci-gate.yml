@@ -170,6 +170,10 @@ jobs:
   backend-fast:
     name: Backend (lint + migrations)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Anulowanie pełnego CI grupy z dwiema głowami (krok niżej).
+      actions: write
     defaults:
       run:
         working-directory: backend
@@ -195,8 +199,30 @@ jobs:
       # zależności) czerwieni wymagany kontekst po ~1 min. Push na maina
       # (bramka deployu) pomijamy — tam dwie głowy nie mają jak trafić.
       - name: Jedna głowa Alembica
+        id: heads
         if: ${{ github.event_name != 'push' }}
         run: python3 scripts/rechain_migration.py --check-heads
+      # 29.10.2026: grupa z dwiema głowami i tak wypada, a jej pełne CI
+      # (12 shardów pytest, Vitest) i E2E biegły dalej ~20 min — 28.10 naraz
+      # 30 biegów `merge_group`, płatne minuty i runnery zabrane grupie na
+      # czele kolejki. Bieg może jeszcze nie istnieć, stąd kilka prób.
+      - name: Anuluj pełne CI grupy z dwiema głowami
+        if: ${{ failure() && steps.heads.outcome == 'failure' && github.event_name == 'merge_group' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          ids=""
+          for attempt in 1 2 3; do
+            ids=$(gh api "repos/$REPO/actions/runs?head_sha=$GITHUB_SHA&event=merge_group&per_page=50" \
+              --jq '.workflow_runs[] | select(.status != "completed") | select(.path | test("(^|/)(ci|e2e)\\.yml$")) | .id' || true)
+            [ -n "$ids" ] && break
+            sleep 10
+          done
+          for id in $ids; do
+            gh run cancel "$id" --repo "$REPO" && echo "Anulowany bieg $id." \
+              || echo "::notice::Bieg $id nie dał się anulować."
+          done
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"

@@ -1,9 +1,7 @@
 import type { CareerJobResponse } from "@/lib/career/api";
-import { jobHandle } from "@/lib/career/format";
 import { careerHref, careerVisibleUrl, type CareerBase } from "@/lib/career/host";
 
 import type { CareerApplyFormProps } from "./CareerApplyForm";
-import { CareerFooter } from "./CareerFooter";
 import { CareerSubmitGate } from "./CareerSubmitGate";
 import { CareerThemeScope } from "./CareerThemeScope";
 import { ClosedNotice } from "./ClosedNotice";
@@ -42,25 +40,26 @@ export function CareerJobView({
 }) {
   const { job, recruiter } = data;
   const theme = careerThemeId(data.theme);
-  const handle = jobHandle(job);
   const recruiterHref = recruiter.slug
     ? careerHref(base, { to: "recruiter", slug: recruiter.slug })
     : null;
   const rodoHref = careerHref(base, { to: "rodo" });
+  const homeHref = careerHref(base, { to: "home" });
   const visibleUrl = careerVisibleUrl(host, base, { to: "job", slug: job.slug });
 
   if (data.status === "closed") {
     return (
       <CareerThemeScope theme={theme}>
         <ClosedNotice
-          jobHandle={handle}
+          jobTitle={job.title}
           recruiterFirstName={recruiter.first_name}
           recruiterPageHref={recruiterHref}
-          recruiterSlug={recruiter.slug}
           otherJobs={data.other_jobs ?? []}
           jobHref={(slug) => careerHref(base, { to: "job", slug })}
+          homeHref={homeHref}
+          rodoHref={rodoHref}
+          hostLabel={visibleUrl}
         />
-        <CareerFooter rodoHref={rodoHref} hostLabel={visibleUrl} />
       </CareerThemeScope>
     );
   }
@@ -72,10 +71,11 @@ export function CareerJobView({
         thanks={{
           variant: "job",
           recruiterFirstName: recruiter.first_name,
-          jobHandle: handle,
-          chromePath: `~/b2bnetwork/kariera — zsh — ${handle}`,
+          jobTitle: job.title,
+          homeHref,
+          rodoHref,
+          hostLabel: visibleUrl,
           recruiterPageHref: recruiterHref,
-          recruiterPageSlug: recruiter.slug,
         }}
       >
         <Layout data={data} base={base} host={host} formPreview={formPreview} />

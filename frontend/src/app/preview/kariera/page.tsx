@@ -14,14 +14,14 @@
 import type { Metadata } from "next";
 import { use } from "react";
 
+import { brandStyles } from "@/components/career/brand/BrandShell";
 import { CareerApplyForm } from "@/components/career/CareerApplyForm";
 import { CareerBoardView } from "@/components/career/CareerBoardView";
-import { CareerFooter } from "@/components/career/CareerFooter";
 import { CareerJobView } from "@/components/career/CareerJobView";
 import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
+import { CareerThemeScope } from "@/components/career/CareerThemeScope";
 import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
-import { TerminalChrome } from "@/components/career/TerminalChrome";
 import { ThanksLog } from "@/components/career/ThanksLog";
 import type {
   CareerBoardJob,
@@ -193,7 +193,6 @@ const BOARD: CareerBoardResponse = {
   ],
 };
 
-const BOARD_FOOTER = <CareerFooter rodoHref={`${BASE}/rodo`} hostLabel={HOST} />;
 
 const STATES = [
   { id: "tablica", label: "tablica otwartych rekrutacji" },
@@ -270,7 +269,8 @@ export default function CareerPreviewPage({
         <CareerBoardView
           data={BOARD}
           base={BASE}
-          footer={BOARD_FOOTER}
+          host={HOST}
+          theme={theme}
           formPreview={{ disableSubmit: true }}
         />
       </State>
@@ -279,13 +279,14 @@ export default function CareerPreviewPage({
         <CareerBoardView
           data={{ ...BOARD, jobs: [] }}
           base={BASE}
-          footer={BOARD_FOOTER}
+          host={HOST}
+          theme={theme}
           formPreview={{ disableSubmit: true }}
         />
       </State>
 
       <State id="tablica-awaria" label="tablica — awaria API">
-        <CareerBoardView data={null} base={BASE} footer={BOARD_FOOTER} />
+        <CareerBoardView data={null} base={BASE} host={HOST} theme={theme} />
       </State>
 
       <State id="otwarta" label="rekrutacja otwarta">
@@ -298,18 +299,14 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="bledy" label="formularz z błędami">
-        <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
-        <div style={{ padding: "20px 0", maxWidth: 520 }}>
-          <div className="kr-form-box">
-            <div className="kr-form-bar">
-              <span>
-                <span className="kr-r">$</span> ./aplikuj.sh
-              </span>
-            </div>
+        <CareerThemeScope theme={theme}>
+          <div className={`${brandStyles.root} ${brandStyles.wrap}`} style={{ padding: "32px 20px", maxWidth: 720 }}>
+            <div className={`${brandStyles.apply} ${brandStyles.form}`}>
             <CareerApplyForm
               linkSlug="senior-java-developer-7kq2"
               variant="job"
               rodoHref={`${BASE}/rodo`}
+              tone="plain"
               preview={{
                 disableSubmit: true,
                 values: { first_name: "Jan", last_name: "Kowalski", email: "jan@firma-.pl" },
@@ -321,21 +318,25 @@ export default function CareerPreviewPage({
                 },
               }}
             />
+            </div>
           </div>
-        </div>
+        </CareerThemeScope>
       </State>
 
       <State id="dziekujemy" label="podziękowanie">
-        <ThanksLog
-          variant="job"
-          firstName="Jan"
-          email="jan@example.com"
-          recruiterFirstName="Marta"
-          jobHandle="senior-java-developer"
-          chromePath="~/b2bnetwork/kariera — zsh — senior-java-developer"
-          recruiterPageHref={`${BASE}/p/marta-n`}
-          recruiterPageSlug="marta-n"
-        />
+        <CareerThemeScope theme={theme}>
+          <ThanksLog
+            variant="job"
+            firstName="Jan"
+            email="jan@example.com"
+            recruiterFirstName="Marta"
+            jobTitle="Senior Java Developer"
+            homeHref={BASE}
+            rodoHref={`${BASE}/rodo`}
+            hostLabel={`${HOST}${BASE}/r/senior-java-developer-7kq2`}
+            recruiterPageHref={`${BASE}/p/marta-n`}
+          />
+        </CareerThemeScope>
       </State>
 
       <State id="zamknieta" label="rekrutacja zamknięta">
@@ -347,7 +348,7 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="rekruter" label="stały link rekrutera">
-        <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
+        <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} theme={theme} formPreview={{ disableSubmit: true }} />
       </State>
 
       <State id="rekruter-pusty" label="rekruter bez opisu i rekrutacji">

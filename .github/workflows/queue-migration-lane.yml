@@ -1,0 +1,74 @@
+name: Pas migracji w kolejce
+
+# W kolejce merge'ów najwyżej jeden PR z migracją Alembica naraz (29.10.2026).
+# Kolejka buduje grupy jedna na drugiej, więc dwa PR-y z migracją przepiętą na
+# tę samą głowę maina dają w każdej grupie od drugiego dwie głowy: krok
+# „Jedna głowa Alembica” czerwieni je po ~1 min, a razem z nimi każdą grupę
+# za nimi — także PR-y bez migracji. 25–28.10 wszystkie 54 czerwone bramki
+# kolejki miały ten powód; 28.10 w kolejce było naraz 9 PR-ów z 0616.
+#
+# Ten workflow po każdej bramce i każdym CI grupy w kolejce uruchamia
+# `.github/scripts/queue_migration_lane.py enforce`:
+#   * pierwszy w kolejce PR z migracją zostaje, następne zdejmuje z kolejki
+#     (zanim ich grupy padną, więc grupy za nimi przebudowują się bez nich);
+#   * uzbrojone (auto-merge) PR-y z migracją poza aktywnym: auto-merge
+#     wyłączony, etykieta `czeka-na-migracje`, komentarz `<!-- migration-lane -->`;
+#   * pusty pas (aktywny scalony, wypadł albo ma czerwone checki) = kolej
+#     najstarszego czekającego: etykieta zdjęta, auto-merge włączony.
+# Przepięcie czekających na nową głowę robi `migration-rechain.yml` po
+# scaleniu migracji; wpuszczanie nowych PR-ów — `auto-enqueue.yml` (`admit`).
+#
+# `workflow_run` biegnie z definicji i kodu z maina — kod z gałęzi kolejki
+# z tokenem w ręku nie jest tu wykonywany. TOKEN: `QUEUE_BOT_TOKEN` (ten sam
+# PAT co auto-enqueue): etykieta zdjęta tokenem Actions nie uruchomiłaby
+# `auto-enqueue`, a `gh pr merge --auto` tym tokenem nie dałby grupie testów.
+# Ręcznie: „Run workflow” (`dry_run` tylko wypisuje plan).
+
+on:
+  workflow_run:
+    workflows: ["CI Gate", "CI"]
+    types: [completed]
+    branches: ["gh-readonly-queue/**"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Tylko wypisz plan — bez zmian w kolejce, etykietach i komentarzach"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+# Każdy bieg czyta cały stan kolejki od nowa, więc wystarczy jeden naraz;
+# oczekujący bieg zastąpiony nowszym niczego nie gubi.
+concurrency:
+  group: migration-lane
+  cancel-in-progress: false
+
+jobs:
+  lane:
+    name: Jeden PR z migracją w kolejce
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch'
+      || github.event.workflow_run.event == 'merge_group' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Pilnuj pasa migracji
+        env:
+          GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::Brak sekretu QUEUE_BOT_TOKEN — pas migracji nie działa, PR-y z migracją mogą wywracać kolejkę."
+            exit 0
+          fi
+          args=(enforce --repo "$REPO")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          python3 .github/scripts/queue_migration_lane.py "${args[@]}"

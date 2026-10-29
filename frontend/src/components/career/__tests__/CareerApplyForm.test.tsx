@@ -342,10 +342,11 @@ describe("CareerApplyForm — wysyłka", () => {
         thanks={{
           variant: "job",
           recruiterFirstName: "Marta",
-          jobHandle: "senior-java-developer",
-          chromePath: "~/b2bnetwork/kariera",
+          jobTitle: "Senior Java Developer",
+          homeHref: "/",
+          rodoHref: "/rodo",
+          hostLabel: "kariera.b2bnetwork.pl/r/senior-java-ab12",
           recruiterPageHref: "/marta-n",
-          recruiterPageSlug: "marta-n",
         }}
       >
         <p>treść strony</p>
@@ -356,7 +357,8 @@ describe("CareerApplyForm — wysyłka", () => {
     submit();
     expect(await screen.findByRole("heading", { name: /Dziękujemy, Jan\./ })).toBeInTheDocument();
     expect(screen.getByText(/jan@example\.com/)).toBeInTheDocument();
-    expect(screen.getByText(/trafiła do Marty/)).toBeInTheDocument();
+    expect(screen.getByText(/Senior Java Developer trafiła do Marty/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Zobacz rekrutacje Marty" })).toHaveAttribute("href", "/marta-n");
     expect(screen.queryByText("treść strony")).toBeNull();
   });
 });

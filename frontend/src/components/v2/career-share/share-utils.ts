@@ -5,7 +5,6 @@ import type {
   ExpiryChoice,
   InviteLink,
   InviteLinkStatus,
-  PublicJobParams,
   PublicProfileFinding,
   PublicProfileStatus,
 } from "@/lib/api/careerLinks";
@@ -296,38 +295,6 @@ export function approveBlockedReason(findings: PublicProfileFinding[]): string {
 }
 
 // ── Podgląd posta ────────────────────────────────────────────────────────
-
-const REMOTE_LABEL: Record<string, string> = {
-  remote: "zdalnie",
-  hybrid: "hybryda",
-  onsite: "stacjonarnie",
-};
-
-/** „[warszawa · hybryda · b2b · senior]" z parametrów podglądu. */
-export function paramsTagline(params: PublicJobParams | null | undefined): string | null {
-  if (!params) return null;
-  const parts = [
-    params.city,
-    params.remote_policy ? REMOTE_LABEL[params.remote_policy] : null,
-    params.contract,
-    params.seniority,
-  ]
-    .filter((p): p is string => !!p && p.trim() !== "")
-    .map((p) => p.toLowerCase());
-  return parts.length ? `[${parts.join(" · ")}]` : null;
-}
-
-/** „senior-java-developer" dla komendy w podglądzie. */
-export function slugifyTitle(title: string): string {
-  return title
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/ł/g, "l")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-}
 
 /**
  * Tytuł, który zobaczy kandydat: wpisany „Tytuł na stronie" → domyślny tytuł

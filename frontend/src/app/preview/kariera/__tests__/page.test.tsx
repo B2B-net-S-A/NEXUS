@@ -44,7 +44,7 @@ describe("/preview/kariera", () => {
     ]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
     }
-    for (const button of screen.getAllByRole("button", { name: /wyślij|dołącz do bazy/ })) {
+    for (const button of screen.getAllByRole("button", { name: /wyślij|dołącz do bazy/i })) {
       fireEvent.click(button);
     }
     expect(fetchMock).not.toHaveBeenCalled();
@@ -90,8 +90,8 @@ describe("/preview/kariera", () => {
   it("stan zamknięty odsyła do stałego linku rekrutera", () => {
     render(<CareerPreviewPage />);
     const closed = screen.getByRole("region", { name: "rekrutacja zamknięta" });
-    expect(within(closed).getByText("ZAMKNIĘTA")).toBeInTheDocument();
-    expect(within(closed).getByRole("link", { name: /zostaw CV w bazie/ })).toHaveAttribute(
+    expect(within(closed).getByText(/Rekrutacja zamknięta · Senior Java Developer/)).toBeInTheDocument();
+    expect(within(closed).getByRole("link", { name: "Zostaw CV u Marty" })).toHaveAttribute(
       "href",
       "/kariera/p/marta-n",
     );
@@ -103,11 +103,11 @@ describe("/preview/kariera", () => {
     const closed = screen.getByRole("region", { name: "zamknięta, bez stałego linku" });
     expect(within(closed).getByText(/Marta prowadzi teraz inne rekrutacje/)).toBeInTheDocument();
     const list = within(closed).getByRole("region", { name: "Inne otwarte rekrutacje" });
-    expect(within(list).getByRole("link", { name: /analityk-biznesowy/ })).toHaveAttribute(
+    expect(within(list).getByRole("link", { name: /Analityk biznesowy/i })).toHaveAttribute(
       "href",
       "/kariera/r/analityk-biznesowy-q8m1",
     );
-    expect(within(closed).queryByRole("link", { name: /zostaw CV w bazie/ })).toBeNull();
+    expect(within(closed).queryByRole("link", { name: /Zostaw CV/ })).toBeNull();
     expect(closed.textContent).not.toMatch(/LinkedIn/);
   });
 
@@ -150,25 +150,22 @@ describe("/preview/kariera", () => {
     render(<CareerPreviewPage />);
     const page = screen.getByRole("region", { name: "stały link rekrutera" });
     expect(within(page).getByRole("heading", { level: 1 })).toHaveTextContent(
-      "Marta.Rekrutuję w IT.",
+      "Marta. Rekrutuję w IT.",
     );
     expect(within(page).getByText(/Szukam ludzi do projektów w bankowości/)).toBeInTheDocument();
     const chips = within(page).getByRole("list", { name: "Rekrutuję w obszarach" });
     expect(within(chips).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "development",
-      "infra & data",
-      "management & delivery",
+      "Development",
+      "Infra & data",
+      "Management & delivery",
     ]);
     const job = within(page).getByRole("link", { name: /DevOps Engineer Azure/ });
     // Etykiety sceny przy rekrutacji nie ma od 28.10.2026 (trzy szablony zamiast 12 scen).
     expect(job).not.toHaveTextContent("scena:");
-    expect(within(page).getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Nic nie pasuje? Zostaw CV u Marty.",
-    );
-    expect(within(page).getByRole("link", { name: "cd ~/rekrutacje" })).toHaveAttribute(
-      "href",
-      "/kariera",
-    );
+    expect(within(page).getByRole("heading", { level: 2, name: "Nic nie pasuje? Zostaw CV u Marty." })).toBeInTheDocument();
+    expect(
+      within(page).getByRole("link", { name: "Wszystkie otwarte rekrutacje B2B Network →" }),
+    ).toHaveAttribute("href", "/kariera");
     // Formularz do bazy: jedna obowiązkowa zgoda na przyszłe procesy (bez zmian reguł).
     expect(page.querySelector('input[name="consent"]')).not.toBeNull();
     expect(page.querySelector('input[name="consent_future"]')).toBeNull();
@@ -177,11 +174,9 @@ describe("/preview/kariera", () => {
   it("strona rekrutera bez opisu i rekrutacji: zdanie zamiast pustej listy", () => {
     render(<CareerPreviewPage />);
     const page = screen.getByRole("region", { name: "rekruter bez opisu i rekrutacji" });
-    expect(within(page).getByText(/teraz nie mam otwartych rekrutacji/)).toBeInTheDocument();
+    expect(within(page).getByText(/Teraz nie mam otwartych rekrutacji/)).toBeInTheDocument();
     expect(within(page).queryByRole("list", { name: "Rekrutuję w obszarach" })).toBeNull();
-    expect(within(page).getByRole("heading", { level: 2 })).toHaveTextContent(
-      "Zostaw CV u Oli.",
-    );
+    expect(within(page).getByRole("heading", { level: 2, name: "Zostaw CV u Oli." })).toBeInTheDocument();
   });
 
   it("harness nie używa react-query ani API (strażnik źródła)", () => {
