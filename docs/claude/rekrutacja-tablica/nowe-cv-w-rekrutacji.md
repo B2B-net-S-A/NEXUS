@@ -1,5 +1,5 @@
 # Nowe CV w rekrutacji — kafelek w panelu osoby i „Dodaj do rekrutacji z tym CV” (13.10.2026)
-<!-- indeks: „Wgraj nowe CV”, `…/cv/original/upload`, „Użyj w tej rekrutacji” -->
+<!-- indeks: „Wgraj nowe CV”, `…/cv/original/upload`, „Użyj w tej rekrutacji”, „Dodaj CV” w profilu i CV do klienta z nowego CV (29.10) -->
 
 Dwa zgłoszenia rekruterów z 13.10.2026. Pierwsze: w panelu osoby nie dało się
 wgrać CV, gdy osoba miała już jakiekolwiek CV — trzeba było wyjść do profilu,
@@ -249,10 +249,66 @@ https://claude.ai/artifact/U6wAqaH4nqF55RF9RiWPP2, raport
   zostaje bez zmian. Paragon `client_cv_primary_repair_2026_10` (same liczby)
   blokuje drugi bieg.
 
+## Nowe CV od kandydata: profil, rekrutacja i CV do klienta (29.10.2026, D1–D3)
+
+Zgłoszenie Artura: rekruter dostaje nowe CV na LinkedInie albo mailem i nie wie,
+jak dodać je do profilu; z rekrutacji musiał wracać do profilu, a CV do klienta
+dalej szło ze starego pliku. Pomiar na kopii produkcji 13–28.10: 187 CV wgranych
+osobom z otwartą rekrutacją, 34 przez panel rekrutacji; 10 osób miało CV do
+klienta ze starszego CV niż wgrane. Makiety: https://claude.ai/artifact/81NLWbfecdy6EsiT2Hzzrc.
+Ta sekcja odwraca regułę z 13.10 „Nie generujemy CV firmowego automatycznie po
+nowym CV” — w granicach niżej.
+
+- **D1 — CV do klienta po nowym CV** (`services/new_cv_company_cv.py`, pole
+  `company_cv` odpowiedzi `…/cv/original/upload`, tylko `mode=auto`):
+  - `regenerating` — szkic z generatora, którego od podpięcia nikt nie zmienił
+    (`is_untouched_generated_draft`: wpis podpięcia automatu, ręcznej generacji
+    albo naszej podmiany z bieżącą `edit_revision`, bez zrzutu zgody). Generacja
+    z nowego pliku z tymi samymi źródłami, trybem, językiem i „anonimowe” co
+    poprzednia wersja (`enqueue_regeneration`), wpis `branded_cv_regeneration_after_new_cv`
+    z rewizją. Gotowa wersja zastępuje szkic w `attach_as_stage_draft`
+    (`replace_after_regeneration`) tylko przy tej samej rewizji i tym samym
+    dokumencie źródłowym; poprzedni szkic w migawce `replaced`, „Cofnij” =
+    `restore-previous`. Edycja w trakcie generacji wygrywa — nowa wersja czeka
+    na „Użyj nowej wersji”.
+  - `ask` — CV poprawiane, wybrane, wczytane z Worda albo zatwierdzone; także
+    gdy reguła klienta odmówiła generacji (wgranie i tak przechodzi). Panel
+    pyta „Generuj z nowego CV” (`POST …/cv/branded/regenerate-from-original`,
+    `expected_revision`, bramka Sourcing; plik = kopia „Oryginał CV”) albo
+    „Zostaw obecne”.
+  - `confirm` — CV do klienta nie ma: reguła z 21.10 zostaje
+    (`generator-cv/cv-po-potwierdzeniu.md`), nowy plik jest od razu
+    potwierdzonym plikiem w panelu potwierdzeń (`CvGeneratePanel`, wpis z
+    pamięci zapytań). Decyzja Artura 29.10: bez generacji przed odpowiedziami
+    i notatkami.
+  - `locked` — karta na „CV wysłane” i dalej; `none` — klient bierze własny
+    formularz (0521).
+- **Blok „Nowe CV”** (`recruitment/NewCvProgress.tsx`, logika `lib/new-cv-upload.ts`):
+  profil ✓, oryginał ✓, CV do klienta (generuje się / podmienione + „Cofnij” /
+  pytanie / potwierdzenia / u klienta). Wpis zapisuje `useStageCvUpload` pod
+  kluczem pary (`newCvUploadKey`), więc blok w karcie, w panelu i w oknie
+  profilu widzi wgranie z każdego miejsca. Ramka `CompanyCvStaleNotice` milknie,
+  dopóki blok stoi; „Zostaw obecne” zapisuje ją jako odrzuconą.
+- **D2 — gdzie wgrać:** „Dodaj CV” w pasku osoby na profilu (`AddCvDialog`,
+  capability `candidate.document.manage`, inwentarz `c.add_cv`): plik, „Ustaw
+  jako główne CV” i rekrutacje w toku (bez zamkniętych; po „CV wysłane”
+  wyszarzone). Każda zaznaczona = ta sama trasa etapu, po kolei; bez rekrutacji
+  — `POST /api/candidates/{id}/documents`. W karcie „CV do klienta” kafelek
+  „Mam nowsze CV — np. z LinkedIna” pod wierszem „Plik CV”, w wąskim panelu
+  „Wgraj nowe CV” w nagłówku sekcji „CV” (`DockSection action`, widoczny po
+  zwinięciu; po wgraniu sekcja się rozwija).
+- **D3 — źródła CV (LinkedIn/mail) nie zapisujemy.**
+
+Testy: `backend/tests/test_new_cv_company_cv.py`, `lib/__tests__/new-cv-upload.test.ts`,
+`recruitment/__tests__/NewCvProgress.test.tsx`, `candidate-profile/__tests__/AddCvDialog.test.tsx`.
+
 ## Czego nie robimy
 
-- Nie generujemy CV firmowego automatycznie po nowym CV.
-- Nie podmieniamy kopii CV w innych rekrutacjach osoby.
+- Nie generujemy CV do klienta z nowego CV, gdy ktoś je poprawiał, wybrał albo
+  zatwierdził, ani gdy go jeszcze nie ma (wtedy potwierdzenia z 21.10) — patrz
+  sekcja z 29.10.
+- Nie podmieniamy kopii CV w innych rekrutacjach osoby (okno „Dodaj CV” w
+  profilu robi to tylko w zaznaczonych).
 - Nie wgrywamy przez upuszczenie pliku na kartę Tablicy (wariant C odłożony).
 
 Harness: `/preview/job-detail` trzyma kopie CV etapu po wgraniu w pamięci strony.
