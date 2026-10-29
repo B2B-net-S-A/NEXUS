@@ -36,6 +36,9 @@ Reguły, które łatwo cofnąć „przy okazji”:
   dalej o połowę rzadziej (18% wobec 36%) — wchodzi za resztą, nie odpada
   (7 z 39 takich osób poszło dalej). Co system wiedział (budżet, biuro,
   miasto), zapisuje ``entry_meta.cautions``; karta i panel to pokazują.
+* „Nie szuka pracy” (decyzja Artura 28.10.2026): 9 z 44 odrzuceń, a ci sami
+  ludzie czekali w „Nowych” innych rekrutacji. Profil „Nie szuka” bez daty
+  albo z „Dostępny od” w przyszłości = system nie dodaje (``not_looking_now``).
 * Wejście ``entry_source = "system"``, ``moved_by`` puste (dodał nie
   człowiek), ``entry_meta`` = migawka tego, co system wiedział: wynik,
   wymagania, „Stawka od”, dostępność. Z niej raport odróżnia błąd
@@ -53,14 +56,14 @@ from decimal import Decimal
 from typing import Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select, union_all
+from sqlalchemy import func, or_, select, union_all
 from sqlalchemy.orm import aliased
 
 from app.core.config import settings
-from app.core.scheduling import is_business_day
+from app.core.scheduling import business_today, is_business_day
 from app.models.activity import Activity
 from app.models.autofill_feedback import AutofillFeedback
-from app.models.candidate import Candidate
+from app.models.candidate import AvailabilityStatus, Candidate
 from app.models.candidate_stage_removal import CandidateStageRemoval
 from app.models.job import Job, JobStatus
 from app.models.job_autofill_pool import JobAutofillPool
@@ -167,6 +170,18 @@ def _names(evidence: Optional[dict], key: str) -> tuple[str, ...]:
     return tuple(str(v) for v in values if isinstance(v, str) and v)
 
 
+def not_looking_now():
+    """Osoby z profilem „Nie szuka” bez daty albo z „Dostępny od” w przyszłości
+    — rekruter usłyszał „nie szukam” (odrzucenie z datą, 28.10.2026)."""
+    return select(Candidate.id).where(
+        Candidate.availability_status == AvailabilityStatus.not_looking,
+        or_(
+            Candidate.availability_date.is_(None),
+            Candidate.availability_date > business_today(),
+        ),
+    )
+
+
 async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
     """Najlepsi z puli i otwartych propozycji, bez osób, których system nie
     dodaje (patrz docstring modułu, poza bramką kwalifikacji)."""
@@ -220,6 +235,7 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
                 both.c.candidate_id.not_in(dismissed),
                 both.c.candidate_id.not_in(hired_now),
                 both.c.candidate_id.not_in(refused_client),
+                both.c.candidate_id.not_in(not_looking_now()),
             )
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )

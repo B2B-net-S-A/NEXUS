@@ -18,7 +18,7 @@ Reguły, które łatwo cofnąć:
 - **Strona rekrutera (etap 6, 20.10.2026, makieta 6d w
   https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h):** inicjał zamiast zdjęcia,
   samo imię, „O mnie”, plakietki kategorii z otwartych rekrutacji, lista
-  rekrutacji z nazwą sceny, formularz „Zostaw CV u <imię>” (ta sama ścieżka
+  rekrutacji (bez nazwy sceny od 28.10.2026), formularz „Zostaw CV u <imię>” (ta sama ścieżka
   `submit_application`, jedna zgoda — niżej) i odesłanie do tablicy `/`.
   `GET /api/public/career/p/{slug}` zwraca `recruiter.about`, a każda
   rekrutacja `theme` (szablon, jak na `/r/`) i `category` — ten sam klucz co
@@ -62,8 +62,21 @@ Reguły, które łatwo cofnąć:
   (`(42835)`, `(ZOB-3003)`), „(K8s)” i „(ISO 27001)” zostają — jak w nagłówku
   CV. Opis zatwierdzony z tytułem według dawnych reguł zostaje na stronie z tym
   tytułem (`legacy_default_public_title`), aż ktoś zatwierdzi nowy.
+- **Tytuły Nordei** (29.10.2026, decyzja Artura): tytuł domyślny zdejmuje też
+  numer zapotrzebowania `TP#41745` / `TP ID 40942`, kraj i zespół na początku
+  (`PL - MDM - `, `PL_KYC_`, `PL-EBSD-`; `PL/SQL`, `PL-300` i `IT_` po kraju
+  zostają) oraz `Replacement (for …)` na końcu albo na początku (bywa w nim
+  imię i nazwisko osoby; „Replacement (open request)” zostaje, bo bez niego nie
+  ma roli). Kontrola `internal_code` zna `TP#` i `TP ID`.
+- **Zdjęcie samych kodów nie wymaga ponownego zatwierdzenia** (29.10.2026,
+  decyzja Artura): gdy dzisiejszy tytuł domyślny to zatwierdzony tytuł bez
+  kodów, a treść się nie zmieniła, opis zostaje „Zatwierdzony” i strona, OG
+  i maile od razu pokazują nowy tytuł (`_approved_title_with_codes`). Wersja
+  opublikowana sprzed zmian w edytorze też dostaje tytuł bez kodów. Do migawki
+  idzie tytuł, z którym policzono skrót (`PublishedVersion.approved_title`) —
+  inaczej pierwsza zmiana opisu zdjęłaby stronę. Adres linku się nie zmienia.
 - **Kontrola kodów wewnętrznych** (`lint_internal_codes`, kod `internal_code`):
-  `RITM|REQ|SCTASK|ZOB|PKN|EITE` z co najmniej 4 cyframi i części
+  `RITM|REQ|SCTASK|ZOB|PKN|EITE` z co najmniej 4 cyframi, `TP#` (Nordea) i części
   `client_reference` (od 4 znaków). Czyta ją tylko `lint_payload` (opis
   i tytuł), NIE kontrola adresu — znalezisko w adresie wymieniłoby rozesłany
   link (stary daje 404), a numer w adresie to kosmetyka.
@@ -232,45 +245,51 @@ Reguły, które łatwo cofnąć:
   zamkniętej rekrutacji dostaje z API `other_jobs` (ta sama reguła co stały
   link: opublikowany opis + „pokazuj na mojej stronie”) — bez listy i bez
   stałego linku prosi o kontakt z osobą od linku, nie odsyła na LinkedIna.
-- **Szablony graficzne (0478, decyzje Artura 19.10.2026, makiety
-  https://claude.ai/artifact/TFqDt54DUg4qRdyJXnu6wm):** 12 szablonów pod
-  najczęściej rekrutowane role (zestawienie 12 mies.: testerzy, analityk
-  systemowy, data, architekt, PM, Java, DevOps, analityk biznesowy, frontend,
-  security, administrator). Wybór rekrutera w `job_public_profiles.theme`
-  (NULL = domyślny), zapis samym `PUT …/public-profile {theme}` — **poza
-  skrótem treści**, więc zmiana wyglądu nie cofa zatwierdzenia. Domyślny:
-  rola z TYTUŁU (`services/career_theme.role_theme`), potem kategoria
-  kompetencji, potem Terminal — sama kategoria nie wystarcza, bo analitycy
-  i testerzy siedzą też w Infra i Management. Stare linki bez wyboru od razu
-  dostają szablon swojej roli. Jedno źródło kolorów strony, grafiki OG
-  i podglądu posta: `components/career/themes.ts` (lista id = `THEME_LABELS`
-  w backendzie, pilnuje `themes.test.ts`); plakat: `career_theme.POSTER_COLORS`.
-  Terminal nie dostaje owijki — dzisiejszy wygląd bez zmian. Kolory w
-  `career.css` tylko przez `--kr-*` (test). Wynik interakcji „x z 5” (kolejne
-  PR-y) zostaje w przeglądarce kandydata — nic nie wysyłamy (decyzja).
-  Harness: `/preview/kariera?szablon=<id>`.
-- **Sceny ról w hero (20.10.2026, `components/career/scenes/`):** każdy
-  szablon dostaje interakcję z makiety (strona kanwy „Najczęstsze role —
-  interaktywne”) na danych, które strona już ma: do pięciu pozycji
-  (`sceneItems`: wymagania, potem mile widziane — ukryte przez rekrutera nie
-  wchodzą), cztery kroki procesu (`processSteps`, to samo co `ProcessSteps`),
-  imię rekrutera. Wynik „x z N” stoi przy „Aplikuj” w panelu parametrów, stan
-  tylko w pamięci komponentu (`SceneContext`: bez localStorage, bez wysyłki).
-  „Aplikuj” działa zawsze; poniżej kompletu zawsze „Nie musisz mieć
-  wszystkiego — aplikuj.” Zwykła lista wymagań niżej zostaje. Każdy element
-  to `<button aria-pressed>` z nazwą i notatką w `aria-label`. Pełna scena od
-  1024 px, na telefonie zwarta lista przycisków (ten sam stan). Efekty
-  kursora tylko z myszą (`FINE_POINTER_QUERY`); `prefers-reduced-motion`
-  zostawia interakcję i zdejmuje animacje (`data-kr-still` + CSS). Kolory
-  `scenes.css` wyłącznie z `--kr-*` (test). Glitch: trzy celowe błędy (hero,
-  nagłówek runnera, podpis wyniku) jako przyciski z `aria-label`, nigdy w
-  `<h1>`; nie liczą się do wyniku (to samo cztery błędy Papieru). Każdy
-  z 12 szablonów ma scenę (`CAREER_SCENE_IDS` w `scenes/model.ts`, czyta ją
-  serwer; test pilnuje zgodności z komponentami). Rekrutacja bez wymagań
-  i mile widzianych wygląda jak przed scenami. Współrzędne scen liczą na
-  pudełko 448 × 520 px — przy zmianie rozmiaru popraw stałe pozycji
-  w plikach scen, nie skaluj CSS-em. Pozycja, która znika po kliknięciu, to
-  błąd: element zostaje przyciskiem z `aria-pressed`, żeby nie zgubić fokusu.
+- **Trzy szablony ogłoszeń w barwach B2B Network (decyzja Artura 28.10.2026,
+  makiety https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU, warianty A, C i B).**
+  Zespół (Teams, 28.10) ocenił ogłoszenia jako nieczytelne, „nie w szacie B2B”
+  i „jakby się nie doładowały”. Pomiar na AMLR/KYC: 51% tekstu ≤ 13 px,
+  wymagania trzy razy na stronie, na telefonie pierwszy ekran bez miasta,
+  umowy i „Aplikuj”. 12 szablonów ze scenami ról (0478, 19–20.10.2026)
+  zastąpiły trzy układy z `components/career/layouts/`:
+  - `grafit` (C, domyślny): ciemny grafit, czerwień i łuk znaku B2B, fakty
+    w kaflach, treść w układzie „bento”;
+  - `terminal` (A): klimat terminala bez granatu i scen, karta „Co już masz?”;
+  - `jasny` (B): tło Snow z brand booka, białe karty.
+
+  Domyślny wynika z roli w tytule (`services/career_theme.role_theme`).
+  Dev, testy i DevOps dostają `terminal`; PM, delivery, scrum, PO i analityk
+  dostają `jasny`. Architekt, data, security, sieci i admin dostają `grafit`.
+  Potem kategoria (`software_development`, `security_quality` → `terminal`,
+  `management_delivery` → `jasny`), na końcu `grafit`. Wybór rekrutera
+  w `job_public_profiles.theme`, zapis samym `PUT …/public-profile {theme}`,
+  **poza skrótem treści**, więc zmiana wyglądu nie cofa zatwierdzenia.
+  - Zapisany wybór jednej z 12 dawnych scen zostaje w bazie, ale
+    `resolve_theme` traktuje go jak brak wyboru. Opublikowane linki dostały
+    nowy wygląd od razu, bez ponownego zatwierdzania. `PUT` z dawną sceną
+    daje 422, a „Udostępnij” pokazuje wtedy domyślny jako wybrany.
+  - Wspólne zasady układów (przy zmianie pilnuj ich we wszystkich trzech):
+    pierwszy ekran 1280 × 720 i 390 × 844 pokazuje tytuł (jedyny `<h1>`),
+    Lokalizację, Tryb pracy, Umowę i „Aplikuj”. Tekst do czytania ma
+    ≥ 16 px (desktop 17–19), etykiety ≥ 14 px, a 13 px tylko stopka
+    prawna. Wymagania stoją na stronie raz, a „Mile widziane” osobno.
+    „Czym się zajmiesz: a; b; c” idzie jako punkty (`layouts/jobModel.ts`).
+    Nie ma pustych ramek, pasków ani „0%”. Sekcje mają `aria-label`:
+    „O projekcie”, „Wymagania”, „Proces rekrutacji” (4 kroki w `<ol>`)
+    i „Aplikuj” (`id="aplikuj"`).
+  - Formularz jest jeden: `CareerApplyForm` z `tone="plain"` (zdania zamiast
+    `// …`, `[err]`, `ENTER`) albo `tone="terminal"`. Każdy układ stylizuje
+    jego klasy `.kr-*` z poziomu swojego modułu CSS. Logika wysyłki, zgody
+    i pułapka na boty są wspólne.
+  - Kolory z `components/career/themes.ts` (jedno źródło dla strony, grafiki
+    OG i podglądu posta; lista id = `THEME_LABELS` w backendzie, test).
+    Czerwień marki `#E73748` jest w tytułach i ozdobnikach. Przycisk ma
+    `#D62E40`, bo biały tekst na `#E73748` daje 4,2:1, a test wymaga 4,5:1.
+    Plakat: `career_theme.POSTER_COLORS`.
+  - Kroje: Montserrat (globalna, `globals.css`) i Source Sans 3 (lokalnie,
+    `layouts/brandFonts.css`, nigdy Google Fonts w buildzie).
+  - Harness: `/preview/kariera?szablon=<id>`.
+
 - **Strona główna = tablica otwartych rekrutacji (etap 6, decyzje Artura
   D1 = A i D2 = A, 20.10.2026, makiety 8aVZkzVxkVnkVVNBUDgL4h, plansze 6b,
   6c, 6e).** `GET /api/public/career/jobs` (publiczna, 60/min, cache 60 s
@@ -378,15 +397,13 @@ Reguły, które łatwo cofnąć:
 - **Krój i poprawki po audycie etapu 7 (decyzje D1–D4, 21.10.2026):** tekst do
   czytania (opisy, kroki procesu, formularz, chipy tablicy, RODO, stopka) jest
   w Geist 400/500 (`--kr-sans`), a JetBrains Mono zostaje przy komendach `$ …`,
-  komentarzach `// …`, parametrach i w scenach (`--kr-mono`, domyślny krój
+  komentarzach `// …` i parametrach (`--kr-mono`, domyślny krój
   `.kr-root`). Nowy element do czytania dopisz do listy `--kr-sans` na końcu
   `career.css`, zamiast zmieniać krój korzenia. Etykiety formularza są zdaniem
   („Imię *”, „CV *”), bez wersalików. Tytuł od 1024 px nie dzieli wyrazów
   (`hyphens: manual`; wcześniej „kolej-nego” na stronie rekrutera), na
-  telefonie dzieli dalej. Pod stroną nie ma siatki; siatka w scenach Terminal,
-  Plan i C4 jest częścią rysunku i zostaje. Pozycja „mile widziane” dobrana do
-  pięciu punktów sceny ma dopisek (`ItemName` w `scenes/SceneParts.tsx`), żeby
-  nie wyglądała jak wymaganie. Chipy kategorii na telefonie łamią się do nowego
+  telefonie dzieli dalej. Pod stroną nie ma siatki. Strona rekrutacji od
+  28.10.2026 ma własne kroje w układach (wyżej). Chipy kategorii na telefonie łamią się do nowego
   wiersza. Dalsze etapy (tablica z podglądem i Flip, „Sprawdź się” na
   ScrollTrigger, Lenis) są na planszach 7a–7c kanwy
   https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h i w prototypie
@@ -394,8 +411,9 @@ Reguły, które łatwo cofnąć:
 - **Tablica jako lista z żywym podglądem (etap 7, D2 = A, 21.10.2026):**
   karty zastąpiła lista wierszy (znak szablonu, tytuł, podtytuł, „miejsce ·
   kategoria · rekruter”, „Zobacz”). Od 1024 px obok listy stoi przyklejony
-  podgląd (`BoardPreview.tsx`): najechanie albo fokus na wierszu buduje scenę
-  rekrutacji z jej wymagań w kolorach szablonu (sześć układów dla 12 scen).
+  podgląd (`BoardPreview.tsx`): najechanie albo fokus na wierszu buduje szkic
+  rekrutacji z jej wymagań w kolorach szablonu (od 28.10.2026 trzy układy
+  szkicu, po jednym na szablon).
   Podgląd jest dodatkiem dla myszy (`aria-hidden`, `tabIndex=-1`); klawiatura
   i czytnik idą wierszami. Karta tablicy niesie `must`/`nice` (najwyżej po 5,
   z tej samej projekcji co strona rekrutacji — ukryta sekcja daje pustą listę;
@@ -404,19 +422,10 @@ Reguły, które łatwo cofnąć:
   Ruch tylko od 1024 px i bez „ograniczonego ruchu” (`gsap.matchMedia`); bez
   `matchMedia` (jsdom) scena stoi. GSAP 3.13.0 i `@gsap/react` 2.1.2 ładuje
   wyłącznie strona kariery.
-- **„Sprawdź się” i proces na stronie rekrutacji (etap 7, PR C, 21.10.2026):**
-  lista `check --wymagania` zamieniła się w karty (`FitSection.tsx`): każde
-  wymaganie z pięciu punktów sceny ma „Znam to”, które przełącza ten sam punkt
-  w scenie hero i wynik „x z 5” (wspólny `CareerSceneProvider`, który obejmuje
-  teraz także treść strony). Nad kartami stoi przyklejony pasek: szkic sceny
-  (`SceneSketch` z `BoardPreview.tsx`, z połączeniami w kolejności klikania)
-  i wynik. ScrollTrigger podświetla kartę, która mija środek ekranu, i ten
-  punkt w szkicu. Wymagania spoza pięciu punktów są kartami bez przycisku.
-  Kroki procesu stoją na pionowej osi rysowanej scrollem (`ProcessSteps.tsx`);
-  bez ruchu oś jest narysowana. Na telefonie „Aplikuj · 2 minuty” wisi na
-  dole od zniknięcia hero do pokazania formularza (`ApplyDock.tsx`).
-  ScrollTrigger rejestruje się w efekcie, nie przy imporcie — przy imporcie
-  czyta `matchMedia`, którego nie ma w jsdom.
+- **„Sprawdź się”, oś procesu i dolny „Aplikuj” z etapu 7 (PR C, 21.10.2026)**
+  odeszły razem ze scenami 28.10.2026 (`FitSection`, `ProcessSteps`,
+  `ApplyDock`). Odpowiedniki są w układach: karta „Co już masz?” w Terminalu,
+  sekcja „Proces rekrutacji” i przyklejony pasek „Aplikuj” na telefonie.
 - **Moment otwarcia i płynny scroll (etap 7, PR D, D3 = A, 21.10.2026):**
   `CareerMotion.tsx` (montują go widoki tablicy, rekrutacji i rekrutera, nie
   układ `/kariera` — strona za `loading.tsx` dochodzi strumieniem i efekt

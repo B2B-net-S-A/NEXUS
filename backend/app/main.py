@@ -120,6 +120,7 @@ from app.api.integrations_v1.common import (
 from app.api import insights_performance_flags
 from app.api import insights_team
 from app.api import insights_team_signals
+from app.api import insights_work_rhythm
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
@@ -271,6 +272,7 @@ from app.api import candidate_rate_changes as candidate_rate_changes_api
 from app.api import screening_form as screening_form_api
 from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
+from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
@@ -1740,6 +1742,13 @@ app.include_router(
     prefix="/api/insights",
     tags=["insights"],
 )
+# Rytm dnia (28.10.2026): rytm i intensywność rekruterów widzi cały zespół;
+# CV do klienta i podpowiedź tylko liderzy, reguły zmienia HoR i admin.
+app.include_router(
+    insights_work_rhythm.router,
+    prefix="/api/insights",
+    tags=["insights"],
+)
 # Raport „Propozycje AI" (30.09.2026): decyzje o propozycjach z bazy.
 # Admin/HoR — cała firma, Delivery Lead — swoje rekrutacje i portfel.
 app.include_router(
@@ -2146,6 +2155,7 @@ app.include_router(screening_form_api.router, prefix="/api", tags=["screening-fo
 # D6/D9/D10 (08.10.2026): kontekst przeglądu DL i porównanie kolejki rekrutacji.
 app.include_router(dl_review_api.router, prefix="/api", tags=["dl-review"])
 app.include_router(job_similar_api.router, prefix="/api", tags=["similar-jobs"])
+app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])

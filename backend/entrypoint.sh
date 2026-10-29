@@ -799,6 +799,8 @@ _ENUM_STATEMENTS = [
     # 0450: championi rekrutacji — zapis listy / powrót do szukania.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champions_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
+    # 0615: bliźniacze rekrutacje — połączenie bliźniaka (do zespołów obu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_twin_linked'",
     # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
     # 0452: karta na „Zatrudniony” bez umowy w Kontraktach (do DL klienta).
@@ -6098,6 +6100,29 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_similar_links_similar_job_id "
     "ON job_similar_links (similar_job_id)",
+    # 0615: bliźniacze rekrutacje — rodzaj połączenia, pary pytań i pary
+    # odrzucone przez HoR (`app/services/job_twin_schema.py`).
+    # Lustro 1:1 z migracją — pilnuje `test_job_twins.py`.
+    "ALTER TABLE job_similar_links "
+    "ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'similar'",
+    "ALTER TABLE job_similar_links "
+    "ADD COLUMN IF NOT EXISTS question_pairs JSONB NULL",
+    """DO $$ BEGIN
+        ALTER TABLE job_similar_links
+            ADD CONSTRAINT ck_job_similar_links_kind
+            CHECK (kind IN ('similar', 'twin'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "CREATE INDEX IF NOT EXISTS ix_job_similar_links_twins "
+    "ON job_similar_links (job_id) WHERE kind = 'twin'",
+    """CREATE TABLE IF NOT EXISTS job_twin_dismissals (
+        id BIGSERIAL PRIMARY KEY,
+        job_low_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        job_high_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_job_twin_dismissals_pair UNIQUE (job_low_id, job_high_id),
+        CONSTRAINT ck_job_twin_dismissals_order CHECK (job_low_id < job_high_id)
+    )""",
     # 0342: stan rezerwacji wysyłki maila z NEXUSA (pending/sent/uncertain,
     # NULL = wiersz sprzed zmiany albo z synchronizacji). Lustro 1:1 z migracją.
     "ALTER TABLE emails ADD COLUMN IF NOT EXISTS send_state VARCHAR(16) NULL "

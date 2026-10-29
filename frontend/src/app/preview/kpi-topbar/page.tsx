@@ -49,6 +49,7 @@ import { CvTopbarButton } from "@/components/v2/shell/CvNotificationsDropdown";
 import { JobsTopbarButton } from "@/components/v2/shell/JobsNotificationsDropdown";
 import { InterviewsTopbarButton } from "@/components/v2/shell/InterviewNotificationsDropdown";
 import { AppearanceMenu } from "@/components/v2/shell/AppearanceMenu";
+import { BreadcrumbTrail, type BreadcrumbCrumb } from "@/components/v2/shell/BreadcrumbV2";
 import {
   TOPBAR_ACTIONS_CLASS,
   TOPBAR_BREADCRUMB_CLASS,
@@ -326,6 +327,21 @@ const DAY_STATES: { title: string; note: string; model: KpiTopbarModel }[] = [
 
 // ── Replika powłoki ─────────────────────────────────────────────────────────
 
+/** „Rekrutacje › Senior Java” → ścieżka jak w `BreadcrumbV2`: Dashboard, stałe
+ *  sekcje, nazwa na końcu. Linki na kotwice — harness nie prefetchuje tras. */
+function harnessCrumbs(breadcrumb: string): BreadcrumbCrumb[] {
+  const parts = breadcrumb.split(" › ");
+  if (parts.length === 1) return [{ label: parts[0], href: "#okruszek-0" }];
+  return [
+    { label: "Dashboard", href: "#okruszek-start" },
+    ...parts.map((label, i) => ({
+      label,
+      href: `#okruszek-${i}`,
+      dynamic: i === parts.length - 1,
+    })),
+  ];
+}
+
 function ShellStrip({
   title,
   breadcrumb,
@@ -353,7 +369,7 @@ function ShellStrip({
         />
         <div className={cn(TOPBAR_HEADER_CLASS, "min-w-0 flex-1")} data-testid="topbar-replica">
           <div className={TOPBAR_BREADCRUMB_CLASS}>
-            <span className="truncate text-sm font-medium text-foreground">{breadcrumb}</span>
+            <BreadcrumbTrail crumbs={harnessCrumbs(breadcrumb)} />
           </div>
           <div className={TOPBAR_SEARCH_CLASS} data-testid="topbar-search">
             <Search className="h-4 w-4 shrink-0" aria-hidden />

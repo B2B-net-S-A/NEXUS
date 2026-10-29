@@ -80,8 +80,8 @@ describe("CareerBoardView", () => {
     view({
       ...DATA,
       jobs: [
-        job(1, { title: "Data Engineer", theme: "konstelacja", must: ["Spark", "Airflow"], nice: ["dbt"] }),
-        job(2, { title: "DevOps Engineer", theme: "topologia", must: ["Kubernetes"] }),
+        job(1, { title: "Data Engineer", theme: "grafit", must: ["Spark", "Airflow"], nice: ["dbt"] }),
+        job(2, { title: "DevOps Engineer", theme: "terminal", must: ["Kubernetes"] }),
       ],
     });
     const preview = document.querySelector(".kr-board-preview") as HTMLElement;

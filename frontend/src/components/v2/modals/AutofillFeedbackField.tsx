@@ -8,10 +8,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   AUTOFILL_REASON_GROUPS,
   CLIENT_WIDE_REASONS,
+  NOT_LOOKING_SPANS,
   autofillBucketHint,
+  notLookingUntil as untilAfter,
   type AutofillLearnedFrom,
   type AutofillReason,
 } from "@/lib/autofill-feedback";
+import { formatIsoDatePl } from "@/lib/date-pl";
+import { warsawToday } from "@/lib/warsaw-date";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,6 +37,8 @@ export function AutofillFeedbackField({
   askRate = true,
   wholeClient = false,
   onWholeClientChange,
+  notLookingUntil = null,
+  onNotLookingUntilChange,
   children,
 }: {
   learnedFrom: AutofillLearnedFrom | null;
@@ -50,6 +56,9 @@ export function AutofillFeedbackField({
   /** 27.10.2026: powód „klient” na cały klient (jedna osoba). */
   wholeClient?: boolean;
   onWholeClientChange?: (value: boolean) => void;
+  /** 28.10.2026: „Nie szuka pracy” — do kiedy („RRRR-MM-DD”). */
+  notLookingUntil?: string | null;
+  onNotLookingUntilChange?: (value: string) => void;
   children?: React.ReactNode;
 }) {
   const hint = autofillBucketHint(reason, rateKnown);
@@ -100,6 +109,13 @@ export function AutofillFeedbackField({
           </span>
         </label>
       ) : null}
+      {reason === "not_looking" && onNotLookingUntilChange ? (
+        <NotLookingUntilField
+          value={notLookingUntil}
+          onChange={onNotLookingUntilChange}
+          several={several}
+        />
+      ) : null}
       {reason === "too_expensive" && !several && askRate ? (
         <FormField
           label="Ile chce? (zł/h, opcjonalnie)"
@@ -142,6 +158,62 @@ export function AutofillFeedbackField({
         </RadioGroup>
       </FormField>
     </div>
+  );
+}
+
+/**
+ * „Do kiedy nie podsuwać?” przy „Nie szuka pracy” (makieta M1, 28.10.2026):
+ * 9 z 44 odrzuceń, a te same osoby czekały w „Nowych” innych rekrutacji.
+ */
+function NotLookingUntilField({
+  value,
+  onChange,
+  several,
+}: {
+  value: string | null;
+  onChange: (value: string) => void;
+  several: boolean;
+}) {
+  const spans = NOT_LOOKING_SPANS.map((s) => ({ ...s, date: untilAfter(s.months) }));
+  const custom = value != null && !spans.some((s) => s.date === value);
+  // Serwer przyjmuje datę od jutra (dziś = „już szuka”).
+  const tomorrow = new Date(`${warsawToday()}T00:00:00Z`);
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  const chip = (active: boolean) =>
+    cn(
+      "rounded-full border px-3 py-1 text-sm",
+      active ? "border-primary bg-primary/10 font-medium text-primary" : "border-border hover:bg-accent",
+    );
+  return (
+    <FormField
+      label="Do kiedy nie podsuwać?"
+      description={`Zapiszemy w profilu „Nie szuka” i „Dostępny od ${formatIsoDatePl(value)}”. Do tej daty system nie doda ${
+        several ? "tych osób" : "tej osoby"
+      } do żadnej rekrutacji i zdejmie ${several ? "ich" : "jej"} karty od systemu z innych rekrutacji, których nikt nie ruszył.`}
+    >
+      <div className="flex flex-wrap items-center gap-2" data-testid="autofill-not-looking-until">
+        {spans.map((s) => (
+          <button
+            key={s.months}
+            type="button"
+            className={chip(s.date === value)}
+            aria-pressed={s.date === value}
+            onClick={() => onChange(s.date)}
+          >
+            {s.label}
+          </button>
+        ))}
+        <Input
+          type="date"
+          value={value ?? ""}
+          min={tomorrow.toISOString().slice(0, 10)}
+          max={untilAfter(24)}
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+          className={cn("w-40", custom && "border-primary")}
+          aria-label="Nie szuka do dnia"
+        />
+      </div>
+    </FormField>
   );
 }
 

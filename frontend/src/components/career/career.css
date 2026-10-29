@@ -108,17 +108,6 @@ html:has(.kr-scope[data-kr-light]) body {
 .kr-r { color: var(--kr-red); }
 .kr-w { color: var(--kr-text); }
 .kr-dim { color: var(--kr-dim); }
-.kr-sr {
-  position: absolute !important;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
 
 /* ── pasek okna ───────────────────────────────────────────────── */
 .kr-chrome {
@@ -179,10 +168,6 @@ html:has(.kr-scope[data-kr-light]) body {
 }
 
 /* ── górna sekcja: hero + parametry ───────────────────────────── */
-.kr-top {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-}
 .kr-hero {
   padding: 32px 16px 8px;
   display: flex;
@@ -214,56 +199,7 @@ html:has(.kr-scope[data-kr-light]) body {
   background: var(--kr-title);
   vertical-align: -0.04em;
 }
-.kr-params {
-  padding: 16px 16px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  font-size: 13px;
-}
-.kr-params-head {
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  color: var(--kr-red);
-}
-.kr-kv {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.kr-kv-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-.kr-kv-row > * {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-.kr-kv-row > :last-child {
-  text-align: right;
-}
-.kr-kv-bar {
-  height: 2px;
-  background: var(--kr-bar);
-}
-.kr-cta-mobile {
-  margin-top: 6px;
-  height: 52px;
-  background: var(--kr-btn);
-  color: var(--kr-btn-text) !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  font-weight: 700;
-  text-decoration: none;
-}
 @media (min-width: 1024px) {
-  .kr-top {
-    grid-template-columns: minmax(0, 1fr) 360px;
-    border-bottom: 1px solid var(--kr-line);
-  }
   .kr-hero {
     padding: 56px 40px 48px;
     gap: 10px;
@@ -280,16 +216,6 @@ html:has(.kr-scope[data-kr-light]) body {
     text-wrap: balance;
   }
   .kr-cursor { margin-left: 10px; }
-  .kr-side { border-left: 1px solid var(--kr-line); }
-  .kr-cta-wrap { display: none; }
-  .kr-params {
-    padding: 72px 32px 40px;
-    gap: 18px;
-    font-size: 14px;
-  }
-  .kr-kv { padding-bottom: 18px; }
-  .kr-kv:last-of-type { padding-bottom: 0; }
-  .kr-cta-mobile { display: none; }
 }
 
 /* ── treść: opis, wymagania, proces + formularz ───────────────── */
@@ -334,44 +260,9 @@ html:has(.kr-scope[data-kr-light]) body {
   line-height: 1.5;
 }
 .kr-ok > :first-child { flex-shrink: 0; }
-/* Kroki procesu na pionowej osi na każdej szerokości (etap 7, 21.10.2026):
-   cztery kolumny od 1280 px łamały „rozmowa z / Martą”. Oś rysuje się ze
-   scrollem (`ProcessSteps.tsx`), bez ruchu stoi narysowana. */
-.kr-steps { position: relative; padding-left: 30px; }
-.kr-steps-line {
-  position: absolute;
-  left: 6px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  background: var(--kr-line-strong);
-}
-.kr-steps-line i {
-  position: absolute;
-  inset: 0;
-  background: var(--kr-title);
-  transform-origin: top;
-}
-.kr-steps-list { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
-.kr-step { position: relative; display: flex; flex-direction: column; gap: 2px; font-family: var(--kr-sans); }
-.kr-step::before {
-  content: "";
-  position: absolute;
-  left: -30px;
-  top: 3px;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--kr-bg);
-  border: 2px solid var(--kr-title);
-}
-.kr-step > .kr-r { font-family: var(--kr-mono); font-size: 12px; }
-.kr-step-title { font-size: 17px; font-weight: 700; color: var(--kr-white); }
-.kr-step-note { font-size: 14px; color: var(--kr-para); }
 /* Tablet pionowo (640–1023 px): bez ograniczenia akapity mono miały ~90
    znaków w linii, a formularz rozciągał się na całą szerokość. */
 @media (min-width: 640px) and (max-width: 1023px) {
-  .kr-top,
   .kr-main {
     max-width: 720px;
     margin-inline: auto;
@@ -874,15 +765,6 @@ a.kr-row:hover { background: var(--kr-tint); color: var(--kr-white) !important; 
   text-decoration: none;
 }
 a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !important; }
-.kr-rec-scene {
-  grid-column: 1 / -1;
-  justify-self: start;
-  padding: 4px 8px;
-  border: 1px solid var(--kr-line-strong);
-  border-radius: 6px;
-  font-size: 11px;
-  color: var(--kr-gray);
-}
 .kr-rec-job-text {
   display: flex;
   flex-direction: column;
@@ -928,11 +810,7 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
   /* Imię i „Rekrutuję w IT.” mieszczą się w linii obok formularza. */
   .kr-main-general .kr-rec-hero .kr-title { font-size: 52px; }
   .kr-rec-about { font-size: 16px; }
-  .kr-rec-job {
-    grid-template-columns: 150px minmax(0, 1fr) auto;
-    padding: 14px 16px;
-  }
-  .kr-rec-scene { grid-column: auto; justify-self: stretch; text-align: center; }
+  .kr-rec-job { padding: 14px 16px; }
   .kr-rec-job-title { font-size: 16px; }
   .kr-rec-form-head { padding: 24px 24px 0; }
   .kr-rec-form-title { font-size: 21px; }
@@ -1228,9 +1106,8 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 
 /* ── krój tekstu do czytania (etap 7, D4 = A, 21.10.2026) ──────────
    Opisy, kroki, formularz, chipy, RODO i stopka w Geist. Mono zostaje przy
-   komendach (`$ …`), komentarzach `// …`, parametrach i w scenach. */
+   komendach (`$ …`), komentarzach `// …` i parametrach. */
 .kr-para,
-.kr-step,
 .kr-form,
 .kr-alert,
 .kr-chip,
@@ -1240,136 +1117,10 @@ a.kr-rec-job:hover { background: var(--kr-tint); color: var(--kr-white) !importa
 .kr-board-sticky-btn,
 .kr-doc,
 .kr-footer,
-.kr-log-text,
-.kr-cta-mobile {
+.kr-log-text {
   font-family: var(--kr-sans);
 }
 .kr-kbd { font-family: var(--kr-mono); }
-.kr-nice-mark { font-size: 0.85em; white-space: nowrap; }
-/* Podpisy przy punktach scen są wąskie i ucinane wielokropkiem — dopisek
-   idzie do drugiej linii, żeby „mile widziane” nie zginęło. */
-.kr-const-lab .kr-nice-mark,
-.kr-topo-l .kr-nice-mark,
-.kr-radar-tag .kr-nice-mark,
-.kr-c4-n .kr-nice-mark,
-.kr-hz-n .kr-nice-mark,
-.kr-board-t .kr-nice-mark {
-  display: block;
-}
-
-/* ── „Sprawdź się” na stronie rekrutacji (etap 7, PR C) ──────────── */
-.kr-fit { display: flex; flex-direction: column; gap: 12px; }
-.kr-fit .kr-cmd { margin-bottom: 0; }
-.kr-fit-title {
-  margin: 0;
-  font-family: var(--kr-sans);
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--kr-white);
-}
-.kr-fit-lead { margin: 0; font-family: var(--kr-sans); font-size: 15px; line-height: 1.55; color: var(--kr-para); max-width: 60ch; }
-/* Pasek ze szkicem i wynikiem stoi przy górnej krawędzi, gdy karty płyną. */
-.kr-fit-stage {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 150px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  padding: 10px 0;
-  background: var(--kr-bg);
-  border-bottom: 1px solid var(--kr-line);
-}
-.kr-fit-score { display: flex; flex-direction: column; gap: 4px; font-family: var(--kr-sans); color: var(--kr-gray); font-size: 13px; }
-.kr-fit-score strong {
-  font-size: 30px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.03em;
-  color: var(--kr-white);
-  font-variant-numeric: tabular-nums;
-}
-.kr-fit-bar { display: grid; grid-auto-flow: column; gap: 4px; margin-top: 4px; }
-.kr-fit-bar i { height: 5px; border-radius: 3px; background: var(--kr-line-strong); transition: background-color 0.3s ease; }
-.kr-fit-bar i[data-on] { background: var(--kr-title); }
-.kr-fit-note { font-size: 12px; color: var(--kr-comment); }
-.kr-fit-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.kr-fit-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-  border: 1px solid var(--kr-line-strong);
-  border-radius: 14px;
-  background: var(--kr-form-bg);
-  font-family: var(--kr-sans);
-  transition: border-color 0.3s ease;
-}
-.kr-fit-card[data-reading] { border-color: var(--kr-gray); }
-.kr-fit-kind { font-family: var(--kr-mono); font-size: 12px; color: var(--kr-gray); }
-.kr-fit-name { font-size: 19px; font-weight: 700; line-height: 1.25; color: var(--kr-white); overflow-wrap: anywhere; }
-.kr-fit-text { font-size: 14.5px; line-height: 1.5; color: var(--kr-para); }
-.kr-fit-btn {
-  align-self: flex-start;
-  margin-top: 4px;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
-  border: 1px solid var(--kr-line-strong);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--kr-text);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.kr-fit-btn:hover { border-color: var(--kr-gray); }
-.kr-fit-btn[aria-pressed="true"] { background: var(--kr-btn); border-color: var(--kr-btn); color: var(--kr-btn-text); }
-@media (min-width: 1024px) {
-  .kr-fit-stage { grid-template-columns: 210px minmax(0, 1fr); gap: 20px; }
-  .kr-fit-score strong { font-size: 36px; }
-}
-
-/* Telefon: „Aplikuj” przy dolnej krawędzi między hero a formularzem. */
-.kr-dock {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
-  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
-  background: linear-gradient(transparent, var(--kr-bg) 40%);
-  transform: translateY(110%);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  pointer-events: none;
-}
-.kr-dock[data-shown] { transform: none; pointer-events: auto; }
-.kr-dock-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 52px;
-  border-radius: 10px;
-  background: var(--kr-btn);
-  color: var(--kr-btn-text) !important;
-  font-family: var(--kr-sans);
-  font-size: 16px;
-  font-weight: 700;
-  text-decoration: none;
-}
-@media (min-width: 1024px) {
-  .kr-dock { display: none; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .kr-dock,
-  .kr-fit-card,
-  .kr-fit-bar i { transition: none; }
-}
 
 /* Lenis (płynny scroll od 1024 px, `CareerMotion.tsx`) — klasy na <html>
    dodaje sam Lenis, tylko gdy działa. */

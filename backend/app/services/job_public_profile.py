@@ -14,7 +14,7 @@ import hashlib
 import json
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -142,6 +142,25 @@ _TRAILING_TICKET = re.compile(
 # \u201e\u2026Power BI_PKN500023226\u201d, \u201e\u2026NIS2_EITERFP2026016\u201d (Orlen, Energa).
 _TRAILING_CLIENT_CODE = re.compile(r"[_\s]+[A-Z]{2,}[A-Z0-9]*\d{5,}\s*$")
 _TRAILING_PEP = re.compile(r"[\s,;]*\bPep\s*:?\s*\d+\s*$", re.I)
+# Nordea (29.10.2026, decyzja Artura): „… - TP#41745” („TP ID 40942”) to numer
+# zapotrzebowania, „PL - MDM - …” / „PL_KYC_…” kraj i zespół u klienta,
+# a „Replacement for Tomasz B” — kogo osoba zastępuje. „PL/SQL” i „PL-300”
+# zostają; „IT_” po kraju to początek roli, nie zespół; „Replacement (open
+# request)” zostaje, bo bez niego nie ma roli.
+_TRAILING_TP = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]*(?<![A-Za-z0-9])TP\s*(?:#|ID\b)\s*\d+\s*$"
+)
+_LEADING_COUNTRY_TEAM = re.compile(
+    r"^\s*PL(?:\s*[\-\u2013\u2014|:]\s*|_)(?!\d)"
+    r"(?:(?!IT(?:\s*[\-\u2013\u2014|:]|_))[A-Z]{2,5}(?:\s*[\-\u2013\u2014|:]\s*|_))?"
+    r"(?=\w)"
+)
+_TRAILING_REPLACEMENT = re.compile(
+    r"[\s,;:\-\u2013\u2014|/_]+Replacement(?:\s+for\b.*)?$", re.I
+)
+_LEADING_REPLACEMENT = re.compile(
+    r"^\s*Replacement(?:\s*[\-\u2013\u2014:]\s*|\s+)(?=[^\W\d_])", re.I
+)
 # Regu\u0142y sprzed 19.10.2026 \u2014 tylko do rozpoznania opis\u00f3w zatwierdzonych z tym
 # tytu\u0142em domy\u015blnym (``published_version``): zmiana regu\u0142 nie mo\u017ce zdj\u0105\u0107
 # opublikowanej strony.
@@ -202,8 +221,9 @@ def default_public_title(
     klienta (nazwa albo alias, także pierwsze słowo nazwy z co najmniej
     4 literami — „Nordea" z „Nordea Bank Abp") zakończony separatorem,
     końcowe kody w nawiasie, ``RITM…``/``REQ…`` (także po „_”), kody
-    ``_PKN…``/``_EITE…``, ``, Pep: 1234`` i nadmiarowe separatory. Nigdy nie
-    zwraca pustego napisu — w ostateczności surowy tytuł.
+    ``_PKN…``/``_EITE…``, ``, Pep: 1234``, a z tytułów Nordei ``TP#…``,
+    ``PL - <zespół> -`` i ``Replacement`` oraz nadmiarowe separatory. Nigdy
+    nie zwraca pustego napisu — w ostateczności surowy tytuł.
     """
     original = _collapse(title or "")
     base = original
@@ -215,7 +235,16 @@ def default_public_title(
     text = _strip_codes(
         base,
         client_names,
-        (_TRAILING_PAREN_CODE, _TRAILING_TICKET, _TRAILING_CLIENT_CODE, _TRAILING_PEP),
+        (
+            _TRAILING_PAREN_CODE,
+            _TRAILING_TICKET,
+            _TRAILING_CLIENT_CODE,
+            _TRAILING_PEP,
+            _TRAILING_TP,
+            _LEADING_COUNTRY_TEAM,
+            _TRAILING_REPLACEMENT,
+            _LEADING_REPLACEMENT,
+        ),
     )
     return text or original
 
@@ -244,12 +273,7 @@ async def public_titles(
     names_cache: Optional[dict[Optional[int], list[str]]] = None,
 ) -> tuple[str, str]:
     """``(tytuł domyślny, tytuł efektywny)`` rekrutacji."""
-    if names_cache is not None and job.client_id in names_cache:
-        names = names_cache[job.client_id]
-    else:
-        names = await _client_names(db, job.client_id)
-        if names_cache is not None:
-            names_cache[job.client_id] = names
+    names = await _cached_client_names(db, job, names_cache)
     default = default_public_title(
         job.title, names, getattr(job, "client_reference", None)
     )
@@ -266,6 +290,10 @@ async def resolve_status(
     """``(status, tytuł domyślny, tytuł efektywny)``."""
     default, effective = await public_titles(db, job, profile, names_cache=names_cache)
     status = profile_status(profile, effective, raw_title=job.title)
+    if status == STATUS_DRAFT and await _approved_title_with_codes(
+        db, job, profile, default, names_cache=names_cache
+    ):
+        status = STATUS_APPROVED
     if (
         status == STATUS_APPROVED
         and profile is not None
@@ -273,6 +301,61 @@ async def resolve_status(
     ):
         status = STATUS_DRAFT
     return status, default, effective
+
+
+async def _cached_client_names(
+    db: AsyncSession,
+    job: Job,
+    names_cache: Optional[dict[Optional[int], list[str]]],
+) -> list[str]:
+    if names_cache is not None and job.client_id in names_cache:
+        return names_cache[job.client_id]
+    names = await _client_names(db, job.client_id)
+    if names_cache is not None:
+        names_cache[job.client_id] = names
+    return names
+
+
+async def _approved_title_with_codes(
+    db: AsyncSession,
+    job: Job,
+    profile: Optional[JobPublicProfile],
+    default_title: str,
+    *,
+    names_cache: Optional[dict[Optional[int], list[str]]] = None,
+) -> Optional[str]:
+    """Tytuł, z którym zatwierdzono NIEZMIENIONĄ treść, gdy dzisiejszy tytuł
+    domyślny to ten tytuł bez kodów (29.10.2026, decyzja Artura).
+
+    Nowa reguła czyszczenia (np. „TP#41745” Nordei) zmienia tytuł domyślny,
+    a z nim skrót treści — opis wracałby do szkicu, a strona pokazywała stary
+    tytuł z kodem, aż ktoś zatwierdzi go ponownie. Zdjęcie samych kodów nie
+    wymaga zatwierdzenia: strona od razu pokazuje nowy tytuł. Tytuł własny
+    (``public_title``) nie podlega czyszczeniu."""
+    if (
+        profile is None
+        or profile.approved_at is None
+        or not profile.approved_hash
+        or (profile.public_title or "").strip()
+    ):
+        return None
+    names = await _cached_client_names(db, job, names_cache)
+    reference = getattr(job, "client_reference", None)
+    candidates: list[str] = []
+    text = (stored_approved_content(profile.sections) or {}).get(APPROVED_TEXT_KEY)
+    if isinstance(text, dict) and isinstance(text.get("title"), str):
+        candidates.append(text["title"])
+    candidates.append(legacy_default_public_title(job.title, names))
+    for approved in candidates:
+        if approved.strip() == default_title.strip():
+            continue
+        if default_public_title(approved, names, reference) != default_title:
+            continue
+        if profile.approved_hash == content_hash(
+            profile.subtitle, profile.about, profile.sections, approved
+        ):
+            return approved
+    return None
 
 
 def _stack_names(job: Job, key: str) -> list[str]:
@@ -421,6 +504,9 @@ class PublishedVersion:
     sections: dict[str, Any]
     # Opis w edytorze różni się od opublikowanego (szkic czeka na zatwierdzenie).
     pending_changes: bool
+    # Tytuł, z którym policzono skrót zatwierdzenia, gdy strona pokazuje go już
+    # bez kodów (``_approved_title_with_codes``) — tylko do migawki.
+    approved_title: Optional[str] = None
 
 
 def published_from(
@@ -500,19 +586,31 @@ async def published_version(
     """Jedna reguła „co widzi kandydat” dla strony, formularzy i maili."""
     if profile is None:
         return None
-    status, _default, effective = await resolve_status(
+    status, default, effective = await resolve_status(
         db, job, profile, names_cache=names_cache
     )
+    names = await _cached_client_names(db, job, names_cache)
     legacy: Optional[str] = None
     if status != STATUS_APPROVED:
-        if names_cache is not None and job.client_id in names_cache:
-            names = names_cache[job.client_id]
-        else:
-            names = await _client_names(db, job.client_id)
         legacy = legacy_default_public_title(job.title, names)
-    return published_from(
+    version = published_from(
         job, profile, status=status, effective_title=effective, legacy_title=legacy
     )
+    if version is None:
+        return None
+    if not version.pending_changes:
+        approved = await _approved_title_with_codes(
+            db, job, profile, default, names_cache=names_cache
+        )
+        return replace(version, approved_title=approved) if approved else version
+    # Wersja sprzed zmian w edytorze: jej tytuł też bez kodów, które zdejmują
+    # dzisiejsze reguły (29.10.2026).
+    shown = default_public_title(
+        version.title, names, getattr(job, "client_reference", None)
+    )
+    if shown == version.title:
+        return version
+    return replace(version, title=shown, approved_title=version.title)
 
 
 def with_published_text(sections: Any, version: PublishedVersion) -> dict[str, Any]:
@@ -527,7 +625,7 @@ def with_published_text(sections: Any, version: PublishedVersion) -> dict[str, A
         return sections_with_approved_content(sections, None)
     snapshot = dict(stored)
     snapshot[APPROVED_TEXT_KEY] = approved_text(
-        version.title,
+        version.approved_title or version.title,
         version.subtitle,
         version.about,
         normalize_sections(version.sections),
