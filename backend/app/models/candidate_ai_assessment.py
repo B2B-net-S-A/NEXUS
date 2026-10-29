@@ -1,4 +1,4 @@
-"""Ocena „Oceń z AI” jednej osoby w rekrutacji (migracja 0618).
+"""Ocena „Oceń z AI” jednej osoby w rekrutacji (migracja 0619).
 
 Serwis: ``app/services/candidate_ai_assessment.py``. DDL:
 ``app/services/candidate_ai_assessment_schema.py``.
