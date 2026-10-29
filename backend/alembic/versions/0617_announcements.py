@@ -1,7 +1,7 @@
 """„Ogłoszenia” na pulpicie każdej osoby (decyzja Artura 28.10.2026).
 
-Revision ID: 0616_announcements
-Revises: 0615_job_twins
+Revision ID: 0617_announcements
+Revises: 0616_autofill_more_reasons
 
 Propozycja Olafa: strefa ogłoszeń na pulpicie, na której Head of Recruitment
 i admin publikują ważne informacje. Tabele ``announcements``
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.announcements_schema import ENUM_DDL, INDEX_DDL, TABLE_DDL
 
-revision = "0616_announcements"
-down_revision = "0615_job_twins"
+revision = "0617_announcements"
+down_revision = "0616_autofill_more_reasons"
 branch_labels = None
 depends_on = None
 
@@ -27,7 +27,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'announcement_important'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0616 odmawia: notifications ma powiadomienia o ważnych ogłoszeniach, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0617 odmawia: notifications ma powiadomienia o ważnych ogłoszeniach, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

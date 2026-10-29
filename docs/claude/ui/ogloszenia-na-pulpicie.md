@@ -1,5 +1,5 @@
 # Ogłoszenia na pulpicie — publikują HoR i admin, komunikatora nie budujemy (28.10.2026)
-<!-- indeks: tabele announcements + announcement_reads (0616); panel nad kafelkami jak P0, znika bez aktywnych; odbiorcy wszyscy albo role; przeczytane per osoba schodzi niżej i szarzeje; „ważne” = dzwonek announcement_important + mail obowiązkowy „announcement” raz; odczyt bez bramki sekcji (wyjątek), zapisy sekcja Rekrutacje + HoR/admin; to nie care_announcements -->
+<!-- indeks: tabele announcements + announcement_reads (0617); panel nad kafelkami jak P0, znika bez aktywnych; odbiorcy wszyscy albo role; przeczytane per osoba schodzi niżej i szarzeje; „ważne” = dzwonek announcement_important + mail obowiązkowy „announcement” raz; odczyt bez bramki sekcji (wyjątek), zapisy sekcja Rekrutacje + HoR/admin; to nie care_announcements -->
 
 Propozycja Olafa z 28.10.2026 („strefa OGŁOSZENIA na pulpicie każdego…
 może przeniesiemy tam komunikator firmowy?”). Artur zatwierdził sam panel
@@ -52,6 +52,6 @@ konsultantów bez konta) — osobne tabele, osobne trasy.
   Rekrutacje + `HeadOfRecruitmentPlus` (wzorzec `authz_golden/announcements.json`).
 - Historia zdarzeń: `announcement_published`, `announcement_edited`,
   `announcement_withdrawn` (`entity_type="announcement"`).
-- Schemat: `services/announcements_schema.py` (jedno źródło dla migracji 0616,
+- Schemat: `services/announcements_schema.py` (jedno źródło dla migracji 0617,
   modelu i `entrypoint.sh`). Testy: `tests/test_announcements.py`,
   `AnnouncementsPanel.test.tsx`, `lib/__tests__/announcements.test.ts`.
