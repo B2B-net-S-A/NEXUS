@@ -19,6 +19,12 @@
  * („🔒 bliźniak”): weryfikacja idzie pod nie obowiązkowo. Bliźniak, w którym
  * osoby jeszcze nie ma, stoi z „+ Dodaj do bliźniaka” — bez tego bramka
  * „Zweryfikowany” zatrzyma przekazanie.
+ *
+ * W „Trybie rozmowy” (29.10.2026, zgłoszenie Artura: formularz za ciasny na
+ * laptopie) lista stoi zwinięta do jednej linii z wybranymi rekrutacjami
+ * i „Zmień” — na 1280 × 720 miała 388 px i spychała formularz poza ekran.
+ * Bliźniak bez tej osoby, „Cofnij” po odznaczeniu, odmowa serwera
+ * i „Dodano do Nowych: …” pokazują pełną listę, bo rekruter musi je zobaczyć.
  */
 
 import { useState } from "react";
@@ -26,6 +32,7 @@ import { Check, Layers } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ClientReferenceTag } from "@/components/v2/jobs/JobPickName";
+import { usePersonPanelConversationMode } from "@/components/v2/person/PersonPanelSide";
 import {
   answersCameBack,
   answersStay,
@@ -186,9 +193,48 @@ export function JointScreeningPicker({
   onTwinSkip,
   manualAdd,
 }: JointScreeningPickerProps) {
+  const conversation = usePersonPanelConversationMode();
+  const [listOpen, setListOpen] = useState(false);
   if (!manualAdd && pairs.length === 0 && suggestions.length === 0 && missingTwins.length === 0) return null;
   const count = selected.size + 1;
   const full = selected.size >= JOINT_MAX_OTHERS;
+  const needsDecision =
+    missingTwins.length > 0 || notice != null || Boolean(error) || addingJobId != null || Boolean(manualAdd?.addedNote);
+  if (conversation?.on && !listOpen && !needsDecision) {
+    const others = pairs.filter((pair) => selected.has(pair.job_id));
+    return (
+      <section
+        aria-label="Screening dla"
+        data-testid="joint-screening-picker"
+        data-collapsed=""
+        className="flex min-w-0 items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs"
+      >
+        <Layers className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+        <span className="shrink-0 text-sm font-semibold text-foreground">Screening dla</span>
+        <span
+          className="min-w-0 flex-1 truncate text-muted-foreground"
+          title={[anchorTitle, ...others.map((pair) => pair.title)].join(" · ")}
+        >
+          <ClientReferenceTag className="mr-1.5 align-text-bottom" reference={anchorReference} />
+          <span className="font-semibold text-foreground">{anchorTitle}</span>
+          {others.length > 0 ? ` + ${others.length} ${others.length === 1 ? "rekrutacja" : "rekrutacje"}` : null}
+        </span>
+        {suggestions.length > 0 ? (
+          <span className="shrink-0 text-muted-foreground">pasuje też do {suggestions.length}</span>
+        ) : null}
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="h-7 shrink-0 px-2"
+          aria-label="Zmień rekrutacje w tej rozmowie"
+          onClick={() => setListOpen(true)}
+        >
+          Zmień
+        </Button>
+      </section>
+    );
+  }
   return (
     <section
       aria-label="Screening dla"
@@ -201,6 +247,15 @@ export function JointScreeningPicker({
         <span className="text-xs font-normal text-muted-foreground">
           {count === 1 ? "1 rekrutacja" : `${count} rekrutacje`} · jedna rozmowa
         </span>
+        {conversation?.on && listOpen && !needsDecision ? (
+          <button
+            type="button"
+            onClick={() => setListOpen(false)}
+            className="ml-auto self-center rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-background hover:text-foreground"
+          >
+            Zwiń do linii
+          </button>
+        ) : null}
       </p>
       <ul className="mt-2 space-y-1.5">
         <li className="flex items-start gap-2 rounded-lg border border-border bg-background px-2.5 py-2 text-xs">

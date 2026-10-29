@@ -32,8 +32,11 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -180,23 +183,145 @@ export interface PersonPanelColumnProps {
   children: ReactNode;
 }
 
+/** Najwęższa kolumna panelu i najwęższy podgląd CV obok niej (px). */
+const COLUMN_MIN = 400;
+const ZONE_MIN = 360;
+/** Krok strzałki na uchwycie krawędzi (px). */
+const RESIZE_STEP = 40;
+
+export interface PersonPanelConversationMode {
+  on: boolean;
+  toggle: () => void;
+}
+
+const ConversationModeContext = createContext<PersonPanelConversationMode | null>(null);
+
+/**
+ * „Tryb rozmowy” (29.10.2026) — tylko w rozwiniętym panelu od 1024 px okna.
+ * Bez powłoki, w doku i w wąskim oknie `null`: przełącznika nie ma, a widok
+ * jest taki jak dotąd.
+ */
+export function usePersonPanelConversationMode(): PersonPanelConversationMode | null {
+  return useContext(ConversationModeContext);
+}
+
+function clampWidth(value: number, max: number): number {
+  return Math.round(Math.min(Math.max(value, COLUMN_MIN), Math.max(COLUMN_MIN, max)));
+}
+
 /**
  * Prawa kolumna panelu obok strefy podglądu: 460 px, od 1536 px okna 520 px.
  * Po zwinięciu CV połowa szerokości bez listwy (2,75rem), po zwinięciu obu —
  * reszta obok dwóch listew. Szerokości tylko od `lg`: poniżej strefy nie ma.
+ *
+ * Od 29.10.2026 (zgłoszenie Artura: formularz screeningu za ciasny na
+ * laptopie) krawędź kolumny przy widocznym CV da się przeciągnąć (od 400 px
+ * do „CV ma jeszcze 360 px”), strzałkami albo myszą; dwuklik i Home wracają
+ * do szerokości domyślnej. Szerokość i „Tryb rozmowy” pamięta układ osoby.
+ * Kolumna przy zwiniętym CV zostaje regułą D2 (połowa ekranu).
  */
 export function PersonPanelColumn({ split, testId = "person-panel-column", children }: PersonPanelColumnProps) {
   const ctx = useContext(SideContext);
   const layout = ctx?.layout ?? DEFAULT_PERSON_PREVIEW_LAYOUT;
+  const setLayout = ctx?.setLayout;
+  const adjustable = split && ctx?.wide === true;
+  const resizable = adjustable && !layout.cvCollapsed;
+  const columnRef = useRef<HTMLDivElement>(null);
+  // Podczas przeciągania szerokość żyje lokalnie; pamięć zapisuje puszczenie.
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const columnWidth = resizable ? (dragWidth ?? layout.columnWidth) : null;
+
+  const conversation = useMemo<PersonPanelConversationMode | null>(
+    () =>
+      adjustable && setLayout
+        ? { on: layout.compact, toggle: () => setLayout({ compact: !layout.compact }) }
+        : null,
+    [adjustable, setLayout, layout.compact],
+  );
+
   let width: string | false = false;
   if (split) {
-    if (bothCollapsed(layout)) width = "lg:flex-1";
+    if (columnWidth != null) width = "lg:flex-none";
+    else if (bothCollapsed(layout)) width = "lg:flex-1";
     else if (layout.cvCollapsed) width = "lg:w-[calc((100%-2.75rem)/2)] lg:flex-none";
     else width = "lg:w-[460px] lg:flex-none 2xl:w-[520px]";
   }
+
+  const maxWidth = (): number => {
+    const panel = columnRef.current?.parentElement;
+    return (panel?.getBoundingClientRect().width ?? 0) - ZONE_MIN;
+  };
+  const currentWidth = (): number => columnRef.current?.getBoundingClientRect().width ?? COLUMN_MIN;
+
+  const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const panel = columnRef.current?.parentElement;
+    if (!panel || !setLayout || event.button > 0) return;
+    event.preventDefault();
+    const right = panel.getBoundingClientRect().right;
+    const max = maxWidth();
+    let last = clampWidth(currentWidth(), max);
+    const move = (e: PointerEvent) => {
+      last = clampWidth(right - e.clientX, max);
+      setDragWidth(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDragWidth(null);
+      setLayout({ columnWidth: last });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const onResizeKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!setLayout) return;
+    if (event.key === "Home") {
+      event.preventDefault();
+      setLayout({ columnWidth: null });
+      return;
+    }
+    // Kolumna stoi po prawej: krawędź w lewo = szerzej.
+    const delta = event.key === "ArrowLeft" ? RESIZE_STEP : event.key === "ArrowRight" ? -RESIZE_STEP : 0;
+    if (delta === 0) return;
+    event.preventDefault();
+    setLayout({ columnWidth: clampWidth(currentWidth() + delta, maxWidth()) });
+  };
+
   return (
-    <div data-testid={testId} className={cn("flex min-h-0 min-w-0 flex-1 flex-col", width)}>
-      {children}
+    <div
+      ref={columnRef}
+      data-testid={testId}
+      data-compact={conversation?.on ? "" : undefined}
+      className={cn("flex min-h-0 min-w-0 flex-1 flex-col", resizable && "relative", width)}
+      // Szerokość z pamięci nie zabiera CV więcej niż do 360 px, także po zmniejszeniu okna.
+      style={columnWidth != null ? { width: `min(${columnWidth}px, calc(100% - ${ZONE_MIN}px))` } : undefined}
+    >
+      {resizable ? (
+        <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-label="Szerokość panelu osoby"
+          aria-valuemin={COLUMN_MIN}
+          aria-valuenow={columnWidth ?? undefined}
+          aria-valuetext={columnWidth != null ? `${columnWidth} px` : "domyślna"}
+          title="Przeciągnij, żeby poszerzyć panel · dwuklik: domyślna szerokość"
+          data-testid="person-panel-column-resize"
+          onPointerDown={startResize}
+          onDoubleClick={() => setLayout?.({ columnWidth: null })}
+          onKeyDown={onResizeKey}
+          className="group absolute inset-y-0 -left-1.5 z-10 hidden w-3 cursor-col-resize items-center justify-center focus-visible:outline-none lg:flex"
+        >
+          <span className="h-full w-px bg-transparent transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
+          <span className="absolute top-1/2 flex h-10 w-2.5 -translate-y-1/2 flex-col items-center justify-center gap-0.5 rounded-full border border-border bg-card shadow-sm group-hover:border-primary group-focus-visible:border-primary group-focus-visible:ring-2 group-focus-visible:ring-ring">
+            <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground" />
+            <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground" />
+            <span className="h-0.5 w-0.5 rounded-full bg-muted-foreground" />
+          </span>
+        </div>
+      ) : null}
+      <ConversationModeContext.Provider value={conversation}>{children}</ConversationModeContext.Provider>
     </div>
   );
 }
