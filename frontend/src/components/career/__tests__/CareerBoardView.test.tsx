@@ -1,12 +1,10 @@
 /**
- * Tablica otwartych rekrutacji (strona główna kariery, etap 6): pusty stan tylko
- * przy udanym odczycie, awaria ≠ pusta lista, filtry z licznikami, „pokaż
- * kolejne”, karta na link prowadzącego, „Zostaw CV” stałym linkiem HoR
- * i kontrast tekstu na kartach (≥ 4,5:1).
+ * Tablica otwartych rekrutacji (strona główna kariery, etap 6; od 29.10.2026
+ * w barwach marki): pusty stan tylko przy udanym odczycie, awaria ≠ pusta
+ * lista, filtry z licznikami, „pokaż kolejne”, karta na link prowadzącego
+ * z wymaganiami, „Zostaw CV” stałym linkiem HoR i kontrast tekstu na kartach.
  */
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CareerBoardView } from "@/components/career/CareerBoardView";
@@ -34,70 +32,60 @@ const DATA: CareerBoardResponse = {
 };
 
 const view = (data: CareerBoardResponse | null) =>
-  render(<CareerBoardView data={data} base="" footer={<footer>stopka</footer>} />);
+  render(<CareerBoardView data={data} base="" host="kariera.b2bnetwork.pl" />);
+
+const cards = () => screen.getAllByRole("link", { name: /Zobacz/ });
 
 describe("CareerBoardView", () => {
-  it("karty prowadzą na link prowadzącego, 12 na start, potem „pokaż kolejne”", () => {
+  it("karty prowadzą na link prowadzącego, 12 na start, potem „Pokaż kolejne”", () => {
     view(DATA);
-    const cards = () => screen.getAllByRole("link", { name: /Zobacz/ });
     expect(cards()).toHaveLength(12);
     expect(cards()[0]).toHaveAttribute("href", "/r/rekrutacja-1");
-    expect(cards()[0]).toHaveTextContent("rekruter: Marta");
-    expect(screen.getByText(/\[15 otwartych · projekty B2B/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /pokaż kolejne 3/ }));
+    expect(cards()[0]).toHaveTextContent("Rekruter: Marta");
+    expect(cards()[1]).toHaveTextContent("Warszawa · Hybryda");
+    expect(screen.getByText(/15 otwartych · Projekty B2B/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Pokaż kolejne 3/ }));
     expect(cards()).toHaveLength(15);
-    expect(screen.queryByRole("button", { name: /pokaż kolejne/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Pokaż kolejne/ })).toBeNull();
   });
 
   it("filtry: kategoria z licznikami, szukanie, tryb pracy, wyczyszczenie", () => {
     view(DATA);
     const cats = screen.getByRole("group", { name: "Kategoria" });
-    expect(within(cats).getByRole("button", { name: "wszystkie · 15" })).toHaveAttribute(
+    expect(within(cats).getByRole("button", { name: "Wszystkie · 15" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
     // Kategorie bez kart nie zajmują miejsca.
-    expect(within(cats).queryByRole("button", { name: /infra/ })).toBeNull();
-    fireEvent.click(within(cats).getByRole("button", { name: "qa · 1" }));
-    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
-    expect(document.querySelector(".kr-board-out")).toHaveTextContent("1 z 15");
+    expect(within(cats).queryByRole("button", { name: /Infra/ })).toBeNull();
+    fireEvent.click(within(cats).getByRole("button", { name: "QA · 1" }));
+    expect(cards()).toHaveLength(1);
+    expect(screen.getByTestId("board-count")).toHaveTextContent("1 z 15");
 
-    fireEvent.click(within(cats).getByRole("button", { name: "wszystkie · 15" }));
+    fireEvent.click(within(cats).getByRole("button", { name: "Wszystkie · 15" }));
     fireEvent.change(screen.getByRole("searchbox", { name: "Szukaj w rekrutacjach" }), {
       target: { value: "tester" },
     });
-    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
-    expect(within(cats).getByRole("button", { name: "qa · 1" })).toBeInTheDocument();
+    expect(cards()).toHaveLength(1);
+    expect(within(cats).getByRole("button", { name: "QA · 1" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "stacjonarnie" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stacjonarnie" }));
     expect(screen.getByText("Nic nie pasuje do filtrów.")).toBeInTheDocument();
     expect(screen.queryByText("Brak otwartych rekrutacji.")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "$ wyczyść filtry" }));
-    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(12);
+    fireEvent.click(screen.getByRole("button", { name: "Wyczyść filtry" }));
+    expect(cards()).toHaveLength(12);
   });
 
-  it("podgląd: scena wiersza pod myszą, z wymaganiami; ukryty przed czytnikiem i Tabem", () => {
+  it("karta pokazuje kategorię i do 4 wymagań zamiast podglądu sceny", () => {
     view({
       ...DATA,
-      jobs: [
-        job(1, { title: "Data Engineer", theme: "grafit", must: ["Spark", "Airflow"], nice: ["dbt"] }),
-        job(2, { title: "DevOps Engineer", theme: "terminal", must: ["Kubernetes"] }),
-      ],
+      jobs: [job(1, { title: "Data Engineer", category: "infra", must: ["Spark", "Airflow", "dbt", "SQL", "Kafka"] })],
     });
-    const preview = document.querySelector(".kr-board-preview") as HTMLElement;
-    expect(preview).toHaveAttribute("aria-hidden", "true");
-    expect(preview).toHaveAttribute("tabindex", "-1");
-    expect(preview).toHaveTextContent("Data Engineer");
-    expect(preview).toHaveTextContent("Spark");
-    expect(preview).toHaveTextContent(/dbt\s*mile widziane/);
-
-    const rows = screen.getAllByRole("link", { name: /Zobacz/ });
-    fireEvent.mouseEnter(rows[1]);
-    expect(preview).toHaveTextContent("DevOps Engineer");
-    expect(preview).toHaveAttribute("href", "/r/rekrutacja-2");
-    expect(rows[1]).toHaveAttribute("data-active");
-    fireEvent.focus(rows[0]);
-    expect(preview).toHaveTextContent("Data Engineer");
+    const [card] = cards();
+    expect(card).toHaveTextContent("Infra & data");
+    expect(card).toHaveTextContent(/Spark.*Airflow.*dbt.*SQL/);
+    expect(card).not.toHaveTextContent("Kafka");
+    expect(document.querySelector(".kr-board-preview")).toBeNull();
   });
 
   it("szukanie po wymaganiach z karty", () => {
@@ -105,46 +93,49 @@ describe("CareerBoardView", () => {
     fireEvent.change(screen.getByRole("searchbox", { name: "Szukaj w rekrutacjach" }), {
       target: { value: "kafka" },
     });
-    expect(screen.getAllByRole("link", { name: /Zobacz/ })).toHaveLength(1);
-    expect(document.querySelector(".kr-board-out")).toHaveTextContent("1 z 2");
+    expect(cards()).toHaveLength(1);
+    expect(screen.getByTestId("board-count")).toHaveTextContent("1 z 2");
   });
 
   it("pusta tablica po udanym odczycie: „Brak otwartych rekrutacji” i „Zostaw CV”", () => {
     view({ ...DATA, jobs: [] });
     expect(screen.getByText("Brak otwartych rekrutacji.")).toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "Kategoria" })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Zostaw CV/ }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Zostaw CV" })).toBeInTheDocument();
   });
 
   it("awaria API to komunikat o błędzie, nigdy pusta lista", () => {
     view(null);
     expect(screen.getByRole("alert")).toHaveTextContent("Nie udało się wczytać otwartych rekrutacji");
     expect(screen.queryByText("Brak otwartych rekrutacji.")).toBeNull();
-    expect(screen.getByText("stopka")).toBeInTheDocument();
+    expect(screen.getByRole("contentinfo")).toHaveTextContent("kariera.b2bnetwork.pl");
   });
 
   it("„Zostaw CV” otwiera formularz bazy (bez rekrutacji) na stałym linku HoR", () => {
     view(DATA);
-    expect(screen.queryByRole("button", { name: /dołącz do bazy/ })).toBeNull();
-    fireEvent.click(screen.getAllByRole("button", { name: /^Zostaw CV/ })[0]);
+    expect(screen.queryByRole("button", { name: /dołącz do bazy/i })).toBeNull();
+    expect(screen.getByRole("link", { name: "Zostaw CV" })).toHaveAttribute("href", "#zostaw-cv");
+    fireEvent.click(screen.getByRole("button", { name: "Zostaw CV" }));
     const cv = screen.getByRole("region", { name: "Nie widzisz nic dla siebie?" });
-    expect(within(cv).getByRole("button", { name: /dołącz do bazy/ })).toBeInTheDocument();
+    expect(within(cv).getByRole("button", { name: /dołącz do bazy/i })).toBeInTheDocument();
     // Link rekrutera ma tylko zgodę na przyszłe procesy.
     expect(cv.textContent).toMatch(/przyszłych procesów rekrutacyjnych/);
-    expect(screen.queryByRole("button", { name: "Zostaw CV — odezwiemy się" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Zostaw CV" })).toBeNull();
   });
 
   it("bez linku HoR nie ma „Zostaw CV”", () => {
     view({ ...DATA, cv: null });
     expect(screen.queryByRole("button", { name: /Zostaw CV/ })).toBeNull();
+    expect(screen.queryByRole("link", { name: /Zostaw CV/ })).toBeNull();
+  });
+
+  it("bez śladów terminala", () => {
+    const { container } = view(DATA);
+    expect(container.textContent).not.toMatch(/\$ |ls ~|grep|zsh/);
   });
 });
 
 // ── kontrast ────────────────────────────────────────────────────────────────
-
-const css = readFileSync(join(__dirname, "..", "career.css"), "utf8");
-const token = (name: string) =>
-  new RegExp(`--kr-${name}:\\s*(#[0-9a-fA-F]{6})\\s*;`).exec(css)?.[1] ?? "";
 
 function luminance(hex: string): number {
   const [r, g, b] = [1, 3, 5].map((i) => {
@@ -160,19 +151,19 @@ function contrast(a: string, b: string): number {
 }
 
 describe("kontrast tablicy", () => {
-  it("tekst karty, filtrów i liczników ≥ 4,5:1 (motyw Terminal strony głównej)", () => {
-    for (const bg of ["form-bg", "input-bg", "bg", "tint-strong"]) {
-      for (const fg of ["white", "text", "para", "gray", "red"]) {
-        expect(contrast(token(fg), token(bg)), `${fg} na ${bg}`).toBeGreaterThanOrEqual(4.5);
-      }
-    }
-  });
+  // Karty z `brand/brandPage.module.css`: #242424 na ciemnych szablonach, biel na Jasnym.
+  const CARD = { dark: "#242424", light: "#FFFFFF" };
 
-  it("nazwa sceny i kategoria na pasku sceny ≥ 4,5:1 w każdym szablonie", () => {
+  it("tekst karty, filtrów i liczników ≥ 4,5:1 w każdym szablonie", () => {
     for (const id of CAREER_THEME_IDS) {
       const p = CAREER_THEMES[id];
-      expect(contrast(p.muted, p.bg), `${id}: scena`).toBeGreaterThanOrEqual(4.5);
-      expect(contrast(p.text, p.bg), `${id}: kategoria`).toBeGreaterThanOrEqual(4.5);
+      const card = p.light ? CARD.light : CARD.dark;
+      for (const bg of [p.bg, card]) {
+        for (const [name, fg] of Object.entries({ heading: p.heading, text: p.text, para: p.para, muted: p.muted, accent: p.accent })) {
+          expect(contrast(fg, bg), `${id}: ${name} na ${bg}`).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+      expect(contrast(p.btnText, p.btn), `${id}: przycisk`).toBeGreaterThanOrEqual(4.5);
     }
   });
 });

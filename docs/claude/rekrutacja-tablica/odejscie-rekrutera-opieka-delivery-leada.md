@@ -57,5 +57,5 @@ Decyzje Artura z 28.10.2026:
   zostaje bez zmian.
 - **Urlopów to nie dotyczy** — przekazanie uruchamia tylko wyłączenie konta.
 
-Dane: `pair_departure_care` (migracja 0617 + lustro w `entrypoint.sh`,
+Dane: `pair_departure_care` (migracja 0618 + lustro w `entrypoint.sh`,
 `services/departure_care_schema.py`), sonda w `/api/health/deep`.

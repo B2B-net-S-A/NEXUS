@@ -1,4 +1,4 @@
-"""Odejście rekrutera: jego kandydatów domyka Delivery Lead rekrutacji (0617).
+"""Odejście rekrutera: jego kandydatów domyka Delivery Lead rekrutacji (0618).
 
 Decyzje Artura z 28.10.2026: każde wyłączenie konta dzieli żywe pary osoby
 po rekrutacjach (DL rekrutacji → główny DL klienta → Head of Recruitment),
@@ -47,7 +47,7 @@ from app.services.departure_care import (
 from app.services.hr import placement_bonuses
 
 BACKEND = Path(__file__).resolve().parents[1]
-MIGRATION = BACKEND / "alembic" / "versions" / "0617_pair_departure_care.py"
+MIGRATION = BACKEND / "alembic" / "versions" / "0618_pair_departure_care.py"
 T0 = datetime(2026, 10, 12, 9, 0, tzinfo=timezone.utc)
 
 
@@ -62,8 +62,8 @@ def test_migration_chains_after_timesheets_permission() -> None:
     spec = importlib.util.spec_from_file_location("m0614", MIGRATION)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.revision == "0617_pair_departure_care"
-    assert module.down_revision == "0616_autofill_more_reasons"
+    assert module.revision == "0618_pair_departure_care"
+    assert module.down_revision == "0617_job_idle_close"
 
 
 def test_ddl_is_idempotent_and_mirrored_in_entrypoint() -> None:

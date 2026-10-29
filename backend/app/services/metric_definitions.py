@@ -93,7 +93,9 @@ DL_HIT_RATIO_TARGET_PCT = 30.0
 # uzasadnienia, więc nie może dziać się samo. Napisy, nie enum: ten moduł jest
 # liściem grafu importów (filtr na modelu: `services/hit_ratio_scope.py`).
 HIT_RATIO_WON_CLOSE_REASONS = frozenset({"filled_by_us"})
-HIT_RATIO_LOST_CLOSE_REASONS = frozenset({"competitor"})
+# `no_activity` (28.10.2026): NEXUS zamknął po 28 dniach bez ruchu Delivery
+# Leada — decyzja Artura: liczy się jak przegrana (`services/job_idle.py`).
+HIT_RATIO_LOST_CLOSE_REASONS = frozenset({"competitor", "no_activity"})
 HIT_RATIO_NEUTRAL_CLOSE_REASONS = frozenset(
     {
         "duplicate",

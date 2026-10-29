@@ -23,6 +23,13 @@ name: Przepnij migracje PR-ów
 # Kod z gałęzi PR-a nie jest wykonywany: skrypty są kopiowane z maina do
 # $RUNNER_TEMP przed checkoutem gałęzi, a migracje PR-a tylko parsowane (ast).
 #
+# PAS MIGRACJI (29.10.2026): przepięcie wszystkich na tę samą nową głowę
+# dawało w następnej rundzie kolejki znowu dwie głowy w każdej grupie poza
+# pierwszą. Dlatego przed przepięciem `queue_migration_lane.py enforce`
+# zostawia aktywny jeden PR z migracją (pierwszy w kolejce, inaczej najstarszy
+# uzbrojony albo czekający), a resztę parkuje etykietą `czeka-na-migracje`
+# — ich push z przepięciem nie wrzuca ich do kolejki (auto-enqueue je pomija).
+#
 # Ręcznie: „Run workflow” z numerem PR-a (puste = wszystkie) i `dry_run`.
 
 on:
@@ -89,7 +96,22 @@ jobs:
       - name: Skrypty z maina do katalogu tymczasowego
         if: steps.token.outputs.ok == 'true'
         run: |
-          cp backend/scripts/rechain_migration.py .github/scripts/queue_rechain_migrations.py "$RUNNER_TEMP/"
+          cp backend/scripts/rechain_migration.py .github/scripts/queue_rechain_migrations.py .github/scripts/queue_migration_lane.py "$RUNNER_TEMP/"
+      - name: Pas migracji (jeden PR z migracją w kolejce)
+        if: steps.token.outputs.ok == 'true'
+        env:
+          # Etykieta zdjęta tokenem Actions nie uruchomiłaby auto-enqueue.
+          GH_TOKEN: ${{ secrets.QUEUE_BOT_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+        run: |
+          args=(enforce --repo "$REPO")
+          if [ "$DRY_RUN" = "true" ]; then
+            args+=(--dry-run)
+          fi
+          # Błąd pasa nie może zatrzymać przepięcia — bez niego PR-y i tak padną.
+          python3 "$RUNNER_TEMP/queue_migration_lane.py" "${args[@]}" \
+            || echo "::warning::Pas migracji się nie udał — przepinam mimo to."
       - name: Przepnij
         if: steps.token.outputs.ok == 'true'
         env:

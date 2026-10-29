@@ -160,6 +160,18 @@ CATALOG = (
         "klienta, a bez niego Head of Recruitment. W mailu: kto odszedł, ile osób "
         "w ilu rekrutacjach i na jakich etapach.",
     ),
+    # Mail obowiązkowy (28.10.2026) — `services/job_idle.py`.
+    dict(
+        id="job_idle",
+        label="Rekrutacje bez ruchu",
+        module="Rekrutacje",
+        trigger="Od 14 dni w rekrutacji nie poszło CV do klienta ani nie wpisano "
+        "odpowiedzi klienta. Po 21 dniach także do Head of Recruitment, po 28 "
+        "NEXUS zamyka rekrutację. „Jeszcze trwa” liczy od nowa.",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment); "
+        "po 21 dniach i przy zamknięciu także Head of Recruitment. Jeden zbiorczy "
+        "mail dziennie na osobę.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -417,6 +429,7 @@ JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
 JOB_CLOSED_KIND = "job_closed"
 DEPARTED_CARE_KIND = "departed_care"
+JOB_IDLE_KIND = "job_idle"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -434,6 +447,7 @@ REQUIRED_KINDS = frozenset(
         JOB_P0_KIND,
         JOB_CLOSED_KIND,
         DEPARTED_CARE_KIND,
+        JOB_IDLE_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
@@ -520,6 +534,7 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
     JOB_CLOSED_KIND: ("job_closed_people_waiting",),
     DEPARTED_CARE_KIND: ("departed_pairs_care",),
+    JOB_IDLE_KIND: ("job_idle_reminder",),
 }
 
 
