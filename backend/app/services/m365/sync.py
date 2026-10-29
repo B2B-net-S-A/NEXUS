@@ -88,7 +88,7 @@ EVENT_SELECT = (
 # prywatne spotkania dalej przychodziłyby jako zwykłe. Każde połączenie robi
 # raz pełny odczyt okna ± 1 rok zamiast delty (znacznik w `app_settings`),
 # a zapisane już prywatne spotkania dostają przy tym treść „Spotkanie
-# prywatne” (R3-7). Nowy klucz = nowy pełny odczyt: 0617 dołożyło `iCalUId`
+# prywatne” (R3-7). Nowy klucz = nowy pełny odczyt: 0618 dołożyło `iCalUId`
 # i `webLink` (spotkania handlowców w Sprzedaży, „Otwórz w Outlooku”).
 EVENT_SELECT_RESET_KEY = "m365_event_select_ical_uid_reset"
 # Kursory folderów poczty też pamiętają $select, ale ich nie zerujemy (pełny
@@ -98,7 +98,7 @@ OWA_READ_ITEM_URL = (
     "https://outlook.office365.com/owa/?ItemID={item_id}"
     "&exvsurl=1&viewmodel=ReadMessageItem"
 )
-# Skrzynka z „Sprzedaż: podgląd” raz po podłączeniu (albo po wdrożeniu 0617)
+# Skrzynka z „Sprzedaż: podgląd” raz po podłączeniu (albo po wdrożeniu 0618)
 # przechodzi przez maile już zapisane w NEXUSIE z tego okna — luka między
 # importem z Atlasa a pierwszą synchronizacją.
 SALES_CATCH_UP_KEY = "m365_sales_mail_catch_up"
@@ -1488,7 +1488,7 @@ async def _upsert_event(
     if existing is not None and ical_uid and existing.m365_ical_uid != ical_uid:
         existing.m365_ical_uid = ical_uid
     if scope.sales and ical_uid:
-        # Przed pominięciem „bez zmian”: pełny odczyt po 0617 przechodzi przez
+        # Przed pominięciem „bez zmian”: pełny odczyt po 0618 przechodzi przez
         # spotkania już zapisane i dopiero teraz zapisuje je w Sprzedaży.
         await _record_sales_meeting(
             db, conn, ev, ical_uid, private=private, skip_candidates=scope.candidates
