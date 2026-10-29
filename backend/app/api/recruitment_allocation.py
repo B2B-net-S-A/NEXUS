@@ -35,6 +35,7 @@ from app.services.recruitment_allocation import (
     load_workloads,
     Workload,
 )
+from app.services.request_allocation_rules import load_rules
 from app.services.workforce_availability import effective_owner_ids, workforce_context
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
@@ -152,8 +153,15 @@ async def set_allocation_mode(
     await allocation_lock(db)
     context = await workforce_context(db, refresh=True)
     # Urlopy (Compass albo NEXUS) wyłączone = nie ma danych, na które warto czekać;
-    # automat przydziela wtedy bez nich. Włączone i nieaktualne — odmowa.
-    if body.mode == "auto" and availability_enabled() and not context.fresh:
+    # automat przydziela wtedy bez nich. Włączone i nieaktualne — odmowa, chyba
+    # że zasady każą przydzielać bez nich („Przydzielaj”).
+    rules = await load_rules(db)
+    if (
+        body.mode == "auto"
+        and availability_enabled()
+        and not context.fresh
+        and rules.leave_policy == "wait"
+    ):
         raise HTTPException(409, "Najpierw przywróć aktualne dane o urlopach")
     await db.execute(
         insert(RecruitmentAllocationState).values(id=1).on_conflict_do_nothing()

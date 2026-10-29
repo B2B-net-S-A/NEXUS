@@ -13,6 +13,7 @@ import type {
   RequestBoard,
   ReviewResponse,
 } from "@/lib/api/requestAllocation"
+import { DEFAULT_TEAM_RULES } from "@/lib/allocation-rules"
 import { EMPTY_FILTERS, type BoardFilters } from "@/lib/request-board"
 
 const TODAY = "2026-09-24"
@@ -526,7 +527,8 @@ const team: CompetenceTeam = {
   unassigned: [{ user_id: 5, name: "Ewa Fikcyjna", roles: ["recruiter"], allocation_excluded: false, assignment_id: null }],
   excluded: [],
   people: [{ user_id: 5, name: "Ewa Fikcyjna", roles: ["recruiter"], allocation_excluded: false, assignment_id: null }],
-  rules: { review_time: "08:30" },
+  rules: DEFAULT_TEAM_RULES,
+  mode: "auto",
 }
 
 describe("RequestBoardView — wariant daily", () => {
@@ -623,7 +625,7 @@ describe("RequestBoardView — sama tabela (panel P0, 28.10.2026)", () => {
 describe("CompetenceTeamView", () => {
   it("adds a person to 1st priority and excludes from allocation", async () => {
     const user = userEvent.setup()
-    const actions = { assign: vi.fn(), remove: vi.fn(), exclude: vi.fn(), saveRules: vi.fn() }
+    const actions = { assign: vi.fn(), remove: vi.fn(), exclude: vi.fn() }
     render(<CompetenceTeamView team={team} actions={actions} />)
     await user.click(screen.getByRole("button", { name: "Dodaj osobę do: QA, 1. priorytet" }))
     await user.type(screen.getByLabelText("Szukaj osoby"), "ewa")
@@ -633,14 +635,14 @@ describe("CompetenceTeamView", () => {
     expect(actions.exclude).toHaveBeenCalledWith(5, true)
   })
 
-  it("zasady: sama godzina przeglądu — bez progu „sourcer wystarczy”", async () => {
-    const user = userEvent.setup()
-    const actions = { assign: vi.fn(), remove: vi.fn(), exclude: vi.fn(), saveRules: vi.fn() }
+  it("zasady automatu mieszka w osobnej zakładce — tu tylko odnośnik", () => {
+    const actions = { assign: vi.fn(), remove: vi.fn(), exclude: vi.fn() }
     render(<CompetenceTeamView team={team} actions={actions} />)
-    expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument()
-    expect(screen.queryByText(/Sourcer wystarczy/)).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Zapisz zasady" }))
-    expect(actions.saveRules).toHaveBeenCalledWith({ review_time: "08:30" })
+    expect(screen.queryByRole("button", { name: "Zapisz zasady" })).not.toBeInTheDocument()
+    expect(screen.getByRole("link", { name: "Automat przydziału" })).toHaveAttribute(
+      "href",
+      "/settings/team-structure?zakladka=automat",
+    )
   })
 })
 

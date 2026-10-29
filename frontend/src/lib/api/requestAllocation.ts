@@ -321,8 +321,54 @@ export interface TeamCategory {
   second: TeamPerson[]
 }
 
+export type AllocationOrder = "sent_first" | "deadline_first"
+export type LeavePolicy = "wait" | "ignore"
+
+/** Zasady automatu przydziału (`request_allocation_rules`, 29.10.2026). */
 export interface TeamRules {
   review_time: string
+  include_p2: boolean
+  people_per_p1: number
+  max_load: number | null
+  overflow: number
+  outsiders: boolean
+  order: AllocationOrder
+  leave_policy: LeavePolicy
+}
+
+export type AllocationRunMode = "off" | "shadow" | "auto"
+
+export interface AllocationPreviewPerson {
+  user_id: number
+  name: string
+  p1_now: number
+  new: number
+  new_p1: number
+}
+
+/** Przebieg „na sucho” (`POST /api/competence-team/rules/preview`). */
+export interface AllocationPreviewSide {
+  pool: number
+  empty: number
+  new_people: number
+  new_requests: number
+  waiting: number
+  proposals_dropped: number
+  at_limit: number
+  team: number
+  people: AllocationPreviewPerson[]
+  auto_waits_for_leave: boolean
+}
+
+export interface AllocationPreview {
+  today: AllocationPreviewSide
+  draft: AllocationPreviewSide
+}
+
+export interface AllocationRulesChange {
+  at: string
+  actor_name: string | null
+  changed: Record<string, [unknown, unknown]>
 }
 
 export interface CompetenceTeam {
@@ -331,6 +377,7 @@ export interface CompetenceTeam {
   excluded: TeamPerson[]
   people: TeamPerson[]
   rules: TeamRules
+  mode: AllocationRunMode
 }
 
 export const COMPETENCE_TEAM_QUERY_KEY = ["competence-team"] as const
@@ -369,4 +416,14 @@ export async function setAllocationExcluded(
 
 export async function putTeamRules(rules: TeamRules): Promise<TeamRules> {
   return (await api.put<TeamRules>("/api/competence-team/rules", rules)).data
+}
+
+export async function previewTeamRules(rules: TeamRules): Promise<AllocationPreview> {
+  return (await api.post<AllocationPreview>("/api/competence-team/rules/preview", rules)).data
+}
+
+export const RULES_HISTORY_QUERY_KEY = ["competence-team", "rules-history"] as const
+
+export async function fetchRulesHistory(): Promise<AllocationRulesChange[]> {
+  return (await api.get<AllocationRulesChange[]>("/api/competence-team/rules/history")).data
 }
