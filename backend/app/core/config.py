@@ -1021,6 +1021,9 @@ class Settings(BaseSettings):
     # bramkowany przez SMTP_ENABLED. Progi jako dni.
     JOB_DEADLINE_ALERTS_ENABLED: bool = True
     JOB_DEADLINE_ALERT_THRESHOLDS_DAYS: tuple[int, ...] = (7, 3, 1)
+    # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
+    # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
+    JOB_IDLE_ENABLED: bool = True
 
     # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
     # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin

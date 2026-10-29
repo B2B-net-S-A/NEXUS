@@ -49,6 +49,15 @@ REMOVAL_REASON = "autofill_withdrawn_over_budget"
 # Odrzucenie na cały klient (27.10.2026): „Pracuje u tego klienta” / „Nie chce
 # do tego klienta” zdejmuje nietknięte karty tej osoby z innych rekrutacji.
 CLIENT_REMOVAL_REASON = "autofill_withdrawn_client"
+# „Nie szuka pracy” z datą (28.10.2026) zdejmuje nietknięte karty tej osoby
+# ze wszystkich innych rekrutacji.
+NOT_LOOKING_REMOVAL_REASON = "autofill_withdrawn_not_looking"
+# „Praca w tle” mówi, dlaczego system wycofał osoby (`details.why`).
+_WHY = {
+    REMOVAL_REASON: "budget",
+    CLIENT_REMOVAL_REASON: "client",
+    NOT_LOOKING_REMOVAL_REASON: "not_looking",
+}
 ACTIVITY_ENTITY = "job_automation"
 ACTION = "autofill_withdrawn"
 
@@ -264,7 +273,7 @@ async def apply(
                 details={
                     "count": len(candidate_ids),
                     "candidate_ids": candidate_ids,
-                    "why": "client" if reason == CLIENT_REMOVAL_REASON else "budget",
+                    "why": _WHY.get(reason, "budget"),
                 },
             )
         )
@@ -294,3 +303,28 @@ async def withdraw_at_client(
         if int(c) == candidate_id
     ]
     return await apply(db, pairs, reason=CLIENT_REMOVAL_REASON, check_budget=False)
+
+
+async def withdraw_elsewhere(
+    db, *, candidate_id: int, except_job_id: int
+) -> list[tuple[int, int]]:
+    """Nietknięte karty tej osoby od systemu we wszystkich innych rekrutacjach
+    („Nie szuka pracy” z datą, 28.10.2026). Bez commitu — w transakcji ruchu."""
+    job_ids = list(
+        (
+            await db.scalars(
+                select(CandidateStage.job_id).where(
+                    CandidateStage.candidate_id == candidate_id,
+                    CandidateStage.job_id != except_job_id,
+                )
+            )
+        ).all()
+    )
+    if not job_ids:
+        return []
+    pairs = [
+        (int(c), int(j))
+        for c, j in (await db.execute(_untouched_pairs(sorted(set(job_ids))))).all()
+        if int(c) == candidate_id
+    ]
+    return await apply(db, pairs, reason=NOT_LOOKING_REMOVAL_REASON, check_budget=False)

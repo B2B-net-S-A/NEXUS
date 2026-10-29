@@ -44,7 +44,9 @@ import {
 } from "@/components/v2/modals/AutofillFeedbackField";
 import {
  CLIENT_WIDE_REASONS,
+ NOT_LOOKING_DEFAULT_MONTHS,
  autofillReasonLabel,
+ notLookingUntil,
  templateReasonFor,
  type AutofillFeedbackChoice,
  type AutofillLearnedFrom,
@@ -257,6 +259,10 @@ export function RejectionV2({
  // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
  // domyślnie na cały klient.
  const [autofillWholeClient, setAutofillWholeClient] = useState(true);
+ // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące.
+ const [notLookingUntilValue, setNotLookingUntilValue] = useState(() =>
+ notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS),
+ );
 
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
@@ -277,6 +283,7 @@ export function RejectionV2({
  setAutofillReason(null);
  setAutofillRate("");
  setAutofillWholeClient(true);
+ setNotLookingUntilValue(notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS));
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -327,6 +334,7 @@ export function RejectionV2({
  ...(CLIENT_WIDE_REASONS.has(autofillReason) && !autofill?.several
  ? { wholeClient: autofillWholeClient }
  : {}),
+ ...(autofillReason === "not_looking" ? { notLookingUntil: notLookingUntilValue } : {}),
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
@@ -458,6 +466,8 @@ export function RejectionV2({
  askRate={!rateReason}
  wholeClient={autofillWholeClient}
  onWholeClientChange={setAutofillWholeClient}
+ notLookingUntil={notLookingUntilValue}
+ onNotLookingUntilChange={setNotLookingUntilValue}
  >
  {workModeReason ? (
  <RejectionWorkModeField

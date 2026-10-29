@@ -28,8 +28,11 @@ Wtyczka przyjmuje to w `chrome.runtime.onMessageExternal` (manifest:
 ```json
 {"user": {"id": 26, "name": "Malwina Jobda", "initials": "MJ"},
  "usage": {"reads_today": 34, "reads_limit": 150, "adds_today": 6},
- "frontend_url": "https://nexus.b2bnetwork.pl"}
+ "frontend_url": "https://nexus.b2bnetwork.pl",
+ "latest_version": "1.0.3"}
 ```
+`latest_version` = najnowsza wtyczka (stała w backendzie, równa `manifest.json`).
+Starsza wersja w panelu → baner „Jest nowa wersja” z linkiem do `<frontend>/wtyczka`.
 
 ### Profil odczytany ze strony (`ProfileRead`) — wejście kilku tras
 ```json

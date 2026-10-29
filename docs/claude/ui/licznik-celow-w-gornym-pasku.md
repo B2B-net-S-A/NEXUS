@@ -60,6 +60,21 @@ ratio. Makiety: https://claude.ai/artifact/SDmwSbF8c9wWoqnUtB3KLt, raport:
   (3) segmenty mają wysokość wiersza (`h-full`), a przycisk `content-start`.
   Pilnuje tego test e2e (`górny pasek — licznik celów`): wyszukiwarka ≥ 220 px,
   sąsiad 36 px, zero zawiniętych i wystających segmentów.
+- **Okruszki w ciasnym pasku gubią całe okruszki od początku (28.10.2026).**
+  Rekruter z Ligą, licznikiem celów i siedmioma ikonami miał przy 1280 px na
+  okruszki 93 px, a stałe „Dashboard › Kandydaci” (178 px, sekcje się nie
+  kurczą — UAT M03-B09) wychodziło pod wyszukiwarkę, nazwa kandydata miała
+  0 px; tak samo na rekrutacji. Ścieżka (`BreadcrumbTrail` w
+  `shell/BreadcrumbV2.tsx`) ma wysokość jednego wiersza i zawija okruszki:
+  `flex-row-reverse` z odwróconym `order` wypełnia wiersz od nazwy, więc do
+  ukrytego wiersza spada najpierw „Dashboard”, potem kolejne sekcje, a nazwa
+  zostaje (skraca się wielokropkiem). DOM i czytnik ekranu dalej idą od
+  „Dashboard”. Nazwa ma sufit `max-w-44` (176 px = tyle, ile miała obok dwóch
+  sekcji przy 360 px) — bez niego długa nazwa rekrutacji zrzucała sekcje
+  także przy 1920 px. Strzałka stoi za okruszkiem, nie przed nim. Wyszukiwarki
+  (220 px) i licznika to nie rusza. Harness rysuje tę samą ścieżkę, e2e
+  „górny pasek — licznik celów” sprawdza, że widoczne okruszki kończą się
+  przed wyszukiwarką.
 - **Forma zależy od okna tylko w dwóch miejscach:** poniżej 1024 px samo słowo
   „Cele”, do 1535 px skróty okresu („tydz.”, „mies.”) i krótszy podpis, od
   1536 px forma pełna z przedrostkiem „Zespół ·” w podpisie pierwszego

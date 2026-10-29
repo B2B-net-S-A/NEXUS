@@ -1,5 +1,5 @@
 {
-  "entry": "b7190648f66eb6ce116e7889e362da5e1f8d832672649e887936e18065a45083",
+  "entry": "35973342b06eed9fc2c4229f4fb00506d38fb8ebbc06faa10d8736f283d8fb1a",
   "guide": "jobs.board",
   "sources": {
     "backend/app/services/pipeline_move_rules.py": "798b43893f350d829b782e6828f1b92d2c7c6448772143a42004c9321036c342",
