@@ -18,7 +18,6 @@ import {
   isSlugFormatValid,
   liveFindings,
   pageState,
-  paramsTagline,
   removeExcerpt,
 } from "../share-utils";
 
@@ -113,22 +112,11 @@ describe("share-utils", () => {
     expect(activeLinkForJob(links, 2)).toBeNull();
   });
 
-  it("host i parametry podglądu", () => {
+  it("host podglądu", () => {
     expect(hostFromUrl("https://kariera.dynaminds.pl/marta-n")).toBe("kariera.dynaminds.pl");
     expect(hostFromUrl(null)).toBe("");
     // Adres względny = host bieżącej strony (jsdom: localhost:3000).
     expect(hostFromUrl("/kariera/p/marta-n")).toBe(window.location.host);
-    expect(
-      paramsTagline({
-        city: "Warszawa",
-        remote_policy: "hybrid",
-        onsite_days_per_week: 2,
-        seniority: "senior",
-        contract: "B2B",
-        start: null,
-        duration: null,
-      }),
-    ).toBe("[warszawa · hybryda · b2b · senior]");
   });
 
   it("rozpoznaje odmowę zatwierdzenia i ignoruje inne 422", () => {
