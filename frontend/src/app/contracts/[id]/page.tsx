@@ -22,6 +22,7 @@ import {
   FinancialRatesCard,
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
+import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import { ContractFeedbackHistory } from "@/components/care/ContractFeedbackHistory";
@@ -593,6 +594,22 @@ export default function ContractDetailPage() {
     canEditContractDocuments,
     canUploadContractDocuments,
   } = contractAccess(user, { impersonating, clientId: contract?.client_id });
+
+  // Stawka do klienta z rekrutacji kontraktu, dopóki kontrakt nie ma własnej
+  // (podpowiedź w „Stawkach finansowych”; przychód nadal z zamówienia). Tylko
+  // przy `job_id` — „najnowsza para u klienta” bywa sprzed lat (27.10.2026).
+  const recruitmentRateQuery = useQuery({
+    queryKey: ["contract-recruitment-rate", contract?.id, contract?.job_id],
+    enabled:
+      canViewFinance &&
+      contract != null &&
+      contract.rate_client == null &&
+      contract.candidate_id != null &&
+      contract.job_id != null,
+    queryFn: () =>
+      fetchRecruitmentRates(contract!.client_id, contract!.candidate_id!, contract!.job_id),
+  });
+  const recruitmentRate = recruitmentRateQuery.data?.rate ?? null;
 
   // Fetch activity timeline (lazy)
   const activitiesQuery = useQuery<ActivityEntry[]>({
@@ -1465,7 +1482,7 @@ export default function ContractDetailPage() {
                 zostaje obok formularza (prawa kolumna), jak dotąd. */}
             {!editing &&
               (canViewFinance ? (
-                <FinancialRatesCard contract={contract} />
+                <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
               ) : (
                 <div
                   className="rounded-lg border border-border bg-card p-4"
@@ -2514,7 +2531,7 @@ export default function ContractDetailPage() {
 
           {/* Prawa kolumna: meta; w trybie edycji także karta stawek. */}
           <div className="space-y-4">
-            {editing && canViewFinance && <FinancialRatesCard contract={contract} />}
+            {editing && canViewFinance && <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />}
 
             <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>

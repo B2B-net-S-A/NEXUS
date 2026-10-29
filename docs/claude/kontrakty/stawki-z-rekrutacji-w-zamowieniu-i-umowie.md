@@ -41,6 +41,16 @@ i w umowie B2B. Różnica to „do sprawdzenia”, **nigdy blokada**. Plan:
   z etapu TEJ rekrutacji; nigdy „Stawka od” ani karta), a pod „Stawka godz.
   (netto)” stoi notka, gdy pierwszy etap w PLN się różni (`contractRateNote`)
   — nie walidacja, nie toast.
+- **Karta „Stawki finansowe” kontraktu bez stawki klienta** (zgłoszenie
+  Klaudii 29.10.2026, wariant A z makiet): pod „Klient —” stoi „Z rekrutacji
+  „…” (kto, kiedy)” ze stawką do klienta z rekrutacji kontraktu i „Marżą wg
+  rekrutacji” (tylko ta sama jednostka i waluta co stawka kandydata). Tylko
+  przy `contract.job_id` (bez niego „najnowsza para u klienta” bywa sprzed
+  lat) i przez istniejące `GET /api/clients/{id}/recruitment-rates`.
+  **Nic nie zapisuje** — przychód nadal z zamówienia, bo stawka w kontrakcie
+  przed zamówieniem gasi Finansom dzwonek „bez zamówienia” (decyzja z 04.10,
+  `generator-umow-b2b-trzy-zakladki-cyklu-zycia-umowy.md`). Artur wybrał ten wariant zamiast przycisku „Wpisz
+  jako stawkę klienta” i wpisu automatycznego przy podpisie.
 - **Po renegocjacji z klientem poprawia się stawkę do klienta w rekrutacji**
   (zakładka „Rekrutacje” profilu, panel osoby), ale w poczcie zamówień
   rekrutacja liczy się **tylko przy pierwszym zamówieniu kontraktu**.

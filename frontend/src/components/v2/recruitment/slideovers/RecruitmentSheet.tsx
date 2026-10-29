@@ -76,13 +76,18 @@ export interface RecruitmentSheetProps {
  * `ChipField`) zamykał całe okno i kasował szkic filtrów. Radix łapie Esc
  * w fazie przechwytywania, więc `stopPropagation` w polu nie wystarcza —
  * okno samo pomija zamknięcie; pole zamyka podpowiedzi albo czyści tekst.
+ * To samo dla rozwiniętego pola czatu (`data-keep-sheet-on-escape`,
+ * 29.10.2026): Esc zwija pole, a nie zamyka panelu ze szkicem wiadomości.
  */
 export function keepSheetOpenOnKeywordEscape(event: {
   target: EventTarget | null;
   preventDefault: () => void;
 }): void {
   const target = event.target;
-  if (target instanceof Element && target.closest("[data-keyword-field]")) {
+  if (
+    target instanceof Element &&
+    target.closest("[data-keyword-field], [data-keep-sheet-on-escape]")
+  ) {
     event.preventDefault();
   }
 }
