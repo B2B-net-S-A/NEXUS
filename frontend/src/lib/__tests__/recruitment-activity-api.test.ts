@@ -38,6 +38,29 @@ describe("recruitment activity API client", () => {
     )
   })
 
+  it("sends the selected range in place of the month", async () => {
+    await getRecruitmentActivitySummary({
+      day: "2026-10-29",
+      month: "2026-10",
+      teamScope: true,
+      dateFrom: "2026-10-13",
+      dateTo: "2026-10-24",
+    })
+
+    expect(apiGet).toHaveBeenCalledWith(
+      "/api/dashboard/v2/recruitment-activity",
+      {
+        params: {
+          day: "2026-10-29",
+          month: "2026-10-01",
+          scope: "team",
+          date_from: "2026-10-13",
+          date_to: "2026-10-24",
+        },
+      },
+    )
+  })
+
   it("keeps team drill-down on the same visible scope", async () => {
     await getRecruitmentActivityDetails({
       day: "2026-09-02",

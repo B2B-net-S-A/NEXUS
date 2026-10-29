@@ -613,3 +613,87 @@ def test_week_at_the_end_of_the_calendar_is_a_422_not_a_500() -> None:
             date_to=None,
         )
     assert exc.value.status_code == 422
+
+
+# Okres od–do w podsumowaniu (Artur 29.10.2026, wariant A): kafel liczy
+# wybrany przedział tym samym przeglądem, w miejscu okna miesiąca.
+@pytest.mark.asyncio
+async def test_summary_counts_the_selected_range_in_place_of_the_month() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    no_rows = MagicMock()
+    no_rows.all.return_value = []
+    db = AsyncMock()
+    db.execute.side_effect = [
+        _result([recruiter]),
+        _result([_row(11, "verified", day=2, month=9)]),
+        no_rows,
+        no_rows,
+    ]
+
+    result = await activity_service.build_recruitment_activity_summary(
+        db,
+        recruiter,
+        selected_day=date(2026, 10, 29),
+        selected_month=date(2026, 10, 1),
+        date_from=date(2026, 10, 13),
+        date_to=date(2026, 10, 24),
+        today=date(2026, 10, 29),
+    )
+
+    _, params = db.execute.await_args_list[1].args
+    assert params["month_start"] == datetime(
+        2026, 10, 13, tzinfo=activity_service.WARSAW
+    )
+    assert params["month_end"] == datetime(2026, 10, 25, tzinfo=activity_service.WARSAW)
+    assert result.period_start == date(2026, 10, 13)
+    assert result.period_end == date(2026, 10, 24)
+    assert {m.metric: m.month for m in result.metrics}["verification"] == 9
+
+
+@pytest.mark.asyncio
+async def test_summary_without_range_reports_the_month_as_its_period() -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    no_rows = MagicMock()
+    no_rows.all.return_value = []
+    db = AsyncMock()
+    db.execute.side_effect = [_result([recruiter]), _result([]), no_rows, no_rows]
+
+    result = await activity_service.build_recruitment_activity_summary(
+        db,
+        recruiter,
+        selected_day=date(2026, 9, 2),
+        selected_month=date(2026, 9, 1),
+        today=date(2026, 9, 2),
+    )
+
+    assert result.period_start == date(2026, 9, 1)
+    assert result.period_end == date(2026, 9, 30)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("date_from", "date_to"),
+    [
+        (date(2026, 10, 13), None),
+        (date(2026, 10, 24), date(2026, 10, 13)),
+        (date(2025, 1, 1), date(2026, 10, 24)),
+    ],
+)
+async def test_summary_range_rejects_half_reversed_and_too_long(
+    date_from, date_to
+) -> None:
+    recruiter = _user(UserRole.recruiter, 11)
+    db = AsyncMock()
+    db.execute.side_effect = [_result([recruiter])]
+
+    with pytest.raises(HTTPException) as exc:
+        await activity_service.build_recruitment_activity_summary(
+            db,
+            recruiter,
+            selected_day=date(2026, 10, 29),
+            selected_month=date(2026, 10, 1),
+            date_from=date_from,
+            date_to=date_to,
+            today=date(2026, 10, 29),
+        )
+    assert exc.value.status_code == 422

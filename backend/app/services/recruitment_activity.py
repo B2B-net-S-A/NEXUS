@@ -498,20 +498,33 @@ async def build_recruitment_activity_summary(
     selected_month: date,
     subject_user_id: int | None = None,
     team_scope: bool = False,
+    date_from: date | None = None,
+    date_to: date | None = None,
     today: date | None = None,
 ) -> RecruitmentActivitySummaryResponse:
+    # Okres od–do (29.10.2026): kafel liczy wybrany przedział w miejscu
+    # miesiąca — ten sam przegląd, te same granice co lista `window=range`.
+    month_start = _month_start(selected_month)
+    if date_from is not None or date_to is not None:
+        period_start, period_end = _detail_window(
+            "range",
+            selected_day=selected_day,
+            selected_month=month_start,
+            date_from=date_from,
+            date_to=date_to,
+        )
+    else:
+        period_start, period_end = month_start, _shift_month(month_start, 1)
     audience = await _activity_audience(
         db,
         current_user,
         subject_user_id,
         team_scope=team_scope,
     )
-    month_start = _month_start(selected_month)
-    month_end = _shift_month(month_start, 1)
     day_start_dt, day_end_dt = _warsaw_bounds(
         selected_day, selected_day + timedelta(days=1)
     )
-    month_start_dt, month_end_dt = _warsaw_bounds(month_start, month_end)
+    month_start_dt, month_end_dt = _warsaw_bounds(period_start, period_end)
 
     today_value = today or datetime.now(WARSAW).date()
     benchmark_start, benchmark_end = _benchmark_dates(
@@ -530,7 +543,8 @@ async def build_recruitment_activity_summary(
     rows = await _overview_rows(
         db,
         cache_key=(
-            f"{selected_day.isoformat()}:{month_start.isoformat()}:"
+            f"{selected_day.isoformat()}:{period_start.isoformat()}:"
+            f"{period_end.isoformat()}:"
             f"{benchmark_start.isoformat()}:{benchmark_end.isoformat()}"
         ),
         params={
@@ -628,6 +642,8 @@ async def build_recruitment_activity_summary(
         generated_at=datetime.now(timezone.utc),
         day=selected_day,
         month=month_start,
+        period_start=period_start,
+        period_end=period_end - timedelta(days=1),
         scope="person" if audience.selected is not None else "team",
         can_view_team_details=audience.can_view_team_details,
         subject=_person(audience.selected) if audience.selected is not None else None,

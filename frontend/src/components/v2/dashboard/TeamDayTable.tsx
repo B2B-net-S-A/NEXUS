@@ -14,6 +14,7 @@ import {
 } from "@/lib/insights-team-api"
 import type { InsightsPeriodParams } from "@/lib/insights-api"
 import { shortenPersonName } from "@/lib/job-header-subtitle"
+import type { DayRange } from "@/lib/kpi-who-counts"
 import type {
   RecruitmentActivityMetric,
   RecruitmentActivityMetricCounts,
@@ -22,9 +23,11 @@ import { cn } from "@/lib/utils"
 
 /**
  * Propozycja Olafa (HoR) z 28.10.2026: po wyborze „Cały zespół” tabela
- * wszystkich rekruterów z wynikiem dnia i miesiąca. Dane z tabeli „Ludzie”
- * w Insights (`/api/insights/team/people`) za dzień i za miesiąc — ta sama
- * atrybucja co cele i wyścigi, nowej trasy nie ma.
+ * wszystkich rekruterów. Od 29.10.2026 (Artur, wariant A) jedna liczba za
+ * okres z paska nad kaflami zamiast „dzień / miesiąc” — „0 / 87” z pogrubionym
+ * zerem dnia było nieczytelne. Dane z tabeli „Ludzie” w Insights
+ * (`/api/insights/team/people`) za ten okres — ta sama atrybucja co cele
+ * i wyścigi, nowej trasy nie ma.
  *
  * Liczba nad tabelą to każdy z zasługą (`credit_user IS NOT NULL`
  * w `services/recruitment_activity.py`), więc wiersz „Pozostali” zbiera konta
@@ -38,13 +41,12 @@ const COLUMNS: {
   key: Counted
   metric: RecruitmentActivityMetric
   label: string
-  dayless?: boolean
 }[] = [
   { key: "verifications", metric: "verification", label: "Weryfikacje" },
   { key: "recommendations", metric: "recommendation", label: "Rekomendacje" },
   { key: "interviews", metric: "interview", label: "Rozmowy u klienta" },
   { key: "acceptances", metric: "acceptance", label: "Akceptacje" },
-  { key: "placements", metric: "placement", label: "Placementy", dayless: true },
+  { key: "placements", metric: "placement", label: "Placementy" },
 ]
 
 type Counts = Record<Counted, number>
@@ -53,12 +55,6 @@ type Counts = Record<Counted, number>
 // `border-collapse` nie jedzie razem z `sticky`.
 const STICKY_FOOT = "bg-card shadow-[inset_0_1px_0_var(--color-border)]"
 const STICKY_HEAD = "bg-card shadow-[inset_0_-1px_0_var(--color-border)]"
-
-function monthRange(month: string): { date_from: string; date_to: string } {
-  const [year, mon] = month.split("-").map(Number)
-  const last = new Date(Date.UTC(year, mon, 0)).getUTCDate()
-  return { date_from: `${month}-01`, date_to: `${month}-${String(last).padStart(2, "0")}` }
-}
 
 function num(row: Partial<Record<Counted, number>> | undefined, key: Counted): number {
   const value = row?.[key]
@@ -86,25 +82,16 @@ function activeSum(rows: TeamPeopleRow[], key: Counted): number {
   return rows.reduce((sum, row) => sum + (row.is_active ? num(row, key) : 0), 0)
 }
 
-type PersonLine = { userId: number; name: string; today?: TeamPeopleRow; month?: TeamPeopleRow }
-
-/** Aktywne osoby z dnia i z miesiąca — dzień z paska nie musi leżeć w miesiącu z paska. */
-export function teamDayRows(day: TeamPeopleResponse, month: TeamPeopleResponse): PersonLine[] {
-  const people = new Map<number, PersonLine>()
-  for (const row of month.rows) {
-    if (row.is_active) people.set(row.user_id, { userId: row.user_id, name: row.name, month: row })
-  }
-  for (const row of day.rows) {
-    if (!row.is_active) continue
-    const line = people.get(row.user_id) ?? { userId: row.user_id, name: row.name }
-    people.set(row.user_id, { ...line, today: row })
-  }
-  return [...people.values()].sort(
-    (a, b) =>
-      num(b.today, "verifications") - num(a.today, "verifications") ||
-      num(b.month, "verifications") - num(a.month, "verifications") ||
-      a.name.localeCompare(b.name, "pl"),
-  )
+/** Aktywne osoby okresu, od najwięcej weryfikacji, potem rekomendacji. */
+export function teamPeriodRows(period: TeamPeopleResponse): TeamPeopleRow[] {
+  return period.rows
+    .filter((row) => row.is_active)
+    .sort(
+      (a, b) =>
+        num(b, "verifications") - num(a, "verifications") ||
+        num(b, "recommendations") - num(a, "recommendations") ||
+        a.name.localeCompare(b.name, "pl"),
+    )
 }
 
 /** Akceptacje doszły 22.10.2026 — odpowiedź bez pola to „nie liczono”, nie zero. */
@@ -113,92 +100,80 @@ function reported(data: TeamPeopleResponse, key: Counted): boolean {
 }
 
 function Cell({
-  day,
-  month,
-  dayless,
+  value,
   missing,
   className,
 }: {
-  day: number
-  month: number
-  dayless?: boolean
+  value: number
   missing?: boolean
   className?: string
 }) {
   if (missing) {
     return <td className={cn("py-1.5 pr-4 text-right text-muted-foreground", className)}>—</td>
   }
+  // Zero wyszarzone, żeby wzrok trafiał na liczby, które coś mówią.
   return (
-    <td className={cn("py-1.5 pr-4 text-right tabular-nums", className)}>
-      {dayless ? null : (
-        <>
-          <strong className="text-foreground">{day}</strong>
-          <span className="text-muted-foreground"> / </span>
-        </>
+    <td
+      className={cn(
+        "py-1.5 pr-4 text-right tabular-nums",
+        value ? "font-semibold text-foreground" : "text-muted-foreground",
+        className,
       )}
-      <span className="text-muted-foreground">{month}</span>
+    >
+      {value}
     </td>
   )
 }
 
 export function TeamDayTable({
-  day,
-  month,
+  range,
+  rangeLabel,
   metrics,
   compact,
 }: {
-  day: string
-  month: string
+  /** Okres z paska nad kaflami (dni włącznie). */
+  range: DayRange
+  /** Ten okres słownie, np. „1–29 października 2026”. */
+  rangeLabel: string
   /** Liczby z karty nad tabelą — suma tabeli ma się z nimi zgadzać. */
   metrics: RecruitmentActivityMetricCounts[]
   /** Kafelek pulpitu: tabela przewija się w sobie i prowadzi do pełnej w Insights. */
   compact: boolean
 }) {
-  const dayParams: InsightsPeriodParams = { period: "custom", date_from: day, date_to: day }
-  const monthParams: InsightsPeriodParams = { period: "custom", ...monthRange(month) }
-  const dayQuery = useQuery({
-    queryKey: insightsTeamSignalsQueryKeys.people(dayParams),
-    queryFn: () => insightsTeamSignalsApi.people(dayParams),
-    staleTime: 30_000,
-  })
-  const monthQuery = useQuery({
-    queryKey: insightsTeamSignalsQueryKeys.people(monthParams),
-    queryFn: () => insightsTeamSignalsApi.people(monthParams),
+  const params: InsightsPeriodParams = {
+    period: "custom",
+    date_from: range.start,
+    date_to: range.end,
+  }
+  const query = useQuery({
+    queryKey: insightsTeamSignalsQueryKeys.people(params),
+    queryFn: () => insightsTeamSignalsApi.people(params),
+    enabled: range.start <= range.end,
     staleTime: 30_000,
   })
 
-  if (dayQuery.isError || monthQuery.isError) {
+  if (query.isError) {
     return (
       <Card className="flex items-center justify-between gap-3 p-4">
         <p className="text-sm text-foreground">Nie udało się pobrać wyników osób.</p>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => {
-            if (dayQuery.isError) void dayQuery.refetch()
-            if (monthQuery.isError) void monthQuery.refetch()
-          }}
-        >
+        <Button variant="outline" size="sm" onClick={() => void query.refetch()}>
           Ponów
         </Button>
       </Card>
     )
   }
-  if (!dayQuery.isSuccess || !monthQuery.isSuccess) {
+  if (!query.isSuccess) {
     return <Skeleton className="h-64 w-full rounded-xl" data-testid="team-day-table-loading" />
   }
 
-  const rows = teamDayRows(dayQuery.data, monthQuery.data)
-  const restDay = restCounts(dayQuery.data)
-  const restMonth = restCounts(monthQuery.data)
-  const hasRest = COLUMNS.some((column) => restDay[column.key] + restMonth[column.key] > 0)
+  const rows = teamPeriodRows(query.data)
+  const rest = restCounts(query.data)
+  const hasRest = COLUMNS.some((column) => rest[column.key] > 0)
   const missing = new Set(
-    COLUMNS.filter(
-      (column) => !reported(dayQuery.data, column.key) || !reported(monthQuery.data, column.key),
-    ).map((column) => column.key),
+    COLUMNS.filter((column) => !reported(query.data, column.key)).map((column) => column.key),
   )
   const unattributed = COLUMNS.flatMap((column) => {
-    const count = num(monthQuery.data.unattributed, column.key)
+    const count = num(query.data.unattributed, column.key)
     return count > 0 && !missing.has(column.key) ? [`${column.label.toLowerCase()} ${count}`] : []
   })
   const byMetric = new Map(metrics.map((counts) => [counts.metric, counts]))
@@ -207,14 +182,10 @@ export function TeamDayTable({
   const mismatches = COLUMNS.flatMap((column) => {
     const card = byMetric.get(column.metric)
     if (!card || missing.has(column.key)) return []
-    const out: string[] = []
-    const tableMonth = activeSum(monthQuery.data.rows, column.key) + restMonth[column.key]
-    if (card.month !== tableMonth) out.push(`${column.label} w miesiącu: ${card.month} nad tabelą, ${tableMonth} w tabeli`)
-    if (!column.dayless && card.day !== null) {
-      const tableDay = activeSum(dayQuery.data.rows, column.key) + restDay[column.key]
-      if (card.day !== tableDay) out.push(`${column.label} w dniu: ${card.day} nad tabelą, ${tableDay} w tabeli`)
-    }
-    return out
+    const table = activeSum(query.data.rows, column.key) + rest[column.key]
+    return card.month !== table
+      ? [`${column.label} w okresie: ${card.month} nad tabelą, ${table} w tabeli`]
+      : []
   })
 
   return (
@@ -222,12 +193,12 @@ export function TeamDayTable({
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted/20 px-4 py-3">
         <p className="text-sm font-medium text-foreground">Wyniki osób · {rows.length} osób</p>
         <p className="text-xs text-muted-foreground">
-          dzień / miesiąc · posortowane po weryfikacjach dnia
+          {rangeLabel} · od najwięcej weryfikacji
         </p>
       </div>
       {rows.length === 0 && !hasRest ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">
-          Nikt z zespołu nie ma jeszcze wyników w tym dniu ani miesiącu.
+          Nikt z zespołu nie ma wyników w tym okresie.
         </p>
       ) : (
         <div
@@ -251,30 +222,20 @@ export function TeamDayTable({
               </tr>
             </thead>
             <tbody>
-              {rows.map((line) => {
-                const idle = num(line.today, "verifications") + num(line.today, "recommendations") === 0
-                return (
-                  <tr key={line.userId} className="border-b border-border last:border-0">
-                    <td className="py-1.5 pl-4 font-medium text-foreground">
-                      {shortenPersonName(line.name) ?? line.name}
-                      {idle ? (
-                        <span className="ml-2 text-xs font-normal text-muted-foreground">
-                          bez ruchu w tym dniu
-                        </span>
-                      ) : null}
-                    </td>
-                    {COLUMNS.map((column) => (
-                      <Cell
-                        key={column.key}
-                        day={num(line.today, column.key)}
-                        month={num(line.month, column.key)}
-                        dayless={column.dayless}
-                        missing={missing.has(column.key)}
-                      />
-                    ))}
-                  </tr>
-                )
-              })}
+              {rows.map((line) => (
+                <tr key={line.user_id} className="border-b border-border last:border-0">
+                  <td className="py-1.5 pl-4 font-medium text-foreground">
+                    {shortenPersonName(line.name) ?? line.name}
+                  </td>
+                  {COLUMNS.map((column) => (
+                    <Cell
+                      key={column.key}
+                      value={num(line, column.key)}
+                      missing={missing.has(column.key)}
+                    />
+                  ))}
+                </tr>
+              ))}
             </tbody>
             {hasRest ? (
               <tfoot className="sticky bottom-0">
@@ -288,9 +249,7 @@ export function TeamDayTable({
                   {COLUMNS.map((column) => (
                     <Cell
                       key={column.key}
-                      day={restDay[column.key]}
-                      month={restMonth[column.key]}
-                      dayless={column.dayless}
+                      value={rest[column.key]}
                       missing={missing.has(column.key)}
                       className={STICKY_FOOT}
                     />
@@ -305,7 +264,7 @@ export function TeamDayTable({
         <div className="space-y-1 border-t border-border px-4 py-2 text-xs text-muted-foreground">
           {unattributed.length > 0 ? (
             <p data-testid="team-day-table-unattributed">
-              Do tego w miesiącu bez osoby z zasługą: {unattributed.join(", ")} — nie wchodzą
+              Do tego w okresie bez osoby z zasługą: {unattributed.join(", ")} — nie wchodzą
               do liczby nad tabelą.
             </p>
           ) : null}

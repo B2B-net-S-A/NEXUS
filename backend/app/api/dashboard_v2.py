@@ -294,8 +294,13 @@ async def recruitment_activity_summary(
     month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
 ) -> RecruitmentActivitySummaryResponse:
-    """Drillable personal/team KPI activity for the unified dashboard."""
+    """Drillable personal/team KPI activity for the unified dashboard.
+
+    `date_from`–`date_to` (włącznie) zastępuje okno miesiąca w liczbach kafli.
+    """
 
     selected_day = day or datetime.now(WARSAW).date()
     selected_month = month or selected_day.replace(day=1)
@@ -306,6 +311,8 @@ async def recruitment_activity_summary(
         selected_month=selected_month,
         subject_user_id=subject_user_id,
         team_scope=scope == "team",
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
