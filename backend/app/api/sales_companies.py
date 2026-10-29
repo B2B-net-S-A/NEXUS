@@ -671,7 +671,11 @@ async def merge_company(
     ensure_owner_or_admin(current_user, target.owner_user_id)
     ensure_owner_or_admin(current_user, source.owner_user_id)
     await merge_companies(
-        db, target=target, source=source, now=datetime.now(timezone.utc)
+        db,
+        target=target,
+        source=source,
+        now=datetime.now(timezone.utc),
+        user_id=current_user.id,
     )
     await db.commit()
     return await _load(db, company_id)

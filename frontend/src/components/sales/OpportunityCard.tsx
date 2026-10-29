@@ -35,6 +35,7 @@ import { LinkClientDialog } from "./LinkClientDialog";
 import { SalesSelect } from "./SalesSelect";
 import { OpportunityContacts } from "./OpportunityContacts";
 import { OpportunityFormDialog } from "./OpportunityFormDialog";
+import { OpportunityHistory } from "./OpportunityHistory";
 import { SalesShell } from "./SalesShell";
 import { WhoWeKnowPanel } from "./WhoWeKnowPanel";
 import { SalesMotionPanel } from "./SalesMotionPanel";
@@ -244,6 +245,7 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
                 <p className="mt-1 whitespace-pre-line text-sm text-muted-foreground">{data.description}</p>
               </Card>
             )}
+            <OpportunityHistory opportunityId={data.id} currency={data.currency} />
           </div>
         </div>
         </div>
