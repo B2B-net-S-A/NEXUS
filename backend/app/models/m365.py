@@ -203,7 +203,7 @@ class Email(Base, TimestampMixin):
     body_html: Mapped[Optional[str]] = mapped_column(Text)
     body_text: Mapped[Optional[str]] = mapped_column(Text)
     body_preview: Mapped[Optional[str]] = mapped_column(String(255))
-    # 0621 — Graph ``webLink`` („Otwórz w Outlooku”).
+    # 0622 — Graph ``webLink`` („Otwórz w Outlooku”).
     web_link: Mapped[Optional[str]] = mapped_column(String(2000))
 
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
