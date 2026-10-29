@@ -13,6 +13,9 @@ CV (``cv_downloaded``), paczka ZIP (``bulk_cv_downloaded``) i eksport
 (``export_requested``). Skaner co kilka minut liczy je na osobę, więc nie
 dotyka ścieżki pobierania. Zdarzenia API integracji nie mają osoby
 (``user_id`` puste) — tu ich nie liczymy.
+„Oceń z AI” (``candidate_ai_assessment.AUDIT_ACTION``, 28.10.2026) też
+nie jest tu liczone: CV nie opuszcza serwera, rekruter widzi tylko cytaty —
+to ta funkcja ma zastąpić pobieranie CV do prywatnego czatu.
 
 Progi z ruchu produkcji (30 dni do 22.10.2026, rekruterzy): 99. percentyl
 33 różnych kandydatów w godzinę, maksimum 61; na dysk najwyżej 20 plików

@@ -111,6 +111,8 @@ class TestFeatureKeyEnum:
             # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB.
             "consent_screenshot_check",
             "linkedin_message_draft",
+            # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
+            "candidate_ai_assessment",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):
