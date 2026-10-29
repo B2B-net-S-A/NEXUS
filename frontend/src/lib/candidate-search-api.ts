@@ -477,14 +477,17 @@ export const proposalsBulkApi = {
   addInChunks: async (
     jobId: number,
     body: BulkProposalsRequest,
+    // 1 = osoba po osobie w podanej kolejności („Oceń z AI”: Tablica stawia
+    // najnowsze wejście na górze, a jedno żądanie dodaje w kolejności id).
+    chunkSize: number = BULK_ADD_CHUNK,
   ): Promise<BulkProposalsResponse> => {
     const ids = [...new Set(body.candidate_ids)];
     const parts: BulkProposalsResponse[] = [];
-    for (let start = 0; start < ids.length; start += BULK_ADD_CHUNK) {
+    for (let start = 0; start < ids.length; start += chunkSize) {
       parts.push(
         await proposalsBulkApi.add(jobId, {
           ...body,
-          candidate_ids: ids.slice(start, start + BULK_ADD_CHUNK),
+          candidate_ids: ids.slice(start, start + chunkSize),
         }),
       );
     }

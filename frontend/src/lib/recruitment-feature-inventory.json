@@ -3010,6 +3010,38 @@
    "v3_home": "okno „Kandydaci do dodania” → Szukaj ręcznie"
   },
   {
+   "id": "board.sources-ai-assess",
+   "area": "pozyskiwanie",
+   "opis": "„✦ Oceń z AI” na zaznaczonych osobach (do 30) w „Szukaj ręcznie” i w propozycjach — zamiast pobierania CV do prywatnego czatu (makieta C, 28.10.2026)",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "assess-with-ai",
+   "v3_home": "okno „Kandydaci do dodania” → zaznacz osoby → pasek akcji"
+  },
+  {
+   "id": "board.sources-ai-panel",
+   "area": "pozyskiwanie",
+   "opis": "Panel „Ocena AI · N zaznaczonych osób”: kolejność dzwonienia Dzwoń / Może / Nie pasuje, 1–2 powody z cytatem z CV albo notatki, „AI nie oceniło” przy braku CV albo awarii",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-panel",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI”"
+  },
+  {
+   "id": "board.sources-ai-add-calls",
+   "area": "pozyskiwanie",
+   "opis": "„Dodaj K „Dzwoń” do Nowych w tej kolejności” — ta sama droga co „Dodaj N do Nowych” zakładki",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-add-calls",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI” → stopka panelu"
+  },
+  {
+   "id": "board.sources-ai-latest",
+   "area": "pozyskiwanie",
+   "opis": "„Ostatnia ocena AI · Otwórz” nad wynikami „Szukaj ręcznie” — zapisana ocena (≤ 7 dni) bez ponownego wywołania modelu",
+   "file": "components/v2/recruitment/ManualSearchPanel.tsx",
+   "marker": "ai-assessment-latest",
+   "v3_home": "okno „Kandydaci do dodania” → „Szukaj ręcznie” → nad wynikami"
+  },
+  {
    "id": "board.sources-auto-score",
    "area": "pozyskiwanie",
    "opis": "Dopasowanie liczy się samo dla widocznych wierszy (bez „Policz dopasowanie”, D1 14.10.2026)",
