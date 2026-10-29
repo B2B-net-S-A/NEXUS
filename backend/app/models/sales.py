@@ -386,7 +386,7 @@ class SalesActivity(Base, TimestampMixin):
             unique=True,
             postgresql_where=text("external_ref IS NOT NULL"),
         ),
-        # 0618: synchronizacja Outlooka (``services/sales/outlook_activities``).
+        # 0619: synchronizacja Outlooka (``services/sales/outlook_activities``).
         Index(
             "ix_sales_activities_external_id",
             "external_source",
@@ -549,3 +549,34 @@ class SalesLead(Base, TimestampMixin):
         ForeignKey("sales_opportunities.id", ondelete="SET NULL")
     )
     dismissed_reason: Mapped[Optional[str]] = mapped_column(String(255))
+
+
+class SalesOpportunityEvent(Base):
+    """Jedna zmiana szansy: kto, kiedy, które pole, stara i nowa wartość (0618)."""
+
+    __tablename__ = "sales_opportunity_events"
+    __table_args__ = (
+        CheckConstraint(
+            schema.CK_OPPORTUNITY_EVENT_KIND,
+            name="ck_sales_opportunity_events_kind",
+        ),
+        Index(
+            "ix_sales_opportunity_events_opportunity", "opportunity_id", "created_at"
+        ),
+        Index("ix_sales_opportunity_events_field", "field", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    opportunity_id: Mapped[int] = mapped_column(
+        ForeignKey("sales_opportunities.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL")
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    field: Mapped[Optional[str]] = mapped_column(String(40))
+    old_value: Mapped[Optional[str]] = mapped_column(Text)
+    new_value: Mapped[Optional[str]] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

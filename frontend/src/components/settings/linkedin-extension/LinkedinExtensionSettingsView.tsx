@@ -4,6 +4,7 @@
 // Prezentacyjny: dane i odłączanie przychodzą z propsów
 // (`app/settings/linkedin-extension/page.tsx`).
 
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
@@ -68,7 +69,12 @@ export function LinkedinExtensionSettingsView({
         <h1 className="text-lg font-semibold text-foreground">Wtyczka LinkedIn</h1>
         <p className="text-sm text-muted-foreground">
           Panel NEXUSA na LinkedInie i w LinkedIn Recruiterze. Każda osoba łączy
-          wtyczkę swoim kontem i widzi w niej to samo co w NEXUSIE.
+          wtyczkę swoim kontem i widzi w niej to samo co w NEXUSIE. Instalacja
+          dla zespołu:{" "}
+          <Link href="/wtyczka" className="text-primary underline underline-offset-4">
+            ZIP i instrukcja
+          </Link>
+          .
         </p>
       </header>
 
@@ -96,8 +102,11 @@ export function LinkedinExtensionSettingsView({
           ) : null}
           {load.items.length === 0 ? (
             <p className="px-4 py-6 text-sm text-muted-foreground">
-              Nikt jeszcze nie połączył wtyczki. Osoba instaluje ją z linku do
-              Chrome Web Store i klika w panelu „Zaloguj przez NEXUS”.
+              Nikt jeszcze nie połączył wtyczki. Osoba instaluje ją ze strony{" "}
+              <Link href="/wtyczka" className="text-primary underline underline-offset-4">
+                Wtyczka LinkedIn
+              </Link>{" "}
+              (ZIP z instrukcją) i klika w panelu „Zaloguj przez NEXUS”.
             </p>
           ) : (
             <div className="overflow-x-auto">

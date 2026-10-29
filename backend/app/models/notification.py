@@ -286,6 +286,11 @@ class NotificationType(str, enum.Enum):
     # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
     # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
     job_p0_requested = "job_p0_requested"
+    # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
+    # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
+    # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
+    # Mail obowiązkowy (`services/job_idle.py`).
+    job_idle_reminder = "job_idle_reminder"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
