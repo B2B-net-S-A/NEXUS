@@ -6,9 +6,11 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/",
+    "test:e2e": "node --test test/e2e/panel.e2e.mjs",
     "pack": "sh scripts/pack.sh"
   },
   "devDependencies": {
-    "linkedom": "0.18.12"
+    "linkedom": "0.18.12",
+    "playwright-core": "1.63.0"
   }
 }

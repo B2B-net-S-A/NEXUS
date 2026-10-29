@@ -84,6 +84,17 @@ Testy czytników działają na syntetycznych stronach w `test/fixtures/` —
 wymyślone osoby i firmy, bo repo jest publiczne. **Nie wklejaj tam zapisanych
 stron prawdziwych osób z LinkedIna.**
 
+E2E w prawdziwym Chromium (`test/e2e/panel.e2e.mjs`): wtyczka z tego katalogu,
+LinkedIn podstawiony tymi samymi stronami, NEXUS — fikcyjnymi odpowiedziami
+`/api/extension/*` z `API.md`; bez backendu i bez sieci. Sprawdza stałe id,
+ekran połączenia, odczyt profilu z żywej strony, dodanie, listę wyników,
+baner nowej wersji i zły klucz. W CI biegnie, gdy zmiana dotyka `extension/`.
+
+```sh
+cd extension && npx playwright-core install --no-shell chromium   # raz
+npm run test:e2e
+```
+
 ## Jak wtyczka czyta stronę
 
 Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy wydaniach), nie ma
