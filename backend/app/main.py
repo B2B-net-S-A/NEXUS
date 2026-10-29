@@ -3803,7 +3803,7 @@ async def api_health_deep_check():
         ("care_board_states", CARE_BOARD_STATES),
         # 0519: przypisania „Prowadzi” — karta, premia i Liga czytają je co ruch.
         ("candidate_job_owners", CandidateJobOwner),
-        # 0618: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
+        # 0619: opieka po odejściu — Tablica i follow-upy czytają ją co ruch.
         ("pair_departure_care", PairDepartureCare),
     ]
 
