@@ -180,7 +180,9 @@ async def upload_cover_sheet_template(
 ) -> dict:
     """Wgraj albo podmień wzór — od teraz karta idzie z każdym CV klienta."""
     client = await _writable_client_or_404(db, client_id)
-    await _require_client_rule_access(db, current_user, client.id, write=True)
+    await _require_client_rule_access(
+        db, current_user, client.id, write=True, central_lock=False
+    )
     filename = (file.filename or "").strip()[:255]
     if not filename:
         raise HTTPException(status_code=422, detail=MSG_NO_FILE)
@@ -237,7 +239,9 @@ async def delete_cover_sheet_template(
 ) -> Response:
     """Usuń wzór — karta przestaje być potrzebna przy CV tego klienta."""
     client = await _client_or_404(db, client_id)
-    await _require_client_rule_access(db, current_user, client.id, write=True)
+    await _require_client_rule_access(
+        db, current_user, client.id, write=True, central_lock=False
+    )
     row = await _template(db, client.id)
     if row is not None:
         db.add(

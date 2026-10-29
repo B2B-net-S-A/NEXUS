@@ -24,6 +24,8 @@
  */
 
 import { CentralPolicyView, useCentralPolicy } from "./CentralPolicyView";
+// 29.10.2026: wzór „Karty przed CV” jest spoza katalogu zasad centralnych.
+import { CoverSheetTemplateSection } from "./CoverSheetTemplateSection";
 import { Button } from "@/components/ui/button";
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -285,7 +287,7 @@ export function CvRuleEditor({
     }
   };
 
-  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <CentralPolicyView clientId={clientId} />}</div>;
+  if (central.data?.managed) return <div className="space-y-4"><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => setTab("settings")}>Zasady i historia CV</Button><Button variant="outline" onClick={() => setTab("playbook")}>Karta klienta</Button></div>{tab === "playbook" ? <CvRulePlaybookTab clientId={clientId} /> : <><CoverSheetTemplateSection clientId={clientId} /><CentralPolicyView clientId={clientId} /></>}</div>;
   if (central.isLoading) return <p>Ładowanie zasad CV…</p>;
   if (central.isError) return <p>Nie udało się odczytać zasad CV.</p>;
 

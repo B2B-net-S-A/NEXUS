@@ -83,3 +83,13 @@ Front: `lib/api/coverSheet.ts`, `components/v2/recruitment/dl-review/ClientCover
 `components/cv-rules/CoverSheetTemplateSection.tsx`. Migracja `0626`, DDL
 w `services/cover_sheet_schema.py`, lustro w `entrypoint.sh` po
 `candidate_client_forms`.
+
+## Zasady centralne nie blokują wzoru (29.10.2026, po wdrożeniu)
+
+Na produkcji `CV_CENTRAL_POLICIES_ENABLED` przełącza edytor reguły CV w widok
+„zarządzane centralnie” i daje 403 na każdy zapis reguły
+(`_require_client_rule_access`). Wzoru karty katalog zasad nie prowadzi —
+trasy wzoru wołają bramkę z `central_lock=False` (graf klienta i uprawnienie
+„Klienci: dodawanie i edycja” dalej obowiązują), a sekcja „Karta przed CV
+(Word)” stoi także w widoku zasad centralnych (`CvRuleEditor`). Bez tego
+wzoru nie dało się wgrać: pierwsza próba na produkcji po #2835.
