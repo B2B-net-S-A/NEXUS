@@ -47,6 +47,13 @@ async def validate_close_choice(
             "close_reason_other_retired",
             "Wybierz powód z listy — „Inny” nie jest już dostępny.",
         )
+    if reason is JobCloseReason.no_activity:
+        # Nadaje go tylko automat (`services/job_idle.py`) — człowiek wybiera
+        # powód, który mówi, co się stało.
+        raise _reject(
+            "close_reason_system_only",
+            "Ten powód nadaje tylko NEXUS — wybierz, jak skończyła się rekrutacja.",
+        )
     if duplicate_of_job_id is not None and reason is not JobCloseReason.duplicate:
         raise _reject(
             "duplicate_of_requires_duplicate",

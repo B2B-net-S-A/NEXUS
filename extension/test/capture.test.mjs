@@ -129,9 +129,41 @@ test("zrzut listy wyników: pozycje z [role=list] [role=listitem] z linkami /in/
   );
 });
 
+// Starszy układ (2025, część kont nadal go dostaje w testach LinkedIna): imię w h1,
+// nagłówki sekcji w h2 i każdy tekst dwa razy — widoczny (aria-hidden) i dla
+// czytnika ekranu (visually-hidden), sklejony w innerText bez separatora.
+// E2E 29.10.2026: panel brał „InformacjeInformacje” za imię i dublował „JavaJava”.
+const OLD_PROFILE_HTML = readFileSync(new URL("./fixtures/profile-public.html", import.meta.url), "utf8");
+
+test("starszy układ: imię z h1 karty górnej, bez zdublowanych linii", async () => {
+  load(OLD_PROFILE_HTML, PROFILE_URL);
+  const snap = await capturePage({ ...captureConfig(PROFILE_URL), scroll: false });
+  assert.equal(snap.heading.text, "Zofia Testowa");
+  const { profile } = readPage({ url: snap.url, snapshot: snap });
+  assert.equal(profile.full_name, "Zofia Testowa");
+  assert.ok(!profile.skills.some((s) => /^(\w+)\1$/.test(s)), `zdublowane: ${profile.skills}`);
+  assert.ok(!/(.{20,})\1/.test(profile.about || ""), "„Informacje” sklejone dwa razy");
+});
+
+test("nagłówek sekcji nigdy nie jest imieniem osoby", async () => {
+  load(`<main><section><h2>About</h2><div>Tekst o mnie, który ma kilka słów.</div></section></main>`, PROFILE_URL);
+  const snap = await capturePage({ ...captureConfig(PROFILE_URL), scroll: false });
+  const { profile } = readPage({ url: snap.url, snapshot: snap });
+  assert.equal(profile.full_name, null);
+});
+
+test("starszy układ listy wyników: ukryte „Zobacz profil …” nie przykleja się do imienia", async () => {
+  const url = "https://www.linkedin.com/search/results/people/?keywords=java";
+  load(readFileSync(new URL("./fixtures/search-results.html", import.meta.url), "utf8"), url);
+  const snap = await capturePage(captureConfig(url));
+  const names = readPage({ url, snapshot: snap }).people.map((p) => p.full_name);
+  assert.ok(names.includes("Marta Fikcyjna"), String(names));
+  assert.ok(!names.some((n) => /Zobacz|View/.test(n)), String(names));
+});
+
 test("captureConfig: przewijanie tylko na profilach, imię z h2 na profilu publicznym", () => {
   assert.equal(captureConfig(PROFILE_URL).scroll, true);
-  assert.deepEqual(captureConfig(PROFILE_URL).headingSelectors, ["h2", "h1"]);
+  assert.deepEqual(captureConfig(PROFILE_URL).headingSelectors, ["section h1", "h2", "h1"]);
   assert.equal(captureConfig("https://www.linkedin.com/talent/profile/AEMA1").scroll, true);
   assert.equal(captureConfig("https://www.linkedin.com/search/results/people/?k=1").scroll, false);
   assert.ok(captureConfig(PROFILE_URL).scrollBudgetMs <= 4000);

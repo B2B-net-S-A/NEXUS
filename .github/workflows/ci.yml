@@ -568,6 +568,14 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Wtyczka Chrome (extension/, 29.10.2026): czytniki LinkedIna, logika
+      # panelu, manifest (stałe id z pola `key`) i zgodność ZIP-a zespołu
+      # w frontend/public/wtyczka z kodem. ~15 s, zawsze — także bez zmian we
+      # frontendzie, bo filtr niżej nie zna katalogu extension/. Wcześniej tych
+      # testów nie uruchamiał żaden workflow.
+      - name: Wtyczka LinkedIn — testy (node --test)
+        working-directory: extension
+        run: npm ci --no-audit --no-fund && npm test
       # Filtr ścieżek (2026-09-20). Do tej zmiany KAŻDY przebieg płacił za pełny
       # frontend — ESLint, type-check, Vitest z pokryciem i `next build`, 17 min
       # billable — także dla PR-a, który tknął wyłącznie backend albo

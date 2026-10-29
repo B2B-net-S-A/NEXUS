@@ -25,6 +25,15 @@ name: Auto-enqueue
 # ani `converted_to_draft`. Teraz job `hold` wyłącza auto-merge i zdejmuje
 # PR z TRWAJĄCEJ kolejki (GraphQL `dequeuePullRequest`). Zdjęcie etykiety
 # (`unlabeled`) albo „Ready for review” wrzuca PR z powrotem.
+#
+# PAS MIGRACJI (29.10.2026): w kolejce jest naraz najwyżej jeden PR
+# z migracją Alembica — dwa w jednej grupie dają dwie głowy i wywracają też
+# PR-y bez migracji za nimi (25–28.10: 54 z 54 czerwonych bramek kolejki).
+# PR z migracją przed włączeniem auto-merge'a pyta
+# `.github/scripts/queue_migration_lane.py admit` (kopia z MAINA); zajęty pas =
+# etykieta `czeka-na-migracje`, komentarz i bez auto-merge'a. Etykietę zdejmuje
+# automat (`queue-migration-lane.yml`, `migration-rechain.yml`), a `unlabeled`
+# wrzuca PR tutaj z powrotem.
 
 on:
   pull_request:
@@ -48,7 +57,8 @@ jobs:
       && github.event.action != 'labeled'
       && github.event.action != 'converted_to_draft'
       && github.event.pull_request.user.login != 'dependabot[bot]'
-      && !contains(github.event.pull_request.labels.*.name, 'wstrzymaj') }}
+      && !contains(github.event.pull_request.labels.*.name, 'wstrzymaj')
+      && !contains(github.event.pull_request.labels.*.name, 'czeka-na-migracje') }}
     steps:
       - name: Włącz auto-merge (kolejka)
         env:
@@ -73,6 +83,23 @@ jobs:
           if [ "$live" != "false	false" ]; then
             echo "PR #$PR: draft albo \`wstrzymaj\` w bieżącym stanie (draft, wstrzymaj = $live) — pomijam."
             exit 0
+          fi
+          # Pas migracji: skrypt z maina, nie z gałęzi PR-a (token w ręku).
+          # Brak skryptu albo jego błąd = wpuszczamy jak przed 29.10 — bramka
+          # „Jedna głowa Alembica” i tak zatrzyma dwie głowy w kolejce.
+          lane="$RUNNER_TEMP/queue_migration_lane.py"
+          if gh api "repos/$REPO/contents/.github/scripts/queue_migration_lane.py?ref=main" \
+                -H "Accept: application/vnd.github.raw" > "$lane" 2>/dev/null; then
+            python3 "$lane" admit --repo "$REPO" --pr "$PR"
+            rc=$?
+            if [ "$rc" -eq 10 ]; then
+              echo "PR #$PR czeka w pasie migracji — auto-merge zostaje wyłączony."
+              exit 0
+            elif [ "$rc" -ne 0 ]; then
+              echo "::notice::Pas migracji nie odpowiedział (kod $rc) — wpuszczam PR #$PR jak dawniej."
+            fi
+          else
+            echo "::notice::Brak skryptu pasa migracji na mainie — wpuszczam PR #$PR jak dawniej."
           fi
           if out=$(gh pr merge "$PR" --repo "$REPO" --squash --auto 2>&1); then
             echo "PR #$PR: auto-merge włączony — wejdzie do kolejki po zielonych testach."

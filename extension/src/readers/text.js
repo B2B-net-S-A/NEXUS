@@ -39,6 +39,9 @@ export function isDurationOrTypeLine(line) {
 
 function cleanName(text) {
   return clean(text)
+    // Starszy układ: ukryty tekst linku sklejony z imieniem bez spacji,
+    // „Marta FikcyjnaZobacz profil Marta Fikcyjna” / „…View Marta’s profile”.
+    .replace(/(?<=\p{Ll})(View|Zobacz)\s.*$/u, "")
     .replace(/\s*[·•]\s*(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)\s*$/i, "")
     .replace(/^(View|Zobacz)\s+/i, "")
     .replace(/[’']s profile$/i, "")
@@ -170,7 +173,10 @@ export function readAboutText(snapshot) {
  *  „Contact info”, firma obecna, uczelnia, „500+ connections”, przyciski…]
  */
 export function parseTopCard(snapshot) {
-  const name = cleanName(snapshot?.heading?.text || "");
+  // Nagłówek sekcji („About”, „Informacje”) to nigdy imię — bez tej bramki
+  // panel dodałby do NEXUSA osobę o nazwisku „Informacje”.
+  const heading = cleanName(snapshot?.heading?.text || "");
+  const name = Object.values(SECTION_HEADINGS).some((names) => headingMatches(heading, names)) ? "" : heading;
   const lines = (snapshot?.top?.lines || []).map(clean).filter(Boolean);
   const i = name ? lines.findIndex((l) => cleanName(l) === name) : -1;
   const after = i >= 0 ? lines.slice(i + 1) : lines;

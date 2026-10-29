@@ -14,6 +14,20 @@ from app.services import linkedin_extension_lookup as lookup
 from app.services import linkedin_message_draft as draft
 
 
+# ── Wersja wtyczki ───────────────────────────────────────────────────────────
+
+
+def test_latest_version_matches_extension_manifest() -> None:
+    """Panel pokazuje „Jest nowa wersja”, gdy jego wersja < tej z NEXUSA.
+    Podbicie wersji w extension/manifest.json bez tej stałej = brak banera."""
+    import json
+    from pathlib import Path
+
+    manifest = Path(__file__).resolve().parents[2] / "extension" / "manifest.json"
+    version = json.loads(manifest.read_text(encoding="utf-8"))["version"]
+    assert auth.LATEST_EXTENSION_VERSION == version
+
+
 # ── Klucz ────────────────────────────────────────────────────────────────────
 
 
