@@ -526,7 +526,7 @@ GAPS_DOWNGRADE_DDL: tuple[str, ...] = (
 )
 
 
-# ── 0616: historia zmian szansy (jak „Historia zmian” w Atlasie) ─────────────
+# ── 0617: historia zmian szansy (jak „Historia zmian” w Atlasie) ─────────────
 # Jeden wiersz na zmienione pole: kto (``user_id``), kiedy, co było i co jest.
 # Wartości jako tekst (id etapu, opiekuna, firmy, kwota, data ISO) — nazwy
 # etapów i osób dokłada odczyt, więc w tabeli nie ma nazwisk. Wejście na etap

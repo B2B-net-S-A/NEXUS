@@ -537,7 +537,7 @@ class SalesLead(Base, TimestampMixin):
 
 
 class SalesOpportunityEvent(Base):
-    """Jedna zmiana szansy: kto, kiedy, które pole, stara i nowa wartość (0616)."""
+    """Jedna zmiana szansy: kto, kiedy, które pole, stara i nowa wartość (0617)."""
 
     __tablename__ = "sales_opportunity_events"
     __table_args__ = (
