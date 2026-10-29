@@ -1,5 +1,5 @@
 # Rytm dnia i intensywność pracy rekruterów (Insights → „Rytm dnia”)
-<!-- indeks: tylko HoR i admin, punkty pracy za akcję, poziomy godziny, intensywność 0–100, urlop i dni przed kontem poza wskaźnikiem, podpowiedź intensywność × CV do klienta, reguły w app_settings -->
+<!-- indeks: tylko HoR i admin, punkty pracy za akcję, poziomy godziny, intensywność 0–100, urlop i dni przed kontem poza wskaźnikiem, podpowiedź intensywność × CV do klienta, reguły w app_settings, ochrona przed nabijaniem, rozkład dnia po kliknięciu -->
 
 Decyzje Artura z 28–29.10.2026 (makiety w prywatnym artefakcie
 `S7Hx8KFo1FLfv255MgQHKg`). Zakładka pokazuje, kiedy i jak intensywnie
@@ -19,12 +19,31 @@ wyniki = trzeba pracować więcej.
   roboczych, najwyżej 31 dni.
 - **Punkty pracy za akcję** (wagi w ustawieniach): screening 5, rozmowa u
   klienta / feedback / prep 3, wygenerowane CV 3, notatka, dodany kandydat,
-  finalizacja CV 2, ruch karty, mail, QC CV, inny zapis 1, podgląd CV 0,5.
+  finalizacja CV 2, próba kontaktu („nie odbiera”) 1, ruch karty, mail, QC CV,
+  inny zapis 1, podgląd CV 0,5.
   Zero: autozapis edycji CV, odpowiedzi formularza (dublują screening), Jarvis,
   notatki systemowe (`system`, `card_note_import`, `qc_confirmation`,
   `teams_prep`), wpisy automatów (`_SKIPPED_ACTIONS`). Ten sam rodzaj zapisu
   u ≥ 5 osób w tej samej minucie to import (staging 20.10.2026 20:24: 66
   rozmów u klienta i 66 feedbacków naraz) — nie liczy się.
+- **Ochrona przed nabijaniem** (29.10.2026, `classify_events`; limity
+  w ustawieniach, 0 = bez limitu). Na kopii stagingu 12–22.10 zdejmuje 25%
+  punktów zespołu, wskaźnik spada o 0–14; pięć sposobów nabijania (8 podglądów
+  na godzinę, ten sam formularz w kółko, „nie odbiera” bez dzwonienia, karty
+  tam i z powrotem, masowe dodanie) spada z > 60/100 do < 10:
+  CV z automatu (`origin = 'auto'`) 0 pkt — ruch karty, który je uruchomił, już
+  się liczy (62% CV na kopii); screening tego samego kandydata raz dziennie;
+  inny zapis tej samej rzeczy raz na godzinę (autozapis karty rekomendacji,
+  poprawki CV z AI); podglądy: ten sam dokument raz na godzinę, najwyżej 4
+  w godzinie; ≥ 10 takich samych zapisów jednej osoby w minutę = jedna akcja;
+  powrót karty na etap, na którym już była tego dnia, 0 pkt; najwyżej 10 prób
+  kontaktu dziennie. Godzina z samych drobnych akcji przy < 2 kandydatach nie
+  jest godziną pracy (screening, krok u klienta i CV wystarczą same).
+  Odpadłe akcje zostają w rozkładzie dnia z powodem.
+- **Rozkład dnia:** kliknięcie osoby (Dzień) albo daty (2 tygodnie) →
+  `GET /api/insights/work-rhythm/day` — każda akcja z godziną, kandydatem,
+  punktami albo powodem, dla którego nic nie dała. Import wielu osób naraz
+  rozpoznajemy po całym zespole, więc zdarzenia dnia pobieramy dla wszystkich.
 - **Poziom godziny** z progów `hour_levels` (domyślnie 4 / 11 / 25 pkt =
   kwartyle zespołu od 12.10). **Godzina pracy** = ≥ 4 pkt albo prep ustawiony
   z NEXUSA (`prep_meetings`) ≥ 30 min w tej godzinie, liczona 8:00–18:00. Inne

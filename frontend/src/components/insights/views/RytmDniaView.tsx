@@ -24,6 +24,7 @@ import {
   type WorkRhythmRules,
 } from "@/lib/work-rhythm-api";
 import { PanelLoading } from "./ViewKit";
+import { RhythmDayDialog } from "./RhythmDayDialog";
 import { RhythmRulesDialog } from "./RhythmRulesDialog";
 
 /**
@@ -35,6 +36,7 @@ import { RhythmRulesDialog } from "./RhythmRulesDialog";
  */
 
 type Mode = "dzien" | "okres" | "intensywnosc";
+type OpenDay = (p: WorkRhythmPerson, date: string) => void;
 
 const LEVEL_CLASSES = ["bg-muted", "bg-primary/20", "bg-primary/45", "bg-primary/75", "bg-primary"];
 const LEVEL_NAMES = ["brak", "lekka", "robocza", "intensywna", "bardzo intensywna"];
@@ -129,8 +131,13 @@ function HourCells({ day, compact = false }: { day: WorkRhythmDay; compact?: boo
       {day.levels.map((level, i) => (
         <div key={i} className="flex flex-col gap-[2px]">
           <span
-            className={cn(compact ? "h-3" : "h-6", "rounded-[3px]", LEVEL_CLASSES[level] ?? LEVEL_CLASSES[0])}
-            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · prep z NEXUSA" : ""}`}
+            className={cn(
+              compact ? "h-3" : "h-6",
+              "rounded-[3px]",
+              LEVEL_CLASSES[level] ?? LEVEL_CLASSES[0],
+              day.thin?.[i] ? "ring-1 ring-inset ring-warning" : "",
+            )}
+            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · prep z NEXUSA" : ""}${day.thin?.[i] ? " · drobiazgi przy jednym kandydacie, nie jest godziną pracy" : ""}`}
           />
           <span className={cn("h-[3px] rounded-full", day.meetings[i] ? "bg-warning" : "bg-transparent")} />
         </div>
@@ -197,6 +204,10 @@ function Legend({ rules }: { rules: WorkRhythmRules }) {
       <span className="flex items-center gap-1.5">
         <span className="h-3 w-5 rounded-[3px] border border-dashed border-info/40 bg-info-muted" /> urlop
       </span>
+      <span className="flex items-center gap-1.5">
+        <span className="h-3 w-4 rounded-[3px] bg-primary/20 ring-1 ring-inset ring-warning" /> drobiazgi — nie godzina pracy
+      </span>
+      <span>Kliknij osobę albo dzień, żeby zobaczyć, co się liczyło.</span>
     </div>
   );
 }
@@ -260,8 +271,24 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
           <p>Rozmowy z telefonu i praca na LinkedIn poza wtyczką nie są widoczne.</p>
         </div>
       </div>
+      <div className="space-y-1.5 border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="text-sm font-medium text-foreground">4. Ochrona przed nabijaniem</p>
+        <p>
+          CV z automatu {fmtNumber(rules.auto_cv_points)} pkt · screening tego samego kandydata {limitText(rules.screening_per_candidate_day, "raz dziennie", "× dziennie")} · inny
+          zapis tej samej rzeczy {limitText(rules.repeats_per_hour, "raz na godzinę", "× na godzinę")} · podglądów w godzinie {limitText(rules.views_per_hour, "", "najwyżej")} ·
+          masowa akcja (≥ {rules.bulk_per_minute || "∞"} takich samych zapisów w minutę) liczy się raz · powrót karty na ten sam etap {fmtNumber(rules.stage_return_points)} pkt ·
+          prób kontaktu dziennie {limitText(rules.contacts_per_day, "", "najwyżej")} · godzina z samych drobnych akcji jest godziną pracy przy ≥ {rules.thin_hour_candidates} kandydatach
+          (screening, krok u klienta i CV wystarczą same).
+        </p>
+      </div>
     </Card>
   );
+}
+
+function limitText(limit: number, one: string, many: string): string {
+  if (!limit) return "bez limitu";
+  if (limit === 1 && one) return one;
+  return many === "najwyżej" ? `najwyżej ${limit}` : `${limit}${many}`;
 }
 
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
@@ -295,7 +322,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 const DAY_COLS = "170px 1fr 54px 54px 60px 150px";
 
-function DayTable({ data, date }: { data: WorkRhythmResponse; date: string }) {
+function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: string; onOpen: OpenDay }) {
   return (
     <Card className="min-w-0 p-4">
       <div className="overflow-x-auto">
@@ -314,10 +341,15 @@ function DayTable({ data, date }: { data: WorkRhythmResponse; date: string }) {
             const off = isOff(d);
             return (
               <div key={p.user_id} className="grid items-center gap-3 border-b border-border/60 py-1.5 last:border-0" style={{ gridTemplateColumns: DAY_COLS }}>
-                <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                <button
+                  type="button"
+                  onClick={() => onOpen(p, date)}
+                  className="flex min-w-0 items-center gap-2 rounded-md text-left text-sm font-medium text-foreground hover:text-primary"
+                  title="Rozkład dnia: co się liczyło, a co nie"
+                >
                   <Initials name={p.name} />
                   <span className="truncate">{p.name}</span>
-                </span>
+                </button>
                 {off ? <OffBand day={d} /> : <HourCells day={d} />}
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.first ?? "—"}</span>
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.last ?? "—"}</span>
@@ -338,7 +370,7 @@ function DayTable({ data, date }: { data: WorkRhythmResponse; date: string }) {
 
 // ── Widok „2 tygodnie” ──────────────────────────────────────────────────────
 
-function PersonPeriod({ p, rules }: { p: WorkRhythmPerson; rules: WorkRhythmRules }) {
+function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRhythmRules; onOpen: OpenDay }) {
   const work = p.days.filter((d) => !isOff(d) && d.first && d.last);
   const start = median(work.map((d) => toMin(d.first!)));
   const end = median(work.map((d) => toMin(d.last!)));
@@ -368,7 +400,15 @@ function PersonPeriod({ p, rules }: { p: WorkRhythmPerson; rules: WorkRhythmRule
         <span />
         {p.days.map((d) => (
           <React.Fragment key={d.date}>
-            <span className="whitespace-nowrap text-[11px] text-muted-foreground">{fmtDay(d.date)}</span>
+            <button
+              type="button"
+              onClick={() => onOpen(p, d.date)}
+              disabled={d.before_start}
+              className="whitespace-nowrap text-left text-[11px] text-muted-foreground hover:text-primary disabled:hover:text-muted-foreground"
+              title="Rozkład dnia: co się liczyło, a co nie"
+            >
+              {fmtDay(d.date)}
+            </button>
             {isOff(d) ? <OffBand day={d} compact /> : <HourCells day={d} compact />}
             <span className="text-right text-[11px] tabular-nums text-muted-foreground" title={d.in_progress ? "Dzień trwa — nie liczy się do wskaźnika okresu" : undefined}>
               {d.in_progress ? "trwa" : d.index ?? ""}
@@ -553,6 +593,8 @@ export function RytmDniaView() {
   const params = useSearchParams();
   const { replaceUrl } = useUrlWriter();
   const [editing, setEditing] = React.useState(false);
+  const [openDay, setOpenDay] = React.useState<{ userId: number; name: string; date: string; label: string } | null>(null);
+  const onOpen: OpenDay = (p, d) => setOpenDay({ userId: p.user_id, name: p.name, date: d, label: fmtDay(d, true) });
   // `do` = ostatni dzień okna; serwer bierze 10 dni roboczych wstecz, nie przed 12.10.
   const windowEnd = /^\d{4}-\d{2}-\d{2}$/.test(params.get("do") ?? "") ? params.get("do") : null;
   const { data, isPending, isError, isSuccess, error, refetch } = useQuery({
@@ -633,7 +675,7 @@ export function RytmDniaView() {
             <StatCard label="Intensywność zespołu" value={medIdx !== null ? Math.round(medIdx) : "—"} sub="mediana dnia, 0–100" icon={Gauge} />
           </StatCardGrid>
           <Legend rules={data.rules} />
-          <DayTable data={data} date={date} />
+          <DayTable data={data} date={date} onOpen={onOpen} />
         </>
       ) : null}
 
@@ -642,7 +684,7 @@ export function RytmDniaView() {
           <Legend rules={data.rules} />
           <div className="grid gap-4 lg:grid-cols-2">
             {data.people.map((p) => (
-              <PersonPeriod key={p.user_id} p={p} rules={data.rules} />
+              <PersonPeriod key={p.user_id} p={p} rules={data.rules} onOpen={onOpen} />
             ))}
           </div>
         </>
@@ -656,6 +698,7 @@ export function RytmDniaView() {
         i synchronizacji. Spotkanie to tylko prep ustawiony z NEXUSA (blokady i inne wpisy w kalendarzu się nie liczą); L4 nie ma w kartotece, więc dzień
         zwolnienia wygląda jak dzień bez pracy.
       </p>
+      <RhythmDayDialog target={openDay} onClose={() => setOpenDay(null)} />
       {data.can_edit_rules ? (
         <RhythmRulesDialog open={editing} onOpenChange={setEditing} rules={data.rules} />
       ) : null}

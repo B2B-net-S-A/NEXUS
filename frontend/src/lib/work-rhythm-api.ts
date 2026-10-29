@@ -11,6 +11,7 @@ export const WORK_RHYTHM_KINDS = [
   "client_step",
   "cv",
   "note",
+  "contact",
   "action",
   "view",
 ] as const;
@@ -20,7 +21,8 @@ export const WORK_RHYTHM_KIND_LABELS: Record<WorkRhythmKind, string> = {
   screening: "Screening (karta, fakty z rozmowy, formularz)",
   client_step: "Rozmowa u klienta umówiona, feedback, prep",
   cv: "Wygenerowane CV",
-  note: "Notatka (także „nie odbiera”), dodany kandydat, finalizacja CV",
+  note: "Notatka, dodany kandydat, finalizacja CV",
+  contact: "Próba kontaktu („nie odbiera”)",
   action: "Ruch karty, wysłany mail, QC CV, inny zapis",
   view: "Podgląd CV lub dokumentu",
 };
@@ -36,7 +38,34 @@ export interface WorkRhythmRules {
   level_mid: number;
   diag_intensity: number;
   diag_results_pct: number;
+  /** Ochrona przed nabijaniem (29.10.2026); limit 0 = bez limitu. */
+  auto_cv_points: number;
+  screening_per_candidate_day: number;
+  repeats_per_hour: number;
+  views_per_hour: number;
+  bulk_per_minute: number;
+  stage_return_points: number;
+  contacts_per_day: number;
+  thin_hour_candidates: number;
 }
+
+/** Powody, dla których akcja nie dała punktów — lustro `SKIP_REASONS` z serwera. */
+export type WorkRhythmSkipReason =
+  | "automat"
+  | "powtorka"
+  | "limit_podgladow"
+  | "masowa"
+  | "powrot"
+  | "limit_kontaktu";
+
+export const WORK_RHYTHM_SKIP_LABELS: Record<WorkRhythmSkipReason, string> = {
+  automat: "CV wygenerował automat",
+  powtorka: "ponowny zapis albo otwarcie tego samego",
+  limit_podgladow: "ponad limit podglądów w godzinie",
+  masowa: "masowa akcja liczy się raz",
+  powrot: "karta wróciła na ten sam etap",
+  limit_kontaktu: "ponad dzienny limit prób kontaktu",
+};
 
 export interface WorkRhythmDay {
   date: string;
@@ -51,6 +80,10 @@ export interface WorkRhythmDay {
   levels: number[];
   counts: number[];
   meetings: boolean[];
+  /** Godzina z samych drobnych akcji przy jednym kandydacie — nie jest godziną pracy. */
+  thin: boolean[];
+  /** Punkty, które odpadły z ochrony przed nabijaniem, według powodu. */
+  skipped: Partial<Record<WorkRhythmSkipReason, number>>;
   first: string | null;
   last: string | null;
   work_hours: number | null;
@@ -94,15 +127,44 @@ export interface WorkRhythmResponse {
 /** Godziny na osi (7–19) — lustro `HOURS` z serwera. */
 export const WORK_RHYTHM_HOURS = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19];
 
+export interface WorkRhythmDayEvent {
+  time: string;
+  hour: number;
+  kind: WorkRhythmKind;
+  label: string;
+  candidate: string | null;
+  points: number;
+  weight: number;
+  reason: WorkRhythmSkipReason | null;
+}
+
+export interface WorkRhythmDayDetail {
+  user_id: number;
+  name: string;
+  date: string;
+  points: number[];
+  meetings: boolean[];
+  thin: boolean[];
+  skipped: Partial<Record<WorkRhythmSkipReason, number>>;
+  events: WorkRhythmDayEvent[];
+}
+
 export const workRhythmQueryKeys = {
   all: ["insights", "work-rhythm"] as const,
   window: (from: string | null, to: string | null) =>
     ["insights", "work-rhythm", from, to] as const,
+  day: (userId: number, day: string) => ["insights", "work-rhythm", "day", userId, day] as const,
 };
 
 export const workRhythmApi = {
   get: async (params: { date_from?: string; date_to?: string } = {}) =>
     (await api.get<WorkRhythmResponse>("/api/insights/work-rhythm", { params })).data,
+  day: async (userId: number, day: string) =>
+    (
+      await api.get<WorkRhythmDayDetail>("/api/insights/work-rhythm/day", {
+        params: { user_id: userId, day },
+      })
+    ).data,
   saveRules: async (rules: WorkRhythmRules) =>
     (
       await api.put<{ rules: WorkRhythmRules; can_edit: boolean }>(
