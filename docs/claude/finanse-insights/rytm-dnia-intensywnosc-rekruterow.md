@@ -11,8 +11,9 @@ wyniki = trzeba pracować więcej.
   wcześniej padło „widzi cały zespół” — zmienione). Lustro ról:
   `VIEWER_ROLES` w `services/work_rhythm.py` i `RHYTHM_ROLES`
   w `InsightsView.tsx`. Ci sami zmieniają reguły („Zmień reguły”).
-- **Kogo pokazujemy:** aktywni rekruterzy i TCM bez ról lidera (bez Delivery
-  Leadów, HoR i adminów), bez formy współpracy. Konto, w imieniu którego działa
+- **Kogo pokazujemy:** każdy aktywny z rolą rekrutera, także Delivery Lead
+  z dopisanym rekruterem (29.10.2026; dzień wcześniej „bez DL-i” — zmienione).
+  Sam TCM bez roli rekrutera, HoR i admin nie są wierszami. Bez formy współpracy. Konto, w imieniu którego działa
   integracja (`oauth_clients.acting_user_id`), nie jest człowiekiem — pomijamy.
 - **Od 12.10.2026** (start pracy w NEXUSIE, `RHYTHM_START`); okno to 10 dni
   roboczych, najwyżej 31 dni.
@@ -25,8 +26,10 @@ wyniki = trzeba pracować więcej.
   u ≥ 5 osób w tej samej minucie to import (staging 20.10.2026 20:24: 66
   rozmów u klienta i 66 feedbacków naraz) — nie liczy się.
 - **Poziom godziny** z progów `hour_levels` (domyślnie 4 / 11 / 25 pkt =
-  kwartyle zespołu od 12.10). **Godzina pracy** = ≥ 4 pkt albo spotkanie M365
-  ≥ 30 min w tej godzinie, liczona 8:00–18:00.
+  kwartyle zespołu od 12.10). **Godzina pracy** = ≥ 4 pkt albo prep ustawiony
+  z NEXUSA (`prep_meetings`) ≥ 30 min w tej godzinie, liczona 8:00–18:00. Inne
+  wpisy M365 się nie liczą (29.10.2026): od 12.10 to ok. 12,5 tys. cyklicznych
+  „Spotkań” bez uczestników, czyli blokad kalendarza.
 - **Intensywność dnia (0–100)** = ½ × godziny pracy / 7 + ½ × punkty dnia /
   120, każda część najwyżej 1. Okres = średnia z dni pracy. Dzień urlopu
   (`person_workdays.absence_by_user`) i dni przed założeniem konta nie liczą

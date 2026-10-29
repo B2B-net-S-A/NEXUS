@@ -29,7 +29,7 @@ import { RhythmRulesDialog } from "./RhythmRulesDialog";
 /**
  * Insights → „Rytm dnia” (decyzje Artura 28–29.10.2026). Kiedy i jak
  * intensywnie rekruterzy pracują w NEXUSIE. Na razie widzą to tylko Head of
- * Recruitment i admin. Pokazujemy rekruterów i TCM, bez Delivery Leadów i HoR,
+ * Recruitment i admin. Pokazujemy każdego z rolą rekrutera (też DL-i), bez HoR,
  * bez formy współpracy, od 12.10. Kolumny wyników i podpowiedzi rysujemy tylko,
  * gdy serwer je przysłał (`with_results`).
  */
@@ -130,7 +130,7 @@ function HourCells({ day, compact = false }: { day: WorkRhythmDay; compact?: boo
         <div key={i} className="flex flex-col gap-[2px]">
           <span
             className={cn(compact ? "h-3" : "h-6", "rounded-[3px]", LEVEL_CLASSES[level] ?? LEVEL_CLASSES[0])}
-            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · spotkanie" : ""}`}
+            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · prep z NEXUSA" : ""}`}
           />
           <span className={cn("h-[3px] rounded-full", day.meetings[i] ? "bg-warning" : "bg-transparent")} />
         </div>
@@ -192,7 +192,7 @@ function Legend({ rules }: { rules: WorkRhythmRules }) {
         </span>
       ))}
       <span className="flex items-center gap-1.5">
-        <span className="h-[3px] w-5 rounded-full bg-warning" /> spotkanie ≥ 30 min
+        <span className="h-[3px] w-5 rounded-full bg-warning" /> prep z NEXUSA ≥ 30 min
       </span>
       <span className="flex items-center gap-1.5">
         <span className="h-3 w-5 rounded-[3px] border border-dashed border-info/40 bg-info-muted" /> urlop
@@ -240,7 +240,7 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
             <b className="text-foreground">Poziom godziny</b> = suma punktów w tej godzinie: lekka poniżej {fmtNumber(low)}, robocza od {fmtNumber(low)}, intensywna od {fmtNumber(mid)}, bardzo intensywna od {fmtNumber(high)}.
           </p>
           <p>
-            <b className="text-foreground">Godzina pracy</b> = co najmniej {fmtNumber(rules.work_hour_min_points)} pkt albo spotkanie w kalendarzu ≥ 30 min, liczona 8:00–18:00.
+            <b className="text-foreground">Godzina pracy</b> = co najmniej {fmtNumber(rules.work_hour_min_points)} pkt albo prep ustawiony z NEXUSA ≥ 30 min, liczona 8:00–18:00.
           </p>
           <p>
             <b className="text-foreground">Intensywność dnia (0–100)</b> = ½ × godziny pracy / {fmtNumber(rules.norm_work_hours)} + ½ × punkty dnia / {fmtNumber(rules.norm_day_points)}, każda część najwyżej 1.
@@ -653,7 +653,7 @@ export function RytmDniaView() {
       <RulesPanel rules={data.rules} onEdit={data.can_edit_rules ? () => setEditing(true) : undefined} />
       <p className="text-xs text-muted-foreground">
         Liczymy od 12.10.2026 (start pracy w NEXUSIE), dni robocze {fmtDay(data.from)} – {fmtDay(data.to)}. Bez importów
-        i synchronizacji. Spotkania widać u osób z podpiętym kalendarzem Microsoft 365; L4 nie ma w kartotece, więc dzień
+        i synchronizacji. Spotkanie to tylko prep ustawiony z NEXUSA (blokady i inne wpisy w kalendarzu się nie liczą); L4 nie ma w kartotece, więc dzień
         zwolnienia wygląda jak dzień bez pracy.
       </p>
       {data.can_edit_rules ? (
