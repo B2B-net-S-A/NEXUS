@@ -66,7 +66,7 @@ class JobCloseReason(str, enum.Enum):
 
     Grupę w hit ratio (wygrana / przegrana / nie liczy się) ustala
     `services/metric_definitions.HIT_RATIO_*_CLOSE_REASONS`, nie ten enum.
-    `duplicate` i `no_match` od 0504 (21.10.2026). `no_activity` od 0616
+    `duplicate` i `no_match` od 0504 (21.10.2026). `no_activity` od 0617
     (28.10.2026) nadaje wyłącznie NEXUS po 28 dniach bez ruchu Delivery Leada
     (`services/job_idle.py`).
     """
@@ -201,7 +201,7 @@ class Job(Base, TimestampMixin):
     work_state_changed_by: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 0616: „Jeszcze trwa” przy przypomnieniu o rekrutacji bez ruchu — licznik
+    # 0617: „Jeszcze trwa” przy przypomnieniu o rekrutacji bez ruchu — licznik
     # 14/21/28 dni liczy od tej chwili (`services/job_idle.py`, 28.10.2026).
     idle_snoozed_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True

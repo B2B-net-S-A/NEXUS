@@ -89,7 +89,7 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "work_state",
         "work_state_changed_at",
         "work_state_changed_by",
-        # 0616: „Jeszcze trwa” przy rekrutacji bez ruchu — decyzja DL w NEXUSIE.
+        # 0617: „Jeszcze trwa” przy rekrutacji bez ruchu — decyzja DL w NEXUSIE.
         "idle_snoozed_at",
         "idle_snoozed_by",
         # 0406: godzina terminu — Traffit zna tylko datę.

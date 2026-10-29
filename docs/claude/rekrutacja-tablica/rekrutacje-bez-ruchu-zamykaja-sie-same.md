@@ -51,7 +51,7 @@ https://claude.ai/artifact/VKCXNX7A4Tqw5q5FTbP3kz (wersja 2).
   trwa”, wpis `idle_snoozed` w historii; HoR widzi liczbę odłożeń).
 - Front: `JobIdleBanner` nad Tablicą dla tych, którzy mogą zamknąć rekrutację;
   „Zamknij…” otwiera dzisiejsze okno zamykania (przy zatrudnieniu z
-  „Wygraliśmy”), „Jeszcze trwa” liczy od nowa. Migracja 0616, lustro
+  „Wygraliśmy”), „Jeszcze trwa” liczy od nowa. Migracja 0617, lustro
   w `entrypoint.sh`.
 - Istniejący poranny skrót `request_review_needed` („Szukamy” bez pracy od
   30 dni) został bez zmian.
