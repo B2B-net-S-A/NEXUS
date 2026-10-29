@@ -87,6 +87,13 @@ zrobione przed nowym screeningiem. Zwykłe przepięcie CV już nie kopiuje, kart
 pokazuje potwierdzenia i podpowiedź „Użyj gotowego CV”. Kopię zostawia tylko
 „Match” DL-a. → `screening-notatki/screening-wybor-gotowego-cv-z-profilu-i-edycja.md`
 
+## Nowe CV kandydata (29.10.2026)
+
+Wgranie nowego CV w rekrutacji nie omija potwierdzeń: bez CV do klienta plik
+jest tylko od razu potwierdzony. Gotowe, nietknięte CV generuje się z nowego
+pliku samo, z tymi samymi źródłami co poprzednia wersja (rekruter potwierdził
+je wcześniej). → `rekrutacja-tablica/nowe-cv-w-rekrutacji.md`
+
 ## Czego nie zmienia
 
 - Inne wejścia do generatora (okno z profilu, dok, okno QC) — mają własny wybór

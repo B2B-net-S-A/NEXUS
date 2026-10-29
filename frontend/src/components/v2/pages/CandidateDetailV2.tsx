@@ -104,6 +104,7 @@ import {
   type CandidateProfileViewInput,
 } from "@/components/v2/pages/candidate-profile-navigation";
 import { useCapability } from "@/hooks/useCapability";
+import { AddCvDialog } from "@/components/v2/candidate-profile/AddCvDialog";
 import {
   ProfilePersonBar,
   ProfileTopBar,
@@ -423,6 +424,9 @@ export function CandidateDetailV2({
   const [followupOpen, setFollowupOpen] = useState(false);
   const [blacklistOpen, setBlacklistOpen] = useState(false);
   const [latestCvOpen, setLatestCvOpen] = useState(false);
+  // „Dodaj CV” w pasku osoby (29.10.2026) — prawo jak „Dodaj plik” w Dokumentach.
+  const [addCvOpen, setAddCvOpen] = useState(false);
+  const canManageDocuments = useCapability("candidate.document.manage");
 
   // ── Uprawnienia ───────────────────────────────────────────────────────
   const currentUser = useAuthStore((s) => s.user);
@@ -716,6 +720,7 @@ export function CandidateDetailV2({
           onBlacklist: canWriteSourcing ? () => setBlacklistOpen(true) : undefined,
           latestCv,
           onOpenLatestCv: () => setLatestCvOpen(true),
+          onAddCv: canManageDocuments ? () => setAddCvOpen(true) : undefined,
         }}
       />
 
@@ -977,6 +982,15 @@ export function CandidateDetailV2({
           candidateId={candidateNumericId}
           open={followupOpen}
           onOpenChange={setFollowupOpen}
+        />
+      ) : null}
+
+      {addCvOpen ? (
+        <AddCvDialog
+          open={addCvOpen}
+          onOpenChange={setAddCvOpen}
+          candidateId={candidateNumericId}
+          candidateName={fullName || "Kandydat"}
         />
       ) : null}
 

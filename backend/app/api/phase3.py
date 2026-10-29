@@ -308,6 +308,9 @@ async def candidate_pipelines(
                 "job_id": s.job_id,
                 "job_title": job.title if job else None,
                 "client_id": job.client_id if job else None,
+                # „Dodaj CV” w profilu (29.10.2026) pokazuje tylko rekrutacje
+                # otwarte — karta w zamkniętej rekrutacji zostaje w „Nowych”.
+                "job_status": getattr(job.status, "value", job.status) if job else None,
                 "stage_name": sd.name if sd else (s.stage.value if s.stage else None),
                 "stage_category": sd.category.value if sd else None,
                 "is_terminal": sd.is_terminal if sd else False,

@@ -3163,6 +3163,8 @@ export interface CandidatePipelineRow {
   job_id: number;
   job_title: string | null;
   client_id: number | null;
+  /** Status rekrutacji („published”, „closed”…); starszy serwer go nie podaje. */
+  job_status?: string | null;
   stage_name: string | null;
   stage_category: string | null;
   is_terminal: boolean;
@@ -6702,7 +6704,19 @@ export interface StageCvUploadResult extends CVOriginalSnapshot {
   undo_available?: boolean;
   stored_in_profile?: boolean;
   uploaded_filename?: string | null;
+  /** Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV. */
+  uploaded_document_id?: number | null;
+  /**
+   * CV do klienta po nowym CV (29.10.2026): generuje się samo, pytamy,
+   * czeka na potwierdzenia, zablokowane po „CV wysłane”, klient bierze formularz.
+   */
+  company_cv?: NewCvCompanyCvPlan | null;
+  company_cv_stage_id?: number | null;
+  company_cv_status?: string | null;
+  regenerating_document_id?: number | null;
 }
+
+export type NewCvCompanyCvPlan = "regenerating" | "ask" | "confirm" | "locked" | "none";
 
 export interface CVBrandedFinalizeResponseT {
   edit_revision: number;
@@ -6783,7 +6797,15 @@ export const candidateStageCvApi = {
      * klienta (15.10.2026). `mode: "original"` wymusza CV kandydata („Cofnij”),
      * `replaceClientCv` — podmianę CV do klienta, które ktoś już poprawiał.
      */
-    upload: (stageId: number, file: File, options?: { mode?: "original"; replaceClientCv?: boolean }) => {
+    /**
+     * `mode`: „original” = „Cofnij” po wgraniu CV do klienta; „candidate” =
+     * „Dodaj CV” w profilu (29.10.2026) — CV kandydata bez rozpoznawania po nazwie.
+     */
+    upload: (
+      stageId: number,
+      file: File,
+      options?: { mode?: "original" | "candidate"; replaceClientCv?: boolean },
+    ) => {
       const form = new FormData();
       form.append("file", file);
       if (options?.mode) form.append("mode", options.mode);
@@ -6810,6 +6832,15 @@ export const candidateStageCvApi = {
         // „Napisz od nowa” (PR 5): ręcznie poprawione części szkicu zostają.
         ...(options?.keepEdits ? { keep_edits: true } : {}),
       }),
+    /**
+     * „Generuj z nowego CV” (29.10.2026): nowa wersja z Oryginału CV rekrutacji
+     * z tymi samymi źródłami; gotowa zastąpi CV, jeśli nikt go nie zmieni.
+     */
+    regenerateFromOriginal: (stageId: number, expected_revision: number) =>
+      api.post<{ generated_document_id: number; company_cv_stage_id: number }>(
+        `/api/candidates/stages/${stageId}/cv/branded/regenerate-from-original`,
+        { expected_revision },
+      ),
     /** „Wróć do poprzedniej” — szkic sprzed ostatniej podmiany nową generacją. */
     restorePrevious: (stageId: number, expected_revision: number) =>
       api.post<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded/restore-previous`, {

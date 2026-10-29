@@ -172,7 +172,7 @@
       },
       {
         "q": "Jak przygotować CV do klienta?",
-        "a": "Gotowe CV w Wordzie („B2B_…”) wgraj „Wgraj nowe CV” — od razu jest CV do klienta; inne: „Użyj innego CV”. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Klient z własnym formularzem CV (np. CEZ): „Wypełnij z CV i screeningu”, braki — „Uzupełnij braki”, plik — „Pobierz Word”. U PKO BP pobranie czeka na zgodę RODO."
+        "a": "Nowe CV: „Wgraj nowe CV” — CV do klienta powstanie z niego samo albo po pytaniu; „B2B_…” od razu jest CV do klienta. „Sprawdź i popraw” otwiera edytor ze stopką „Gotowe, przekaż do DL”. Klient z własnym formularzem (np. CEZ): „Wypełnij z CV i screeningu”, braki — „Uzupełnij braki”, plik — „Pobierz Word”. U PKO BP pobranie czeka na zgodę RODO."
       },
       {
         "q": "Gdzie są rozmowa u klienta i umowa?",
@@ -361,7 +361,7 @@
       },
       {
         "q": "Gdzie są notatki, CV, pliki i umowy?",
-        "a": "Aktualne CV otwiera „Najnowsze CV” w pasku osoby (strzałki w oknie — starsze wersje). „Notatki”: rozmowy, próby kontaktu, Delivery Lead, maile i czat; „Zmiany etapów i automaty” pokazuje oś czasu. „CV”: umiejętności, doświadczenie, wykształcenie. „Dokumenty”: umowy i pliki w grupach — CV kandydata, CV dla klientów, załączniki i formularze.",
+        "a": "„Najnowsze CV” w pasku osoby otwiera aktualne CV, „Dodaj CV” dodaje nowe (też do rekrutacji w toku). „Notatki”: rozmowy, próby kontaktu, Delivery Lead, maile i czat; „Zmiany etapów i automaty” pokazuje oś czasu. „CV”: umiejętności i doświadczenie. „Dokumenty”: umowy i pliki w grupach — CV kandydata, CV dla klientów, załączniki i formularze.",
         "anchor": "candidate.profile.tabs"
       },
       {

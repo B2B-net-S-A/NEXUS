@@ -44,6 +44,7 @@ import {
   ShieldAlert,
   Tags,
   Trash2,
+  Upload,
   UserPlus,
   X,
 } from "lucide-react";
@@ -204,6 +205,8 @@ export interface ProfilePersonBarActions {
   /** „Najnowsze CV” — bez pliku CV (albo przed wczytaniem listy) przycisku nie ma. */
   latestCv?: CandidateDocument | null;
   onOpenLatestCv?: () => void;
+  /** „Dodaj CV” (29.10.2026) — okno `AddCvDialog`; tylko z prawem wgrywania plików. */
+  onAddCv?: () => void;
 }
 
 export interface ProfilePersonBarProps {
@@ -524,6 +527,18 @@ function PersonActions({
         >
           <FileText className="h-4 w-4" />
           Najnowsze CV
+        </Button>
+      ) : null}
+      {actions.onAddCv ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11 min-w-11"
+          onClick={actions.onAddCv}
+          title="Nowe CV od kandydata — do profilu i do rekrutacji w toku"
+        >
+          <Upload className="h-4 w-4" />
+          Dodaj CV
         </Button>
       ) : null}
       {/* modal={false} jest nośne: modalne menu zostawia zablokowane
