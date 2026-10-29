@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { kpisApi, type MyKpiPanel } from "@/lib/api";
@@ -31,11 +31,11 @@ import { hasRole, useAuthStore } from "@/store/auth";
 import { PanelRow } from "@/components/v2/kpi/KpiGoalsPanel";
 import type { KpiPanelRow } from "@/components/v2/kpi/kpi-topbar-model";
 import { SectionError } from "@/components/insights/sections/_shared";
-import { MyWhoCountsPanel } from "@/components/insights/sections/WhoCountsPanel";
 import { MyBonusPanel } from "./my-month/MyBonusPanel";
 import { MyGoalsPanel } from "./my-month/MyGoalsPanel";
 import { MyInFlightPanel } from "./my-month/MyInFlightPanel";
 import { MyPortfolioView } from "./my-month/MyPortfolioView";
+import { MyWhoCountsSection } from "./my-month/MyWhoCountsSection";
 import { FunnelBars, Panel, PanelLoading, Takeaway, ViewHeader } from "./ViewKit";
 
 const CURRENT_MONTH: InsightsPeriodParams = { period: "month", offset: 0 };
@@ -103,7 +103,6 @@ export function MojMiesiacView() {
 function RecruiterMonthView() {
   const meId = useAuthStore((state) => state.user?.id ?? null);
   const today = useMemo(() => new Date(), []);
-  const [showWhoCounts, setShowWhoCounts] = useState(false);
 
   const panelQuery = useQuery({
     queryKey: ["insights", "me", "panel"],
@@ -272,22 +271,7 @@ function RecruiterMonthView() {
         <MyBonusPanel />
       </div>
 
-      <section className="rounded-xl border border-border bg-card shadow-xs">
-        <button
-          type="button"
-          aria-expanded={showWhoCounts}
-          onClick={() => setShowWhoCounts((v) => !v)}
-          className="flex min-h-11 w-full items-center justify-between gap-3 px-4 text-left text-sm font-semibold text-foreground"
-        >
-          Kto się liczy do celów — osoby za liczbami
-          <span className="text-primary">{showWhoCounts ? "Zwiń ▴" : "Pokaż ▾"}</span>
-        </button>
-        {showWhoCounts ? (
-          <div className="border-t border-border p-4">
-            <MyWhoCountsPanel />
-          </div>
-        ) : null}
-      </section>
+      <MyWhoCountsSection />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <Panel title="Mój lejek w tym miesiącu" hint="pierwsze wejście na etap">
