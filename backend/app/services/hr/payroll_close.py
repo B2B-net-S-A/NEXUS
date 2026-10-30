@@ -167,6 +167,22 @@ def ended_early_warning(people: list[dict[str, Any]]) -> Optional[dict[str, Any]
     }
 
 
+def no_order_warning(people: list[dict[str, Any]]) -> Optional[dict[str, Any]]:
+    """Przyznane premie z kontraktu bez zamówienia po terminie (bez kwot)."""
+
+    if not people:
+        return None
+    return {
+        "code": "bonus_no_order",
+        "message": (
+            f"{len(people)} przyznanych premii z placementu dotyczy kontraktu bez daty "
+            "zamówienia po terminie premii — sprawdź, czy konsultant wystartował."
+        ),
+        "count": len(people),
+        "people": people[:WARNING_PEOPLE_LIMIT],
+    }
+
+
 async def ended_early_warnings(
     db: AsyncSession, year: int, month: int
 ) -> list[dict[str, Any]]:
@@ -187,7 +203,8 @@ async def ended_early_warnings(
         )
     )
     flagged = await placement_bonuses.ended_early_bonus_ids(db, bonuses)
-    if not flagged:
+    without_order = await placement_bonuses.no_order_bonus_ids(db, bonuses)
+    if not flagged and not without_order:
         return []
     names = dict(
         (
@@ -195,7 +212,9 @@ async def ended_early_warnings(
                 select(User.id, User.name).where(
                     User.id.in_(
                         sorted(
-                            {b.recipient_user_id for b in bonuses if b.id in flagged}
+                            b.recipient_user_id
+                            for b in bonuses
+                            if b.id in flagged | without_order
                         )
                     )
                 )
@@ -213,7 +232,18 @@ async def ended_early_warnings(
             if bonus.id in flagged
         ]
     )
-    return [warning] if warning else []
+    order_warning = no_order_warning(
+        [
+            {
+                "bonus_id": bonus.id,
+                "user_id": bonus.recipient_user_id,
+                "name": names.get(bonus.recipient_user_id),
+            }
+            for bonus in bonuses
+            if bonus.id in without_order
+        ]
+    )
+    return [item for item in (warning, order_warning) if item]
 
 
 async def pending_bonus_count(db: AsyncSession, year: int, month: int) -> int:

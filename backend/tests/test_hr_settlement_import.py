@@ -263,6 +263,35 @@ async def test_imported_bonus_gives_no_ended_early_warning(world) -> None:
 
 
 @pytest.mark.asyncio
+async def test_as_proposal_waits_for_payroll_and_survives_automat(world) -> None:
+    preview = await _preview(
+        world, [(world["names"]["recruiter"], world["candidate"], 46, 3000, "x2")]
+    )
+    async with AsyncSessionLocal() as db:
+        counts = await settlement_import.apply_rows(
+            db,
+            _viewer(world["ids"]["payroll"]),
+            [preview["rows"][0]],
+            year=2026,
+            month=11,
+            as_proposal=True,
+        )
+        await db.commit()
+    assert counts["proposed"] == 1 and counts["assigned"] == 0
+    async with AsyncSessionLocal() as db:
+        await placement_bonuses.reconcile_contract(db, world["contract"])
+        await db.commit()
+        bonus = await db.scalar(
+            select(HrBonus).where(HrBonus.contract_id == world["contract"])
+        )
+    assert bonus.status == "proposed" and bonus.assigned_at is None
+    assert bonus.recipient_user_id == world["ids"]["recruiter"]
+    assert bonus.amount == Decimal("3000.00")
+    assert (bonus.period_year, bonus.period_month) == (2026, 11)
+    assert bonus.rule_snapshot["settlement_import"] is True
+
+
+@pytest.mark.asyncio
 async def test_zero_rejects_proposal_for_good(world) -> None:
     preview = await _preview(
         world, [(world["names"]["other"], world["candidate"], 46, 0, "brak premii")]

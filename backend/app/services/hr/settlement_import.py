@@ -408,11 +408,14 @@ async def apply_rows(
     *,
     year: int,
     month: int,
+    as_proposal: bool = False,
 ) -> dict[str, int]:
     """Przyznaje zatwierdzone wiersze w jednej transakcji (bez commita).
 
     Powtórzenie jest bezpieczne: wiersz z kluczem przyznany wcześniej i wiersz bez
-    klucza z tym samym numerem z arkusza są pomijane.
+    klucza z tym samym numerem z arkusza są pomijane. ``as_proposal`` wpisuje je
+    jako propozycje do potwierdzenia przez Płace: bez przyznania i bez dzwonka
+    (decyzja Artura 30.10.2026). Automat nie nadpisuje ich osoby, kwoty ani miesiąca.
     """
 
     if not viewer.payroll:
@@ -427,7 +430,7 @@ async def apply_rows(
             )
         )
     )
-    counts = {"assigned": 0, "rejected": 0, "skipped": 0}
+    counts = {"assigned": 0, "proposed": 0, "rejected": 0, "skipped": 0}
     for row in rows:
         contract = (
             await db.get(Contract, row["contract_id"])
@@ -487,26 +490,32 @@ async def apply_rows(
                 period_year=year,
                 period_month=month,
                 amount=amount,
-                status="assigned",
+                status="proposed" if as_proposal else "assigned",
             )
             db.add(bonus)
         bonus.recipient_user_id = recipient
         bonus.amount = amount
         bonus.category = category
         bonus.period_year, bonus.period_month = year, month
-        bonus.status = "assigned"
+        bonus.status = "proposed" if as_proposal else "assigned"
         bonus.cancel_reason = None
         bonus.cancelled_at = None
         bonus.cancelled_by = None
-        bonus.assigned_by = viewer.user_id
-        bonus.assigned_at = local_now()
+        bonus.assigned_by = None if as_proposal else viewer.user_id
+        bonus.assigned_at = None if as_proposal else local_now()
         bonus.description = _description(row, contract)
         bonus.rule_snapshot = {
             **(bonus.rule_snapshot or {}),
             "settlement_import": True,
             "edited_amount": True,
+            "edited_recipient": True,
+            "edited_period": True,
         }
         await db.flush()
+        if as_proposal:
+            _audit(db, bonus, actor_id=viewer.user_id, action="bonus_proposed")
+            counts["proposed"] += 1
+            continue
         _audit(db, bonus, actor_id=viewer.user_id, action="bonus_assigned")
         await _notify(db, bonus, event="new")
         counts["assigned"] += 1

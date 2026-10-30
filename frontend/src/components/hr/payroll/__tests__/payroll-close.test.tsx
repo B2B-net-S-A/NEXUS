@@ -192,9 +192,9 @@ describe("Razem do wypłaty", () => {
 });
 
 describe("premie do decyzji — zaznaczanie", () => {
-  it("do zbiorczego zatwierdzenia tylko propozycje po terminie, z prawem, nie własne", () => {
+  it("do zbiorczego zatwierdzenia także przed terminem, z prawem, nie własne", () => {
     expect(batchSelectable(bonus(), 7)).toBe(true);
-    expect(batchSelectable(bonus({ eligible: false }), 7)).toBe(false);
+    expect(batchSelectable(bonus({ eligible: false }), 7)).toBe(true);
     expect(batchSelectable(bonus({ can_approve: false }), 7)).toBe(false);
     expect(batchSelectable(bonus({ recipient_user_id: 7 }), 7)).toBe(false);
     expect(batchSelectable(bonus({ status: "assigned" }), 7)).toBe(false);

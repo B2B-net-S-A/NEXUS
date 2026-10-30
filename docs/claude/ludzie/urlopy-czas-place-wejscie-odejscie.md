@@ -455,6 +455,32 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odmawia (422) pustej daty i daty wcześniejszej niż zapisana; zepsuty wpis
   `hr_bonus_rules` daje reguły domyślne, ale z zapisaną datą (nieczytelna data =
   automat nie zakłada nowych propozycji), nigdy okno 120 dni.
+- **Premia od podpisu, decyzja Płac w każdej chwili** (decyzje Artura 30.10.2026).
+  Podpis obu stron aktywuje kontrakt z datą startu, a aktywacja zakłada propozycje,
+  więc premia istnieje od podpisu. Bez stawki nie ma wiersza (kwota musi być dodatnia):
+  kontrakt jest w zakładce „Bez stawki” (`bonus_decisions.contracts_missing_rates`).
+  Płace (9 kont na 30.10: administratorzy i Finanse) zatwierdzają także przed terminem;
+  przełożony nadal od terminu. Warunek wypłaty to zamówienie i próg dni roboczych
+  (`eligible_business_days`): brak zamówienia po terminie nie jest odmową, tylko
+  oznaczeniem `no_order` i ostrzeżeniem `bonus_no_order` przy zamknięciu, bo część
+  kontraktów, głównie Nordei, nie ma w NEXUSIE daty zamówienia.
+- **Ręczne zmiany są trwałe:** `edited_amount`, `edited_recipient`, `edited_period`
+  w migawce; automat przelicza tylko pozostałe pola (`placement_bonuses.EDIT_MARKS`).
+  Zmiana osoby wymaga powodu i uprawnienia Płace. „Usuń premię” to `cancel_bonus`
+  z powodem w `cancel_note`: wiersz zostaje, automat go nie przywraca.
+- **Oznaczenia „Do sprawdzenia”** (`bonus_flags.py`, tylko Płace): konto nieaktywne,
+  marża ponad 100 zł/h, brak zamówienia, inna osoba prowadząca dalsze etapy, druga
+  rekrutacja z zatrudnieniem, replacement, niepełny etat. Nic nie blokują, tylko
+  odznaczają wiersz w „Zatwierdź zaznaczone”.
+- **Reguły osób:** `dl_hours` (godziny DL inne niż `monthly_hours`) i
+  `individual_recruiters` (procent marży zamiast progów, od 3. startu w miesiącu
+  rośnie dla całego miesiąca). W kodzie nie ma osób, listy są w ustawieniach.
+- **Ikona premii w pasku** (`GET /decisions`): z podpisanych umów, Liga i wyścigi, do
+  sprawdzenia. Wyścig miesięczny zostaje voucherem: „Potwierdź” zapisuje ślad
+  w `app_settings['hr_voucher_confirmations']`, bez przelewu i bez Płac. Etapy
+  (podpis, kontrakt, zamówienie, start, dni) są w „Moim czasie”, dzwonek tylko
+  „może zostać naliczona” (`notify_ready`, raz, bez kwoty) i przy zatwierdzeniu.
+  Nie pisz „przepracował 160 h”: NEXUS zna dni robocze od startu, nie godziny.
 - **Rozliczenie z arkusza** (`services/hr/settlement_import.py`, „Wczytaj arkusz”
   w „Premie do decyzji”, decyzja Artura 30.10.2026): Płace wczytują plik Delivery,
   widzą porównanie z automatem i przyznają zaznaczone wiersze. Plik nie jest

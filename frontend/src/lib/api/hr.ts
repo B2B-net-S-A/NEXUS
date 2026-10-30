@@ -258,8 +258,9 @@ export function useHrProgram(enabled = true): boolean {
   return useHrConfig(enabled).data?.program === true;
 }
 
-export function usePeople() {
+export function usePeople(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: hrKeys.people,
     queryFn: async () =>
       (await api.get<{ items: Person[]; total: number }>("/api/hr/people"))

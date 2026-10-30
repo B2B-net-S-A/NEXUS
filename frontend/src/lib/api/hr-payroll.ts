@@ -42,6 +42,31 @@ export interface MinimumRates {
   currency: "PLN";
 }
 
+/** Oznaczenie „Do sprawdzenia” (tylko Płace): nic nie blokuje, odznacza wiersz. */
+export interface BonusFlag {
+  code: string;
+  label: string;
+  detail: string;
+}
+
+/** Etapy placementu dla osoby: podpis, kontrakt, zamówienie, start. */
+export interface BonusStageFacts {
+  signed: boolean;
+  contract_active: boolean;
+  order: boolean;
+  started: boolean;
+  start_date: string | null;
+}
+
+export interface MissingRateContract {
+  contract_id: number;
+  candidate: string;
+  client: string;
+  start_date: string;
+  recruiter_name: string | null;
+  dl_name: string | null;
+}
+
 export interface BonusRow {
   id: number;
   recipient_user_id: number;
@@ -74,6 +99,10 @@ export interface BonusRow {
   edited: boolean;
   /** Widok miesiąca: przyznana premia z placementu, a kontrakt skończył się przed terminem. */
   contract_ended_early?: boolean;
+  /** Osoba zmieniona ręcznie przez Płace (automat jej nie nadpisuje). */
+  edited_recipient?: boolean;
+  flags?: BonusFlag[];
+  stages?: BonusStageFacts;
   /** Tylko dla Płac: reguły i liczby, z których wyszła kwota. */
   rule_snapshot?: Record<string, unknown>;
   /** Listy Płac: czy widz może zatwierdzić propozycję (ręczną przełożonego — tylko Płace). */
@@ -148,6 +177,10 @@ export interface PayrollMonthDetail {
   people: PayrollPerson[];
   bonuses: BonusRow[];
   in_progress: BonusRow[];
+  /** Tylko Płace: propozycje z późniejszych miesięcy. */
+  later?: BonusRow[];
+  /** Tylko Płace: kontrakty, którym nie da się policzyć marży. */
+  missing_rates?: MissingRateContract[];
   totals?: Record<string, string>;
   warnings?: CloseWarning[];
 }
@@ -157,6 +190,7 @@ export interface PayrollMonthDetail {
  * założył (D2): szacunek z tych samych reguł, nic nie jest zapisane.
  */
 export interface BonusForecast {
+  stages?: BonusStageFacts | null;
   key: string;
   contract_id: number;
   role: "dl" | "dl_extra" | "recruiter";
@@ -220,6 +254,20 @@ export interface ExtraDlRule {
   recipient_name?: string | null;
 }
 
+export interface DlHoursRule {
+  user_id: number;
+  hours: number;
+  name?: string | null;
+}
+
+export interface IndividualRecruiterRule {
+  user_id: number;
+  base_percent: string;
+  step_percent: string;
+  expert_percent: string;
+  name?: string | null;
+}
+
 export interface BonusRules {
   recruiter_tier_bounds: [string, string];
   recruiter_tier_amounts: [string, string, string];
@@ -228,6 +276,8 @@ export interface BonusRules {
   eligible_business_days: number;
   currency: Currency;
   extra_dl: ExtraDlRule[];
+  dl_hours?: DlHoursRule[];
+  individual_recruiters?: IndividualRecruiterRule[];
   automation_since: string | null;
   league_types: string[];
 }
@@ -247,9 +297,23 @@ export interface BonusInput {
   period_year: number;
   period_month: number;
   description?: string | null;
+  contract_id?: number | null;
 }
 
-export type BonusPatch = Partial<Omit<BonusInput, "recipient_user_id">>;
+export type BonusPatch = Partial<BonusInput> & { change_reason?: string | null };
+
+export interface PlacementOption {
+  contract_id: number;
+  label: string;
+  start_date: string | null;
+}
+
+export interface BonusDecisions {
+  signed: BonusRow[];
+  league: BonusRow[];
+  check: BonusRow[];
+  vouchers: { id: number; label: string; period: string; rank: number; name: string }[];
+}
 
 export const payrollKeys = {
   all: ["hr", "payroll"] as const,
@@ -427,6 +491,44 @@ export function useApplySettlementImport(year: number, month: number) {
         )
       ).data,
     onSuccess: invalidate,
+  });
+}
+
+export function useBonusDecisions(enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "decisions"],
+    queryFn: async () => (await api.get<BonusDecisions>("/api/hr/payroll/decisions")).data,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useConfirmVoucher() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post(`/api/hr/payroll/vouchers/${id}/confirm`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useContractBonuses(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "contract", contractId],
+    queryFn: async () =>
+      (await api.get<{ items: BonusRow[] }>(`/api/hr/payroll/contracts/${contractId}/bonuses`)).data
+        .items,
+    enabled,
+  });
+}
+
+export function usePlacementOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "placement-options"],
+    queryFn: async () =>
+      (await api.get<{ items: PlacementOption[] }>("/api/hr/payroll/placement-options")).data.items,
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

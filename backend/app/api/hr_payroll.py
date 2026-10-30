@@ -51,6 +51,8 @@ from app.services.action_permissions import ProductAction
 from app.services.hr import audit, people
 from app.services.hr import modules as hr_modules
 from app.services.hr import (
+    bonus_decisions,
+    bonus_flags,
     bonus_rules,
     my_settlement,
     placement_bonuses,
@@ -172,9 +174,13 @@ class BonusIn(BaseModel):
     period_year: int
     period_month: int
     description: Optional[str] = Field(default=None, max_length=1000)
+    contract_id: Optional[int] = Field(default=None, ge=1)
 
 
 class BonusPatch(BaseModel):
+    recipient_user_id: Optional[int] = Field(default=None, ge=1)
+    contract_id: Optional[int] = Field(default=None, ge=1)
+    change_reason: Optional[str] = Field(default=None, max_length=1000)
     amount: Optional[Decimal] = None
     currency: Optional[str] = Field(default=None, max_length=3)
     category: Optional[str] = Field(default=None, max_length=16)
@@ -204,6 +210,18 @@ class ExtraDlIn(BaseModel):
     recipient_user_id: int
 
 
+class DlHoursIn(BaseModel):
+    user_id: int
+    hours: int
+
+
+class IndividualRecruiterIn(BaseModel):
+    user_id: int
+    base_percent: Decimal
+    step_percent: Decimal
+    expert_percent: Decimal
+
+
 class RulesIn(BaseModel):
     recruiter_tier_bounds: Optional[list[Decimal]] = Field(default=None, max_length=2)
     recruiter_tier_amounts: Optional[list[Decimal]] = Field(default=None, max_length=3)
@@ -211,6 +229,10 @@ class RulesIn(BaseModel):
     monthly_hours: Optional[int] = None
     eligible_business_days: Optional[int] = None
     extra_dl: Optional[list[ExtraDlIn]] = Field(default=None, max_length=50)
+    dl_hours: Optional[list[DlHoursIn]] = Field(default=None, max_length=50)
+    individual_recruiters: Optional[list[IndividualRecruiterIn]] = Field(
+        default=None, max_length=20
+    )
     automation_since: Optional[date] = None
     league_types: Optional[list[str]] = Field(default=None, max_length=10)
 
@@ -282,6 +304,11 @@ async def _bonus_list(
 ) -> list[dict[str, Any]]:
     names = await payroll_bonuses.names_for(db, bonuses)
     ended_early = await placement_bonuses.ended_early_bonus_ids(db, bonuses)
+    flags = (
+        await bonus_flags.bonus_flags(db, bonuses, today=today)
+        if viewer.payroll
+        else {}
+    )
     return [
         {
             **payroll_bonuses.bonus_payload(
@@ -290,9 +317,32 @@ async def _bonus_list(
             # Propozycję ręczną przełożonego zatwierdzają tylko Płace (19.10.2026).
             "can_approve": payroll_bonuses.can_approve(viewer, bonus),
             "contract_ended_early": bonus.id in ended_early,
+            "flags": flags.get(bonus.id, []),
         }
         for bonus in bonuses
     ]
+
+
+async def _later_and_missing(
+    db: AsyncSession, viewer: PayrollViewer, year: int, month: int, *, today: date
+) -> dict[str, Any]:
+    """Płace: propozycje z późniejszych miesięcy i kontrakty bez stawki."""
+
+    later = list(
+        await db.scalars(
+            select(HrBonus)
+            .where(
+                HrBonus.status == "proposed",
+                (HrBonus.period_year * 12 + HrBonus.period_month) > year * 12 + month,
+            )
+            .order_by(HrBonus.period_year, HrBonus.period_month, HrBonus.id)
+            .limit(300)
+        )
+    )
+    return {
+        "later": await _bonus_list(db, later, viewer, today=today),
+        "missing_rates": await bonus_decisions.contracts_missing_rates(db, today=today),
+    }
 
 
 async def _in_progress(
@@ -405,13 +455,25 @@ async def my_payroll(
         for b in bonuses
     ]
     await _add_progress(db, items, bonuses, rules, today=today)
+    stages = await bonus_decisions.stages_for(
+        db, [b.contract_id for b in bonuses if b.contract_id], today=today
+    )
+    for item, bonus in zip(items, bonuses):
+        if bonus.contract_id in stages:
+            item["stages"] = stages[bonus.contract_id]
+    forecast = await my_settlement.bonus_forecast(
+        db, user_id=current_user.id, today=today, rules=rules
+    )
+    forecast_stages = await bonus_decisions.stages_for(
+        db, [item["contract_id"] for item in forecast], today=today
+    )
+    for item in forecast:
+        item["stages"] = forecast_stages.get(item["contract_id"])
     return {
         "current_rate": payroll_rates.rate_payload(current) if current else None,
         "rates": [payroll_rates.rate_payload(rate) for rate in rates],
         "bonuses": items,
-        "forecast": await my_settlement.bonus_forecast(
-            db, user_id=current_user.id, today=today, rules=rules
-        ),
+        "forecast": forecast,
         "business_days_required": rules.eligible_business_days,
     }
 
@@ -528,6 +590,11 @@ async def month_detail(
         },
         "people": [_person_payload(p, with_amounts=viewer.payroll) for p in visible],
         "bonuses": await _bonus_list(db, bonuses, viewer, today=today),
+        **(
+            await _later_and_missing(db, viewer, year, month, today=today)
+            if viewer.payroll
+            else {}
+        ),
         "in_progress": await _in_progress(db, viewer, today=today),
     }
     if viewer.payroll:
@@ -727,6 +794,7 @@ async def create_bonus(
                 period_year=payload.period_year,
                 period_month=payload.period_month,
                 description=payload.description,
+                contract_id=payload.contract_id,
             ),
             today=business_today(),
         )
@@ -874,6 +942,68 @@ async def cancel_bonus(
     return await _bonus_response(db, bonus, viewer)
 
 
+@router.get("/contracts/{contract_id}/bonuses")
+async def contract_bonuses(
+    contract_id: int, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Karta „Premie z tego kontraktu”; kwoty tylko dla Płac (bramka trasy)."""
+
+    viewer = await load_viewer(db, current_user)
+    bonuses = list(
+        await db.scalars(
+            select(HrBonus)
+            .where(HrBonus.contract_id == contract_id)
+            .order_by(HrBonus.id)
+        )
+    )
+    return {"items": await _bonus_list(db, bonuses, viewer, today=business_today())}
+
+
+@router.get("/placement-options")
+async def placement_options(
+    current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Pole „Za kogo” w premii: kontrakty ze startem z ostatnich 200 dni i przyszłe."""
+
+    return {
+        "items": await bonus_decisions.placement_options(db, today=business_today())
+    }
+
+
+@router.get("/decisions")
+async def bonus_decisions_panel(
+    current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Ikona w górnym pasku: premie i vouchery czekające na decyzję Płac."""
+
+    viewer = await load_viewer(db, current_user)
+    today = business_today()
+    proposals = list(
+        await db.scalars(
+            select(HrBonus)
+            .where(HrBonus.status == "proposed")
+            .order_by(HrBonus.period_year, HrBonus.period_month, HrBonus.id)
+            .limit(300)
+        )
+    )
+    items = await _bonus_list(db, proposals, viewer, today=today)
+    return {
+        **bonus_decisions.group_decisions(items, viewer_id=viewer.user_id),
+        "vouchers": await bonus_decisions.pending_vouchers(db),
+    }
+
+
+@router.post("/vouchers/{winner_id}/confirm")
+async def confirm_voucher(
+    winner_id: int, current_user: PayrollAdmin, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Wyścig miesięczny: potwierdzenie vouchera. Bez przelewu i bez Płac."""
+
+    viewer = await load_viewer(db, current_user)
+    with _http_errors():
+        return await bonus_decisions.confirm_voucher(db, viewer, winner_id)
+
+
 # ── Reguły premii i automat ───────────────────────────────────────────────────
 
 
@@ -881,9 +1011,12 @@ async def _rules_response(
     db: AsyncSession, rules: bonus_rules.BonusRules
 ) -> dict[str, Any]:
     payload = bonus_rules.rules_payload(rules)
-    ids = {r.dl_user_id for r in rules.extra_dl} | {
-        r.recipient_user_id for r in rules.extra_dl
-    }
+    ids = (
+        {r.user_id for r in rules.dl_hours}
+        | {r.user_id for r in rules.individual_recruiters}
+        | {r.dl_user_id for r in rules.extra_dl}
+        | {r.recipient_user_id for r in rules.extra_dl}
+    )
     names: dict[int, str] = {}
     if ids:
         names = {
@@ -892,6 +1025,13 @@ async def _rules_response(
                 await db.execute(select(User.id, User.name).where(User.id.in_(ids)))
             ).all()
         }
+    payload["dl_hours"] = [
+        {**item, "name": names.get(item["user_id"])} for item in payload["dl_hours"]
+    ]
+    payload["individual_recruiters"] = [
+        {**item, "name": names.get(item["user_id"])}
+        for item in payload["individual_recruiters"]
+    ]
     payload["extra_dl"] = [
         {
             **item,
@@ -935,6 +1075,10 @@ async def put_rules(
         int(item[key])
         for item in (merged.get("extra_dl") or [])
         for key in ("dl_user_id", "recipient_user_id")
+    } | {
+        int(item["user_id"])
+        for key in ("dl_hours", "individual_recruiters")
+        for item in (merged.get(key) or [])
     }
     if ids:
         found = set(
@@ -946,7 +1090,7 @@ async def put_rules(
         if missing:
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
-                "Dodatkowa premia DL: obie osoby muszą mieć kartotekę w NEXUSIE.",
+                "Reguły premii: każda wskazana osoba musi mieć kartotekę w NEXUSIE.",
             )
     with _http_errors():
         rules = await bonus_rules.save_rules(db, merged, actor_id=current_user.id)
@@ -1024,6 +1168,7 @@ class SettlementApplyIn(BaseModel):
     rows: list[SettlementRowIn] = Field(
         min_length=1, max_length=settlement_import.MAX_ROWS
     )
+    as_proposal: bool = False
 
 
 @router.post("/months/{year}/{month}/settlement-import/preview")
@@ -1061,6 +1206,7 @@ async def apply_settlement_import(
             [row.model_dump() for row in payload.rows],
             year=year,
             month=month,
+            as_proposal=payload.as_proposal,
         )
 
 

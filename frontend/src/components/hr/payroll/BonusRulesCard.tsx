@@ -23,7 +23,9 @@ import {
   useRefreshProposals,
   useSaveBonusRules,
   type BonusRules,
+  type DlHoursRule,
   type ExtraDlRule,
+  type IndividualRecruiterRule,
 } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -49,6 +51,8 @@ interface RulesForm {
   since: string;
   leagueTypes: string[];
   extraDl: ExtraDlRule[];
+  dlHours: DlHoursRule[];
+  individual: IndividualRecruiterRule[];
 }
 
 type TextKey = {
@@ -70,6 +74,8 @@ export function formFromRules(rules: BonusRules): RulesForm {
     since: rules.automation_since ?? "",
     leagueTypes: rules.league_types,
     extraDl: rules.extra_dl,
+    dlHours: rules.dl_hours ?? [],
+    individual: rules.individual_recruiters ?? [],
   };
 }
 
@@ -106,6 +112,15 @@ export function rulesPayload(
         dl_user_id,
         recipient_user_id,
       })),
+      dl_hours: form.dlHours.map(({ user_id, hours }) => ({ user_id, hours })),
+      individual_recruiters: form.individual.map(
+        ({ user_id, base_percent, step_percent, expert_percent }) => ({
+          user_id,
+          base_percent,
+          step_percent,
+          expert_percent,
+        }),
+      ),
     },
   };
 }
@@ -155,6 +170,9 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
   const [error, setError] = useState<string | null>(null);
   const [newDl, setNewDl] = useState("");
   const [newRecipient, setNewRecipient] = useState("");
+  const [hoursPerson, setHoursPerson] = useState("");
+  const [hoursValue, setHoursValue] = useState("160");
+  const [individualPerson, setIndividualPerson] = useState("");
   const directory = people.data?.items ?? [];
   const nameOf = (id: number, fallback?: string | null) =>
     directory.find((person) => person.user_id === id)?.name ?? fallback ?? `Osoba ${id}`;
@@ -304,6 +322,135 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
               {label}
             </label>
           ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">Godziny DL inne niż w miesiącu</legend>
+        <p className="text-xs text-muted-foreground">
+          Podstawa premii DL dla osób, które mają w umowie inną liczbę godzin.
+        </p>
+        {form.dlHours.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {form.dlHours.map((rule) => (
+              <li key={rule.user_id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="text-foreground">
+                  {nameOf(rule.user_id, rule.name)}: {rule.hours} h
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="quiet"
+                  aria-label={`Usuń godziny: ${nameOf(rule.user_id, rule.name)}`}
+                  onClick={() => set("dlHours", form.dlHours.filter((item) => item.user_id !== rule.user_id))}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex flex-wrap items-end gap-2">
+          <FormField label="Delivery Lead" htmlFor="rules-hours-person" className="min-w-[220px] flex-1">
+            <Select value={hoursPerson} onValueChange={setHoursPerson}>
+              <SelectTrigger id="rules-hours-person">
+                <SelectValue placeholder="Wybierz osobę" />
+              </SelectTrigger>
+              <SelectContent>
+                {directory.map((person) => (
+                  <SelectItem key={person.user_id} value={String(person.user_id)}>
+                    {person.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Godziny" htmlFor="rules-hours-value" className="w-24">
+            <Input
+              id="rules-hours-value"
+              inputMode="numeric"
+              value={hoursValue}
+              onChange={(event) => setHoursValue(event.target.value)}
+            />
+          </FormField>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const hours = Number(hoursValue);
+              if (!hoursPerson || !Number.isInteger(hours) || hours < 1) {
+                setError("Wybierz osobę i podaj godziny jako liczbę całkowitą.");
+                return;
+              }
+              setError(null);
+              set("dlHours", [
+                ...form.dlHours.filter((item) => item.user_id !== Number(hoursPerson)),
+                { user_id: Number(hoursPerson), hours },
+              ]);
+              setHoursPerson("");
+            }}
+          >
+            Dodaj
+          </Button>
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">Indywidualny system premii rekrutera</legend>
+        <p className="text-xs text-muted-foreground">
+          Zamiast progów: godziny × marża × procent. Od 3. startu w miesiącu procent rośnie dla
+          wszystkich premii tego miesiąca. Domyślnie 25%, +5 pkt na start, +5 pkt ekspert.
+        </p>
+        {form.individual.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {form.individual.map((rule) => (
+              <li key={rule.user_id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="text-foreground">
+                  {nameOf(rule.user_id, rule.name)}: {plain(rule.base_percent)}%, +{plain(rule.step_percent)} pkt, ekspert +
+                  {plain(rule.expert_percent)} pkt
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="quiet"
+                  aria-label={`Usuń system: ${nameOf(rule.user_id, rule.name)}`}
+                  onClick={() => set("individual", form.individual.filter((item) => item.user_id !== rule.user_id))}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex flex-wrap items-end gap-2">
+          <FormField label="Rekruter" htmlFor="rules-individual-person" className="min-w-[220px] flex-1">
+            <Select value={individualPerson} onValueChange={setIndividualPerson}>
+              <SelectTrigger id="rules-individual-person">
+                <SelectValue placeholder="Wybierz osobę" />
+              </SelectTrigger>
+              <SelectContent>
+                {directory.map((person) => (
+                  <SelectItem key={person.user_id} value={String(person.user_id)}>
+                    {person.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (!individualPerson) {
+                setError("Wybierz rekrutera.");
+                return;
+              }
+              setError(null);
+              set("individual", [
+                ...form.individual.filter((item) => item.user_id !== Number(individualPerson)),
+                { user_id: Number(individualPerson), base_percent: "25", step_percent: "5", expert_percent: "5" },
+              ]);
+              setIndividualPerson("");
+            }}
+          >
+            Dodaj
+          </Button>
         </div>
       </fieldset>
 

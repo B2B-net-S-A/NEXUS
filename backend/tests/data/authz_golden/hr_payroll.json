@@ -30,12 +30,15 @@
  "routes": {
   "DELETE /api/hr/payroll/rates/{rate_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/contracts/{contract_id}/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/decisions": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/me": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/me/settlement": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months/{year}/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/months/{year}/{month}/export.xlsx": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/payroll/placement-options": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "GET /api/hr/payroll/settings/minimum-rates": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "PATCH /api/hr/payroll/bonuses/{bonus_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
@@ -49,6 +52,7 @@
   "POST /api/hr/payroll/months/{year}/{month}/settlement-import/preview": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/people/{user_id}/rates": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/proposals/refresh": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/vouchers/{winner_id}/confirm": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/payroll/settings/minimum-rates": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
  }

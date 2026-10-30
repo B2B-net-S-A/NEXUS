@@ -24,6 +24,9 @@ vi.mock("@/components/v2/my-people/MyPeopleLauncher", () => ({
   MyPeopleTopbarButton: () => null,
 }));
 vi.mock("@/components/hr/leave/AbsentTodayButton", () => ({ AbsentTodayButton: () => null }));
+vi.mock("@/components/hr/payroll/BonusDecisionsTopbarButton", () => ({
+  BonusDecisionsTopbarButton: () => null,
+}));
 vi.mock("@/components/hr/approvals/ConsentsTopbarButton", () => ({
   ConsentsTopbarButton: () => null,
 }));
