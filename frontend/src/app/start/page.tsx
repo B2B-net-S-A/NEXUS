@@ -9,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Circle, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 import { startNoveltyTour } from "@/components/novelties/NoveltyLayer";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,10 @@ import type { StartStatus } from "@/lib/novelties/logic";
 
 export default function StartPage() {
   const router = useRouter();
+  // Lista z pamięci zapytań jest w kliencie od pierwszego renderu, a serwer
+  // renderuje „Ładowanie…” — bez tego hydracja się nie zgadza.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const query = useQuery({
     queryKey: startKey,
     queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
@@ -31,7 +36,8 @@ export default function StartPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
+    // `pb-40`: dymek „Moich ludzi” w rogu nie może zasłonić ostatniego „Przeklikaj”.
+    <div className="mx-auto max-w-3xl space-y-5 pb-40">
       <header className="space-y-1">
         <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-primary">
           <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
@@ -46,7 +52,7 @@ export default function StartPage() {
         </p>
       </header>
 
-      {query.isPending ? (
+      {!mounted || query.isPending ? (
         <p className="text-sm text-muted-foreground">Ładowanie…</p>
       ) : query.isError ? (
         <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">

@@ -33,8 +33,8 @@
   },
   {
     "id": "start-panel-osoby",
-    "title": "Panel osoby: notatka i screening",
-    "why": "Kliknięcie karty otwiera panel osoby: tu piszesz notatkę po rozmowie i wypełniasz screening.",
+    "title": "Panel osoby: etap i notatka",
+    "why": "Kliknięcie karty otwiera panel osoby: tu przenosisz ją na kolejny etap, odrzucasz z powodem i piszesz notatkę po rozmowie.",
     "tier": "tour",
     "shipped_on": "2026-10-30",
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
@@ -44,8 +44,8 @@
     "steps": [
       {"anchor": "jobs.list.title", "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.", "hint": "Najlepiej taką, w której są już osoby na Tablicy."},
       {"anchor": "jobs.board.card", "text": "Kliknij kartę dowolnej osoby.", "hint": "Panel osoby otworzy się z boku, Tablica zostaje pod spodem."},
-      {"anchor": "jobs.person.note", "text": "Tu dodajesz notatkę po rozmowie.", "hint": "Notatka trafia do historii osoby i widzi ją cały zespół rekrutacji.", "ack": true},
-      {"anchor": "jobs.person.screening-form", "text": "Tu wypełniasz screening — pytania rekrutacji i stawkę.", "hint": "Z odpowiedzi powstaje karta rekomendacji dla Delivery Leada.", "ack": true}
+      {"anchor": "jobs.person.actions", "text": "Tu przenosisz osobę na następny etap albo odrzucasz z powodem.", "hint": "„Przenieś na etap” pilnuje bramek etapów, a odrzucenie zawsze ma powód.", "ack": true},
+      {"anchor": "jobs.person.note", "text": "Tu dodajesz notatkę po rozmowie.", "hint": "Notatka trafia do historii osoby i widzi ją cały zespół rekrutacji.", "ack": true}
     ]
   },
   {
@@ -59,10 +59,10 @@
     "href": "/candidates",
     "dot_anchor": "candidates.list.search",
     "steps": [
-      {"anchor": "candidates.list.search", "text": "Tu wpisujesz słowa do szukania.", "hint": "Szukamy w CV, profilu i notatkach. Kilka słów zawęża wynik.", "ack": true},
+      {"anchor": "candidates.list.search", "text": "Słowa wpisujesz w pole obok, a „Szukaj” uruchamia wyszukiwanie.", "hint": "Szukamy w CV, profilu i notatkach. „Musi mieć” i „Wyklucz” zawężają wynik.", "ack": true},
       {"anchor": "candidates.list.filters", "text": "Kliknij w filtry.", "hint": "Umiejętności, miasto, dostępność i stawka zawężają listę."},
       {"anchor": "candidates.list.name", "text": "Otwórz profil dowolnej osoby — kliknij nazwisko.", "hint": "Profil otworzy się w pełnym oknie, lista na Ciebie poczeka."},
-      {"anchor": "candidate.profile.tabs", "text": "Zakładki profilu: CV, rekrutacje, historia i pliki.", "hint": "Wszystko o osobie w jednym miejscu.", "ack": true},
+      {"anchor": "candidate.profile.tabs", "text": "Zakładki profilu: przegląd, rekrutacje, screening, notatki, CV i dokumenty.", "hint": "Wszystko o osobie w jednym miejscu.", "ack": true},
       {"anchor": "candidate.profile.note", "text": "Tu dodajesz notatkę do profilu osoby.", "hint": "Notatkę widzi każdy, kto otworzy profil.", "ack": true}
     ]
   },

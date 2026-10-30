@@ -45,6 +45,7 @@ import {
   placeBeside,
   readTour,
   requiredForPath,
+  START_PATH,
   writeTour,
   type Novelty,
   type TourState,
@@ -338,7 +339,9 @@ function FinishedCard({
         <div className="min-w-0">
           <p className="text-sm font-semibold">Zaliczone: {novelty.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment.
+            {novelty.start
+              ? "Postęp masz na liście Startu. Zaliczenie widzi też Twój Head of Recruitment."
+              : "Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment."}
           </p>
         </div>
         <button
@@ -510,13 +513,18 @@ export function NoveltyLayer() {
     setTour(null);
   };
 
+  // Lista Startu sama pokazuje ✓ — karta „Zaliczone” zasłaniałaby przy
+  // 1280 × 720 przycisk ostatniej pozycji.
+  const showFinished =
+    finished !== null && !(finished.start && pathname.startsWith(START_PATH));
+
   // Przeklikanie nowości, której już nie ma na liście (zaliczona gdzie indziej) — koniec.
   useEffect(() => {
     if (tour && novelties.length > 0 && !byId.has(tour.noveltyId)) stopTour();
   }, [tour, novelties, byId]);
 
   if (!user || novelties.length === 0)
-    return finished ? (
+    return showFinished ? (
       <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
     ) : null;
 
@@ -615,7 +623,7 @@ export function NoveltyLayer() {
           }}
         />
       ) : null}
-      {finished ? (
+      {showFinished ? (
         <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
       ) : null}
     </>
