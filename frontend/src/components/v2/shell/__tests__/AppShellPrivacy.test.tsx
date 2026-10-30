@@ -25,6 +25,7 @@ vi.mock("@/store/auth", () => ({
 }));
 vi.mock("@/hooks/useCapability", () => ({ useCapabilities: () => ({}) }));
 vi.mock("@/hooks/useOnboardingGuard", () => ({ useOnboardingGuard: () => ({ needsOnboarding: false }) }));
+vi.mock("@/components/novelties/useStartGate", () => ({ useStartGate: () => false }));
 vi.mock("@/components/KeyboardShortcuts", () => ({
   useKeyboardShortcuts: () => ({ showHelp: false, setShowHelp: vi.fn() }),
   ShortcutsModal: () => null,

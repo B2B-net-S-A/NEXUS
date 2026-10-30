@@ -8,7 +8,9 @@ defektem, który audyt wytknął (``SAMPLE_JOB_ID = 1``).
 
 Konta mają ukończony onboarding i zweryfikowany e-mail — inaczej rekruter
 i Delivery Lead zostaliby przekierowani na ``/onboarding`` i każdy scenariusz
-testowałby bramkę onboardingu zamiast przepływu.
+testowałby bramkę onboardingu zamiast przepływu. Z tego samego powodu
+blokada „Start w NEXUSIE” jest na stacku wyłączona (``app_settings.start_gate``)
+— bez tego każde konto, także zakładane przez scenariusz, lądowałoby na ``/start``.
 
 Dwie bramki bezpieczeństwa, bo skrypt pisze hasła do tabeli ``users``:
 * ``E2E_SEED_CONFIRM=nexus-e2e`` — bez tego skrypt kończy się błędem;
@@ -38,11 +40,14 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
 from app.core.security import hash_password  # noqa: E402
+from app.models.app_setting import AppSetting  # noqa: E402
 from app.models.user import User, UserRole  # noqa: E402
 
 logger = logging.getLogger("seed_e2e")
 
 CONFIRM_TOKEN = "nexus-e2e"
+#: Lustro ``app.api.novelties.START_GATE_KEY`` (import trasy ciągnąłby całe API).
+START_GATE_KEY = "start_gate"
 MAX_EXISTING_USERS = 10
 
 
@@ -97,6 +102,11 @@ async def seed_accounts(db: AsyncSession, password: str) -> list[str]:
         user.ensure_roles_invariant()
         db.add(user)
         created.append(account.email)
+    gate = await db.get(AppSetting, START_GATE_KEY)
+    if gate is None:
+        db.add(AppSetting(key=START_GATE_KEY, value={"enforced": False}))
+    else:
+        gate.value = {"enforced": False}
     await db.commit()
     return created
 

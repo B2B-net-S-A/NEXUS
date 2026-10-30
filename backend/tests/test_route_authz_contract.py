@@ -245,6 +245,9 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     # swojej roli; treść to rejestr bez danych domenowych.
     ("GET", "/api/novelties/mine"),
     ("POST", "/api/novelties/{novelty_id}/events"),
+    # Start w NEXUSIE (30.10.2026) — własny postęp osoby przy przeklikaniach
+    # jej roli, ten sam rejestr bez danych domenowych. Wyłącznik ma bramkę HoR.
+    ("GET", "/api/novelties/start"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/contracts"),

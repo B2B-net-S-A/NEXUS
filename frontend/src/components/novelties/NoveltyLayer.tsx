@@ -36,6 +36,7 @@ import {
 import { useMyNovelties, useNoveltyEvent } from "@/lib/novelties/api";
 import {
   acknowledgeStep,
+  anchorSelector,
   advanceTour,
   cardCandidate,
   dotNovelties,
@@ -44,6 +45,7 @@ import {
   placeBeside,
   readTour,
   requiredForPath,
+  START_PATH,
   writeTour,
   type Novelty,
   type TourState,
@@ -71,7 +73,7 @@ const STEP_CARD = { width: 340, height: 170 };
 
 function findAnchor(anchor: string): HTMLElement | null {
   for (const el of Array.from(
-    document.querySelectorAll<HTMLElement>(`[data-tour="${anchor}"]`),
+    document.querySelectorAll<HTMLElement>(anchorSelector(anchor)),
   )) {
     const rect = el.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) return el;
@@ -256,7 +258,8 @@ function TourStepCard({
     >
       <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-primary">
         <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />
-        Przeklikaj nowość · krok {state.step + 1} z {novelty.steps.length}
+        {novelty.start ? "Start w NEXUSIE" : "Przeklikaj nowość"} · krok{" "}
+        {state.step + 1} z {novelty.steps.length}
         <span className="ml-auto flex gap-1" aria-hidden="true">
           {novelty.steps.map((s, i) => (
             <span
@@ -276,6 +279,12 @@ function TourStepCard({
         {step.ack ? (
           <Button size="sm" onClick={onAck}>
             Rozumiem
+          </Button>
+        ) : novelty.start && !box ? (
+          // Start blokuje pracę: pusta tablica albo brak rekrutacji nie może
+          // zatrzymać osoby na zawsze — krok bez miejsca na ekranie da się minąć.
+          <Button size="sm" variant="outline" onClick={onAck}>
+            Nie mam tego — dalej
           </Button>
         ) : (
           <span>Krok przejdzie sam, gdy klikniesz podświetlone miejsce.</span>
@@ -330,7 +339,9 @@ function FinishedCard({
         <div className="min-w-0">
           <p className="text-sm font-semibold">Zaliczone: {novelty.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment.
+            {novelty.start
+              ? "Postęp masz na liście Startu. Zaliczenie widzi też Twój Head of Recruitment."
+              : "Kropka zniknęła. Zaliczenie widzi też Twój Head of Recruitment."}
           </p>
         </div>
         <button
@@ -502,13 +513,18 @@ export function NoveltyLayer() {
     setTour(null);
   };
 
+  // Lista Startu sama pokazuje ✓ — karta „Zaliczone” zasłaniałaby przy
+  // 1280 × 720 przycisk ostatniej pozycji.
+  const showFinished =
+    finished !== null && !(finished.start && pathname.startsWith(START_PATH));
+
   // Przeklikanie nowości, której już nie ma na liście (zaliczona gdzie indziej) — koniec.
   useEffect(() => {
     if (tour && novelties.length > 0 && !byId.has(tour.noveltyId)) stopTour();
   }, [tour, novelties, byId]);
 
   if (!user || novelties.length === 0)
-    return finished ? (
+    return showFinished ? (
       <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
     ) : null;
 
@@ -607,7 +623,7 @@ export function NoveltyLayer() {
           }}
         />
       ) : null}
-      {finished ? (
+      {showFinished ? (
         <FinishedCard novelty={finished} onClose={() => setFinished(null)} />
       ) : null}
     </>

@@ -133,6 +133,8 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "POST /api/novelties/{novelty_id}/events": "nowości do przeklikania — zapis własnego kliknięcia (id nowości, bez danych domenowych)",
     "GET /api/novelties/adoption": "panel „kto już umie” — imiennie, kto zaliczył nowość, bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     "POST /api/novelties/{novelty_id}/remind": "przypomnienie nowości (wraca karta przy kropce), bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
+    "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
+    "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",
     "POST /api/trainee/items/{item_id}/call": "praktykant: zapis rozmowy z własnej listy",

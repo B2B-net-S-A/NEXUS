@@ -7,7 +7,12 @@ domenowych); tabela ``novelty_progress`` trzyma tylko stan osoby przy nowości.
   osoba, wyłącznie o sobie i o nowościach swojej roli;
 - ``GET /novelties/adoption`` i ``POST /novelties/{id}/remind`` — admin i Head
   of Recruitment (decyzja Artura 28.10.2026), bo panel pokazuje imiennie, kto
-  jeszcze nie umie.
+  jeszcze nie umie;
+- ``GET /novelties/start`` — „Start w NEXUSIE” osoby (``app/data/novelties/start.json``):
+  dopóki nie przeklika najważniejszych funkcji swojej roli, front wpuszcza ją
+  tylko na pulpit i ekrany przeklikania (decyzja Artura 30.10.2026: twarda
+  blokada, wszyscy). ``PUT /novelties/start/gate`` — wyłącznik blokady dla
+  admina i HoR, gdyby rano coś zablokowało ludzi (bez deployu).
 
 Moduł ma ``@limiter.limit``, więc bez ``from __future__ import annotations``
 (ciało żądania trafiłoby do query → 422).
@@ -27,7 +32,13 @@ from app.api.deps import CurrentUser, HeadOfRecruitmentPlus
 from app.core.database import get_db
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.core.scheduling import DEFAULT_TZ, business_today
-from app.data.novelties import Novelty, in_audience, load_novelties
+from app.data.novelties import (
+    Novelty,
+    in_audience,
+    load_novelties,
+    load_start_tours,
+)
+from app.models.app_setting import AppSetting
 from app.models.novelty import NoveltyProgress
 from app.models.user import User
 from app.services.action_permissions import named_permissions_of
@@ -49,9 +60,22 @@ class NoveltyEventIn(BaseModel):
     event: NoveltyEvent
 
 
+class StartGateIn(BaseModel):
+    enforced: bool
+
+
+#: Wyłącznik blokady Startu w ``app_settings``. Brak wiersza = blokada włączona.
+START_GATE_KEY = "start_gate"
+
+
 class RemindIn(BaseModel):
     #: Brak listy = wszyscy z grupy docelowej, którzy jeszcze nie zaliczyli.
     user_ids: Optional[list[int]] = Field(default=None, max_length=500)
+
+
+def _find(novelty_id: str) -> Optional[Novelty]:
+    """Nowość albo przeklikanie Startu — zdarzenia obu zapisujemy tak samo."""
+    return load_novelties().get(novelty_id) or load_start_tours().get(novelty_id)
 
 
 def _impersonating(request: Request) -> bool:
@@ -77,9 +101,16 @@ def next_morning(now: datetime) -> datetime:
 
 
 def shape_for_user(
-    novelty: Novelty, progress: Optional[NoveltyProgress], now: datetime
+    novelty: Novelty,
+    progress: Optional[NoveltyProgress],
+    now: datetime,
+    *,
+    start: bool = False,
 ) -> dict[str, Any]:
-    """Nowość z punktu widzenia osoby: co pokazać i czy już umie."""
+    """Nowość z punktu widzenia osoby: co pokazać i czy już umie.
+
+    Przeklikanie Startu (``start=True``) nie ma kropki, karty ani okna — prowadzi
+    do niego ekran ``/start``."""
     done = progress is not None and progress.completed_at is not None
     dismissed = progress is not None and progress.card_dismissed_at is not None
     reminded_after_dismiss = (
@@ -105,14 +136,20 @@ def shape_for_user(
         "path_prefix": novelty.path_prefix,
         "steps": [step.model_dump() for step in novelty.steps],
         "done": done,
+        "start": start,
         "completed_via": progress.completed_via if progress else None,
         # Karta przy kropce: aż do „Później”, chyba że ktoś potem przypomniał.
-        "show_card": not done
+        "show_card": not start
+        and not done
         and novelty.tier != "dot"
         and (not dismissed or reminded_after_dismiss),
         # Okno zmiany procesu: do zaliczenia, poza czasem odłożenia.
-        "required_now": not done and novelty.tier == "process" and not postponed,
-        "can_postpone": novelty.tier == "process"
+        "required_now": not start
+        and not done
+        and novelty.tier == "process"
+        and not postponed,
+        "can_postpone": not start
+        and novelty.tier == "process"
         and (progress is None or progress.postponed_until is None),
     }
 
@@ -144,9 +181,14 @@ async def my_novelties(
         for n in load_novelties().values()
         if n.active_on(today) and _audience_of(current_user, n)
     ]
-    progress = await _progress_rows(db, current_user.id, [n.id for n in mine])
+    starts = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
+    progress = await _progress_rows(
+        db, current_user.id, [n.id for n in mine] + [t.id for t in starts]
+    )
     now = datetime.now(timezone.utc)
-    shaped = [shape_for_user(n, progress.get(n.id), now) for n in mine]
+    shaped = [shape_for_user(n, progress.get(n.id), now) for n in mine] + [
+        shape_for_user(t, progress.get(t.id), now, start=True) for t in starts
+    ]
     if _impersonating(request):
         return [quiet_for_preview(item) for item in shaped]
     return shaped
@@ -226,7 +268,7 @@ async def record_novelty_event(
     """Kropka pokazana, karta odłożona, nowość przeklikana albo użyta.
 
     Podgląd jako inna osoba tu nie dochodzi — ``deps.py`` odmawia w nim zapisów."""
-    novelty = load_novelties().get(novelty_id)
+    novelty = _find(novelty_id)
     if novelty is None or not _audience_of(current_user, novelty):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Nie ma takiej nowości."
@@ -263,6 +305,10 @@ async def novelties_adoption(
     """Kto już umie: per nowość z ostatnich 90 dni, imiennie (admin, HoR)."""
     today = business_today()
     novelties = [n for n in load_novelties().values() if n.in_panel_on(today)]
+    # Start w NEXUSIE nie wygasa — panel pokazuje go zawsze, po nowościach.
+    start_tours = list(load_start_tours().values())
+    starts = {t.id for t in start_tours}
+    novelties += start_tours
     rows = (
         (
             await db.execute(
@@ -306,7 +352,8 @@ async def novelties_adoption(
                 "shipped_on": novelty.shipped_on.isoformat(),
                 "pr": novelty.pr,
                 "where": novelty.where,
-                "active": novelty.active_on(today),
+                "active": novelty.id in starts or novelty.active_on(today),
+                "start": novelty.id in starts,
                 "audience": len(people),
                 "counts": counts,
                 "people": sorted(
@@ -326,8 +373,9 @@ async def remind_novelty(
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
     """Przypomnienie = karta przy kropce wraca u wskazanych osób (bez maila)."""
-    novelty = load_novelties().get(novelty_id)
-    if novelty is None or not novelty.active_on(business_today()):
+    novelty = _find(novelty_id)
+    is_start = novelty_id in load_start_tours()
+    if novelty is None or not (is_start or novelty.active_on(business_today())):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Nie ma takiej aktywnej nowości.",
@@ -360,3 +408,72 @@ async def remind_novelty(
     )
     await db.commit()
     return {"reminded": int(result.rowcount or 0)}
+
+
+async def start_gate_on(db: AsyncSession) -> bool:
+    row = await db.get(AppSetting, START_GATE_KEY)
+    if row is None or not isinstance(row.value, dict):
+        return True
+    return bool(row.value.get("enforced", True))
+
+
+def start_status(
+    tours: list[Novelty],
+    progress: dict[str, NoveltyProgress],
+    *,
+    gate_on: bool,
+    impersonating: bool,
+) -> dict[str, Any]:
+    """Start osoby: lista przeklikań i czy front ma ją zatrzymać."""
+    items = [
+        {
+            "id": t.id,
+            "title": t.title,
+            "why": t.why,
+            "where": t.where,
+            "href": t.href,
+            "done": t.id in progress and progress[t.id].completed_at is not None,
+        }
+        for t in tours
+    ]
+    done = sum(1 for item in items if item["done"])
+    return {
+        "enforced": gate_on and not impersonating and done < len(items),
+        "gate_on": gate_on,
+        "done": done,
+        "total": len(items),
+        "items": items,
+    }
+
+
+@router.get("/novelties/start")
+async def my_start(
+    request: Request, current_user: CurrentUser, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Podgląd jako inna osoba niczego nie blokuje — zapisy są wtedy zablokowane."""
+    tours = [t for t in load_start_tours().values() if _audience_of(current_user, t)]
+    progress = await _progress_rows(db, current_user.id, [t.id for t in tours])
+    return start_status(
+        tours,
+        progress,
+        gate_on=await start_gate_on(db),
+        impersonating=_impersonating(request),
+    )
+
+
+@router.put("/novelties/start/gate")
+async def set_start_gate(
+    payload: StartGateIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, bool]:
+    """Wyłącznik blokady Startu dla całej firmy (admin, HoR)."""
+    value = {"enforced": payload.enforced}
+    row = await db.get(AppSetting, START_GATE_KEY)
+    if row is None:
+        db.add(AppSetting(key=START_GATE_KEY, value=value, updated_by=current_user.id))
+    else:
+        row.value = value
+        row.updated_by = current_user.id
+    await db.commit()
+    return value

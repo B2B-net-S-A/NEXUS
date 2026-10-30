@@ -4,10 +4,10 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
-import type { Novelty, NoveltyEvent } from "./logic";
+import type { Novelty, NoveltyEvent, StartStatus } from "./logic";
 
 export const myNoveltiesKey = ["novelties", "mine"] as const;
 
@@ -35,8 +35,10 @@ export function useNoveltyEvent(): (
           `/api/novelties/${encodeURIComponent(noveltyId)}/events`,
           { event },
         );
-        if (event !== "seen")
+        if (event !== "seen") {
           await queryClient.invalidateQueries({ queryKey: myNoveltiesKey });
+          await queryClient.invalidateQueries({ queryKey: startKey });
+        }
         return true;
       } catch {
         return false;
@@ -65,6 +67,8 @@ export interface NoveltyAdoption {
   pr: number | null;
   where: string;
   active: boolean;
+  /** Przeklikanie „Start w NEXUSIE” (bez terminu, obowiązkowe). */
+  start: boolean;
   audience: number;
   counts: Record<AdoptionState, number>;
   people: AdoptionPerson[];
@@ -90,4 +94,32 @@ export async function remindNovelty(
     { user_ids: userIds },
   );
   return resp.data.reminded;
+}
+
+export const startKey = ["novelties", "start"] as const;
+
+/**
+ * Start w NEXUSIE osoby. Awaria zapytania = brak blokady: Start ma uczyć,
+ * a nie zamykać ludziom NEXUS, gdy coś nie odpowie. Dane dopiero po
+ * zamontowaniu: z pamięci zapytań są w kliencie od pierwszego renderu,
+ * a serwer renderuje bez nich (błąd hydracji w powłoce i w panelu).
+ */
+export function useStartStatus(enabled: boolean): StartStatus | null {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const query = useQuery({
+    queryKey: startKey,
+    queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
+    enabled,
+    staleTime: 60_000,
+  });
+  return mounted ? (query.data ?? null) : null;
+}
+
+/** Wyłącznik blokady Startu dla całej firmy (admin, Head of Recruitment). */
+export async function setStartGate(enforced: boolean): Promise<boolean> {
+  const resp = await api.put<{ enforced: boolean }>("/api/novelties/start/gate", {
+    enforced,
+  });
+  return resp.data.enforced;
 }

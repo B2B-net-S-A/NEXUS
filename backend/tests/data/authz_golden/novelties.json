@@ -30,7 +30,9 @@
  "routes": {
   "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
+  "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
   "POST /api/novelties/{novelty_id}/events": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PUT /api/novelties/start/gate": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

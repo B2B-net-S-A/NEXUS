@@ -11,10 +11,13 @@ import {
   acknowledgeStep,
   advanceTour,
   cardCandidate,
+  dotNovelties,
   eventForClick,
   pendingCount,
   placeBeside,
   requiredForPath,
+  startAllows,
+  withinAnchor,
   type Novelty,
 } from "@/lib/novelties/logic";
 
@@ -29,6 +32,8 @@ const REGISTRY = join(
   "novelties",
   "novelties.json",
 );
+// Start w NEXUSIE (30.10.2026) chodzi też po kotwicach `data-help` przewodników.
+const START_REGISTRY = join(REGISTRY, "..", "start.json");
 
 interface RegistryEntry {
   id: string;
@@ -46,13 +51,13 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-function anchorsInSource(): Set<string> {
+function anchorsInSource(attribute = "data-tour"): Set<string> {
   const found = new Set<string>();
   for (const file of sourceFiles(SRC)) {
     // Kotwica stoi dosłownie w linii z `data-tour` (także w `cond ? "id" : undefined`);
     // id zawsze ma kropkę („ekran.element”), więc inne napisy w linii się nie liczą.
     for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line.includes("data-tour=")) continue;
+      if (!line.includes(`${attribute}=`)) continue;
       for (const m of line.matchAll(
         /"([a-z0-9][a-z0-9_-]*(?:\.[a-z0-9_-]+)+)"/g,
       ))
@@ -62,9 +67,8 @@ function anchorsInSource(): Set<string> {
   return found;
 }
 
-describe("kotwice nowości", () => {
-  const registry: RegistryEntry[] = JSON.parse(readFileSync(REGISTRY, "utf8"));
-  const inRegistry = new Set(
+function anchorsOf(registry: RegistryEntry[]): Set<string> {
+  return new Set(
     registry
       .flatMap((n) => [
         n.dot_anchor,
@@ -73,10 +77,23 @@ describe("kotwice nowości", () => {
       ])
       .filter(Boolean),
   );
+}
+
+describe("kotwice nowości", () => {
+  const registry: RegistryEntry[] = JSON.parse(readFileSync(REGISTRY, "utf8"));
+  const start: RegistryEntry[] = JSON.parse(readFileSync(START_REGISTRY, "utf8"));
+  const inRegistry = new Set([...anchorsOf(registry), ...anchorsOf(start)]);
   const inSource = anchorsInSource();
+  const inHelp = anchorsInSource("data-help");
 
   it("każda kotwica z rejestru stoi na elemencie we froncie", () => {
-    expect([...inRegistry].filter((a) => !inSource.has(a))).toEqual([]);
+    expect([...anchorsOf(registry)].filter((a) => !inSource.has(a))).toEqual([]);
+  });
+
+  it("każda kotwica Startu stoi na elemencie (data-tour albo data-help)", () => {
+    expect(
+      [...anchorsOf(start)].filter((a) => !inSource.has(a) && !inHelp.has(a)),
+    ).toEqual([]);
   });
 
   it("każde data-tour we froncie należy do nowości z rejestru (bez martwych kotwic)", () => {
@@ -101,6 +118,7 @@ function novelty(overrides: Partial<Novelty> = {}): Novelty {
       { anchor: "candidate.profile.pick", text: "2", hint: "h", ack: false },
     ],
     done: false,
+    start: false,
     completed_via: null,
     show_card: true,
     required_now: false,
@@ -241,5 +259,33 @@ describe("miejsce karty kroku", () => {
       expect(overlaps).toBe(false);
       expect(at.top + card.height).toBeLessThanOrEqual(viewport.height);
     }
+  });
+});
+
+describe("Start w NEXUSIE", () => {
+  it("przeklikanie Startu nie ma kropki ani licznika ✦", () => {
+    const list = [novelty(), novelty({ id: "start-x", start: true, show_card: false })];
+    expect(dotNovelties(list).map((n) => n.id)).toEqual(["wybieram"]);
+    expect(pendingCount(list)).toBe(1);
+  });
+
+  it("zatrzymana osoba wchodzi tylko na Start, pulpit i panel z wyłącznikiem", () => {
+    for (const path of ["/", "/start", "/dashboard", "/dashboard/delivery-lead", "/settings/nowosci", "/onboarding"])
+      expect(startAllows(path, false), path).toBe(true);
+    for (const path of ["/jobs", "/jobs/12", "/candidates", "/settings", "/startowy", "/contracts"])
+      expect(startAllows(path, false), path).toBe(false);
+  });
+
+  it("w trakcie przeklikania Startu każdy ekran jest otwarty", () => {
+    expect(startAllows("/jobs/12", true)).toBe(true);
+  });
+
+  it("kotwica data-help przewodnika też prowadzi krok", () => {
+    const outer = document.createElement("div");
+    outer.setAttribute("data-help", "jobs.list.filters");
+    const inner = document.createElement("span");
+    outer.appendChild(inner);
+    expect(withinAnchor(inner, "jobs.list.filters")).toBe(true);
+    expect(withinAnchor(inner, "jobs.list.search")).toBe(false);
   });
 });
