@@ -1030,7 +1030,7 @@ class SettlementApplyIn(BaseModel):
 async def preview_settlement_import(
     year: int,
     month: int,
-    current_user: PayrollMember,
+    current_user: PayrollAdmin,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
 ) -> dict[str, Any]:
@@ -1050,7 +1050,7 @@ async def apply_settlement_import(
     year: int,
     month: int,
     payload: SettlementApplyIn,
-    current_user: PayrollMember,
+    current_user: PayrollAdmin,
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, int]:
     viewer = await load_viewer(db, current_user)
