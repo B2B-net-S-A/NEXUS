@@ -596,3 +596,37 @@ def test_cv_without_candidate_is_its_own_entity():
 
     sql = " ".join(_EVENTS_SQL.split())
     assert "'g' || g.id" in sql
+
+
+def test_hour_with_zero_point_actions_is_not_a_gap():
+    """Przegląd 30.10: próby kontaktu ponad limit dają 0 pkt, ale osoba pracuje —
+    taka godzina nie jest przerwą (wcześniej czerwona „przerwa” obok 15 akcji)."""
+    from app.services.work_rhythm import build_cells, classify_events, day_gaps
+
+    evs = [
+        _ev(m, kind="contact", act="contact_attempt", ent=str(m), hour=9)
+        for m in range(10)
+    ]
+    evs.append(_ev(30, kind="screening", act="screening_form_saved", ent="a", hour=9))
+    evs += [
+        _ev(m, kind="contact", act="contact_attempt", ent=f"c{m}", hour=10)
+        for m in range(15)
+    ]
+    evs.append(_ev(5, kind="screening", act="screening_form_saved", ent="b", hour=11))
+    cell = build_cells(classify_events(evs, RULES), RULES)[(7, date(2026, 10, 20))]
+    assert cell.points[10] == 0
+    shape = _day({h: cell.points.get(h, 0.0) for h in range(7, 20)})
+    shape["touched"] = [h in cell.touched for h in range(7, 20)]
+    assert day_gaps(shape, RULES) == []
+
+
+def test_default_window_on_a_working_day_still_compares_five_with_five():
+    """Przegląd 30.10: domyślne okno to 10 dni roboczych razem z dzisiejszym, więc
+    zakończonych jest 9 — trend bierze dni sprzed okna, żeby porównać 5 z 5."""
+    from app.services.work_rhythm import trend_days, trend_periods
+
+    friday = date(2026, 10, 30)
+    start, end = clamp_window(None, None, friday)
+    prev, last = trend_periods(trend_days(start, end), today=friday)
+    assert len(prev) == len(last) == 5
+    assert (prev[0], last[-1]) == (date(2026, 10, 16), date(2026, 10, 29))

@@ -309,12 +309,14 @@ def day_gaps(day: Mapping[str, Any], rules: Rules) -> list[tuple[int, int]]:
     active = _active_hours(day, rules)
     if not active:
         return []
+    # Akcja za 0 pkt (limit kontaktów, powtórka) to wciąż praca — przegląd 30.10.
+    touched = day.get("touched") or [p > 0 for p in day["points"]]
     gaps: list[tuple[int, int]] = []
     run: list[int] = []
-    for h, pts, met in zip(HOURS, day["points"], day["meetings"]):
+    for h, pts, met, hit in zip(HOURS, day["points"], day["meetings"], touched):
         if not active[0] < h < active[-1]:
             continue
-        if pts <= 0 and not met:
+        if pts <= 0 and not hit and not met:
             run.append(h)
             continue
         if run:
@@ -379,6 +381,15 @@ def person_pattern(days: Sequence[Mapping[str, Any]], rules: Rules) -> dict[str,
 
 
 TREND_DAYS = 5
+
+
+def trend_days(start: date, end: date) -> list[date]:
+    """Dni źródłowe trendu: okno i dwa tygodnie przed nim (nie przed startem).
+
+    Domyślne okno to 10 dni roboczych razem z dzisiejszym — zakończonych jest 9,
+    więc bez dni sprzed okna trend porównywałby 5 dni z 4 (przegląd 30.10.2026).
+    """
+    return business_days(max(RHYTHM_START, start - timedelta(days=14)), end)
 
 
 def trend_periods(
@@ -754,6 +765,8 @@ class DayCell:
     counts: dict[int, int] = field(default_factory=lambda: defaultdict(int))
     skipped: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     thin: set[int] = field(default_factory=set)
+    # Godziny z jakąkolwiek akcją osoby (także za 0 pkt), poza automatem.
+    touched: set[int] = field(default_factory=set)
     first: datetime | None = None
     last: datetime | None = None
 
@@ -794,6 +807,8 @@ def build_cells(
         for e, points, reason in items:
             hour = e.ts.hour
             cell.points[hour] += points
+            if reason != "automat":
+                cell.touched.add(hour)
             if reason is None:
                 cell.counts[hour] += 1
             else:
@@ -920,25 +935,28 @@ async def build_rhythm(
             "trend_last": [],
         }
 
+    # Dni sprzed okna liczą się tylko do trendu (poprzednie 5 dni zakończonych).
+    source_days = trend_days(start, end)
+    trend_prev, trend_last = trend_periods(source_days, today=today)
+    load_start = min(source_days[0], start) if source_days else start
     cells = build_cells(
-        classify_events(await _raw_events(db, ids, start, end), rules), rules
+        classify_events(await _raw_events(db, ids, load_start, end), rules), rules
     )
-    meetings = await _meetings(db, ids, start, end)
-    absence = await absence_by_user(db, ids, start, end)
+    meetings = await _meetings(db, ids, load_start, end)
+    absence = await absence_by_user(db, ids, load_start, end)
     cv_end = end - timedelta(days=1) if today is not None and end >= today else end
     cv_sent = (
         await _cv_sent(db, ids, start, cv_end)
         if with_results and cv_end >= start
         else {}
     )
-    trend_prev, trend_last = trend_periods(days, today=today)
 
     out_people: list[dict[str, Any]] = []
     for user in people:
         absent = absence.get(user.id, {})
         started = account_start(user)
-        person_days: list[dict[str, Any]] = []
-        for day in days:
+        rows: list[dict[str, Any]] = []
+        for day in sorted(set(source_days) | set(days)):
             cell = cells.get((user.id, day), DayCell())
             met = meetings.get((user.id, day), set())
             points = {h: cell.points.get(h, 0.0) for h in range(24)}
@@ -967,17 +985,21 @@ async def build_rhythm(
                     points, met, rules, available=available, thin=cell.thin
                 ),
             }
+            touched = [h in cell.touched for h in HOURS]
             row["gaps"] = (
-                [list(g) for g in day_gaps(row, rules)] if available > 0 else []
+                [list(g) for g in day_gaps({**row, "touched": touched}, rules)]
+                if available > 0
+                else []
             )
-            person_days.append(row)
+            rows.append(row)
+        person_days = [r for r in rows if start <= r["date"] <= end]
         entry: dict[str, Any] = {
             "user_id": user.id,
             "name": user.name,
             "days": person_days,
             **summarize_days(person_days, rules),
             **person_pattern(person_days, rules),
-            **person_trend(person_days, trend_prev, trend_last),
+            **person_trend(rows, trend_prev, trend_last),
         }
         entry["level"] = intensity_level(entry["index"], rules)
         if with_results:
@@ -1113,6 +1135,7 @@ async def build_day(db: AsyncSession, user_id: int, day: date) -> dict[str, Any]
         "points": [cell.points.get(h, 0.0) for h in HOURS],
         "meetings": [h in met for h in HOURS],
         "thin": [h in cell.thin for h in HOURS],
+        "touched": [h in cell.touched for h in HOURS],
     }
     return {
         "user_id": user_id,

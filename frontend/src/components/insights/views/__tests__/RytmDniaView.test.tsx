@@ -171,7 +171,7 @@ describe("RytmDniaView", () => {
     renderView();
     expect(await screen.findByText("11–13")).toBeInTheDocument();
     expect(screen.getByText("+10")).toBeInTheDocument();
-    expect(screen.getByText(/kreska = zespół 70/)).toBeInTheDocument();
+    expect(screen.getByText(/Intensywność · zespół 70/)).toBeInTheDocument();
     expect(screen.queryByText(/Czas pracy/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Brakuje/)).not.toBeInTheDocument();
   });

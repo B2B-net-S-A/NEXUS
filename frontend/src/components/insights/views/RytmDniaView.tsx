@@ -382,7 +382,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 // ── Widok „Dzień” ───────────────────────────────────────────────────────────
 
-const DAY_COLS = "160px minmax(260px,1fr) 44px 44px 96px 112px 150px 64px";
+const DAY_COLS = "150px minmax(220px,1fr) 44px 44px 92px 96px 140px 56px";
 
 /** Aktywne godziny dnia jako kropki wobec normy — nie czas pracy. */
 function ActivePips({ value, norm }: { value: number; norm: number }) {
@@ -433,7 +433,7 @@ function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: stri
   return (
     <Card className="min-w-0 p-4">
       <div className="overflow-x-auto">
-        <div className="min-w-[980px]">
+        <div className="min-w-[920px]">
           <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: DAY_COLS }}>
             <span>Rekruter</span>
             <HoursHeader />
@@ -441,7 +441,7 @@ function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: stri
             <span className="text-right">Koniec</span>
             <span>Aktywne godziny</span>
             <span>Przerwy</span>
-            <span>Intensywność · kreska = zespół{team !== null ? ` ${Math.round(team)}` : ""}</span>
+            <span>Intensywność{team !== null ? ` · zespół ${Math.round(team)}` : ""}</span>
             <span className="text-right">vs zespół</span>
           </div>
           {rows.map(({ p, d }) => {
@@ -547,7 +547,7 @@ function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRh
 // ── Widok „Wzorce” ─────────────────────────────────────────────────────────
 
 type PatternSort = "start" | "index" | "morning";
-const PATTERN_COLS = "160px minmax(260px,1fr) 110px 72px 60px 128px 132px 56px";
+const PATTERN_COLS = "150px minmax(220px,1fr) 100px 64px 52px 112px 120px 44px";
 
 function rhythmType(share: number | null): { label: string; variant: "warning" | "info" | "neutral" } | null {
   if (share === null) return null;
@@ -613,7 +613,7 @@ function PatternBoard({ data }: { data: WorkRhythmResponse }) {
         </div>
       </div>
       <div className="overflow-x-auto">
-        <div className="min-w-[980px]">
+        <div className="min-w-[920px]">
           <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: PATTERN_COLS }}>
             <span>Rekruter</span>
             <HoursHeader />
@@ -621,8 +621,8 @@ function PatternBoard({ data }: { data: WorkRhythmResponse }) {
             <span>Rozkręca się</span>
             <span>Szczyt</span>
             <span>Rano / po 12</span>
-            <span>Regularność startu</span>
-            <span className="text-right">Intens.</span>
+            <span>Regularność</span>
+            <span className="text-right" title="Intensywność okresu">Intens.</span>
           </div>
           {data.team_profile ? (
             <div className="grid items-center gap-3 rounded-md bg-primary/5 py-1.5 text-sm font-semibold" style={{ gridTemplateColumns: PATTERN_COLS }}>
