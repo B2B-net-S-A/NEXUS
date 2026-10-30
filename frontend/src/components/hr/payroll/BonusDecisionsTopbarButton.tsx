@@ -67,7 +67,9 @@ function BonusLine({
 
 export function BonusDecisionsTopbarButton({ className }: { className?: string }) {
   const user = useAuthStore((state) => state.user);
-  const config = useHrConfig(Boolean(user));
+  const roles = new Set([user?.role, ...(user?.roles ?? [])].filter(Boolean));
+  const traineeOnly = roles.size === 1 && roles.has("trainee");
+  const config = useHrConfig(Boolean(user) && !traineeOnly);
   if (!config.data?.me.payroll || !config.data?.open_modules.payroll) return null;
   return <DecisionsMenu className={className} />;
 }
