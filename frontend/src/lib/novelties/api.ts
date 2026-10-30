@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 import type { Novelty, NoveltyEvent, StartStatus } from "./logic";
@@ -100,9 +100,13 @@ export const startKey = ["novelties", "start"] as const;
 
 /**
  * Start w NEXUSIE osoby. Awaria zapytania = brak blokady: Start ma uczyć,
- * a nie zamykać ludziom NEXUS, gdy coś nie odpowie.
+ * a nie zamykać ludziom NEXUS, gdy coś nie odpowie. Dane dopiero po
+ * zamontowaniu: z pamięci zapytań są w kliencie od pierwszego renderu,
+ * a serwer renderuje bez nich (błąd hydracji w powłoce i w panelu).
  */
 export function useStartStatus(enabled: boolean): StartStatus | null {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const query = useQuery({
     queryKey: startKey,
     queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
@@ -110,7 +114,7 @@ export function useStartStatus(enabled: boolean): StartStatus | null {
     staleTime: 60_000,
     retry: 1,
   });
-  return query.data ?? null;
+  return mounted ? (query.data ?? null) : null;
 }
 
 /** Wyłącznik blokady Startu dla całej firmy (admin, Head of Recruitment). */
