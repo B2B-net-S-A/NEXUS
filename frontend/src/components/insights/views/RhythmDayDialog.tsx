@@ -24,19 +24,9 @@ function fmtPoints(v: number): string {
   return Number.isInteger(v) ? String(v) : v.toFixed(1).replace(".", ",");
 }
 
-function fmtHours(value: number): string {
-  const total = Math.floor(value * 60 + 1e-6);
-  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")}`;
-}
-
-function toMin(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-/** Przerwy między odcinkami pracy (≥ próg minut bez akcji i prepa). */
-function breaks(spans: [string, string][]): string[] {
-  return spans.slice(1).map((s, i) => `${spans[i][1]}–${s[0]} (${toMin(s[0]) - toMin(spans[i][1])} min)`);
+/** Przerwy dnia jako „11:00–13:00”: pełne godziny bez akcji i prepa w środku dnia. */
+export function fmtGaps(gaps: [number, number][]): string {
+  return gaps.map(([a, b]) => `${a}:00–${b}:00`).join(", ");
 }
 
 export function DayBreakdown({ data }: { data: WorkRhythmDayDetail }) {
@@ -44,21 +34,21 @@ export function DayBreakdown({ data }: { data: WorkRhythmDayDetail }) {
   const counted = data.events.reduce((a, e) => a + e.points, 0);
   const skipped = (Object.entries(data.skipped) as [WorkRhythmSkipReason, number][]).sort((a, b) => b[1] - a[1]);
   const hours = [...new Set(data.events.map((e) => e.hour))].sort((a, b) => a - b);
-  const spans = data.spans ?? [];
+  const gaps = data.gaps ?? [];
   if (data.events.length === 0) {
     return <p className="text-sm text-muted-foreground">Tego dnia nie ma żadnej akcji w NEXUSIE.</p>;
   }
   return (
     <div className="space-y-4">
-      <div className="space-y-1 text-sm">
-        <p>
-          Czas pracy: <b className="tabular-nums">{fmtHours(data.work_time ?? 0)}</b>
-          {spans.length ? (
-            <span className="text-muted-foreground"> · odcinki: {spans.map(([a, b]) => `${a}–${b}`).join(", ")}</span>
-          ) : null}
-        </p>
-        {spans.length > 1 ? <p className="text-muted-foreground">Przerwy: {breaks(spans).join(", ")}</p> : null}
-      </div>
+      <p className="text-sm text-muted-foreground">
+        {gaps.length ? (
+          <>
+            Przerwy w środku dnia (godzina bez akcji i prepa): <b className="tabular-nums text-foreground">{fmtGaps(gaps)}</b>
+          </>
+        ) : (
+          "Bez pełnej godziny przerwy w środku dnia."
+        )}
+      </p>
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
         <span>
           Liczone: <b className="tabular-nums">{fmtPoints(Math.round(counted * 10) / 10)} pkt</b>

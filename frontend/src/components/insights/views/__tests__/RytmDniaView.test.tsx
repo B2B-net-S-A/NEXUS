@@ -3,6 +3,8 @@
  * i podpowiedź tylko gdy serwer je przysłał (liderzy), awaria nie udaje
  * pustki, progi reguł muszą rosnąć. 29.10.2026: ochrona przed nabijaniem
  * i rozkład dnia po kliknięciu (co się liczyło, a co odpadło i dlaczego).
+ * 30.10.2026: bez czasu pracy i minimum 8 h — porównanie z zespołem,
+ * przerwy na heatmapie, Wzorce (typowy dzień) i Trend (tydzień do tygodnia).
  */
 import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -30,7 +32,7 @@ const RULES: WorkRhythmRules = {
   weights: { screening: 5, client_step: 3, cv: 3, note: 2, contact: 1, action: 1, view: 0.5 },
   hour_levels: [4, 11, 25],
   work_hour_min_points: 4,
-  min_work_hours: 7,
+  norm_active_hours: 8,
   norm_day_points: 120,
   level_high: 75,
   level_mid: 50,
@@ -44,7 +46,6 @@ const RULES: WorkRhythmRules = {
   stage_return_points: 0,
   contacts_per_day: 10,
   thin_hour_candidates: 2,
-  break_minutes: 30,
 };
 
 function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
@@ -62,12 +63,22 @@ function day(date: string, over: Partial<WorkRhythmDay> = {}): WorkRhythmDay {
     first: "09:00",
     last: "17:00",
     work_hours: 8,
-    work_time: 8.5,
+    gaps: [],
     day_points: 65,
     index: 80,
     ...over,
   };
 }
+
+const PATTERN = {
+  pattern_days: 2,
+  profile: null,
+  typical_start: null,
+  typical_end: null,
+  start_spread: null,
+  peak_hour: null,
+  morning_share: null,
+};
 
 function body(over: Partial<WorkRhythmResponse> = {}): WorkRhythmResponse {
   return {
@@ -86,10 +97,17 @@ function body(over: Partial<WorkRhythmResponse> = {}): WorkRhythmResponse {
         leave_days: 0,
         days_before_start: 0,
         avg_work_hours: 8,
-        avg_work_time: 8.5,
-        full_days: 2,
-        timed_days: 2,
         median_points: 65,
+        ...PATTERN,
+        profile: [0, 10, 30, 20, 12, 6, 5, 5, 4, 3, 0, 0, 0],
+        typical_start: 8.5,
+        typical_end: 17,
+        start_spread: 0.4,
+        peak_hour: 9,
+        morning_share: 72,
+        trend_prev: 50,
+        trend_last: 80,
+        trend: 30,
       },
       {
         user_id: 2,
@@ -104,13 +122,19 @@ function body(over: Partial<WorkRhythmResponse> = {}): WorkRhythmResponse {
         leave_days: 1,
         days_before_start: 0,
         avg_work_hours: 6,
-        avg_work_time: 6,
-        full_days: 0,
-        timed_days: 1,
         median_points: 50,
+        ...PATTERN,
+        pattern_days: 1,
+        trend_prev: 72,
+        trend_last: 70,
+        trend: -2,
       },
     ],
     team_cv_per_day_median: null,
+    team_day_index: { "2026-10-26": 70, "2026-10-27": 70 },
+    team_profile: [0, 5, 10, 10, 10, 8, 6, 8, 12, 6, 0, 0, 0],
+    trend_prev: ["2026-10-19", "2026-10-23"],
+    trend_last: ["2026-10-26"],
     can_edit_rules: false,
     with_results: false,
     ...over,
@@ -140,27 +164,61 @@ describe("RytmDniaView", () => {
     expect(mocks.get).toHaveBeenCalledWith("/api/insights/work-rhythm", { params: {} });
   });
 
-  it("bez wyników z serwera nie rysuje kolumn wyników ani edycji reguł", async () => {
+  it("Dzień: bez czasu pracy, z przerwami i różnicą do mediany zespołu", async () => {
+    const data = body();
+    data.people[0].days[1] = day("2026-10-27", { gaps: [[11, 13]], index: 80 });
+    mocks.get.mockResolvedValue({ data });
+    renderView();
+    expect(await screen.findByText("11–13")).toBeInTheDocument();
+    expect(screen.getByText("+10")).toBeInTheDocument();
+    expect(screen.getByText(/kreska = zespół 70/)).toBeInTheDocument();
+    expect(screen.queryByText(/Czas pracy/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Brakuje/)).not.toBeInTheDocument();
+  });
+
+  it("Wzorce: typowy dzień, mediana zespołu i osoby bez wzorca", async () => {
+    mocks.params = new URLSearchParams("widok=wzorce");
+    mocks.get.mockResolvedValue({ data: body() });
+    renderView();
+    expect(await screen.findByText("Zespół (mediana)")).toBeInTheDocument();
+    expect(screen.getByText("poranny")).toBeInTheDocument();
+    // Jedna osoba ze wzorcem: jej start to też mediana zespołu.
+    expect(screen.getAllByText("8:30")).toHaveLength(2);
+    expect(screen.getByText("stała")).toBeInTheDocument();
+    expect(screen.getByText(/Za mało pełnych dni na wzorzec \(potrzeba 3\): Bartek Przykładowy \(1\)/)).toBeInTheDocument();
+  });
+
+  it("Trend: zmiana tydzień do tygodnia, dawny adres „Intensywność” prowadzi do Trendu", async () => {
     mocks.params = new URLSearchParams("widok=intensywnosc");
     mocks.get.mockResolvedValue({ data: body() });
     renderView();
-    expect(await screen.findByText("Bez wyników w tym widoku.")).toBeInTheDocument();
+    expect(await screen.findByText("+30")).toBeInTheDocument();
+    expect(screen.getByText("-2")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Trend" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("bez wyników z serwera nie rysuje kolumn wyników ani edycji reguł", async () => {
+    mocks.params = new URLSearchParams("widok=trend");
+    mocks.get.mockResolvedValue({ data: body() });
+    renderView();
+    expect(await screen.findByText("Ostatnio")).toBeInTheDocument();
     expect(screen.queryByText("Podpowiedź dla lidera")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Zmień reguły/ })).not.toBeInTheDocument();
   });
 
   it("HoR i admin widzą CV do klienta, podpowiedź i edycję reguł, gdy serwer je przysłał", async () => {
-    mocks.params = new URLSearchParams("widok=intensywnosc");
+    mocks.params = new URLSearchParams("widok=trend");
     const data = body({ with_results: true, can_edit_rules: true, team_cv_per_day_median: 2 });
     data.people[0] = { ...data.people[0], cv_sent: 1, cv_per_day: 0.5, results_pct: 25, diagnosis: "quality" };
-    data.people[1] = { ...data.people[1], cv_sent: 4, cv_per_day: 4, results_pct: 200, diagnosis: "short_good" };
+    data.people[1] = { ...data.people[1], cv_sent: 4, cv_per_day: 4, results_pct: 200, diagnosis: "efficient" };
     mocks.get.mockResolvedValue({ data });
     renderView();
     expect(await screen.findByText("Podpowiedź dla lidera")).toBeInTheDocument();
     expect(screen.getAllByText("Pomóż z jakością").length).toBeGreaterThan(0);
-    // Poniżej 8 h dobre wyniki nie robią wzoru (decyzja Artura 29.10.2026).
-    expect(screen.getAllByText("Dobre wyniki, poniżej 8 h").length).toBeGreaterThan(0);
-    expect(screen.getByText("6 h 00")).toBeInTheDocument();
+    // Bez godzin (30.10.2026): dobry wynik przy małej liczbie akcji to nie „za mało pracy”.
+    expect(screen.getAllByText("Wynik przy niskiej intensywności").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/poniżej 8 h/)).not.toBeInTheDocument();
+    expect(screen.getByText("Intensywność × wyniki")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zmień reguły/ })).toBeInTheDocument();
   });
 
@@ -173,8 +231,7 @@ describe("RytmDniaView", () => {
       meetings: Array(13).fill(false),
       thin: Array(13).fill(false),
       skipped: {},
-      work_time: 0,
-      spans: [],
+      gaps: [],
       events: [],
     };
     mocks.get.mockImplementation((url: string) =>
@@ -219,8 +276,7 @@ describe("DayBreakdown", () => {
           meetings: Array(13).fill(false),
           thin,
           skipped: { limit_podgladow: 1.5 },
-          work_time: 1.25,
-          spans: [["09:00", "09:50"], ["10:05", "10:30"]],
+          gaps: [[11, 13], [14, 15]],
           events: [
             { time: "10:05", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: "Jan Próbny", points: 0.5, weight: 0.5, reason: null },
             { time: "10:06", hour: 10, kind: "view", label: "Podgląd dokumentu", candidate: null, points: 0, weight: 0.5, reason: "limit_podgladow" },
@@ -234,8 +290,8 @@ describe("DayBreakdown", () => {
     expect(screen.getByText("0 — ponad limit podglądów w godzinie")).toBeInTheDocument();
     expect(screen.getByText(/nie jest godziną pracy/)).toBeInTheDocument();
     expect(screen.getByText(/Jan Próbny/)).toBeInTheDocument();
-    expect(screen.getByText("1 h 15")).toBeInTheDocument();
-    expect(screen.getByText(/Przerwy: 09:50–10:05 \(15 min\)/)).toBeInTheDocument();
+    expect(screen.getByText("11:00–13:00, 14:00–15:00")).toBeInTheDocument();
+    expect(screen.queryByText(/Czas pracy/)).not.toBeInTheDocument();
   });
 });
 
@@ -246,8 +302,9 @@ describe("draftProblem — ochrona", () => {
   });
 });
 
-describe("draftProblem — przerwa", () => {
-  it("przerwa musi mieć 10–180 minut", () => {
-    expect(draftProblem({ ...RULES, break_minutes: 5 })).toMatch(/Przerwa/);
+describe("draftProblem — norma aktywnych godzin", () => {
+  it("norma musi mieć 1–10 h", () => {
+    expect(draftProblem({ ...RULES, norm_active_hours: 0 })).toMatch(/Norma aktywnych godzin/);
+    expect(draftProblem({ ...RULES, norm_active_hours: 12 })).toMatch(/Norma aktywnych godzin/);
   });
 });
