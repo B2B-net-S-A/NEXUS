@@ -278,4 +278,31 @@ describe("RecruitmentActivityDashboard team table", () => {
     expect(screen.queryByTestId("team-day-table")).toBeNull()
     expect(people).not.toHaveBeenCalled()
   })
+
+  it("on the dashboard has no scroll box of its own and opens full screen", async () => {
+    people.mockResolvedValue(PERIOD)
+    renderTable()
+    const scroll = await screen.findByTestId("team-day-table-scroll")
+    // 30.10.2026: okienko 22 rem pokazywało 6 z 23 osób — przewija się strona.
+    expect(scroll.className).not.toMatch(/max-h|overflow-y/)
+    expect(screen.getByTestId("team-day-table").className).toMatch(/overflow-clip/)
+
+    await userEvent.click(screen.getByRole("button", { name: "Na cały ekran" }))
+    const dialog = await screen.findByRole("dialog", { name: "Wyniki osób · 4 osób" })
+    expect(within(dialog).getAllByRole("row").map((tr) => within(tr).queryAllByRole("cell")[0]?.textContent))
+      .toContain("Bartek Z.")
+    expect(within(dialog).getByTestId("team-day-table-rest")).toBeInTheDocument()
+
+    await userEvent.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("has no full-screen button outside the dashboard", async () => {
+    people.mockResolvedValue(PERIOD)
+    wrap(
+      <TeamDayTable range={RANGE} rangeLabel="13–24 października 2026" metrics={METRICS} compact={false} />,
+    )
+    await screen.findByTestId("team-day-table")
+    expect(screen.queryByRole("button", { name: "Na cały ekran" })).toBeNull()
+  })
 })

@@ -59,6 +59,11 @@ export interface TileDefinition {
   minSize: Size;
   /** Widżet ma własną kartę z nagłówkiem — ramka kafelka go nie dubluje. */
   ownChrome: boolean;
+  /**
+   * Kafelek ma wysokość swojej treści i nie przewija się w sobie — przewija się
+   * pulpit. Rozmiar zmienia się tylko w poziomie (decyzja Artura 30.10.2026).
+   */
+  fitContent?: boolean;
   availability: (user: User | null | undefined) => TileAvailability;
 }
 
@@ -256,6 +261,9 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
     defaultSize: { w: 12, h: 5 },
     minSize: { w: 6, h: 3 },
     ownChrome: true,
+    // Tabela osób zespołu w okienku 22 rem z przewijaniem w kafelku pokazywała
+    // 6 z 23 osób przy 1280 × 720 (Artur, 30.10.2026).
+    fitContent: true,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
   recruitment_competence: {

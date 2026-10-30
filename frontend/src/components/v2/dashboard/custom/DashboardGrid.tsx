@@ -7,18 +7,21 @@
 
 import "react-grid-layout/css/styles.css"
 
-import { useEffect, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { GridLayout, useContainerWidth, verticalCompactor } from "react-grid-layout"
+import { absoluteStrategy } from "react-grid-layout/core"
 
 import type { DashboardTile } from "@/lib/api/userDashboard"
 import { TILE_DEFINITIONS } from "@/lib/dashboard-tiles/catalog"
 import {
   GRID_COLUMNS,
   GRID_GAP,
+  MAX_FIT_ROWS,
   ROW_HEIGHT,
   applyGridPositions,
   isCompactOnMobile,
   readingOrder,
+  rowsForHeight,
 } from "@/lib/dashboard-tiles/layout"
 import { cn } from "@/lib/utils"
 
@@ -79,22 +82,41 @@ export function DashboardGrid({
   onModeChange?: (mode: DashboardGridMode) => void
 }) {
   const { width, containerRef, mounted } = useContainerWidth({ measureBeforeMount: true })
+  // Zmierzona wysokość kafelków z `fitContent` — tylko do wyświetlania;
+  // zapisany `h` zostaje (serwer przyjmuje najwyżej 12 rzędów).
+  const [fitHeights, setFitHeights] = useState<Record<string, number>>({})
+  const reportFitHeight = useCallback((id: string, px: number) => {
+    setFitHeights((prev) => (prev[id] === px ? prev : { ...prev, [id]: px }))
+  }, [])
+  const fitHandlers = useMemo(
+    () =>
+      Object.fromEntries(
+        tiles
+          .filter((t) => TILE_DEFINITIONS[t.type].fitContent)
+          .map((t) => [t.id, (px: number) => reportFitHeight(t.id, px)]),
+      ),
+    [tiles, reportFitHeight],
+  )
+  const hasFit = Object.keys(fitHandlers).length > 0
   const layout = useMemo(
     () =>
       tiles.map((t) => {
         const def = TILE_DEFINITIONS[t.type]
+        const fitPx = def.fitContent ? fitHeights[t.id] : undefined
         return {
           i: t.id,
           x: t.x,
           y: t.y,
           w: t.w,
-          h: t.h,
+          h: fitPx === undefined ? t.h : rowsForHeight(fitPx),
           minW: Math.min(def.minSize.w, GRID_COLUMNS),
-          minH: def.minSize.h,
-          maxH: 12,
+          minH: def.fitContent ? 1 : def.minSize.h,
+          maxH: def.fitContent ? MAX_FIT_ROWS : 12,
+          // Wysokość wynika z treści — w edycji zmienia się tylko szerokość.
+          ...(def.fitContent ? { resizeHandles: ["e" as const] } : {}),
         }
       }),
-    [tiles],
+    [tiles, fitHeights],
   )
   const mobile = mounted && width < MOBILE_BREAKPOINT
   useEffect(() => {
@@ -118,9 +140,16 @@ export function DashboardGrid({
           dragConfig={{ enabled: editing, handle: `.${DRAG_HANDLE_CLASS}` }}
           resizeConfig={{ enabled: editing, handles: ["se"] }}
           compactor={verticalCompactor}
+          // `transform` na kafelku przesuwał przyklejony nagłówek tabeli
+          // o pozycję kafelka (Chrome, 30.10.2026) — także w trybie edycji.
+          positionStrategy={hasFit ? absoluteStrategy : undefined}
           onLayoutChange={(next) => {
             if (!editing) return
-            onLayoutChange(applyGridPositions(tiles, [...next]))
+            const saved = new Map(tiles.map((t) => [t.id, t.h]))
+            const positions = next.map((item) =>
+              fitHandlers[item.i] ? { ...item, h: saved.get(item.i) ?? item.h } : item,
+            )
+            onLayoutChange(applyGridPositions(tiles, positions))
           }}
           className={cn(
             editing && "dashboard-grid-editing",
@@ -130,7 +159,12 @@ export function DashboardGrid({
         >
           {tiles.map((tile) => (
             <div key={tile.id} data-testid={`dashboard-tile-${tile.type}`}>
-              <TileFrame tile={tile} editing={editing} actions={actions} />
+              <TileFrame
+                tile={tile}
+                editing={editing}
+                actions={actions}
+                onFitHeight={fitHandlers[tile.id]}
+              />
             </div>
           ))}
         </GridLayout>
