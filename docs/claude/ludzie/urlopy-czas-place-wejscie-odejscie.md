@@ -429,6 +429,8 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `source_key` unikalny (automat nie dubluje), `rule_snapshot` przy naliczeniu.
   Termin premii z placementu = start kontraktu + 21 dni roboczych firmy (święta
   ustawowe i dni wolne firmy — ten sam kalendarz co urlop, decyzja 17.10.2026);
+  miesiąc wypłaty = następny po starcie, nie wcześniej niż miesiąc terminu
+  (`bonus_rules.payout_period`, decyzja Artura 30.10.2026 za arkuszem Delivery);
   premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.
@@ -453,6 +455,17 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odmawia (422) pustej daty i daty wcześniejszej niż zapisana; zepsuty wpis
   `hr_bonus_rules` daje reguły domyślne, ale z zapisaną datą (nieczytelna data =
   automat nie zakłada nowych propozycji), nigdy okno 120 dni.
+- **Rozliczenie z arkusza** (`services/hr/settlement_import.py`, „Wczytaj arkusz”
+  w „Premie do decyzji”, decyzja Artura 30.10.2026): Płace wczytują plik Delivery,
+  widzą porównanie z automatem i przyznają zaznaczone wiersze. Plik nie jest
+  zapisywany, uwagi z arkusza nie trafiają do opisu premii. Wiersz z kontraktem
+  przejmuje klucz automatu `contract:<id>:<rola>`, więc automat go nie zdubluje;
+  kwota 0 odrzuca propozycję na stałe (`settlement_import`). Konto nieaktywne jest
+  domyślnie odznaczone. Pomiar na kopii: 110 wierszy, 158 691,39 zł, 103 przyznane,
+  7 z kwotą 0 pominiętych. Podwójna premia za podpis to wyjątek tylko za
+  październik 2026: wypłata w miesiącu podpisu, bez warunku godzin i na ryzyko
+  firmy (decyzja Artura 30.10.2026), dlatego idzie arkuszem, a nie regułą automatu,
+  i nie daje ostrzeżenia `bonus_contract_ended_early`.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają

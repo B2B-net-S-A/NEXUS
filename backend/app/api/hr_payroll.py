@@ -26,7 +26,16 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +60,7 @@ from app.services.hr import (
     payroll_jobs,
     payroll_periods,
     payroll_rates,
+    settlement_import,
     payroll_report,
 )
 from app.services.hr.modules import HrModule
@@ -996,6 +1006,62 @@ async def put_minimum_rates(
         details={"rates": payroll_rates.minimum_rates_payload(rates)},
     )
     return _minimum_rates_response(rates)
+
+
+class SettlementRowIn(BaseModel):
+    index: int = Field(ge=1)
+    candidate: str = Field(max_length=500)
+    amount: Decimal = Field(ge=0)
+    recipient_user_id: Optional[int] = Field(default=None, ge=1)
+    contract_id: Optional[int] = Field(default=None, ge=1)
+    contract_label: Optional[str] = Field(default=None, max_length=500)
+    role: Optional[str] = Field(default=None, max_length=16)
+    keyed: bool = False
+    category: str = Field(default="custom", max_length=16)
+
+
+class SettlementApplyIn(BaseModel):
+    rows: list[SettlementRowIn] = Field(
+        min_length=1, max_length=settlement_import.MAX_ROWS
+    )
+
+
+@router.post("/months/{year}/{month}/settlement-import/preview")
+async def preview_settlement_import(
+    year: int,
+    month: int,
+    current_user: PayrollMember,
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+) -> dict[str, Any]:
+    """Porównanie arkusza z NEXUSEM; plik nie jest zapisywany, nic się nie zmienia."""
+
+    viewer = await load_viewer(db, current_user)
+    with _http_errors():
+        payroll_periods.validate_period(year, month)
+        content = await file.read(settlement_import.MAX_FILE_BYTES + 1)
+        return await settlement_import.build_preview(
+            db, viewer, content, year=year, month=month
+        )
+
+
+@router.post("/months/{year}/{month}/settlement-import")
+async def apply_settlement_import(
+    year: int,
+    month: int,
+    payload: SettlementApplyIn,
+    current_user: PayrollMember,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, int]:
+    viewer = await load_viewer(db, current_user)
+    with _http_errors():
+        return await settlement_import.apply_rows(
+            db,
+            viewer,
+            [row.model_dump() for row in payload.rows],
+            year=year,
+            month=month,
+        )
 
 
 @router.post("/proposals/refresh")

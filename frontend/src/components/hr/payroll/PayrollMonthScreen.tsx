@@ -47,6 +47,7 @@ import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
+import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
@@ -87,6 +88,7 @@ export function PayrollMonthScreen({
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [bonusOpen, setBonusOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
@@ -367,6 +369,7 @@ export function PayrollMonthScreen({
                   open={open}
                   canCreate={open && people.length > 0}
                   onCreate={() => setBonusOpen(true)}
+                  onImport={open ? () => setImportOpen(true) : undefined}
                   onApprove={approveRow}
                   onEdit={setEditing}
                   onCancel={(row) => void cancelRow(row)}
@@ -489,6 +492,15 @@ export function PayrollMonthScreen({
         </>
       )}
 
+      {importOpen ? (
+        <SettlementImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          year={year}
+          month={month}
+          label={data.label}
+        />
+      ) : null}
       {bonusOpen ? (
         <BonusDialog
           open={bonusOpen}

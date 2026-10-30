@@ -359,6 +359,77 @@ export function useDeleteRate() {
   });
 }
 
+export type SettlementRowStatus =
+  | "matches"
+  | "differs"
+  | "zero"
+  | "inactive"
+  | "no_contract"
+  | "no_placement"
+  | "no_person"
+  | "self"
+  | "already_assigned";
+
+export interface SettlementImportRow {
+  index: number;
+  person: string;
+  candidate: string;
+  amount: string;
+  note: string;
+  recipient_user_id: number | null;
+  recipient_name: string | null;
+  recipient_active: boolean | null;
+  contract_id: number | null;
+  contract_label: string | null;
+  start_date: string | null;
+  role: string | null;
+  keyed: boolean;
+  category: BonusCategory;
+  automat_name: string | null;
+  automat_amount: string | null;
+  selected: boolean;
+  status: SettlementRowStatus;
+}
+
+export interface SettlementImportPreview {
+  year: number;
+  month: number;
+  rows: SettlementImportRow[];
+  counts: Partial<Record<SettlementRowStatus, number>>;
+  total: string;
+}
+
+/** Porównanie arkusza z NEXUSEM. Nic nie zapisuje, plik zostaje w przeglądarce. */
+export function useSettlementImportPreview(year: number, month: number) {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<SettlementImportPreview>(
+          `/api/hr/payroll/months/${year}/${month}/settlement-import/preview`,
+          form,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        )
+      ).data;
+    },
+  });
+}
+
+export function useApplySettlementImport(year: number, month: number) {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (rows: SettlementImportRow[]) =>
+      (
+        await api.post<{ assigned: number; rejected: number; skipped: number }>(
+          `/api/hr/payroll/months/${year}/${month}/settlement-import`,
+          { rows },
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useCreateBonus() {
   const invalidate = useInvalidatePayroll();
   return useMutation({
