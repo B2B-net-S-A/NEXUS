@@ -10,6 +10,13 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   `backend/app/data/novelties/novelties.json`** w PR-ze, który ją wdraża.
   Ten wpis zastępuje artefakt „co nowego” i ręczne „daj znać”. Treść jest dla
   użytkownika: bez tras, nazw tabel i numerów zgłoszeń w `why`.
+- **Pilnuje tego strażnik w sicie (30.10.2026)**, krok „Nowości — wpis przy
+  nowej funkcji” w wymaganym jobie „Backend (lint + migrations)”
+  (`.github/scripts/novelty_guard.py`). PR z tytułem `feat…`, który zmienia
+  `frontend/src` (poza testami i `/preview`), dopisuje wpis albo ma w opisie
+  osobną linię `Nowość: nie — <powód>`. Powód: od 26 do 29.10 na main weszło
+  ok. 90 commitów `feat`, a rejestr miał trzy wpisy. Opis strażnik czyta
+  z API, więc po dopisaniu linii wystarczy ponowić job.
 - **Poziom (`tier`) decyduje, jak mocno nowość wchodzi w drogę:**
   `dot` (drobiazg) to sama kropka na elemencie, zaliczona pierwszym kliknięciem;
   `tour` (nowa funkcja) to kropka i karta „Przeklikaj” z krokami;
