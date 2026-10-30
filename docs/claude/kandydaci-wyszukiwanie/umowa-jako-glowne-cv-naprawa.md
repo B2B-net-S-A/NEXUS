@@ -17,13 +17,18 @@ wyłączony od 14.10.2026 (`services/traffit_retired.py`). Zostają dane.
 - Głównym CV zostaje tylko plik z CV w nazwie, po nim AI czyta profil od nowa.
   Nieopisanego pliku nie wybieramy, bo to może być kolejny dokument.
 - Bez takiego pliku profil zostaje bez głównego CV, a wskazuje je człowiek
-  („Ustaw jako główne CV”).
+  („Ustaw jako główne CV”). Gdy `cv_filename` wskazywał umowę, `raw_cv_text`
+  jest zerowany, bo to treść umowy; da się ją odczytać ponownie z pliku.
+- Kopie umowy w etapach rekrutacji osób z następcą dostają jego plik
+  (`original_snapshot_source = contract_repair`).
 - Wskaźnik CV na kandydacie odpina reguła z `usun-plik-z-profilu-kandydata.md`.
 
 ## Czego to nie robi
 
-- Nie czyści danych odczytanych wcześniej z umowy (`raw_cv_text`, umiejętności,
-  wektor) u osób bez następcy.
-- Nie zmienia kopii CV w rekrutacjach. Raport próby liczy je w `stage_copies`.
+- Nie czyści umiejętności ani wektora odczytanych z umowy u osób bez następcy.
+- Nie zmienia CV firmowego ani kopii w etapach: bez SHA, osób bez następcy
+  i osób spoza wyboru. Pomiar 30.10: 30 kopii umów, w tym 18 u osób spoza
+  wyboru i 7 bez SHA, 1 gotowe CV firmowe. Raport próby liczy kopie osób
+  z wyboru w `stage_copies`.
 
 Testy: `backend/tests/test_contract_as_cv_repair.py`.

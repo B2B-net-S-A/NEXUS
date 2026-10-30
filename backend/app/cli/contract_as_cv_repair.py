@@ -20,7 +20,10 @@ Zasady (decyzja Artura 30.10.2026):
 * następca to wyłącznie plik PDF/DOC/DOCX z CV w nazwie, który może być
   bieżącym CV, nie jest umową ani CV do klienta. Po nim AI czyta profil od nowa;
 * bez następcy profil zostaje bez głównego CV, a główne CV wskazuje człowiek.
-  Danych odczytanych wcześniej z pliku skrypt nie czyści;
+  Gdy `cv_filename` wskazywał umowę, skrypt zeruje `raw_cv_text` (da się go
+  odczytać ponownie z pliku). Umiejętności i wektor zostają do nowego CV;
+* kopie umowy w etapach rekrutacji dostają CV następcy. Kopii bez SHA, osób bez
+  następcy i spoza wyboru skrypt nie zmienia, raport je liczy. CV firmowego też;
 * wskaźnik CV na kandydacie odpina ta sama reguła co „Usuń z profilu”;
 * ``--apply`` wymaga ``--expected`` równego liczbie osób z próby na sucho.
   Każda osoba w osobnej transakcji, stan sprawdzany pod blokadą;
@@ -41,7 +44,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
 
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import case, select, text
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,15 @@ class Planned:
     candidate_id: int
     contract_id: int
     successor_id: Optional[int]
+    # SHA kopii umowy w etapach rekrutacji; kopie bez SHA tylko w raporcie.
+    stage_shas: tuple[str, ...] = ()
+    stage_copies: int = 0
+
+
+@dataclass(frozen=True)
+class Repaired:
+    replaced: Any
+    text_cleared: bool
     stage_copies: int
 
 
@@ -81,7 +93,6 @@ async def plan(db, *, candidate_ids: Optional[list[int]] = None) -> list[Planned
         CandidateDocument.id,
         CandidateDocument.candidate_id,
         CandidateDocument.filename,
-        CandidateDocument.content_sha256,
     ).where(
         CandidateDocument.is_primary.is_(True),
         CandidateDocument.document_kind == CandidateDocumentKind.cv,
@@ -91,7 +102,7 @@ async def plan(db, *, candidate_ids: Optional[list[int]] = None) -> list[Planned
     if candidate_ids is not None:
         query = query.where(CandidateDocument.candidate_id.in_(candidate_ids))
     planned: list[Planned] = []
-    for doc_id, candidate_id, filename, sha256 in (
+    for doc_id, candidate_id, filename in (
         await db.execute(query.order_by(CandidateDocument.candidate_id))
     ).all():
         if not looks_like_contract(filename or ""):
@@ -129,21 +140,30 @@ async def plan(db, *, candidate_ids: Optional[list[int]] = None) -> list[Planned
             ),
             None,
         )
-        # Tylko do raportu: kopii etapu skrypt nie zmienia.
-        same_file = CandidateStageCV.original_cv_filename.op("~*")(_CONTRACT_PATTERN)
-        if sha256:
-            same_file = or_(same_file, CandidateStageCV.original_cv_sha256 == sha256)
-        copies = await db.scalar(
-            select(func.count())
-            .select_from(CandidateStageCV)
-            .where(CandidateStageCV.candidate_id == candidate_id, same_file)
-        )
+        copies = [
+            sha256
+            for name, sha256 in (
+                await db.execute(
+                    select(
+                        CandidateStageCV.original_cv_filename,
+                        CandidateStageCV.original_cv_sha256,
+                    ).where(
+                        CandidateStageCV.candidate_id == candidate_id,
+                        CandidateStageCV.original_cv_filename.op("~*")(
+                            _CONTRACT_PATTERN
+                        ),
+                    )
+                )
+            ).all()
+            if looks_like_contract(name or "")
+        ]
         planned.append(
             Planned(
                 candidate_id=candidate_id,
                 contract_id=doc_id,
                 successor_id=successor,
-                stage_copies=int(copies or 0),
+                stage_shas=tuple(sorted({sha for sha in copies if sha})),
+                stage_copies=len(copies),
             )
         )
     return planned
@@ -156,6 +176,10 @@ def summarize(items: list[Planned]) -> dict[str, Any]:
         "with_successor": with_successor,
         "without_successor": len(items) - with_successor,
         "stage_copies": sum(item.stage_copies for item in items),
+        # Kopie osób z następcą. Bieg podmienia te z SHA.
+        "stage_copies_with_successor": sum(
+            item.stage_copies for item in items if item.successor_id is not None
+        ),
         # Same identyfikatory — bez nazw plików i osób (logi bywają publiczne).
         "candidate_ids": [item.candidate_id for item in items],
         "without_successor_ids": [
@@ -164,8 +188,8 @@ def summarize(items: list[Planned]) -> dict[str, Any]:
     }
 
 
-async def repair_one(db, item: Planned):
-    """Zdejmij umowę z głównego CV; zwraca stan sprzed zmiany albo ``None``.
+async def repair_one(db, item: Planned) -> Optional[Repaired]:
+    """Zdejmij umowę z głównego CV; zwraca wynik albo ``None``, gdy pominięto.
 
     Stan bazy sprawdzamy jeszcze raz pod blokadą: od próby na sucho ktoś mógł
     sam wskazać inne główne CV.
@@ -175,6 +199,9 @@ async def repair_one(db, item: Planned):
     from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
     from app.services.candidate_document_removal import _detach_candidate_cv_pointer
     from app.services.candidate_identity_quarantine import ReplacedPrimaryCv
+    from app.services.candidate_stage_cv_service import (
+        restore_stage_copies_after_quarantine,
+    )
 
     await db.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
@@ -204,6 +231,9 @@ async def repair_one(db, item: Planned):
     replaced = ReplacedPrimaryCv(
         document_id=contract.id, cv_filename=candidate.cv_filename
     )
+    pointed_at_contract = (candidate.cv_filename or "").strip().lower() == (
+        contract.filename.lower()
+    )
     now = datetime.now(timezone.utc)
     contract.is_primary = False
     contract.document_kind = CandidateDocumentKind.other
@@ -217,8 +247,21 @@ async def repair_one(db, item: Planned):
     await _detach_candidate_cv_pointer(
         db, candidate=candidate, document=contract, removed_at=now, actor_id=None
     )
+    text_cleared = False
+    stage_copies = 0
     if successor is not None:
         candidate.cv_filename = successor.filename
+        for sha256 in item.stage_shas:
+            stage_copies += await restore_stage_copies_after_quarantine(
+                db,
+                candidate=candidate,
+                quarantined_sha256=sha256,
+                source="contract_repair",
+                action="snapshot_contract_repaired",
+            )
+    elif pointed_at_contract and candidate.raw_cv_text is not None:
+        candidate.raw_cv_text = None
+        text_cleared = True
     db.add(
         Activity(
             entity_type="candidate",
@@ -227,11 +270,13 @@ async def repair_one(db, item: Planned):
             details={
                 "contract_document_id": contract.id,
                 "successor_document_id": item.successor_id,
+                "raw_cv_text_cleared": text_cleared,
+                "stage_copies": stage_copies,
             },
         )
     )
     await db.commit()
-    return replaced
+    return Repaired(replaced, text_cleared, stage_copies)
 
 
 async def repair(
@@ -247,7 +292,14 @@ async def repair(
         from app.core.database import AsyncSessionLocal as session_factory
     from app.api.candidates import _enrich_candidate_from_document_task
 
-    stats = {"repaired": 0, "skipped": 0, "profile_reread": 0, "failed": 0}
+    stats = {
+        "repaired": 0,
+        "skipped": 0,
+        "text_cleared": 0,
+        "stage_copies_replaced": 0,
+        "profile_reread": 0,
+        "failed": 0,
+    }
     for item in items:
         try:
             async with session_factory() as db:
@@ -256,7 +308,7 @@ async def repair(
                         Candidate.id == item.candidate_id
                     )
                 )
-                replaced = await repair_one(db, item)
+                result = await repair_one(db, item)
         except Exception as error:  # noqa: BLE001 — jedna osoba nie zatrzymuje reszty
             logger.warning(
                 "contract_as_cv_repair candidate=%s failed: %s",
@@ -265,17 +317,19 @@ async def repair(
             )
             stats["failed"] += 1
             continue
-        if replaced is None:
+        if result is None:
             stats["skipped"] += 1
             continue
         stats["repaired"] += 1
+        stats["text_cleared"] += int(result.text_cleared)
+        stats["stage_copies_replaced"] += result.stage_copies
         if not reread or item.successor_id is None:
             continue
         await _enrich_candidate_from_document_task(
             item.candidate_id,
             item.successor_id,
             trigger="cv_repair",
-            replaced_primary=replaced,
+            replaced_primary=result.replaced,
         )
         async with session_factory() as db:
             after = await db.scalar(
@@ -352,6 +406,7 @@ async def main(
         "with_successor": report["with_successor"],
         "without_successor": report["without_successor"],
         "stage_copies": report["stage_copies"],
+        "stage_copies_with_successor": report["stage_copies_with_successor"],
         **stats,
     }
     async with AsyncSessionLocal() as db:

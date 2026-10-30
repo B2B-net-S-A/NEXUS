@@ -6,6 +6,8 @@ Kontrakt naprawy:
 - wybór po nazwie pliku: umowa bez CV w nazwie; „Contract Manager” to stanowisko,
 - plik zostaje w profilu, ale traci „główne CV” i nie może wrócić jako bieżące,
 - następcą zostaje tylko plik z CV w nazwie; bez niego profil jest bez głównego CV,
+- bez następcy znika tekst odczytany z umowy, gdy wskaźnik wskazywał umowę,
+- kopie umowy w etapach dostają CV następcy, a CV firmowe zostaje,
 - `--apply` wymaga liczby z próby, a paragon blokuje drugi bieg.
 """
 
@@ -22,7 +24,9 @@ from app.core.database import AsyncSessionLocal
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+from app.models.candidate_stage_cv import CandidateStageCV
 from app.services.cv_source import get_current_cv
+from tests.test_candidate_stage_cv_snapshot import _seed_job, _seed_stage
 
 pytestmark = pytest.mark.asyncio
 
@@ -56,6 +60,7 @@ async def _person(
             lastname=f"Fikcyjna-{uuid.uuid4().hex[:8]}",
             cv_filename=pointer,
             cv_storage_key=f"cv/test/{uuid.uuid4().hex}.pdf" if pointer else None,
+            raw_cv_text="Tekst odczytany z pliku",
         )
         db.add(person)
         await db.flush()
@@ -191,6 +196,8 @@ async def test_apply_requires_the_count_from_the_dry_run_and_writes_a_receipt(
     assert logged.details == {
         "contract_document_id": contract,
         "successor_document_id": own_cv,
+        "raw_cv_text_cleared": False,
+        "stage_copies": 0,
     }
 
     # Drugi bieg odrzuca paragon.
@@ -221,3 +228,74 @@ async def test_person_who_chose_another_cv_since_the_dry_run_is_skipped() -> Non
     assert untouched.document_kind == CandidateDocumentKind.cv
     assert untouched.outdated_at is None
     assert (await _doc(own_cv)).is_primary is False
+
+
+async def test_contract_text_is_cleared_only_without_successor_when_pointer_named_it() -> (
+    None
+):
+    pointed, _ = await _person(_contract_primary(), pointer=_CONTRACT)
+    other_pointer, _ = await _person(_contract_primary(), pointer="Stare CV Ewy.pdf")
+    with_cv, _ = await _person(
+        _contract_primary(), _other("Ewa Fikcyjna CV.pdf"), pointer=_CONTRACT
+    )
+    async with AsyncSessionLocal() as db:
+        items = await repair_cli.plan(
+            db, candidate_ids=[pointed, other_pointer, with_cv]
+        )
+
+    stats = await repair_cli.repair(items, reread=False)
+
+    assert (stats["repaired"], stats["text_cleared"]) == (3, 1)
+    assert (await _candidate(pointed)).raw_cv_text is None
+    assert (await _candidate(other_pointer)).raw_cv_text == "Tekst odczytany z pliku"
+    # Tekst osoby z następcą nadpisze odczyt AI.
+    assert (await _candidate(with_cv)).raw_cv_text == "Tekst odczytany z pliku"
+
+
+async def _stage_copy(candidate_id: int, *, sha256: str | None) -> int:
+    stage_id = await _seed_stage(candidate_id, await _seed_job())
+    async with AsyncSessionLocal() as db:
+        from app.models.recruitment_pipeline import CandidateStage
+
+        stage = await db.get(CandidateStage, stage_id)
+        copy = CandidateStageCV(
+            candidate_stage_id=stage_id,
+            candidate_id=candidate_id,
+            job_id=stage.job_id,
+            original_cv_filename=_CONTRACT,
+            original_cv_content=b"%PDF umowa",
+            original_cv_sha256=sha256,
+            branded_status="finalized",
+        )
+        db.add(copy)
+        await db.commit()
+        return copy.id
+
+
+async def _copy(copy_id: int) -> CandidateStageCV:
+    async with AsyncSessionLocal() as db:
+        return await db.get(CandidateStageCV, copy_id)
+
+
+async def test_stage_copies_get_the_successor_only_when_there_is_one() -> None:
+    sha = uuid.uuid4().hex.ljust(64, "0")
+    with_cv, _ = await _person(_contract_primary(), _other("Ewa Fikcyjna CV.pdf"))
+    replaced = await _stage_copy(with_cv, sha256=sha)
+    no_sha = await _stage_copy(with_cv, sha256=None)
+    lonely, _ = await _person(_contract_primary())
+    untouched = await _stage_copy(lonely, sha256=sha)
+    async with AsyncSessionLocal() as db:
+        items = await repair_cli.plan(db, candidate_ids=[with_cv, lonely])
+    report = repair_cli.summarize(items)
+    assert (report["stage_copies"], report["stage_copies_with_successor"]) == (3, 2)
+
+    stats = await repair_cli.repair(items, reread=False)
+
+    assert stats["stage_copies_replaced"] == 1
+    fixed = await _copy(replaced)
+    assert fixed.original_cv_filename == "Ewa Fikcyjna CV.pdf"
+    assert fixed.original_snapshot_source == "contract_repair"
+    # CV firmowe to osobny byt, zostaje przy swoim stanie.
+    assert fixed.branded_status == "finalized"
+    assert (await _copy(no_sha)).original_cv_filename == _CONTRACT
+    assert (await _copy(untouched)).original_cv_filename == _CONTRACT
