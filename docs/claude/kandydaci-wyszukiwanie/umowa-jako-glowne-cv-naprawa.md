@@ -27,8 +27,25 @@ wyłączony od 14.10.2026 (`services/traffit_retired.py`). Zostają dane.
 
 - Nie czyści umiejętności ani wektora odczytanych z umowy u osób bez następcy.
 - Nie zmienia CV firmowego ani kopii w etapach: bez SHA, osób bez następcy
-  i osób spoza wyboru. Pomiar 30.10: 30 kopii umów, w tym 18 u osób spoza
-  wyboru i 7 bez SHA, 1 gotowe CV firmowe. Raport próby liczy kopie osób
-  z wyboru w `stage_copies`.
+  i osób spoza wyboru. Raport próby liczy kopie osób z wyboru w `stage_copies`.
 
-Testy: `backend/tests/test_contract_as_cv_repair.py`.
+## Pozostałe kopie w etapach (decyzja Artura 30.10.2026)
+
+Pomiar 30.10: 30 kopii umów. 7 podmienia skrypt wyżej. Zostaje 23: 18 u 4 osób
+spoza wyboru (7 bez SHA) i 5 u 3 osób bez następcy. Panel pokazuje kopię
+z najnowszego etapu, więc 13 z 23 było widać jako „Oryginał CV”.
+
+Po naprawie profili: `python -m app.cli.contract_stage_copies_repair`, potem
+`--apply --expected N`. Bez paragonu naprawy profili bieg się nie zacznie.
+
+- Osoba ma główne CV bez umowy w nazwie: kopia dostaje to CV.
+- Osoba nie ma głównego CV: kopia zostaje pusta. Panel pokazuje plik z profilu
+  albo „brak pliku”.
+- Główne CV to wciąż umowa: kopia zostaje, raport liczy ją w `left_for_a_person`.
+- Bajty 7 kopii bez SHA leżały tylko w wierszu i znikają; umowy zostają w profilach.
+
+CV firmowego nie zmieniamy, bo nie powstało z umowy. Z 30 kopii 3 mają CV
+firmowe (1 gotowe, 2 robocze): bez treści umowy i bez linków do udostępnienia.
+
+Testy: `backend/tests/test_contract_as_cv_repair.py`,
+`backend/tests/test_contract_stage_copies_repair.py`.
