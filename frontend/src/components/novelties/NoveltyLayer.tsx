@@ -243,6 +243,18 @@ function TourStepCard({
   onStop: () => void;
 }) {
   const step = novelty.steps[state.step];
+  // Krok bez miejsca na ekranie przez 2 s (pusta tablica, brak rekrutacji,
+  // przycisk tylko dla części osób) da się minąć. Start i obowiązkowe okno
+  // nowości nie mogą nikogo zatrzymać na zawsze (Artur, 30.10.2026); 2 s, żeby
+  // nikt nie minął kroku, zanim ekran się wczyta.
+  const [missingLong, setMissingLong] = useState(false);
+  const hasBox = box !== null;
+  useEffect(() => {
+    setMissingLong(false);
+    if (hasBox) return;
+    const id = window.setTimeout(() => setMissingLong(true), 2000);
+    return () => window.clearTimeout(id);
+  }, [hasBox, state.step]);
   const style: React.CSSProperties = box
     ? placeBeside(box, STEP_CARD, {
         width: window.innerWidth,
@@ -280,9 +292,7 @@ function TourStepCard({
           <Button size="sm" onClick={onAck}>
             Rozumiem
           </Button>
-        ) : novelty.start && !box ? (
-          // Start blokuje pracę: pusta tablica albo brak rekrutacji nie może
-          // zatrzymać osoby na zawsze — krok bez miejsca na ekranie da się minąć.
+        ) : !box && missingLong ? (
           <Button size="sm" variant="outline" onClick={onAck}>
             Nie mam tego — dalej
           </Button>
@@ -357,6 +367,11 @@ function FinishedCard({
   );
 }
 
+/** „2 kroki”, „5 kroków” — polska odmiana dla 2–6 kroków przeklikania. */
+function stepsLabel(count: number): string {
+  return `${count} ${count >= 2 && count <= 4 ? "kroki" : "kroków"}`;
+}
+
 function ProcessDialog({
   novelty,
   onTour,
@@ -377,9 +392,13 @@ function ProcessDialog({
         onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogHeader>
-          <DialogTitle>Zmiana w procesie: {novelty.title}</DialogTitle>
+          <DialogTitle>
+            {novelty.tier === "process" ? "Zmiana w procesie" : "Nowe w NEXUSIE"}:{" "}
+            {novelty.title}
+          </DialogTitle>
           <DialogDescription>
-            Pokazujemy to raz, przy pierwszym wejściu na ten ekran po zmianie.
+            Przeklikaj raz, żeby wiedzieć, jak z tego korzystać. Odłożyć możesz
+            jeden raz — do jutra rano.
           </DialogDescription>
         </DialogHeader>
         <div className="relative space-y-3 px-6 py-4 text-sm">
@@ -387,8 +406,11 @@ function ProcessDialog({
             {novelty.why}
           </div>
           <p className="text-muted-foreground">
-            Przeklikanie ma {novelty.steps.length} kroki na prawdziwym ekranie i
-            kończy się przed zapisem — niczego nie zmienisz naprawdę.
+            Przeklikanie ma {stepsLabel(novelty.steps.length)} na prawdziwym
+            ekranie
+            {novelty.tier === "process"
+              ? " i kończy się przed zapisem — niczego nie zmienisz naprawdę."
+              : "."}
           </p>
           {postponeError ? (
             <p className="text-destructive">{postponeError}</p>
@@ -508,9 +530,14 @@ export function NoveltyLayer() {
     setPostponeError(null);
   };
 
+  // Ekran, na którym osoba przerwała albo odłożyła obowiązkowe okno — do
+  // wyjścia z niego okno nie wraca (inaczej „Przerwij” od razu by je otworzył).
+  const [quietPath, setQuietPath] = useState<string | null>(null);
+
   const stopTour = () => {
     writeTour(null);
     setTour(null);
+    setQuietPath(pathname);
   };
 
   // Lista Startu sama pokazuje ✓ — karta „Zaliczone” zasłaniałaby przy
@@ -520,7 +547,10 @@ export function NoveltyLayer() {
 
   // Przeklikanie nowości, której już nie ma na liście (zaliczona gdzie indziej) — koniec.
   useEffect(() => {
-    if (tour && novelties.length > 0 && !byId.has(tour.noveltyId)) stopTour();
+    if (tour && novelties.length > 0 && !byId.has(tour.noveltyId)) {
+      writeTour(null);
+      setTour(null);
+    }
   }, [tour, novelties, byId]);
 
   if (!user || novelties.length === 0)
@@ -554,7 +584,8 @@ export function NoveltyLayer() {
     );
   }
 
-  const required = requiredForPath(novelties, pathname);
+  const required =
+    quietPath === pathname ? null : requiredForPath(novelties, pathname);
   if (required) {
     return (
       <ProcessDialog
@@ -566,6 +597,7 @@ export function NoveltyLayer() {
         }}
         onPostpone={async () => {
           const ok = await sendEvent(required.id, "postponed");
+          if (ok) setQuietPath(pathname);
           setPostponeError(
             ok
               ? null

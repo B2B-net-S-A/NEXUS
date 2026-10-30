@@ -9,6 +9,7 @@
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Rekrutacja → Kandydaci do dodania",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.sources.search",
     "used_anchor": "candidate.profile.pick",
     "steps": [
@@ -49,6 +50,7 @@
     "audience": {"permissions": ["contract_status"]},
     "where": "Kontrakty → Zakończ współpracę",
     "href": "/contracts",
+    "section": "delivery",
     "path_prefix": "/contracts",
     "dot_anchor": "contract.panel.end",
     "used_anchor": "contract.end.b2b-question",
@@ -98,6 +100,7 @@
     },
     "where": "Rekrutacja → Kandydaci do dodania",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.sources.open-similar",
     "steps": [
       {
@@ -128,6 +131,7 @@
     },
     "where": "Rekrutacja → panel osoby → Screening dla",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "screening.joint.add-other",
     "used_anchor": "person.dock.add-also",
     "steps": [
@@ -171,6 +175,7 @@
     },
     "where": "Profil kandydata → pasek osoby",
     "href": "/candidates",
+    "section": "sourcing",
     "dot_anchor": "candidate.profile.add-cv",
     "used_anchor": "person.cv.upload-new",
     "steps": [
@@ -208,6 +213,7 @@
     },
     "where": "Rekrutacja → panel osoby → Rozwiń",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "person.panel.conversation-mode",
     "used_anchor": "person.panel.conversation-mode",
     "steps": [
@@ -239,6 +245,7 @@
     },
     "where": "Rekrutacje → rekrutacja → pasek nad Tablicą",
     "href": "/jobs",
+    "section": "pipeline",
     "path_prefix": "/jobs",
     "dot_anchor": "job.idle.banner",
     "used_anchor": "job.idle.snooze",
@@ -278,6 +285,7 @@
     },
     "where": "Rekrutacja → priorytet przy tytule",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "job.header.priority",
     "used_anchor": "job.priority.p0",
     "steps": [
@@ -310,6 +318,7 @@
     },
     "where": "Rekrutacja → Kandydaci do dodania",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.add.assess-ai",
     "used_anchor": "jobs.add.assess-ai",
     "steps": [

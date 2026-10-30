@@ -8,6 +8,7 @@
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
     "where": "Rekrutacje",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.list.scope",
     "steps": [
       {"anchor": "jobs.list.scope", "text": "Kliknij przełącznik „Moje / Wszystkie”.", "hint": "Domyślnie widzisz rekrutacje, w których jesteś w zespole."},
@@ -24,6 +25,7 @@
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
     "where": "Rekrutacje → Tablica",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.list.title",
     "steps": [
       {"anchor": "jobs.list.title", "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.", "hint": "Otworzy się Tablica tej rekrutacji."},
@@ -40,6 +42,7 @@
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
     "where": "Rekrutacje → Tablica → karta osoby",
     "href": "/jobs",
+    "section": "pipeline",
     "dot_anchor": "jobs.board.card",
     "steps": [
       {"anchor": "jobs.list.title", "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.", "hint": "Najlepiej taką, w której są już osoby na Tablicy."},
@@ -57,6 +60,7 @@
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
     "where": "Kandydaci",
     "href": "/candidates",
+    "section": "sourcing",
     "dot_anchor": "candidates.list.search",
     "steps": [
       {"anchor": "candidates.list.search", "text": "Słowa wpisujesz w pole obok, a „Szukaj” uruchamia wyszukiwanie.", "hint": "Szukamy w CV, profilu i notatkach. „Musi mieć” i „Wyklucz” zawężają wynik.", "ack": true},
@@ -75,6 +79,7 @@
     "audience": {"roles": ["finance"]},
     "where": "Kontrakty",
     "href": "/contracts",
+    "section": "delivery",
     "dot_anchor": "contracts.list.row",
     "steps": [
       {"anchor": "contracts.list.row", "text": "Kliknij wiersz dowolnego kontraktu.", "hint": "Kliknij w wierszu poza nazwiskiem — otworzy się panel kontraktu."},
@@ -90,6 +95,7 @@
     "audience": {"roles": ["finance"]},
     "where": "Finanse",
     "href": "/finance",
+    "section": "finance",
     "dot_anchor": "finance.modes",
     "steps": [
       {"anchor": "finance.modes", "text": "Kliknij przełącznik widoków.", "hint": "Każdy widok to inna lista do rozliczenia."},
