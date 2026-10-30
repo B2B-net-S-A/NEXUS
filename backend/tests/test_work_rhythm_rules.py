@@ -630,3 +630,15 @@ def test_default_window_on_a_working_day_still_compares_five_with_five():
     prev, last = trend_periods(trend_days(start, end), today=friday)
     assert len(prev) == len(last) == 5
     assert (prev[0], last[-1]) == (date(2026, 10, 16), date(2026, 10, 29))
+
+
+def test_today_has_no_gaps_in_hours_that_have_not_come_yet():
+    """30.10 o 3:00 zaplanowane prepy o 9:00 i 11:00 dawały „przerwę” 10–11,
+    zanim dzień się zaczął. W trwającym dniu liczą się tylko minione godziny."""
+    from app.services.work_rhythm import day_gaps
+
+    preps = _day({}, meetings=(9, 11))
+    assert day_gaps(preps, RULES) == [(10, 11)]
+    assert day_gaps(preps, RULES, until=3) == []
+    day = _day({9: 6, 10: 0, 11: 8, 12: 0, 13: 0, 14: 9})
+    assert day_gaps(day, RULES, until=13) == [(10, 11)]
