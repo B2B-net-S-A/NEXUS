@@ -60,6 +60,39 @@ def test_distinct_dictionary_technologies_are_joined_as_alternatives():
         assert rows_service.row_label(["płatnoś*"]) == "płatnoś"
 
 
+def test_full_labels_show_every_alternative_of_a_row():
+    """Zgłoszenie 30.10.2026: wiersz „Prince2* lub Agile lub Prince2” na Briefie
+    był samym „Agile” — zamienniki spoza słownika zostawały tylko w wierszu."""
+    with hydrated_taxonomy():
+        stack = {
+            "rows": [
+                _row("Prince2*", "Agile", "Prince2"),
+                _row("Java", "JavaScript"),
+                _row("PostgreSQL", "postgres"),
+                _row("bankowości", "bankow*", "banking", level="nice"),
+                _row("Kafka"),
+            ],
+            "must": [
+                {"name": "Agile"},
+                {"name": "Java lub JavaScript"},
+                {"name": "PostgreSQL"},
+                {"name": "Kafka"},
+            ],
+            "nice": [{"name": "bankowości"}],
+        }
+        assert rows_service.full_labels(stack) == {
+            "Agile": "Agile lub Prince2",
+            "bankowości": "bankowości lub banking",
+        }
+        # Etykieta zostaje kluczem: bramka i profil czytają ją bez zmian.
+        assert rows_service.row_label(["Prince2*", "Agile", "Prince2"]) == "Agile"
+
+
+def test_full_labels_without_rows_are_empty():
+    assert rows_service.full_labels({"must": [{"name": "Java"}]}) == {}
+    assert rows_service.full_labels(None) == {}
+
+
 def test_no_critical_row_means_undecided_unless_the_dl_said_none():
     rows = [_row("Java"), _row("Kafka")]
     undecided = _save({}, {"stack": {"rows": rows}})

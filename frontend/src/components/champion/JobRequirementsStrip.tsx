@@ -99,20 +99,23 @@ export function JobRequirementsStrip({
           {items.length > 0 ? (
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</span>
-              {shown.map((name) => (
+              {shown.map((name) => {
+                const fullLabel = requirements.fullLabels[name] ?? name;
+                return (
                 <button
                   key={name}
                   type="button"
-                  aria-label={`Szukaj „${name}” w CV`}
-                  title={`Szukaj „${name}” w CV`}
+                  aria-label={`Szukaj „${fullLabel}” w CV`}
+                  title={`Szukaj „${fullLabel}” w CV`}
                   onClick={() => onPickRequirement(name, requirementFindWords(requirements.findWords, name))}
                   className="inline-flex max-w-[14rem] items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 font-semibold text-foreground transition-colors hover:bg-primary/20 pointer-coarse:py-1.5"
                 >
                   {critical ? <Star className="h-3 w-3 shrink-0 fill-primary text-primary" aria-hidden /> : null}
-                  <span className="truncate">{name}</span>
+                  <span className="truncate">{fullLabel}</span>
                   <Search className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                 </button>
-              ))}
+                );
+              })}
               {extra > 0 ? (
                 <button
                   type="button"

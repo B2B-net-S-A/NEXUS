@@ -155,6 +155,25 @@ def test_find_words_cover_every_requirement_of_the_job():
     assert payload["Kafka"] == ["Kafka", "kolejk"]
 
 
+def test_find_words_include_alternatives_of_a_non_critical_row():
+    """Zgłoszenie 30.10.2026: „Agile lub Prince2” — lupa ma szukać obu słów,
+    także gdy wiersz nie jest krytyczny."""
+    from app.services import keyword_suggest
+    from app.services.champion_intake import requirement_find_words_payload
+
+    job = _job(["Agile"], critical=[])
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Prince2*", "Agile", "Prince2"], "level": "must"}
+    ]
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([], [])
+    try:
+        payload = requirement_find_words_payload(job)
+    finally:
+        keyword_suggest._catalog = saved
+    assert payload["Agile"] == ["Agile", "Prince2"]
+
+
 def test_single_letter_critical_is_skipped_from_search_rows_with_a_note(monkeypatch):
     """Krytyczna „R” nie staje się słowem kluczowym (prawie cała baza) —
     payload mówi, że pominięta; bramka AI dalej czyta ją z profilu."""

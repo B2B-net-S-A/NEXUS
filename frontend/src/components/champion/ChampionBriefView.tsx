@@ -208,6 +208,7 @@ export function ChampionBriefView({
   const criticalResolution = query.data?.critical_resolution ?? null;
   const criticalLine = criticalBriefLine(criticalResolution);
   const nice = stackNames(profile.stack?.nice);
+  const fullLabels = query.data?.requirement_full_labels;
   const questions = profile.screening_questions ?? [];
   const search = profile.search;
   const requirements = search?.requirements ?? [];
@@ -269,7 +270,7 @@ export function ChampionBriefView({
             <div className="space-y-1.5">
               <Eyebrow>Musi mieć</Eyebrow>
               {must.length > 0 ? (
-                <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} glossary={glossary} />
+                <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} glossary={glossary} fullLabels={fullLabels} />
               ) : (
                 <p className="text-[13px] text-muted-foreground">— brak</p>
               )}
@@ -289,7 +290,7 @@ export function ChampionBriefView({
             <div className="space-y-1.5">
               <Eyebrow>Mile widziane</Eyebrow>
               {nice.length > 0 ? (
-                <Chips items={nice} tone="nice" glossary={glossary} />
+                <Chips items={nice} tone="nice" glossary={glossary} fullLabels={fullLabels} />
               ) : (
                 <p className="text-[13px] text-muted-foreground">— brak</p>
               )}

@@ -177,6 +177,68 @@ def row_label(words: list[str]) -> str:
     return ALTERNATIVE_JOINER.join(names)
 
 
+def _full_label(label: str, words: list[str]) -> str:
+    """Etykieta do czytania: wszystkie zamienniki wiersza, także spoza słownika.
+
+    Bez innej pisowni tej samej nazwy i bez rdzenia, który jest początkiem
+    pokazanego już słowa („bankow*” przy „bankowości”).
+    """
+    from app.services.skill_normalize import canonical_of
+
+    names = label.split(ALTERNATIVE_JOINER)
+    seen = {canonical_of(name) for name in names}
+    for word in words:
+        canonical = canonical_of(word)
+        if not word.endswith("*") and canonical not in seen:
+            seen.add(canonical)
+            names.append(word)
+    for word in words:
+        stem = canonical_of(_plain(word))
+        if word.endswith("*") and not any(name.startswith(stem) for name in seen):
+            seen.add(stem)
+            names.append(word)
+    return ALTERNATIVE_JOINER.join(names)
+
+
+def label_row_words(stack: Any) -> dict[str, list[str]]:
+    """Etykieta z `stack.must` / `stack.nice` → słowa jej wiersza (po `_head`)."""
+    if not isinstance(stack, Mapping):
+        return {}
+    rows = stack.get("rows")
+    by_head = {
+        _head(row["words"]).casefold(): row["words"]
+        for row in (rows if isinstance(rows, list) else ())
+        if isinstance(row, Mapping)
+        and isinstance(row.get("words"), list)
+        and row["words"]
+    }
+    out: dict[str, list[str]] = {}
+    for key in ("must", "nice"):
+        items = stack.get(key)
+        for item in items if isinstance(items, list) else ():
+            name = item.get("name") if isinstance(item, Mapping) else None
+            if not isinstance(name, str):
+                continue
+            words = by_head.get(name.split(ALTERNATIVE_JOINER)[0].strip().casefold())
+            if words:
+                out[name] = words
+    return out
+
+
+def full_labels(stack: Any) -> dict[str, str]:
+    """Etykieta → pełne brzmienie na ekranach do czytania (zgłoszenie 30.10.2026).
+
+    Tylko wiersze, w których pełne brzmienie jest dłuższe. Sama etykieta zostaje
+    bez zmian: czytają ją bramka krytycznych i kontrakt wymagań (`row_label`).
+    """
+    out: dict[str, str] = {}
+    for label, words in label_row_words(stack).items():
+        full = _full_label(label, words)
+        if full != label:
+            out[label] = full
+    return out
+
+
 def derive(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Pola profilu wyprowadzone z wierszy (wiersze już po `clean_rows`)."""
     must: list[dict[str, str]] = []
