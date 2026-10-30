@@ -140,7 +140,10 @@ def test_label_after_a_line_break_inside_the_same_run_is_read() -> None:
     fields = [slot.field for slot in cs.read_template(template).slots]
     assert cs.EXPERIENCE in fields
     texts = _text(cs.render(template, {**VALUES, cs.EXPERIENCE: "9 lat"}))
-    assert "Poziom doświadczenia: Specjalista\nStaż: 9 lat doświadczenia komercyjnego" in texts
+    assert (
+        "Poziom doświadczenia: Specjalista\nStaż: 9 lat doświadczenia komercyjnego"
+        in texts
+    )
 
 
 def test_value_added_after_a_bold_label_does_not_shift_the_next_line() -> None:
@@ -148,10 +151,13 @@ def test_value_added_after_a_bold_label_does_not_shift_the_next_line() -> None:
     # wierszu tego samego akapitu ma nadal trafić we własne przebiegi.
     template = _two_fields_in_one_paragraph(break_in_label_run=False)
     texts = _text(cs.render(template, {**VALUES, cs.EXPERIENCE: "9 lat"}))
-    assert "Poziom doświadczenia: Specjalista\nStaż: 9 lat doświadczenia komercyjnego" in texts
+    assert (
+        "Poziom doświadczenia: Specjalista\nStaż: 9 lat doświadczenia komercyjnego"
+        in texts
+    )
 
 
-@pytest.mark.parametrize("dirty",["a\x01b", "a\x0bb", "a￾b", "a\ud800b", "a\x00b"])
+@pytest.mark.parametrize("dirty", ["a\x01b", "a\x0bb", "a￾b", "a\ud800b", "a\x00b"])
 def test_characters_word_cannot_store_are_dropped(dirty: str) -> None:
     # Tytuł albo imię wyciągnięte z PDF-a bywa ze znakiem sterującym — lxml
     # odrzuca go przy zapisie, a DL nie poprawi imienia w oknie karty (500).
@@ -272,6 +278,48 @@ def test_profile_from_why_heading_without_section_marker() -> None:
     html = "<h2>Dlaczego nasz kandydat?</h2><p><b>Kafka</b></p><h2>Doświadczenie</h2><b>Java</b>"
     assert cs.profile_from_cv_html(html) == ["Kafka"]
     assert cs.profile_from_cv_html(None) == []
+
+
+def test_profile_keeps_technologies_not_whole_bold_phrases() -> None:
+    # Produkcja 29.10.2026: generator pogrubia też całe zdania o stażu
+    # i dziedzinie — karta ma mieć same technologie, najwyżej 8.
+    bolds = [
+        "Posiada 6 lat doświadczenia komercyjnego",
+        "aplikacji backendowych oraz full-stack",
+        "Java",
+        "Spring Boot",
+        "3 lata doświadczenia",
+        "sektorze bankowym",
+        "Doświadczenie w projektowaniu i budowie architektury mikroserwisowej od podstaw",
+        "Apache Kafka",
+        "RabbitMQ",
+        "Praktyczna znajomość Apache Kafka i przetwarzania strumieniowego",
+        "Kafka Streams",
+        "KTable",
+    ]
+    html = (
+        "<h2>Dlaczego nasz kandydat?</h2><ul>"
+        + "".join(f"<li><b>{text}</b> w projektach</li>" for text in bolds)
+        + "</ul>"
+    )
+    assert cs.profile_from_cv_html(html) == [
+        "Java",
+        "Spring Boot",
+        "Apache Kafka",
+        "RabbitMQ",
+        "Kafka Streams",
+        "KTable",
+    ]
+
+
+def test_profile_has_at_most_eight_technologies() -> None:
+    names = ["Java", "Go", "Rust", "C#", "SQL", "Kotlin", "Scala", "Python", "Ruby"]
+    html = (
+        "<h2>Dlaczego nasz kandydat?</h2><p>"
+        + "".join(f"<b>{name}</b> " for name in names)
+        + "</p>"
+    )
+    assert cs.profile_from_cv_html(html) == names[:8]
 
 
 def test_profile_fallback_is_must_skills_the_person_has() -> None:
