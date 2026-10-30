@@ -68,7 +68,7 @@ async def _detach_candidate_cv_pointer(
     candidate: Candidate,
     document: CandidateDocument,
     removed_at: datetime,
-    actor_id: int,
+    actor_id: int | None,
 ) -> None:
     """Wskaźnik CV na kandydacie nie może dalej pokazywać usuniętego pliku.
 
