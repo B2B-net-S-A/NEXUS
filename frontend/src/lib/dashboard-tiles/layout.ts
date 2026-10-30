@@ -15,6 +15,15 @@ export const GRID_COLUMNS = 12;
 export const ROW_HEIGHT = 88;
 export const GRID_GAP = 16;
 export const MAX_TILES = 40;
+/** Górna granica wysokości kafelka z `fitContent` — wyższy rośnie dalej w sobie. */
+export const MAX_FIT_ROWS = 60;
+
+/** Ile rzędów siatki zajmuje treść o tej wysokości (rzędy dzieli odstęp). */
+export function rowsForHeight(px: number): number {
+  if (!Number.isFinite(px) || px <= 0) return 1;
+  const rows = Math.ceil((px + GRID_GAP) / (ROW_HEIGHT + GRID_GAP));
+  return Math.min(Math.max(rows, 1), MAX_FIT_ROWS);
+}
 
 export const PERIOD_LABELS: Record<MetricPeriod, string> = {
   last_7_days: "7 dni",

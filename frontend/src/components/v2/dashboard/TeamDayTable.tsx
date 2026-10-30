@@ -1,10 +1,20 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
+import { Maximize2 } from "lucide-react"
 import { useQuery } from "@tanstack/react-query"
 
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   insightsTeamSignalsApi,
@@ -34,6 +44,10 @@ import { cn } from "@/lib/utils"
  * administracyjne i byłych pracowników — bez niego aktywni dawali na stagingu
  * 501 z 508 weryfikacji (październik 2026). Kamienie bez osoby z zasługą nie
  * wchodzą do tej liczby i stoją osobną linijką „Do tego…”, jak w Insights.
+ *
+ * Na pulpicie (30.10.2026, Artur, makiety A + B) tabela nie ma własnego
+ * okienka: kafelek rośnie z treścią, nagłówek kolumn przykleja się pod górnym
+ * paskiem strony, a „Na cały ekran” otwiera ją w oknie na całą wysokość.
  */
 type Counted = "verifications" | "recommendations" | "interviews" | "acceptances" | "placements"
 
@@ -137,9 +151,10 @@ export function TeamDayTable({
   rangeLabel: string
   /** Liczby z karty nad tabelą — suma tabeli ma się z nimi zgadzać. */
   metrics: RecruitmentActivityMetricCounts[]
-  /** Kafelek pulpitu: tabela przewija się w sobie i prowadzi do pełnej w Insights. */
+  /** Kafelek pulpitu: przycisk „Na cały ekran” i link do pełnej tabeli w Insights. */
   compact: boolean
 }) {
+  const [fullscreen, setFullscreen] = useState(false)
   const params: InsightsPeriodParams = {
     period: "custom",
     date_from: range.start,
@@ -188,13 +203,85 @@ export function TeamDayTable({
       : []
   })
 
+  // Ta sama tabela w kafelku i w oknie „Na cały ekran”.
+  const table = (
+    <table className="w-full min-w-[760px] text-sm">
+      {/* Tło przyklejonych wierszy na komórkach, nie na thead/tfoot: motyw
+          „Wyraźny” ramkuje każdy `.bg-card` poza `td`/`th`. */}
+      <thead className="sticky top-0 z-10">
+        <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <th className={cn("py-2 pl-4 font-semibold", STICKY_HEAD)}>Osoba</th>
+          {COLUMNS.map((column) => (
+            <th
+              key={column.key}
+              className={cn("py-2 pr-4 text-right font-semibold", STICKY_HEAD)}
+            >
+              {column.label}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((line) => (
+          <tr key={line.user_id} className="border-b border-border last:border-0">
+            <td className="py-1.5 pl-4 font-medium text-foreground">
+              {shortenPersonName(line.name) ?? line.name}
+            </td>
+            {COLUMNS.map((column) => (
+              <Cell
+                key={column.key}
+                value={num(line, column.key)}
+                missing={missing.has(column.key)}
+              />
+            ))}
+          </tr>
+        ))}
+      </tbody>
+      {hasRest ? (
+        <tfoot className="sticky bottom-0">
+          <tr data-testid="team-day-table-rest">
+            <td className={cn("py-1.5 pl-4 text-foreground", STICKY_FOOT)}>
+              Pozostali
+              <span className="block text-xs text-muted-foreground">
+                konta administracyjne i byli pracownicy
+              </span>
+            </td>
+            {COLUMNS.map((column) => (
+              <Cell
+                key={column.key}
+                value={rest[column.key]}
+                missing={missing.has(column.key)}
+                className={STICKY_FOOT}
+              />
+            ))}
+          </tr>
+        </tfoot>
+      ) : null}
+    </table>
+  )
+
   return (
-    <Card className="overflow-hidden p-0" data-testid="team-day-table">
+    // `overflow-clip`, nie `hidden`: `hidden` robi z karty przewijany kontener
+    // i przyklejony nagłówek zostawałby w karcie zamiast pod paskiem strony.
+    <Card className="overflow-clip p-0" data-testid="team-day-table">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border bg-muted/20 px-4 py-3">
         <p className="text-sm font-medium text-foreground">Wyniki osób · {rows.length} osób</p>
-        <p className="text-xs text-muted-foreground">
-          {rangeLabel} · od najwięcej weryfikacji
-        </p>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <p className="text-xs text-muted-foreground">
+            {rangeLabel} · od najwięcej weryfikacji
+          </p>
+          {compact && rows.length > 0 ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFullscreen(true)}
+              data-tour="dashboard.team-table.fullscreen"
+            >
+              <Maximize2 className="h-4 w-4" aria-hidden />
+              Na cały ekran
+            </Button>
+          ) : null}
+        </div>
       </div>
       {rows.length === 0 && !hasRest ? (
         <p className="px-4 py-6 text-sm text-muted-foreground">
@@ -202,62 +289,12 @@ export function TeamDayTable({
         </p>
       ) : (
         <div
-          className={cn("overflow-x-auto", compact && "max-h-[22rem] overflow-y-auto")}
+          // Na pulpicie bez przewijanego kontenera, żeby nagłówek kolumn trzymał
+          // się góry strony; w węższym kafelku tabela przewija się w poziomie.
+          className={cn("overflow-x-auto", compact && "@3xl:overflow-x-visible")}
           data-testid="team-day-table-scroll"
         >
-          <table className="w-full min-w-[760px] text-sm">
-            {/* Tło przyklejonych wierszy na komórkach, nie na thead/tfoot: motyw
-                „Wyraźny” ramkuje każdy `.bg-card` poza `td`/`th`. */}
-            <thead className="sticky top-0 z-10">
-              <tr className="text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                <th className={cn("py-2 pl-4 font-semibold", STICKY_HEAD)}>Osoba</th>
-                {COLUMNS.map((column) => (
-                  <th
-                    key={column.key}
-                    className={cn("py-2 pr-4 text-right font-semibold", STICKY_HEAD)}
-                  >
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((line) => (
-                <tr key={line.user_id} className="border-b border-border last:border-0">
-                  <td className="py-1.5 pl-4 font-medium text-foreground">
-                    {shortenPersonName(line.name) ?? line.name}
-                  </td>
-                  {COLUMNS.map((column) => (
-                    <Cell
-                      key={column.key}
-                      value={num(line, column.key)}
-                      missing={missing.has(column.key)}
-                    />
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-            {hasRest ? (
-              <tfoot className="sticky bottom-0">
-                <tr data-testid="team-day-table-rest">
-                  <td className={cn("py-1.5 pl-4 text-foreground", STICKY_FOOT)}>
-                    Pozostali
-                    <span className="block text-xs text-muted-foreground">
-                      konta administracyjne i byli pracownicy
-                    </span>
-                  </td>
-                  {COLUMNS.map((column) => (
-                    <Cell
-                      key={column.key}
-                      value={rest[column.key]}
-                      missing={missing.has(column.key)}
-                      className={STICKY_FOOT}
-                    />
-                  ))}
-                </tr>
-              </tfoot>
-            ) : null}
-          </table>
+          {table}
         </div>
       )}
       {mismatches.length > 0 || unattributed.length > 0 || compact ? (
@@ -280,6 +317,26 @@ export function TeamDayTable({
             </Link>
           ) : null}
         </div>
+      ) : null}
+      {compact ? (
+        <Dialog open={fullscreen} onOpenChange={setFullscreen}>
+          <DialogContent
+            size="full"
+            className="h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-[calc(100vw-2rem)] sm:w-[calc(100vw-2rem)]"
+            data-testid="team-day-table-fullscreen"
+          >
+            <DialogHeader>
+              <DialogTitle className="text-lg">Wyniki osób · {rows.length} osób</DialogTitle>
+              <DialogDescription>{rangeLabel} · od najwięcej weryfikacji</DialogDescription>
+            </DialogHeader>
+            <DialogBody className="overflow-auto p-0">{table}</DialogBody>
+            <div className="shrink-0 border-t border-border px-6 py-2 text-xs">
+              <Link href="/insights?tab=zespol" className="font-medium text-primary hover:underline">
+                Pełna tabela w Insights → Zespół
+              </Link>
+            </div>
+          </DialogContent>
+        </Dialog>
       ) : null}
     </Card>
   )

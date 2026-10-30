@@ -12,6 +12,7 @@ import {
   orderedMetricNotes,
   readingOrder,
   removeTile,
+  rowsForHeight,
 } from "@/lib/dashboard-tiles/layout";
 
 function tile(over: Partial<DashboardTile>): DashboardTile {
@@ -170,5 +171,21 @@ describe("prependTemplate", () => {
       ["a", 0, 8],
       ["b", 6, 9],
     ]);
+  });
+});
+
+describe("rowsForHeight — kafelek z wysokością treści", () => {
+  it("liczy rzędy razem z odstępem między nimi", () => {
+    // Rząd 88 px, odstęp 16 px: 2 rzędy = 192 px.
+    expect(rowsForHeight(88)).toBe(1);
+    expect(rowsForHeight(89)).toBe(2);
+    expect(rowsForHeight(192)).toBe(2);
+    expect(rowsForHeight(193)).toBe(3);
+  });
+
+  it("nie schodzi poniżej jednego rzędu i nie przekracza górnej granicy", () => {
+    expect(rowsForHeight(0)).toBe(1);
+    expect(rowsForHeight(Number.NaN)).toBe(1);
+    expect(rowsForHeight(100_000)).toBe(60);
   });
 });
