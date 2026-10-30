@@ -45,6 +45,8 @@
   "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/reopen": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/months/{year}/{month}/settlement-import": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/months/{year}/{month}/settlement-import/preview": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/people/{user_id}/rates": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/proposals/refresh": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
   "PUT /api/hr/payroll/rules": "BBBBBBBDBBBBBBBBBBBBBBBBBB",

@@ -9,7 +9,8 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
 
 * termin premii = start + 21 dni roboczych firmy (``bonus_rules``, kalendarz
   firmy z dniami wolnymi — jak urlop),
-* okres premii = miesiąc terminu (zamknięty miesiąc → pierwszy otwarty),
+* okres premii = miesiąc po starcie, nie wcześniej niż miesiąc terminu
+  (``payout_period``; zamknięty miesiąc → pierwszy otwarty),
   wybierany pod blokadą współdzieloną okresu — miesiąc, który właśnie się
   zamyka, automat omija, zamiast dorzucić do niego propozycję,
 * marża/h = stawka klienta − stawka kosztowa z dnia startu, w zł/h:
@@ -80,6 +81,7 @@ from app.services.hr.bonus_rules import (
     load_bonus_calendar,
     load_rules,
     money,
+    payout_period,
     recruiter_bonus,
     recruiter_tier,
 )
@@ -522,7 +524,9 @@ async def _lock_periods(
         return None
     assert calendar is not None
     eligible_on = eligible_date(contract.start_date, rules, calendar=calendar)
-    return await first_open_month_locked(db, eligible_on.year, eligible_on.month)
+    return await first_open_month_locked(
+        db, *payout_period(contract.start_date, eligible_on)
+    )
 
 
 async def reconcile_contract(
@@ -592,7 +596,7 @@ async def reconcile_contract(
         if target.amount is not None
     }
 
-    period = (eligible_on.year, eligible_on.month)
+    period = payout_period(start, eligible_on)
     target_period = locked_target or await first_open_month_locked(db, *period)
     closed = await closed_months(db)
     candidate_name, client_name = context.names(contract)
@@ -720,6 +724,9 @@ async def ended_early_bonus_ids(
         and bonus.status == "assigned"
         and bonus.contract_id is not None
         and bonus.eligible_on is not None
+        # Rozliczenie z arkusza: firma świadomie bierze ryzyko (×2 z października
+        # płacone przed startem, decyzja Artura 30.10.2026), więc bez ostrzeżenia.
+        and not (bonus.rule_snapshot or {}).get("settlement_import")
     ]
     if not candidates:
         return set()

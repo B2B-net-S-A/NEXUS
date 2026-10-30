@@ -153,6 +153,20 @@ def eligible_date(start: date, rules: BonusRules, *, calendar: WorkCalendar) -> 
     return day
 
 
+def payout_period(start: date, eligible_on: date) -> tuple[int, int]:
+    """Miesiąc wypłaty: następny po starcie, nigdy przed terminem premii.
+
+    Decyzja Artura z 30.10.2026 za arkuszem Delivery: na potwierdzenie godzin
+    trzeba czekać, więc start we wrześniu to rozliczenie październikowe.
+    Termin wypada zwykle w tym samym miesiącu; później tylko przy świętach.
+    """
+
+    after_start = (
+        (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+    )
+    return max(after_start, (eligible_on.year, eligible_on.month))
+
+
 def business_days_elapsed(start: date, today: date, *, calendar: WorkCalendar) -> int:
     """Ile dni roboczych po starcie minęło do ``today`` włącznie (pasek „liczy się”)."""
 
@@ -425,6 +439,7 @@ __all__ = [
     "load_rules",
     "money",
     "parse_rules",
+    "payout_period",
     "recruiter_bonus",
     "recruiter_tier",
     "rules_payload",

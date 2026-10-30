@@ -1,7 +1,7 @@
 """„Premie liczą się same” (D5): propozycje z kontraktów NEXUSA i z Ligi.
 
 * placement = kontrakt z datą startu: DL 10% × marża/h × 168, rekruter wg
-  progu, termin = start + 21 dni roboczych, okres = miesiąc terminu,
+  progu, termin = start + 21 dni roboczych, okres = miesiąc po starcie,
 * idempotencja (``source_key``), anulowanie po zakończeniu przed terminem
   i przywrócenie po cofnięciu zakończenia, decyzje ludzi nietknięte,
 * dodatkowa premia DL wyłącznie z ustawień (Compass miał ją w kodzie),
@@ -45,6 +45,7 @@ from app.services.hr.bonus_rules import (
     eligible_date,
     load_bonus_calendar,
     parse_rules,
+    payout_period,
 )
 from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.hr_settlements_seed import delete_settlement_rows
@@ -211,10 +212,7 @@ async def test_contract_start_proposes_dl_and_recruiter_bonus_once(payroll_on) -
         assert bonus.status == "proposed"
         assert bonus.proposed_by is None
         assert bonus.eligible_on == deadline
-        assert (bonus.period_year, bonus.period_month) == (
-            deadline.year,
-            deadline.month,
-        )
+        assert (bonus.period_year, bonus.period_month) == payout_period(start, deadline)
         assert bonus.rule_snapshot["margin_per_hour"] == "46.00"
     assert recruiter.rule_snapshot["tier"] == 2
 

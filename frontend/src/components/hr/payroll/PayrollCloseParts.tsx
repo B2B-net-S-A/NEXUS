@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, MoreHorizontal, Plus } from "lucide-react";
+import { Check, MoreHorizontal, Plus, Upload } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
@@ -158,6 +158,8 @@ interface DecisionPanelProps {
   open: boolean;
   canCreate: boolean;
   onCreate: () => void;
+  /** Płace: „Wczytaj arkusz” — rozliczenie miesiąca z pliku Delivery. */
+  onImport?: () => void;
   onApprove: (row: BonusRow) => void;
   onEdit: (row: BonusRow) => void;
   onCancel: (row: BonusRow) => void;
@@ -174,6 +176,7 @@ export function DecisionPanel({
   open,
   canCreate,
   onCreate,
+  onImport,
   onApprove,
   onEdit,
   onCancel,
@@ -228,12 +231,20 @@ export function DecisionPanel({
             {rows.length}
           </span>
         </h2>
-        {canCreate ? (
-          <Button size="sm" variant="ghost" onClick={onCreate}>
-            <Plus className="h-4 w-4" aria-hidden />
-            Nowa premia
-          </Button>
-        ) : null}
+        <div className="flex items-center gap-1">
+          {onImport ? (
+            <Button size="sm" variant="ghost" onClick={onImport}>
+              <Upload className="h-4 w-4" aria-hidden />
+              Wczytaj arkusz
+            </Button>
+          ) : null}
+          {canCreate ? (
+            <Button size="sm" variant="ghost" onClick={onCreate}>
+              <Plus className="h-4 w-4" aria-hidden />
+              Nowa premia
+            </Button>
+          ) : null}
+        </div>
       </div>
       {rows.length === 0 ? (
         <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
