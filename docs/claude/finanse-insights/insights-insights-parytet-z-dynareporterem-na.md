@@ -38,6 +38,10 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   + Talent Community Manager (`services/insights_person_scope.py`,
   `PEOPLE_TABLE_ROLES`). Konta bez takiej roli to jeden wiersz „Konta
   administracyjne”, sumy firmy bez zmian. Nowa tabela osób = ten sam helper.
+  Od 30.10.2026 (decyzja Artura) w tym wierszu są też konta integracji
+  (`oauth_clients.acting_user_id`, np. scrapery z rolą TCM), także gdy klient
+  jest chwilowo wyłączony: bez tego stały w „Wynikach osób” z zerami i prowadziły
+  ranking aktywności (10.2026: 11 639 akcji przy 397 pierwszej osoby).
 - **Precyzja (30 dni) to kohorta**: z par zweryfikowanych w 30 dniach, ile doszło
   do „CV wysłane” (`kpi_panel.PRECISION_COHORT_CTE`, Zespół i Mój miesiąc).
   Nigdy ponad 100% (do 24.09 było 900%). Konwersja w Lejku po etapach liczy się
