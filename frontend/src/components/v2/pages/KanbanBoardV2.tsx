@@ -1081,6 +1081,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  return (
  <div
  data-kanban-card=""
+ data-tour="jobs.board.card"
  data-candidate-id={item.candidate_id}
  data-champion={item.is_champion ? "true" : undefined}
  onClick={handleCardClick}

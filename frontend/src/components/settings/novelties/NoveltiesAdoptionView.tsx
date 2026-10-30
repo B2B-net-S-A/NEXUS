@@ -163,14 +163,14 @@ export function NoveltiesAdoptionView({
                     <Badge
                       size="sm"
                       variant={
-                        item.tier === "process"
+                        item.start || item.tier === "process"
                           ? "warning"
                           : item.tier === "tour"
                             ? "soft"
                             : "neutral"
                       }
                     >
-                      {TIER_LABEL[item.tier]}
+                      {item.start ? "Start" : TIER_LABEL[item.tier]}
                     </Badge>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">

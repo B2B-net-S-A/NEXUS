@@ -1,0 +1,114 @@
+[
+  {
+    "id": "start-lista-rekrutacji",
+    "title": "Lista rekrutacji: Twoje i wszystkie",
+    "why": "Tu zaczynasz dzień: widzisz swoje rekrutacje, przełączasz na wszystkie i zawężasz listę filtrami.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
+    "where": "Rekrutacje",
+    "href": "/jobs",
+    "dot_anchor": "jobs.list.scope",
+    "steps": [
+      {"anchor": "jobs.list.scope", "text": "Kliknij przełącznik „Moje / Wszystkie”.", "hint": "Domyślnie widzisz rekrutacje, w których jesteś w zespole."},
+      {"anchor": "jobs.list.filters", "text": "Kliknij w pasek filtrów.", "hint": "Filtrujesz po kliencie, statusie i osobach. Wybór zostaje w adresie strony."},
+      {"anchor": "jobs.list.search", "text": "Tu wpisujesz nazwę rekrutacji albo klienta.", "hint": "Szukanie działa od razu, bez Entera.", "ack": true}
+    ]
+  },
+  {
+    "id": "start-tablica",
+    "title": "Tablica rekrutacji i kandydaci do dodania",
+    "why": "Na Tablicy prowadzisz osoby przez etapy, a „Kandydaci do dodania” podsuwa ludzi z bazy i z ogłoszeń.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
+    "where": "Rekrutacje → Tablica",
+    "href": "/jobs",
+    "dot_anchor": "jobs.list.title",
+    "steps": [
+      {"anchor": "jobs.list.title", "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.", "hint": "Otworzy się Tablica tej rekrutacji."},
+      {"anchor": "jobs.board.columns", "text": "Kolumny to etapy. Kartę przesuwasz strzałką „dalej” na karcie.", "hint": "Strzałka pilnuje bramek etapów, np. zweryfikowanego CV przed wysłaniem do klienta.", "ack": true},
+      {"anchor": "jobs.board.sources", "text": "Kliknij w pasek „Kandydaci do dodania”.", "hint": "Tu są propozycje z bazy, z ogłoszeń i wyszukiwanie ręczne."}
+    ]
+  },
+  {
+    "id": "start-panel-osoby",
+    "title": "Panel osoby: notatka i screening",
+    "why": "Kliknięcie karty otwiera panel osoby: tu piszesz notatkę po rozmowie i wypełniasz screening.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
+    "where": "Rekrutacje → Tablica → karta osoby",
+    "href": "/jobs",
+    "dot_anchor": "jobs.board.card",
+    "steps": [
+      {"anchor": "jobs.list.title", "text": "Otwórz dowolną rekrutację — kliknij jej nazwę.", "hint": "Najlepiej taką, w której są już osoby na Tablicy."},
+      {"anchor": "jobs.board.card", "text": "Kliknij kartę dowolnej osoby.", "hint": "Panel osoby otworzy się z boku, Tablica zostaje pod spodem."},
+      {"anchor": "jobs.person.note", "text": "Tu dodajesz notatkę po rozmowie.", "hint": "Notatka trafia do historii osoby i widzi ją cały zespół rekrutacji.", "ack": true},
+      {"anchor": "jobs.person.screening-form", "text": "Tu wypełniasz screening — pytania rekrutacji i stawkę.", "hint": "Z odpowiedzi powstaje karta rekomendacji dla Delivery Leada.", "ack": true}
+    ]
+  },
+  {
+    "id": "start-baza-kandydatow",
+    "title": "Baza kandydatów: szukanie i filtry",
+    "why": "W bazie szukasz ludzi po słowach z CV, umiejętnościach i mieście, zanim dodasz ich do rekrutacji.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead", "talent_community_manager", "recruiter"]},
+    "where": "Kandydaci",
+    "href": "/candidates",
+    "dot_anchor": "candidates.list.search",
+    "steps": [
+      {"anchor": "candidates.list.search", "text": "Tu wpisujesz słowa do szukania.", "hint": "Szukamy w CV, profilu i notatkach. Kilka słów zawęża wynik.", "ack": true},
+      {"anchor": "candidates.list.filters", "text": "Kliknij w filtry.", "hint": "Umiejętności, miasto, dostępność i stawka zawężają listę."},
+      {"anchor": "candidates.list.name", "text": "Otwórz profil dowolnej osoby — kliknij nazwisko.", "hint": "Profil otworzy się w pełnym oknie, lista na Ciebie poczeka."},
+      {"anchor": "candidate.profile.tabs", "text": "Zakładki profilu: CV, rekrutacje, historia i pliki.", "hint": "Wszystko o osobie w jednym miejscu.", "ack": true},
+      {"anchor": "candidate.profile.note", "text": "Tu dodajesz notatkę do profilu osoby.", "hint": "Notatkę widzi każdy, kto otworzy profil.", "ack": true}
+    ]
+  },
+  {
+    "id": "start-kontrakty",
+    "title": "Kontrakty: rejestr i panel kontraktu",
+    "why": "W rejestrze kontraktów widzisz każdą współpracę; z panelu kontraktu zmieniasz warunki i kończysz współpracę.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["finance"]},
+    "where": "Kontrakty",
+    "href": "/contracts",
+    "dot_anchor": "contracts.list.row",
+    "steps": [
+      {"anchor": "contracts.list.row", "text": "Kliknij wiersz dowolnego kontraktu.", "hint": "Kliknij w wierszu poza nazwiskiem — otworzy się panel kontraktu."},
+      {"anchor": "contract.panel.end", "text": "Tu kończysz współpracę — okno zapyta, co z umową B2B.", "hint": "Nic teraz nie zmieniasz, przeklikanie kończy się przed zapisem.", "ack": true}
+    ]
+  },
+  {
+    "id": "start-finanse",
+    "title": "Finanse: widoki i eksport",
+    "why": "W Finansach przełączasz widoki (zmiany w zamówieniach, zamówienia PDF, import MD) i eksportujesz dane.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["finance"]},
+    "where": "Finanse",
+    "href": "/finance",
+    "dot_anchor": "finance.modes",
+    "steps": [
+      {"anchor": "finance.modes", "text": "Kliknij przełącznik widoków.", "hint": "Każdy widok to inna lista do rozliczenia."},
+      {"anchor": "finance.export", "text": "Tu eksportujesz listę do pliku.", "hint": "Eksport bierze to, co widzisz po filtrach.", "ack": true}
+    ]
+  },
+  {
+    "id": "start-moj-czas",
+    "title": "Mój czas: urlop i miesiąc pracy",
+    "why": "W „Mój czas” składasz wniosek o urlop i zamykasz miesiąc pracy.",
+    "tier": "tour",
+    "shipped_on": "2026-10-30",
+    "audience": {"roles": ["employee"]},
+    "where": "Mój czas",
+    "href": "/my-time",
+    "dot_anchor": "hr.my_time.tabs",
+    "steps": [
+      {"anchor": "hr.my_time.tabs", "text": "Kliknij w zakładki „Mój czas”.", "hint": "Urlopy, miesiąc pracy i archiwum."},
+      {"anchor": "hr.my_time.leave_submit", "text": "Tu składasz wniosek o urlop.", "hint": "Wniosek trafia do akceptacji przełożonego.", "ack": true}
+    ]
+  }
+]

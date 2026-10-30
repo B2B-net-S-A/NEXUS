@@ -12,6 +12,7 @@ const item = (overrides: Partial<NoveltyAdoption> = {}): NoveltyAdoption => ({
   pr: 2757,
   where: "Rekrutacja",
   active: true,
+  start: false,
   audience: 3,
   counts: { used: 1, tour: 0, dot: 0, seen: 1, untouched: 1 },
   people: [

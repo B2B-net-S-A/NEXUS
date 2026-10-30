@@ -15,6 +15,7 @@ import { NotificationsRealtime } from "./NotificationsRealtime";
 import { CommandPaletteV2 } from "./CommandPaletteV2";
 import { JarvisRoot } from "@/components/jarvis/JarvisRoot";
 import { NoveltyLayer } from "@/components/novelties/NoveltyLayer";
+import { useStartGate } from "@/components/novelties/useStartGate";
 import { KidsBackdrop } from "./KidsBackdrop";
 import { MyPeopleRoot } from "@/components/v2/my-people/MyPeopleLauncher";
 import { useMyPeoplePanel } from "@/store/my-people";
@@ -143,6 +144,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // to /onboarding before the shell renders. Runs after hydration so we
   // don't bounce on initial SSR paint.
   const { needsOnboarding } = useOnboardingGuard();
+  // Start w NEXUSIE (30.10.2026): bez przeklikania najważniejszych funkcji
+  // roli tylko pulpit i `/start` — reszta przekierowuje na Start.
+  const startBlocked = useStartGate();
 
   if (isLoginPage) return <>{children}</>;
   if (isSharePage) return <>{children}</>;
@@ -226,7 +230,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
           {/* `pb-24` na telefonie: zapas pod pływającą maskotką w prawym
               dolnym rogu — ostatnie przyciski strony dają się wyprzewijać
               spod niej. */}
-          <div className="p-4 pb-24 md:p-6 animate-fadeIn">{children}</div>
+          <div className="p-4 pb-24 md:p-6 animate-fadeIn">
+            {startBlocked ? null : children}
+          </div>
         </main>
       </div>
 

@@ -144,6 +144,27 @@ def load_novelties() -> dict[str, Novelty]:
     return by_id
 
 
+#: „Start w NEXUSIE” (decyzja Artura 30.10.2026): najważniejsze funkcje,
+#: które każdy w swojej roli przeklikuje, zanim wejdzie dalej niż pulpit.
+#: Ten sam kształt co nowość, ale bez terminu ważności, bez kropek i kart.
+START_PATH = Path(__file__).resolve().parent / "start.json"
+
+
+@lru_cache(maxsize=1)
+def load_start_tours() -> dict[str, Novelty]:
+    """Przeklikania Startu po id. Tylko ``tour``, id z przedrostkiem ``start-``."""
+    raw = json.loads(START_PATH.read_text(encoding="utf-8"))
+    by_id: dict[str, Novelty] = {}
+    for item in raw:
+        tour = Novelty.model_validate(item)
+        if tour.tier != "tour" or not tour.id.startswith("start-"):
+            raise ValueError(f"{tour.id}: Start to przeklikanie (tour) z id „start-…”")
+        if tour.id in by_id or tour.id in load_novelties():
+            raise ValueError(f"Powtórzone id przeklikania Startu: {tour.id}")
+        by_id[tour.id] = tour
+    return by_id
+
+
 def in_audience(
     novelty: Novelty, roles: Collection[str], permissions: Collection[str]
 ) -> bool:

@@ -5,7 +5,13 @@
  * Treść przychodzi z `GET /api/novelties/mine` (rejestr
  * `backend/app/data/novelties/novelties.json`). Kroki przeklikania wskazują
  * kotwice `data-tour="<id>"` na prawdziwych elementach; krok przechodzi po
- * kliknięciu kotwicy, a krok `ack` przyciskiem „Rozumiem”.
+ * kliknięciu kotwicy, a krok `ack` przyciskiem „Rozumiem”. Kotwicą może być
+ * też `data-help="<id>"` przewodnika ekranu — Start w NEXUSIE chodzi po nich.
+ *
+ * Start w NEXUSIE (`start: true`, rejestr `start.json`, decyzja Artura
+ * 30.10.2026): przeklikania najważniejszych funkcji roli. Bez kropek, kart
+ * i licznika ✦ — prowadzi do nich ekran `/start`, a dopóki nie są zaliczone,
+ * `StartGate` wpuszcza osobę tylko na pulpit i ekrany przeklikania.
  */
 
 export type NoveltyTier = "dot" | "tour" | "process";
@@ -30,6 +36,8 @@ export interface Novelty {
   path_prefix: string | null;
   steps: NoveltyStep[];
   done: boolean;
+  /** Przeklikanie „Start w NEXUSIE”, nie nowość. */
+  start: boolean;
   completed_via: "tour" | "used" | "dot" | null;
   show_card: boolean;
   required_now: boolean;
@@ -46,12 +54,12 @@ export interface TourState {
 
 /** Ile nowości czeka na przeklikanie — licznik ✦ w pasku (drobiazgi się nie liczą). */
 export function pendingCount(list: readonly Novelty[]): number {
-  return list.filter((n) => !n.done && n.tier !== "dot").length;
+  return list.filter((n) => !n.done && !n.start && n.tier !== "dot").length;
 }
 
 /** Nowości, którym należy się kropka (wszystkie niezaliczone). */
 export function dotNovelties(list: readonly Novelty[]): Novelty[] {
-  return list.filter((n) => !n.done);
+  return list.filter((n) => !n.done && !n.start);
 }
 
 /**
@@ -86,13 +94,18 @@ export function requiredForPath(
   );
 }
 
-/** Element kliknięcia leży w kotwicy `data-tour` (albo nią jest). */
+/** Selektor kotwicy: `data-tour` nowości albo `data-help` przewodnika ekranu. */
+export function anchorSelector(anchor: string): string {
+  return `[data-tour="${anchor}"], [data-help="${anchor}"]`;
+}
+
+/** Element kliknięcia leży w kotwicy (albo nią jest). */
 export function withinAnchor(
   target: EventTarget | null,
   anchor: string,
 ): boolean {
   if (!(target instanceof Element)) return false;
-  return target.closest(`[data-tour="${anchor}"]`) !== null;
+  return target.closest(anchorSelector(anchor)) !== null;
 }
 
 /**
@@ -216,4 +229,51 @@ export function placeBeside(
     c.top < target.top + target.height &&
     c.top + card.height > target.top;
   return candidates.find((c) => fits(c) && !overlaps(c)) ?? candidates[0];
+}
+
+// ── Start w NEXUSIE ──────────────────────────────────────────────────────────
+
+export interface StartItem {
+  id: string;
+  title: string;
+  why: string;
+  where: string;
+  href: string;
+  done: boolean;
+}
+
+export interface StartStatus {
+  /** Front zatrzymuje osobę (blokada włączona, coś jeszcze do przeklikania). */
+  enforced: boolean;
+  /** Wyłącznik firmowy — widzi go panel „kto już umie”. */
+  gate_on: boolean;
+  done: number;
+  total: number;
+  items: StartItem[];
+}
+
+/** Ekran Startu. */
+export const START_PATH = "/start";
+
+/**
+ * Tu zatrzymana osoba wchodzi zawsze: Start, pulpit, logowanie i wybór
+ * rekrutacji po pierwszym logowaniu, a także panel „kto już umie” z
+ * wyłącznikiem blokady (admin i HoR sami też przechodzą Start).
+ */
+const START_FREE_PREFIXES = [
+  START_PATH,
+  "/dashboard",
+  "/login",
+  "/onboarding",
+  "/settings/nowosci",
+];
+
+/** Czy ekran jest dostępny przed zaliczeniem Startu. */
+export function startAllows(pathname: string, touringStart: boolean): boolean {
+  // W trakcie przeklikania Startu prowadzi samo przeklikanie (lista → tablica → panel).
+  if (touringStart) return true;
+  if (pathname === "/" || pathname === "") return true;
+  return START_FREE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }

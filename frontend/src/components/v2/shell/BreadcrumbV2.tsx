@@ -32,6 +32,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   duplicates: "Duplikaty",
   // „Ludzie w NEXUSIE” (16.10.2026).
   "my-time": "Mój czas",
+  start: "Start w NEXUSIE",
   people: "Ludzie",
   equipment: "Sprzęt",
   hr: "Kadry",
