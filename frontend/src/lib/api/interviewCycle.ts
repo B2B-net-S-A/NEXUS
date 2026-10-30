@@ -72,6 +72,7 @@ export const interviewCycleApi = {
     duration_minutes: number;
     respond_by?: string | null;
     note?: string | null;
+    replaces_request_id?: number;
   }) => api.post<SlotRequest>("/api/interview-cycle/slots", body).then((r) => r.data),
   /** Terminy z wklejonego maila klienta — podpowiedź, niczego nie zapisuje. */
   readSlotsFromMail: (body: { text: string; mail_date?: string | null }) =>

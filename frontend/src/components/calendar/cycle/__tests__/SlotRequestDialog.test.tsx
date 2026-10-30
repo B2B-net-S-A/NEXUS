@@ -7,7 +7,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SlotRequestDialog } from "@/components/calendar/cycle/SlotDialogs";
-import type { PairInfo } from "@/lib/interview-cycle";
+import type { PairInfo, SlotRequest } from "@/lib/interview-cycle";
 import type { SlotsFromMail } from "@/lib/interview-slot-mail";
 
 const mocks = vi.hoisted(() => ({
@@ -132,5 +132,86 @@ describe("SlotRequestDialog — terminy z maila klienta", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Odczytaj terminy" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("wpisz je ręcznie");
     expect(within(dialog).getAllByLabelText(/^Termin \d$/).map((el) => (el as HTMLInputElement).value)).toEqual(before);
+  });
+});
+
+/** Zgłoszenie 30.10.2026: otwartych terminów nie dało się zmienić z ekranu. */
+describe("SlotRequestDialog — zmiana otwartych terminów", () => {
+  const open: SlotRequest = {
+    id: 41,
+    status: "awaiting_recruiter",
+    slots: [
+      { start: "2020-01-02T08:00:00Z", end: "2020-01-02T09:00:00Z" },
+      { start: "2031-06-12T08:00:00Z", end: "2031-06-12T08:45:00Z" },
+      { start: "2031-06-13T07:00:00Z", end: "2031-06-13T10:00:00Z", window_end: "2031-06-13T10:00:00Z" },
+    ],
+    chosen_index: null,
+    respond_by: "2031-06-10T10:00:00Z",
+    recruiter_id: 9,
+    created_by: 8,
+    duration_minutes: 45,
+    note: "Kamerka",
+    event_id: null,
+  };
+
+  const renderEdit = (request: SlotRequest | null, title: string) => {
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SlotRequestDialog open onOpenChange={() => {}} pair={pair} request={request} />
+      </QueryClientProvider>,
+    );
+    return screen.getByRole("dialog", { name: title });
+  };
+
+  beforeEach(() => {
+    mocks.createSlots.mockReset().mockResolvedValue({ move_skipped_reason: null });
+  });
+
+  it("wczytuje wniosek bez minionych terminów i zapis zastępuje go, zachowując okno klienta", async () => {
+    const dialog = renderEdit(open, "Zmień terminy od klienta");
+    const rows = within(dialog).getAllByLabelText(/^Termin \d$/) as HTMLInputElement[];
+    expect(rows.map((r) => new Date(r.value).toISOString())).toEqual([
+      "2031-06-12T08:00:00.000Z",
+      "2031-06-13T07:00:00.000Z",
+    ]);
+    expect(within(dialog).getByRole("radio", { name: "45 min" })).toHaveAttribute("aria-checked", "true");
+    expect((within(dialog).getByLabelText("Notatka dla rekrutera (opcjonalnie)") as HTMLTextAreaElement).value).toBe("Kamerka");
+
+    fireEvent.change(rows[0], { target: { value: "2031-06-16T10:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zapisz i wyślij rekruterowi" }));
+    await waitFor(() => expect(mocks.createSlots).toHaveBeenCalledTimes(1));
+    const body = mocks.createSlots.mock.calls[0][0];
+    expect(body.replaces_request_id).toBe(41);
+    expect(body.slots).toHaveLength(2);
+    expect(body.slots[0].start).toBe(new Date("2031-06-16T10:00").toISOString());
+    expect(body.slots[1].window_end).toBe("2031-06-13T10:00:00Z");
+    expect(body.respond_by).toBe("2031-06-10T10:00:00.000Z");
+  });
+
+  it("409 przy nowych terminach nie gubi formularza i pozwala zastąpić otwarte", async () => {
+    mocks.createSlots.mockRejectedValueOnce({
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            code: "SLOTS_ALREADY_OPEN",
+            message: "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji.",
+            open_request_id: 41,
+          },
+        },
+      },
+    });
+    const dialog = renderEdit(null, "Terminy rozmowy od klienta");
+    const before = (within(dialog).getByLabelText("Termin 1") as HTMLInputElement).value;
+    fireEvent.click(within(dialog).getByRole("button", { name: "Wyślij rekruterowi" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("ma już otwarte terminy");
+    expect(mocks.createSlots.mock.calls[0][0].replaces_request_id).toBeUndefined();
+    expect((within(dialog).getByLabelText("Termin 1") as HTMLInputElement).value).toBe(before);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Zastąp otwarte terminy" }));
+    await waitFor(() => expect(mocks.createSlots).toHaveBeenCalledTimes(2));
+    expect(mocks.createSlots.mock.calls[1][0].replaces_request_id).toBe(41);
   });
 });

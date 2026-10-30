@@ -175,3 +175,22 @@ ofertę, start i stawkę. Żadna istniejąca funkcja cyklu nie znika.
   rozmowy (tylko „zajęte/wolne”, bez tytułów; to samo `getSchedule`, bez
   dodatkowego zapytania). Wpływ na sloty: prep ręczny zajmuje 45 min w
   Outlooku prowadzącego jak podpowiedziany i kolejne podpowiedzi go omijają.
+
+## Zmiana otwartych terminów (30.10.2026)
+
+- **Zgłoszenie:** DL dostawał 409 „anuluj je albo dokończ wybór”, a na ekranie nie
+  było ani anulowania, ani edycji (`cancelSlots` bez wywołania w UI). Tych samych
+  terminów nie dało się poprawić, dopóki rekruter nie wybrał.
+- **Gdzie:** „Zmień terminy” w bloku „Terminy od klienta” panelu osoby (tylko
+  `canManageSlots`, okno `SlotRequestDialog` z `request`), a przy dodawaniu nowych:
+  409 `SLOTS_ALREADY_OPEN` z `open_request_id` i przycisk „Zastąp otwarte terminy”,
+  który nie gubi wpisanego formularza. Minione terminy nie wracają do okna.
+- **Zastąpienie to nowy wniosek, nie edycja w miejscu**
+  (`POST /slots` z `replaces_request_id`: stary `cancelled`, ta sama transakcja).
+  Wybór rekrutera idzie po indeksie i od razu wpisuje rozmowę do kalendarza, więc
+  okno otwarte na starej liście wybrałoby inny termin niż widziany. Teraz dostaje 409,
+  a link z maila po `req` nie zaznacza niczego. Nie wracaj do edycji listy w miejscu.
+- **Zakres:** tylko wniosek otwarty tej samej pary (inna para = 422, już potwierdzony
+  = 409, tam działa „Klient wybrał inny termin”). Prawa jak dodanie terminów, rekruter
+  = 403. Rekruter zostaje ten sam i dostaje dzwonek „Zmienione terminy…” bez dziennego
+  łączenia. Wybór w `awaiting_dl` przepada i jest o tym mowa w oknie.

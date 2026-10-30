@@ -86,7 +86,7 @@ export default function InterviewActionDialogs({
         />
       );
     case "add_slots":
-      return <SlotRequestDialog open onOpenChange={onOpenChange} pair={action.pair} />;
+      return <SlotRequestDialog open onOpenChange={onOpenChange} pair={action.pair} request={action.request} />;
     case "precall_done":
       return (
         <PrecallDoneDialog

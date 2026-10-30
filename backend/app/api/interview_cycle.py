@@ -56,7 +56,10 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.calendar_event import CalendarEvent, EventType
-from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_interview_slot_request import (
+    OPEN_SLOT_STATUSES,
+    ClientInterviewSlotRequest,
+)
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -255,6 +258,8 @@ class SlotRequestCreate(BaseModel):
     respond_by: Optional[datetime] = None
     note: Optional[str] = Field(None, max_length=1000)
     recruiter_id: Optional[int] = None
+    # „Zmień terminy” (30.10.2026): otwarty wniosek tej pary, który ten zastępuje.
+    replaces_request_id: Optional[int] = None
 
 
 class SlotChoose(BaseModel):
@@ -724,8 +729,29 @@ async def create_slot_request(
     )
     if body.recruiter_id is not None:
         await _ensure_slot_recruiter(db, body.recruiter_id, body.job_id)
-    recruiter_id = body.recruiter_id or await interview_slots.default_recruiter_id(
-        db, candidate_id=body.candidate_id, job_id=body.job_id
+    # Zmiana terminów = nowy wniosek zamiast edycji w miejscu: wybór rekrutera
+    # idzie po indeksie, więc okno otwarte na starej liście albo link z maila
+    # wskazałyby inny termin niż ten, który rekruter widział. Anulowany wniosek
+    # odpowie im 409, a wybór od razu wpisuje rozmowę do kalendarza.
+    replaced = None
+    if body.replaces_request_id is not None:
+        replaced = await interview_slots.lock_request(db, body.replaces_request_id)
+        if (replaced.candidate_id, replaced.job_id) != (
+            body.candidate_id,
+            body.job_id,
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Te terminy dotyczą innego kandydata albo rekrutacji.",
+            )
+        interview_slots.cancel(replaced)
+        await db.flush()
+    recruiter_id = (
+        body.recruiter_id
+        or (replaced.recruiter_id if replaced is not None else None)
+        or await interview_slots.default_recruiter_id(
+            db, candidate_id=body.candidate_id, job_id=body.job_id
+        )
     )
     req = ClientInterviewSlotRequest(
         candidate_id=body.candidate_id,
@@ -743,12 +769,25 @@ async def create_slot_request(
         await db.flush()
     except IntegrityError as exc:
         await db.rollback()
+        # Id otwartego wniosku: okno proponuje „Zastąp otwarte terminy” bez
+        # przepisywania tego, co DL już wpisał.
+        open_id = await db.scalar(
+            select(ClientInterviewSlotRequest.id).where(
+                ClientInterviewSlotRequest.candidate_id == body.candidate_id,
+                ClientInterviewSlotRequest.job_id == body.job_id,
+                ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
+            )
+        )
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji — "
-                "anuluj je albo dokończ wybór."
-            ),
+            detail={
+                "code": "SLOTS_ALREADY_OPEN",
+                "message": (
+                    "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji. "
+                    "Możesz je zastąpić tymi z formularza."
+                ),
+                "open_request_id": open_id,
+            },
         ) from exc
     # Pipeline v4 (23.09.2026): terminy od klienta = kandydat JEST w rozmowie
     # u klienta. Karta jedzie tam sama — wyłącznie do przodu; proces zamknięty
@@ -787,12 +826,18 @@ async def create_slot_request(
         user_id=recruiter_id,
         ntype=NotificationType.interview_slots_requested,
         req=req,
-        title="Terminy rozmowy od klienta",
+        title=(
+            "Zmienione terminy rozmowy od klienta"
+            if replaced is not None
+            else "Terminy rozmowy od klienta"
+        ),
         message=(
             f"{len(slots)} terminy rozmowy u klienta do ustalenia z kandydatem "
             f"({job.title})."
         ),
         actor_id=actor_id,
+        # Zmiana może przyjść tego samego dnia co pierwszy dzwonek.
+        daily_dedup=replaced is None,
     )
     # 0371: terminy od klienta = klient się odezwał → „Klient milczy” wraca
     # do „Szukamy kandydatów”. Nigdy nie rzuca.
