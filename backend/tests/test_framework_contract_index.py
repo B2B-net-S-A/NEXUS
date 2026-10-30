@@ -6,7 +6,7 @@ Bez sieci: Qdrant i Voyage są podstawione. Treść umów jest fikcyjna.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +17,7 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.client import Client
+from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_framework_contract import (
     ClientFrameworkContract,
     FrameworkContractStatus,
@@ -95,6 +96,7 @@ def test_replace_deletes_old_points_before_writing_new_ones():
         "get_collections",
         "create_collection",
         "create_payload_index",
+        "create_payload_index",
         "delete",
         "upsert",
     ]
@@ -104,9 +106,10 @@ def test_replace_deletes_old_points_before_writing_new_ones():
     assert created["vectors_config"].distance == qmodels.Distance.COSINE
     index = client.calls[2][1]
     assert index["field_name"] == fci.PAYLOAD_CONTRACT_ID
-    selector = client.calls[3][1]["points_selector"]
+    assert client.calls[3][1]["field_name"] == fci.PAYLOAD_AMENDMENT_ID
+    selector = client.calls[4][1]["points_selector"]
     assert selector.filter.must[0].match.any == [40]
-    points = client.calls[4][1]["points"]
+    points = client.calls[5][1]["points"]
     assert [point.id for point in points] == [101, 102]
     assert all(point.payload[fci.PAYLOAD_CONTRACT_ID] == 40 for point in points)
     # Treść umowy zostaje w bazie — do Qdranta idą same wektory.
@@ -157,6 +160,7 @@ def _contract(**values):
         text_attempted_at=datetime.now(timezone.utc),
         text_pages=None,
         text_chars=1000,
+        text_ocr_pages=0,
     )
     base.update(values)
     return SimpleNamespace(**base)
@@ -211,9 +215,12 @@ def test_reading_note_names_the_reason():
         _contract(text_status=STATUS_UNREADABLE)
     )
     assert "nie udał" in fci.reading_note(_contract(text_status=STATUS_FAILED))
-    # 43 strony i 2000 znaków = skan, z którego OCR przeczytał początek.
-    assert "skan" in fci.reading_note(_contract(text_pages=43, text_chars=2000))
+    # 43 strony i 2000 znaków = większości treści nie ma w odczycie.
+    assert "mało tekstu" in fci.reading_note(_contract(text_pages=43, text_chars=2000))
     assert fci.reading_note(_contract(text_pages=43, text_chars=108_000)) is None
+    assert "pismo ręczne" in fci.reading_note(
+        _contract(text_pages=12, text_chars=24_000, text_ocr_pages=12)
+    )
 
 
 @pytest.mark.asyncio
@@ -244,6 +251,20 @@ async def test_embedding_goes_in_batches_and_is_all_or_nothing(monkeypatch):
 
 
 # ── pełny przebieg na bazie ─────────────────────────────────────────────────
+
+
+async def _seed_amendment(fc_id: int, *, name: str = "Aneks nr 1") -> int:
+    async with AsyncSessionLocal() as db:
+        amendment = ClientContractAmendment(
+            framework_contract_id=fc_id,
+            name=name,
+            effective_date=date(2025, 3, 28),
+            filename="aneks.pdf",
+            file_path=f"client_contract_amendments/x/{uuid.uuid4().hex[:6]}.pdf",
+        )
+        db.add(amendment)
+        await db.commit()
+        return amendment.id
 
 
 async def _seed(*, file_path: str | None = "client_framework_contracts/x/msa.pdf"):
@@ -297,7 +318,7 @@ def pipeline(monkeypatch):
     def _read(_path, _filename):
         if box.read_error is not None:
             raise box.read_error
-        return box.text, box.pages
+        return box.text, box.pages, 0
 
     async def _batch(texts, *, input_type):
         return [[0.1] * 4 for _ in texts] if box.vectors else None
@@ -306,6 +327,11 @@ def pipeline(monkeypatch):
         return [0.1] * 4 if box.vectors else None
 
     monkeypatch.setattr(fci, "_read_file", _read)
+    monkeypatch.setattr(
+        fci.storage_service,
+        "get_client_contract_amendment_path",
+        lambda relative: relative,
+    )
     monkeypatch.setattr(
         fci.storage_service,
         "get_client_framework_contract_path",
@@ -560,5 +586,141 @@ async def test_search_without_any_readable_contract_says_so(
         assert body["retrieval"] == fci.RETRIEVAL_NONE
         assert body["passages"] == []
         assert "nie ma treści" in body["note"]
+    finally:
+        await _cleanup(client_id)
+
+
+# ── aneksy (0627) ───────────────────────────────────────────────────────────
+
+
+def test_read_file_reads_all_pages_of_a_pdf(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "sniff_extension", lambda _path: ".pdf")
+    monkeypatch.setattr(
+        cte,
+        "extract_pdf_all_pages_sandboxed",
+        lambda _path: cte.AllPagesText("treść wszystkich stron", 23, 23),
+    )
+    assert fci._read_file("skan.pdf", "skan.pdf") == ("treść wszystkich stron", 23, 23)
+
+
+def test_read_file_falls_back_when_reading_all_pages_gives_up(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "sniff_extension", lambda _path: ".pdf")
+    monkeypatch.setattr(cte, "extract_pdf_all_pages_sandboxed", lambda _path: None)
+    monkeypatch.setattr(cte, "extract_text", lambda _p, _f: "początek umowy")
+    monkeypatch.setattr(cte, "pdf_page_count_sandboxed", lambda _path: 248)
+    assert fci._read_file("skan.pdf", "skan.pdf") == ("początek umowy", 248, 0)
+
+
+def test_amendment_points_do_not_die_with_the_contract_points():
+    class _Client:
+        def __init__(self):
+            self.deleted = []
+
+        def delete(self, *, collection_name, points_selector):
+            self.deleted.append(points_selector.filter.must[0].key)
+
+    client = _Client()
+    fci.delete_points(client, 7)
+    fci.delete_points(client, 7, fci.PAYLOAD_AMENDMENT_ID)
+    assert client.deleted == [fci.PAYLOAD_CONTRACT_ID, fci.PAYLOAD_AMENDMENT_ID]
+
+
+def test_vector_search_covers_contracts_and_amendments():
+    class _Client:
+        def search(self, **kwargs):
+            self.filter = kwargs["query_filter"]
+            return []
+
+    client = _Client()
+    fci.search_points(client, [0.1], [1], 5, [9])
+    assert {c.key for c in client.filter.should} == {
+        fci.PAYLOAD_CONTRACT_ID,
+        fci.PAYLOAD_AMENDMENT_ID,
+    }
+
+
+@pytest.mark.asyncio
+async def test_amendment_is_read_and_found_next_to_its_contract(pipeline):
+    client_id, fc_id = await _seed()
+    amendment_id = await _seed_amendment(fc_id)
+    try:
+        await fci.index_contract(fc_id)
+        pipeline.text = "Aneks nr 1. Umowa jest zawarta na czas określony 4 lat."
+        pipeline.vectors = False
+        await fci.index_amendment(amendment_id)
+
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(ClientFrameworkContract, fc_id)
+            amendment = await db.get(ClientContractAmendment, amendment_id)
+            assert amendment.text_status == STATUS_TEXT_ONLY
+            assert amendment.text_file_path == amendment.file_path
+            outcome = await fci.search(
+                db, [contract], "czas określony 4 lat", [amendment]
+            )
+            passages = [p for p in outcome.passages if p.amendment_id == amendment_id]
+            assert passages and "4 lat" in passages[0].text
+
+            only_contract = await fci.load_chunks(db, [fc_id])
+            assert all(chunk.amendment_id is None for chunk in only_contract)
+            only_amendment = await fci.load_chunks(db, [], [amendment_id])
+            assert {chunk.amendment_id for chunk in only_amendment} == {amendment_id}
+    finally:
+        await _cleanup(client_id)
+
+
+@pytest.mark.asyncio
+async def test_rereading_the_contract_keeps_chunks_of_its_amendment(pipeline):
+    client_id, fc_id = await _seed()
+    amendment_id = await _seed_amendment(fc_id)
+    try:
+        pipeline.text = "Aneks zmienia termin płatności na 60 dni."
+        await fci.index_amendment(amendment_id)
+        pipeline.text = "Nowa treść umowy ramowej."
+        await fci.index_contract(fc_id)
+        async with AsyncSessionLocal() as db:
+            kept = await fci.load_chunks(db, [], [amendment_id])
+        assert kept and "60 dni" in kept[0].text
+    finally:
+        await _cleanup(client_id)
+
+
+@pytest.mark.asyncio
+async def test_amendment_text_route_and_search_route_name_the_amendment(
+    app_client: AsyncClient, app_auth_headers: dict[str, str], pipeline
+) -> None:
+    client_id, fc_id = await _seed()
+    amendment_id = await _seed_amendment(fc_id, name="Aneks nr 3")
+    try:
+        pipeline.text = "Aneks nr 3. Umowa jest zawarta na czas określony 4 lat."
+        base = f"/api/clients/{client_id}/framework-contracts"
+        text = await app_client.get(
+            f"{base}/{fc_id}/amendments/{amendment_id}/text", headers=app_auth_headers
+        )
+        assert text.status_code == 200, text.text
+        body = text.json()
+        assert body["amendment"]["name"] == "Aneks nr 3"
+        assert "4 lat" in body["passage"]["text"]
+        assert body["passage"]["amendment_id"] == amendment_id
+
+        found = await app_client.get(
+            f"{base}/search",
+            params={"q": "czas określony 4 lat"},
+            headers=app_auth_headers,
+        )
+        assert found.status_code == 200, found.text
+        result = found.json()
+        hit = next(p for p in result["passages"] if p["amendment_id"] == amendment_id)
+        assert hit["amendment_name"] == "Aneks nr 3"
+        assert hit["amendment_effective_date"] == "2025-03-28"
+        assert result["contracts"][0]["amendments"][0]["readable"] is True
+
+        missing = await app_client.get(
+            f"{base}/{fc_id}/amendments/999999/text", headers=app_auth_headers
+        )
+        assert missing.status_code == 404
     finally:
         await _cleanup(client_id)

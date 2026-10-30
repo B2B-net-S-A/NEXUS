@@ -48,6 +48,68 @@ TABLE_DDL = (
 
 ALL_DDL = COLUMN_DDL + TABLE_DDL
 
+# 0627 — treść aneksów (30.10.2026). Fragment aneksu leży w tej samej tabeli,
+# bo ``id`` wiersza jest identyfikatorem punktu w Qdrancie i osobna tabela
+# dałaby kolizje identyfikatorów. ``amendment_id IS NULL`` = tekst samej umowy.
+AMENDMENT_COLUMN_DDL = (
+    "ALTER TABLE client_framework_contracts "
+    "ADD COLUMN IF NOT EXISTS text_ocr_pages INTEGER NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_status VARCHAR(16) NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_file_path VARCHAR(512) NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_chars INTEGER NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_pages INTEGER NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_ocr_pages INTEGER NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_model VARCHAR(64) NULL",
+    "ALTER TABLE client_contract_amendments "
+    "ADD COLUMN IF NOT EXISTS text_attempted_at TIMESTAMPTZ NULL",
+    "ALTER TABLE client_framework_contract_chunks "
+    "ADD COLUMN IF NOT EXISTS amendment_id INTEGER NULL "
+    "REFERENCES client_contract_amendments(id) ON DELETE CASCADE",
+)
+
+AMENDMENT_INDEX_DDL = (
+    "ALTER TABLE client_framework_contract_chunks "
+    "DROP CONSTRAINT IF EXISTS uq_client_framework_contract_chunks_position",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_framework_contract_chunks_contract "
+    "ON client_framework_contract_chunks (framework_contract_id, chunk_index) "
+    "WHERE amendment_id IS NULL",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_client_framework_contract_chunks_amendment "
+    "ON client_framework_contract_chunks (amendment_id, chunk_index) "
+    "WHERE amendment_id IS NOT NULL",
+)
+
+AMENDMENT_ALL_DDL = AMENDMENT_COLUMN_DDL + AMENDMENT_INDEX_DDL
+
+AMENDMENT_DOWNGRADE_DDL = (
+    "DELETE FROM client_framework_contract_chunks WHERE amendment_id IS NOT NULL",
+    "DROP INDEX IF EXISTS ux_client_framework_contract_chunks_amendment",
+    "DROP INDEX IF EXISTS ux_client_framework_contract_chunks_contract",
+    "ALTER TABLE client_framework_contract_chunks "
+    "DROP COLUMN IF EXISTS amendment_id",
+    "ALTER TABLE client_framework_contract_chunks "
+    "ADD CONSTRAINT uq_client_framework_contract_chunks_position "
+    "UNIQUE (framework_contract_id, chunk_index)",
+    "ALTER TABLE client_framework_contracts DROP COLUMN IF EXISTS text_ocr_pages",
+    *(
+        f"ALTER TABLE client_contract_amendments DROP COLUMN IF EXISTS {column}"
+        for column in (
+            "text_status",
+            "text_file_path",
+            "text_chars",
+            "text_pages",
+            "text_ocr_pages",
+            "text_model",
+            "text_attempted_at",
+        )
+    ),
+)
+
 DOWNGRADE_DDL = (
     "DROP TABLE IF EXISTS client_framework_contract_chunks",
     *(

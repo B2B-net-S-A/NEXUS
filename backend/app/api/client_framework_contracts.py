@@ -15,6 +15,7 @@ Pattern multipart upload — zaczerpnięte z `client_materials.py` (one-pagers).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from typing import Annotated, Optional
 
@@ -62,6 +63,7 @@ from app.schemas.client_framework_contract import (
     ClientFrameworkContractListResponse,
     ClientFrameworkContractRead,
     ClientFrameworkContractUpdate,
+    FrameworkContractAmendmentReading,
     FrameworkContractPassage,
     FrameworkContractReading,
     FrameworkContractSearchResponse,
@@ -76,7 +78,7 @@ router = APIRouter(
 )
 
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB — MSA bywa duży
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024  # 100 MB — skan umowy z załącznikami ma 83 MB
 
 _ALLOWED_MIME = {
     "application/pdf",
@@ -307,6 +309,7 @@ def _reading(
     fc: ClientFrameworkContract,
     amendments_count: int = 0,
     total_chunks: Optional[int] = None,
+    amendments: Sequence[ClientContractAmendment] = (),
 ) -> FrameworkContractReading:
     return FrameworkContractReading(
         id=fc.id,
@@ -319,11 +322,31 @@ def _reading(
         pages=fc.text_pages,
         total_chunks=total_chunks,
         amendments_count=amendments_count,
+        amendments=[amendment_reading(a) for a in amendments],
         note=framework_contract_index.reading_note(fc),
     )
 
 
-def _passage(fc: ClientFrameworkContract, passage: Passage) -> FrameworkContractPassage:
+def amendment_reading(
+    amendment: ClientContractAmendment, total_chunks: Optional[int] = None
+) -> FrameworkContractAmendmentReading:
+    return FrameworkContractAmendmentReading(
+        id=amendment.id,
+        name=amendment.name,
+        effective_date=amendment.effective_date,
+        has_file=amendment.file_path is not None,
+        readable=framework_contract_index.has_current_text(amendment),
+        pages=amendment.text_pages,
+        total_chunks=total_chunks,
+        note=framework_contract_index.reading_note(amendment),
+    )
+
+
+def contract_passage(
+    fc: ClientFrameworkContract,
+    passage: Passage,
+    amendment: Optional[ClientContractAmendment] = None,
+) -> FrameworkContractPassage:
     return FrameworkContractPassage(
         framework_contract_id=fc.id,
         contract_name=fc.name,
@@ -331,6 +354,11 @@ def _passage(fc: ClientFrameworkContract, passage: Passage) -> FrameworkContract
         first_chunk=passage.first_chunk,
         last_chunk=passage.last_chunk,
         text=passage.text,
+        amendment_id=amendment.id if amendment is not None else None,
+        amendment_name=amendment.name if amendment is not None else None,
+        amendment_effective_date=(
+            amendment.effective_date if amendment is not None else None
+        ),
     )
 
 
@@ -361,9 +389,25 @@ async def search_framework_contracts(
         .scalars()
         .all()
     )
-    await framework_contract_index.ensure_indexed(db, rows)
-    outcome = await framework_contract_index.search(db, rows, q)
+    amendments = list(
+        (
+            await db.execute(
+                select(ClientContractAmendment)
+                .where(
+                    ClientContractAmendment.framework_contract_id.in_(
+                        [fc.id for fc in rows]
+                    )
+                )
+                .order_by(ClientContractAmendment.effective_date.desc())
+            )
+        )
+        .scalars()
+        .all()
+    )
+    await framework_contract_index.ensure_indexed(db, [*rows, *amendments])
+    outcome = await framework_contract_index.search(db, rows, q, amendments)
     by_id = {fc.id: fc for fc in rows}
+    amendment_by_id = {a.id: a for a in amendments}
     counts = await _amendment_counts(db, [fc.id for fc in rows])
     note = None
     if not rows:
@@ -378,8 +422,20 @@ async def search_framework_contracts(
     return FrameworkContractSearchResponse(
         query=q,
         retrieval=outcome.retrieval,
-        passages=[_passage(by_id[p.contract_id], p) for p in outcome.passages],
-        contracts=[_reading(fc, counts.get(fc.id, 0)) for fc in rows],
+        passages=[
+            contract_passage(
+                by_id[p.contract_id], p, amendment_by_id.get(p.amendment_id or 0)
+            )
+            for p in outcome.passages
+        ],
+        contracts=[
+            _reading(
+                fc,
+                counts.get(fc.id, 0),
+                amendments=[a for a in amendments if a.framework_contract_id == fc.id],
+            )
+            for fc in rows
+        ],
         note=note,
     )
 
@@ -417,7 +473,7 @@ async def read_framework_contract_text(
         note = "Umowa nie ma dalszych fragmentów — to był koniec treści."
     return FrameworkContractTextResponse(
         contract=_reading(fc, counts.get(fc.id, 0), len(chunks) or None),
-        passage=_passage(fc, passage) if passage is not None else None,
+        passage=contract_passage(fc, passage) if passage is not None else None,
         next_chunk=next_chunk,
         note=note,
     )

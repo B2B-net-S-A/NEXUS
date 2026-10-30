@@ -287,3 +287,93 @@ def test_well_spaced_pdf_keeps_the_default_read(monkeypatch):
     normal = "Senior QA Engineer with Selenium and Python experience. " * 10
     _fake_pdfplumber(monkeypatch, normal)
     assert cte._extract_pdf_native("/tmp/x.pdf") == normal
+
+
+def _fake_contract_pdf(monkeypatch, page_texts):
+    import types
+
+    from app.services import cv_text_extractor as cte
+
+    class _Page:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self, **_kwargs):
+            return self._text
+
+        def close(self):
+            pass
+
+    class _Pdf:
+        pages = [_Page(text) for text in page_texts]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "pdfplumber",
+        types.SimpleNamespace(open=lambda _path: _Pdf()),
+    )
+    return cte
+
+
+def test_all_pages_ocr_reads_only_pages_without_text(monkeypatch):
+    """Aneks NBP z paczki: 4 strony tekstu i 9 stron skanu w jednym PDF-ie."""
+    long_text = "Paragraf umowy z treścią, która jest prawdziwym tekstem strony PDF."
+    cte = _fake_contract_pdf(monkeypatch, [long_text, "", long_text, "12"])
+    scanned: list[int] = []
+
+    def _ocr(_path, number):
+        scanned.append(number)
+        return f"Tekst ze skanu strony numer {number}"
+
+    monkeypatch.setattr(cte, "_ocr_one_page", _ocr)
+    result = cte._worker_all_pages("umowa.pdf")
+
+    assert scanned == [2, 4]
+    assert result["pages"] == 4 and result["ocr_pages"] == 2
+    assert "Tekst ze skanu strony numer 2" in result["text"]
+    assert result["text"].count(long_text) == 2
+
+
+def test_all_pages_ocr_does_not_stop_at_ten_pages(monkeypatch):
+    cte = _fake_contract_pdf(monkeypatch, [""] * 23)
+    monkeypatch.setattr(
+        cte, "_ocr_one_page", lambda _p, n: f"Strona skanu {n} z tekstem"
+    )
+    result = cte._worker_all_pages("skan.pdf")
+    assert result["ocr_pages"] == 23
+    assert "Strona skanu 23 z tekstem" in result["text"]
+
+
+def test_all_pages_failed_ocr_keeps_the_rest_of_the_document(monkeypatch):
+    cte = _fake_contract_pdf(
+        monkeypatch, ["", "Tekst drugiej strony, całkiem długi zapis."]
+    )
+
+    def _ocr(_path, _number):
+        raise RuntimeError("tesseract")
+
+    monkeypatch.setattr(cte, "_ocr_one_page", _ocr)
+    result = cte._worker_all_pages("umowa.pdf")
+    assert result["ocr_pages"] == 0
+    assert "Tekst drugiej strony" in result["text"]
+
+
+def test_all_pages_timeout_grows_with_pages_up_to_a_ceiling():
+    from app.services import cv_text_extractor as cte
+
+    assert cte.all_pages_timeout(None) == 150
+    assert cte.all_pages_timeout(248) == 150 + 2480
+    assert cte.all_pages_timeout(10_000) == 3600
+
+
+def test_all_pages_sandboxed_returns_none_when_worker_gives_up(monkeypatch):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_run_pdf_worker", lambda *_a, **_k: None)
+    assert cte.extract_pdf_all_pages_sandboxed("umowa.pdf") is None

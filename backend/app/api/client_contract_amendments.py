@@ -18,6 +18,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     UploadFile,
     status,
 )
@@ -25,7 +26,11 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.client_framework_contracts import LegalDocsWriter
+from app.api.client_framework_contracts import (
+    LegalDocsWriter,
+    amendment_reading,
+    contract_passage,
+)
 from app.api.delivery_client_scope import DELIVERY_CLIENT_SCOPE_DEPENDENCIES
 from app.api.permission_access import AmountsViewUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -37,7 +42,9 @@ from app.models.client_contract_amendment import ClientContractAmendment
 from app.models.client_framework_contract import ClientFrameworkContract
 from app.models.user import User
 from app.schemas.client_contract_amendment import ClientContractAmendmentRead
-from app.services import storage_service
+from app.schemas.client_framework_contract import FrameworkContractAmendmentTextResponse
+from app.services import framework_contract_index, storage_service
+from app.services.framework_contract_text import read_in_order
 from app.services.client_access import (
     assert_client_writable,
     resolve_client_access,
@@ -48,7 +55,7 @@ router = APIRouter(
 )
 
 
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 _ALLOWED_EXT = (".pdf", ".docx", ".doc")
 
 
@@ -242,7 +249,49 @@ async def create_amendment(
     await db.flush()
     await db.refresh(a)
     await db.commit()
+    if relative_path is not None:
+        framework_contract_index.index_amendment_after_upload(a.id)
     return _to_read(a)
+
+
+@router.get(
+    "/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/text",
+    response_model=FrameworkContractAmendmentTextResponse,
+)
+async def read_amendment_text(
+    client_id: int,
+    fc_id: int,
+    amendment_id: int,
+    from_chunk: int = Query(0, ge=0, le=framework_contract_index.MAX_CHUNKS),
+    _user=AmendmentLegalReader,
+    db: AsyncSession = Depends(get_db),
+):
+    """Treść jednego aneksu po kolei, od fragmentu ``from_chunk``."""
+    fc = await _assert_fc(db, client_id, fc_id)
+    a = await db.scalar(
+        select(ClientContractAmendment).where(
+            ClientContractAmendment.id == amendment_id,
+            ClientContractAmendment.framework_contract_id == fc_id,
+        )
+    )
+    if a is None:
+        raise HTTPException(404, detail="Nie ma takiego aneksu przy tej umowie.")
+    await framework_contract_index.ensure_indexed(db, [a])
+    chunks = (
+        await framework_contract_index.load_chunks(db, [], [a.id])
+        if framework_contract_index.has_current_text(a)
+        else []
+    )
+    passage, next_chunk = read_in_order(chunks, from_chunk=from_chunk)
+    note = None
+    if chunks and passage is None:
+        note = "Aneks nie ma dalszych fragmentów — to był koniec treści."
+    return FrameworkContractAmendmentTextResponse(
+        amendment=amendment_reading(a, len(chunks) or None),
+        passage=contract_passage(fc, passage, a) if passage is not None else None,
+        next_chunk=next_chunk,
+        note=note,
+    )
 
 
 @router.get(
@@ -342,3 +391,4 @@ async def delete_amendment(
     # zostawić wiersza bez pliku (audyt W3).
     if file_path:
         storage_service.delete_client_contract_amendment(file_path)
+        framework_contract_index.forget_amendment_after_delete(amendment_id)

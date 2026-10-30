@@ -31,6 +31,7 @@
   "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
   "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
   "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
   "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
   "POST /api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDD"
  }

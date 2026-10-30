@@ -188,6 +188,7 @@ class ClientFrameworkContract(Base, TimestampMixin):
     text_file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     text_chars: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     text_pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    text_ocr_pages: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     text_model: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     text_attempted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
