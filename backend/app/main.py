@@ -3447,6 +3447,7 @@ async def api_health_deep_check():
     from app.models.recommendation_card import RecommendationCard
     from app.models.candidate_rate_change import CandidateRateChange
     from app.models.screening_form_version import ScreeningFormVersion
+    from app.models.client_contract_amendment import ClientContractAmendment
     from app.models.client_framework_contract import ClientFrameworkContract
     from app.models.client_framework_contract_chunk import (
         ClientFrameworkContractChunk,
@@ -3751,6 +3752,8 @@ async def api_health_deep_check():
         # i tabela fragmentów; brak = 500 przy pytaniu o umowę klienta.
         ("client_framework_contracts", ClientFrameworkContract),
         ("client_framework_contract_chunks", ClientFrameworkContractChunk),
+        # 0627: Jarvis czyta aneksy — stan odczytu i `amendment_id` fragmentu.
+        ("client_contract_amendments", ClientContractAmendment),
         # 0428: pliki rekrutacji — brak tabeli = 500 przy „Utwórz i przekaż”
         # (przepięcie plików formularza) i w menu „⋯” → „Pliki”.
         ("job_files", JobFile),

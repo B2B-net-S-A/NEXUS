@@ -469,6 +469,17 @@ _CONTRACT_READING_KEYS = (
     "pages",
     "total_chunks",
     "amendments_count",
+    "amendments",
+    "note",
+)
+_CONTRACT_AMENDMENT_KEYS = (
+    "id",
+    "name",
+    "effective_date",
+    "has_file",
+    "readable",
+    "pages",
+    "total_chunks",
     "note",
 )
 _CONTRACT_PASSAGE_KEYS = (
@@ -478,6 +489,9 @@ _CONTRACT_PASSAGE_KEYS = (
     "first_chunk",
     "last_chunk",
     "text",
+    "amendment_id",
+    "amendment_name",
+    "amendment_effective_date",
 )
 
 
@@ -504,6 +518,16 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
         return trim(data)
     return {
         "contract": pick(data.get("contract"), _CONTRACT_READING_KEYS),
+        **pick(data, ("next_chunk", "note")),
+        "passage": pick(data.get("passage"), _CONTRACT_PASSAGE_KEYS),
+    }
+
+
+def _shape_amendment_text(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        "amendment": pick(data.get("amendment"), _CONTRACT_AMENDMENT_KEYS),
         **pick(data, ("next_chunk", "note")),
         "passage": pick(data.get("passage"), _CONTRACT_PASSAGE_KEYS),
     }
@@ -1083,9 +1107,10 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         name="search_framework_contracts",
         label="Szukam w umowach ramowych klienta",
         description=(
-            "Treść umów ramowych klienta (wgrane PDF/DOCX): fragmenty najlepiej pasujące "
-            "do pytania, ze wszystkich umów tego klienta, plus lista umów (status, okres, "
-            "czy treść da się czytać i dlaczego nie). W query podaj, czego szukasz, słowami "
+            "Treść umów ramowych klienta i ich aneksów (wgrane PDF/DOCX): fragmenty najlepiej "
+            "pasujące do pytania, ze wszystkich umów tego klienta, plus lista umów i aneksów "
+            "(status, okres, czy treść da się czytać i dlaczego nie). Fragment aneksu ma "
+            "amendment_id, nazwę i datę. W query podaj, czego szukasz, słowami "
             "pytania — np. „termin akceptacji karty czasu pracy”, „termin płatności faktury”, "
             "„okres wypowiedzenia”. Umowa może nazywać rzecz inaczej niż użytkownik. Gdy "
             "fragmenty nie odpowiadają na pytanie, zapytaj innymi słowami albo doczytaj "
@@ -1132,6 +1157,34 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             _clean({"from_chunk": a.get("from_chunk")}),
         ),
         shape=_shape_contract_text,
+    ),
+    JarvisTool(
+        name="read_contract_amendment",
+        label="Czytam aneks do umowy",
+        description=(
+            "Treść jednego aneksu do umowy ramowej po kolei, od fragmentu from_chunk "
+            "(domyślnie od początku). Identyfikatory aneksu i umowy podaje "
+            "search_framework_contracts. Wynik podaje next_chunk, gdy aneks ma dalszą treść."
+        ),
+        input_schema=_schema(
+            {
+                "client_id": INT,
+                "framework_contract_id": INT,
+                "amendment_id": INT,
+                "from_chunk": {"type": "integer", "minimum": 0},
+            },
+            ("client_id", "framework_contract_id", "amendment_id"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/text",
+        section=ProductSection.delivery,
+        build=lambda a: _get(
+            f"/api/clients/{_int(a, 'client_id')}/framework-contracts/"
+            f"{_int(a, 'framework_contract_id')}/amendments/{_int(a, 'amendment_id')}/text",
+            _clean({"from_chunk": a.get("from_chunk")}),
+        ),
+        shape=_shape_amendment_text,
     ),
     JarvisTool(
         name="list_contracts",

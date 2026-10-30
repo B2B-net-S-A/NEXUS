@@ -43,22 +43,27 @@ _MAX_STEMS = 12
 
 @dataclass(frozen=True)
 class ChunkRef:
-    """Fragment umowy z bazy: ``id`` jest też identyfikatorem punktu w Qdrancie."""
+    """Fragment umowy z bazy: ``id`` jest też identyfikatorem punktu w Qdrancie.
+
+    ``amendment_id`` wskazuje aneks tej umowy; ``None`` to tekst samej umowy.
+    """
 
     id: int
     contract_id: int
     index: int
     text: str
+    amendment_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
 class Passage:
-    """Jeden albo kilka sąsiednich fragmentów jednej umowy."""
+    """Jeden albo kilka sąsiednich fragmentów jednej umowy albo jednego aneksu."""
 
     contract_id: int
     first_chunk: int
     last_chunk: int
     text: str
+    amendment_id: Optional[int] = None
 
 
 def _cut_long(text: str, start: int, end: int) -> list[int]:
@@ -156,7 +161,14 @@ def rank_by_keywords(stems: Sequence[str], chunks: Sequence[ChunkRef]) -> list[i
         for chunk, hit in zip(chunks, counts)
         if hit
     ]
-    scored.sort(key=lambda row: (-row[0], row[1].contract_id, row[1].index))
+    scored.sort(
+        key=lambda row: (
+            -row[0],
+            row[1].contract_id,
+            row[1].amendment_id or 0,
+            row[1].index,
+        )
+    )
     return [chunk.id for _score, chunk in scored]
 
 
@@ -190,11 +202,14 @@ def build_passages(
 
     rank = {chunk.id: position for position, chunk in enumerate(picked)}
     passages: list[tuple[int, Passage]] = []
-    for chunk in sorted(picked, key=lambda c: (c.contract_id, c.index)):
+    for chunk in sorted(
+        picked, key=lambda c: (c.contract_id, c.amendment_id or 0, c.index)
+    ):
         last = passages[-1][1] if passages else None
         if (
             last is not None
             and last.contract_id == chunk.contract_id
+            and last.amendment_id == chunk.amendment_id
             and last.last_chunk + 1 == chunk.index
         ):
             passages[-1] = (
@@ -204,13 +219,20 @@ def build_passages(
                     first_chunk=last.first_chunk,
                     last_chunk=chunk.index,
                     text=last.text + chunk.text,
+                    amendment_id=chunk.amendment_id,
                 ),
             )
         else:
             passages.append(
                 (
                     rank[chunk.id],
-                    Passage(chunk.contract_id, chunk.index, chunk.index, chunk.text),
+                    Passage(
+                        chunk.contract_id,
+                        chunk.index,
+                        chunk.index,
+                        chunk.text,
+                        chunk.amendment_id,
+                    ),
                 )
             )
     passages.sort(key=lambda row: row[0])
@@ -219,7 +241,11 @@ def build_passages(
         only = result[0]
         result = [
             Passage(
-                only.contract_id, only.first_chunk, only.last_chunk, only.text[:budget]
+                only.contract_id,
+                only.first_chunk,
+                only.last_chunk,
+                only.text[:budget],
+                only.amendment_id,
             )
         ]
     return result
@@ -250,6 +276,7 @@ def read_in_order(
         first_chunk=taken[0].index,
         last_chunk=taken[-1].index,
         text="".join(chunk.text for chunk in taken)[:budget],
+        amendment_id=taken[0].amendment_id,
     )
     next_chunk = taken[-1].index + 1 if len(taken) < len(ordered) else None
     return passage, next_chunk

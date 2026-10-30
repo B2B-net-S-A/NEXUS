@@ -1049,7 +1049,7 @@ except Exception as _screening_form_err:  # noqa: BLE001
 try:
     from app.services import framework_contract_text_schema as _fc_text
 
-    _FC_TEXT_DDL = list(_fc_text.ALL_DDL)
+    _FC_TEXT_DDL = [*_fc_text.ALL_DDL, *_fc_text.AMENDMENT_ALL_DDL]
 except Exception as _fc_text_err:  # noqa: BLE001
     print(f"framework contract text DDL unavailable: {_fc_text_err!r}")
     _FC_TEXT_DDL = []

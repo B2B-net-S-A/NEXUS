@@ -136,6 +136,7 @@ async def _client_documents(db: AsyncSession) -> dict[str, Any]:
     Kolekcji ``nexus_client_documents`` nie sprawdza żadna sonda zdrowia —
     ``text_only`` przy pliku z tekstem znaczy, że wektory nie powstały.
     """
+    from app.models.client_contract_amendment import ClientContractAmendment
     from app.models.client_framework_contract import ClientFrameworkContract
     from app.services.framework_contract_index import COLLECTION
 
@@ -145,9 +146,17 @@ async def _client_documents(db: AsyncSession) -> dict[str, Any]:
         .group_by(ClientFrameworkContract.text_status)
     )
     by_status = {status or "not_read": int(count) for status, count in rows}
+    amendment_rows = await db.execute(
+        select(ClientContractAmendment.text_status, func.count())
+        .where(ClientContractAmendment.file_path.is_not(None))
+        .group_by(ClientContractAmendment.text_status)
+    )
+    amendments = {status or "not_read": int(count) for status, count in amendment_rows}
     return {
         "contracts_with_file": sum(by_status.values()),
         "by_text_status": by_status,
+        "amendments_with_file": sum(amendments.values()),
+        "amendments_by_text_status": amendments,
         "points": await _collection_points(COLLECTION),
     }
 

@@ -30,6 +30,7 @@ import os
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from typing import Optional
 
 from app.core.log_safety import safe_filename
@@ -231,7 +232,7 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words")
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages")
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
 
@@ -292,6 +293,53 @@ def _run_pdf_worker(
     except ValueError:
         return None
     return result if isinstance(result, dict) else None
+
+
+#: Strona z mniejszą liczbą znaków idzie do OCR (test paczki umów 30.10.2026:
+#: Aneks NBP miał 9 z 13 stron skanem obok tekstu na pozostałych).
+_OCR_PAGE_MIN_CHARS = 50
+#: Sufit odczytu dokumentu prawnego; najdłuższy skan z paczki ma 248 stron.
+ALL_PAGES_MAX = 500
+#: Limit czasu odczytu wszystkich stron: start + sekundy na stronę, z sufitem.
+_ALL_PAGES_TIMEOUT_BASE_SECONDS = 150
+_ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS = 10
+_ALL_PAGES_TIMEOUT_MAX_SECONDS = 3600
+
+
+@dataclass(frozen=True)
+class AllPagesText:
+    """Tekst wszystkich stron PDF-a i to, ile z nich przeczytał OCR."""
+
+    text: str
+    pages: int
+    ocr_pages: int
+
+
+def all_pages_timeout(pages: Optional[int]) -> int:
+    """Skan OCR-uje się kilka sekund na stronę, więc limit rośnie ze stronami."""
+    return min(
+        _ALL_PAGES_TIMEOUT_BASE_SECONDS
+        + _ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS * min(pages or 0, ALL_PAGES_MAX),
+        _ALL_PAGES_TIMEOUT_MAX_SECONDS,
+    )
+
+
+def extract_pdf_all_pages_sandboxed(path: str) -> Optional[AllPagesText]:
+    """Cały PDF dla dokumentów prawnych: tekst stron, a strony bez tekstu z OCR.
+
+    CV i zamówienia zostają przy ``extract_text`` (OCR 10 pierwszych stron).
+    ``None`` = limit czasu, limit pamięci albo uszkodzony plik.
+    """
+    pages = pdf_page_count_sandboxed(path)
+    result = _run_pdf_worker("all_pages", path, timeout=all_pages_timeout(pages))
+    text = result.get("text") if result else None
+    if not isinstance(text, str):
+        return None
+    return AllPagesText(
+        text=text,
+        pages=int(result.get("pages") or 0),
+        ocr_pages=int(result.get("ocr_pages") or 0),
+    )
 
 
 def _extract_pdf(path: str) -> Optional[str]:
@@ -359,6 +407,60 @@ def _worker_words(path: str) -> Optional[list]:
         return None
 
 
+def _ocr_one_page(path: str, number: int) -> str:
+    """OCR jednej strony (numer od 1); strona na dysku, nie w pamięci procesu."""
+    import tempfile
+
+    import pytesseract  # type: ignore[import-untyped]
+    from pdf2image import convert_from_path  # type: ignore[import-untyped]
+
+    with tempfile.TemporaryDirectory(prefix="nexus-ocr-") as tmpdir:
+        images = convert_from_path(
+            path,
+            dpi=200,
+            first_page=number,
+            last_page=number,
+            size=_OCR_PAGE_MAX_PX,
+            output_folder=tmpdir,
+        )
+        return "\n".join(
+            pytesseract.image_to_string(image, lang="pol+eng") for image in images
+        )
+
+
+def _worker_all_pages(path: str) -> dict:
+    """Strona po stronie: tekst z PDF-a, a gdy go brak, OCR tej strony."""
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        # Jeden wątek: odczyt skanu nie może zająć wszystkich rdzeni serwera.
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        parts: list[str] = []
+        ocr_pages = 0
+        with pdfplumber.open(path) as pdf:
+            total = len(pdf.pages)
+            for number, page in enumerate(pdf.pages[:ALL_PAGES_MAX], start=1):
+                text = page.extract_text() or ""
+                if looks_glued(text):
+                    tight = page.extract_text(x_tolerance=1) or ""
+                    if avg_word_length(tight) < avg_word_length(text):
+                        text = tight
+                page.close()
+                if len(text.strip()) < _OCR_PAGE_MIN_CHARS:
+                    try:
+                        scanned = _ocr_one_page(path, number)
+                    except Exception:  # noqa: BLE001 — zostaje tekst strony
+                        scanned = ""
+                    if len(scanned.strip()) > len(text.strip()):
+                        text = scanned
+                        ocr_pages += 1
+                if text.strip():
+                    parts.append(text)
+        return {"text": "\n\n".join(parts), "pages": total, "ocr_pages": ocr_pages}
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return {"text": None}
+
+
 def _worker_pdfminer(path: str) -> Optional[str]:
     try:
         from pdfminer.high_level import extract_text as _pdfminer_extract
@@ -404,6 +506,8 @@ def _worker_main(argv: list[str]) -> int:
         payload["text"] = _worker_pdfminer(path)
     elif op == "words":
         payload["words"] = _worker_words(path)
+    elif op == "all_pages":
+        payload = _worker_all_pages(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
