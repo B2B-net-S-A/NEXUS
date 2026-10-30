@@ -17,6 +17,22 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   osobną linię `Nowość: nie — <powód>`. Powód: od 26 do 29.10 na main weszło
   ok. 90 commitów `feat`, a rejestr miał trzy wpisy. Opis strażnik czyta
   z API, więc po dopisaniu linii wystarczy ponowić job.
+- **Każdą nowość do przeklikania trzeba przejść (decyzja Artura z 30.10.2026).**
+  `tour` i `process` mają okno na swoim ekranie (`path_prefix`, a bez niego
+  `href`); odłożyć można raz, do 8:00 następnego dnia. Najwyżej jedno okno na
+  wejście na ekran; po „Przerwij” albo odłożeniu okno wraca dopiero po
+  ponownym wejściu. Krok bez elementu na ekranie przez 2 s ma „Nie mam tego —
+  dalej” — okno nie może nikogo zablokować. Dopóki osoba nie skończy Startu
+  (`start-w-nexusie.md`), okna nowości milczą. Wyłącznik Startu na
+  `/settings/nowosci` zdejmuje też obowiązek z nowości (zostaje okno zmiany
+  procesu); stack E2E ma go wyłączonego w `seed_e2e.py`.
+- **Każdy przeklikuje tylko to, do czego ma dostęp:** `audience` (rola albo
+  uprawnienie z faktycznej bramki ekranu) i `section` — sekcja ekranu z
+  middleware (`/jobs` → pipeline, `/candidates` → sourcing, `/contracts` →
+  delivery, `/finance` → finance, `/insights` → insights). Bez odczytu w tej
+  sekcji osoba nie dostaje nowości ani okna. Test pilnuje, że wpis na ekranie
+  z sekcją ma `section`. Audyt 30.10 na kopii produkcji: 38 osób, 0 pozycji
+  bez dostępu.
 - **Poziom (`tier`) decyduje, jak mocno nowość wchodzi w drogę:**
   `dot` (drobiazg) to sama kropka na elemencie, zaliczona pierwszym kliknięciem;
   `tour` (nowa funkcja) to kropka i karta „Przeklikaj” z krokami;
