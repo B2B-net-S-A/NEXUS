@@ -428,7 +428,7 @@
       },
       {
         "q": "Jak dodać terminy zaproponowane przez klienta?",
-        "a": "Delivery Lead klika „Terminy od klienta” i wkleja maila klienta („Odczytaj terminy”) albo wpisuje terminy. Rekruter w „Umów rozmowę i prepy” wybiera termin z kandydatem i godziny obu prepów z kalendarzy albo własne („Inna godzina…” pokaże zajętość prowadzącego). Rozmowa trafia do kalendarza, a Delivery Lead dostaje „Odpisz klientowi”.",
+        "a": "Delivery Lead klika „Terminy od klienta” i wkleja maila klienta albo wpisuje terminy; inne terminy przed wyborem: nazwisko na karcie → „Zmień terminy”. Rekruter w „Umów rozmowę i prepy” wybiera termin z kandydatem i godziny obu prepów („Inna godzina…” pokaże zajętość). Rozmowa trafia do kalendarza, a Delivery Lead dostaje „Odpisz klientowi”.",
         "anchor": "calendar.slots"
       },
       {

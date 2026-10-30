@@ -285,7 +285,18 @@ export function CandidateCycleCard({
 
       {req && req.status !== "cancelled" && req.status !== "confirmed" ? (
         <div className="rounded-lg bg-muted/50 p-3 text-xs">
-          <div className="mb-1 font-semibold text-foreground">Terminy od klienta</div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="font-semibold text-foreground">Terminy od klienta</span>
+            {canManageSlots ? (
+              <button
+                type="button"
+                onClick={() => onAction({ type: "add_slots", pair: item, request: req })}
+                className="font-semibold text-primary hover:underline"
+              >
+                Zmień terminy
+              </button>
+            ) : null}
+          </div>
           <ul className="space-y-0.5">
             {req.slots.map((s, i) => (
               <li key={s.start} className={cn(i === req.chosen_index && "font-semibold text-primary")}>
