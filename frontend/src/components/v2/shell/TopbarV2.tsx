@@ -17,6 +17,7 @@ import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
 import { ContractsNotificationsDropdown } from "./ContractsNotificationsDropdown";
 import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { ConsentsTopbarButton } from "@/components/hr/approvals/ConsentsTopbarButton";
+import { BonusDecisionsTopbarButton } from "@/components/hr/payroll/BonusDecisionsTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
@@ -112,6 +113,8 @@ export function TopbarV2({
         <InterviewNotificationsDropdown />
         {/* Zgody na wydatki i premie do decyzji (0483); przy zerze jej nie ma. */}
         <ConsentsTopbarButton />
+        {/* Premie i vouchery do decyzji Płac (30.10.2026); przy zerze jej nie ma. */}
+        <BonusDecisionsTopbarButton />
         {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
         <AbsentTodayButton />
         <QuickActionsV2

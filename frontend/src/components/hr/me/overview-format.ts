@@ -373,14 +373,19 @@ export function bonusItemFromRow(
   const required = row.business_days_required ?? requiredDays;
   const beforeDeadline = row.eligible === false;
   if (placement) {
-    const labels = [
-      "umowa",
-      beforeDeadline ? daysStage(row.business_days_elapsed, required) : `${required} dni`,
-      "decyzja Płac",
-      "wypłata",
-    ];
-    const current = !beforeDeadline ? 2 : (row.business_days_elapsed ?? 0) > 0 ? 1 : 0;
+    const days = beforeDeadline ? daysStage(row.business_days_elapsed, required) : `${required} dni`;
+    const facts = row.stages;
+    let labels = ["umowa", days, "decyzja Płac", "wypłata"];
+    let current = !beforeDeadline ? 2 : (row.business_days_elapsed ?? 0) > 0 ? 1 : 0;
     if (current === 0) labels[0] = "umowa podpisana";
+    if (facts) {
+      // Pełna ścieżka: pierwszy niespełniony etap jest bieżący. Zamówienie
+      // pokazuje start, a termin to dni robocze, nie policzone godziny.
+      labels = ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Płac", "wypłata"];
+      const passed = [facts.signed, facts.contract_active, facts.order, facts.started, !beforeDeadline];
+      const firstOpen = passed.indexOf(false);
+      current = firstOpen === -1 ? 5 : firstOpen;
+    }
     const counting = beforeDeadline && row.eligible_on;
     return {
       ...base,
@@ -404,19 +409,22 @@ export function bonusItemFromRow(
 
 /** Prognoza z podpisanej umowy (bez wiersza w bazie): kwota to szacunek „~”. */
 export function bonusItemFromForecast(item: BonusForecast): MyBonusItem {
-  const labels = [
-    item.started ? "umowa" : "umowa podpisana",
-    item.started
-      ? daysStage(item.business_days_elapsed, item.business_days_required)
-      : `${item.business_days_required} dni`,
-    "decyzja Płac",
-    "wypłata",
-  ];
+  const days = item.started
+    ? daysStage(item.business_days_elapsed, item.business_days_required)
+    : `${item.business_days_required} dni`;
+  const facts = item.stages;
+  const labels = facts
+    ? ["podpis", "kontrakt", "zamówienie", "start", days, "decyzja Płac", "wypłata"]
+    : [item.started ? "umowa" : "umowa podpisana", days, "decyzja Płac", "wypłata"];
+  const firstOpen = facts
+    ? [facts.signed, facts.contract_active, facts.order, facts.started].indexOf(false)
+    : -1;
+  const current = facts ? (firstOpen === -1 ? 4 : firstOpen) : item.started ? 1 : 0;
   return {
     key: item.key,
     title: `Placement: ${placementLabel(item.description) ?? "konsultant"}`,
     subtitle: item.category_label,
-    stages: stages(labels, item.started ? 1 : 0),
+    stages: stages(labels, current),
     amount: item.amount,
     currency: item.currency,
     estimate: true,

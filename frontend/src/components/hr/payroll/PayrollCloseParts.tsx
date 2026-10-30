@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import Link from "next/link";
 import { Check, MoreHorizontal, Plus, Upload } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
@@ -14,7 +15,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useApproveBonuses, type BonusRow, type PayrollPerson } from "@/lib/api/hr-payroll";
+import { useApproveBonuses, type BonusRow, type MissingRateContract, type PayrollPerson } from "@/lib/api/hr-payroll";
 import { formatDayMonthPl } from "@/lib/date-pl";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -160,6 +161,10 @@ interface DecisionPanelProps {
   onCreate: () => void;
   /** Płace: „Wczytaj arkusz” — rozliczenie miesiąca z pliku Delivery. */
   onImport?: () => void;
+  /** Propozycje z późniejszych miesięcy. */
+  later?: BonusRow[];
+  /** Kontrakty, którym nie da się policzyć marży. */
+  missingRates?: MissingRateContract[];
   onApprove: (row: BonusRow) => void;
   onEdit: (row: BonusRow) => void;
   onCancel: (row: BonusRow) => void;
@@ -177,6 +182,8 @@ export function DecisionPanel({
   canCreate,
   onCreate,
   onImport,
+  later = [],
+  missingRates = [],
   onApprove,
   onEdit,
   onCancel,
@@ -185,22 +192,25 @@ export function DecisionPanel({
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const batch = useApproveBonuses();
-  const selectable = open ? rows.filter((row) => batchSelectable(row, meId)) : [];
-  // Domyślnie zaznaczone wszystko, co da się zatwierdzić; odznaczone pamiętamy.
-  const [unchecked, setUnchecked] = useState<ReadonlySet<number>>(new Set());
-  const selected = new Set(selectable.filter((row) => !unchecked.has(row.id)).map((row) => row.id));
-  const summary = selectionSummary(rows, selected);
+  const [tab, setTab] = useState<"month" | "later" | "missing">("month");
+  const allRows = tab === "later" ? later : rows;
+  const selectable = open ? allRows.filter((row) => batchSelectable(row, meId)) : [];
+  // Bez uwag zaznaczone od razu, oznaczone tylko po świadomym kliknięciu.
+  const [overrides, setOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
+  const selected = new Set(
+    selectable
+      .filter((row) => overrides.get(row.id) ?? !row.flags?.length)
+      .map((row) => row.id),
+  );
+  const summary = selectionSummary(allRows, selected);
+  const flagged = allRows.filter((row) => row.flags?.length);
+  const clean = allRows.filter((row) => !row.flags?.length);
   const allChecked = selectable.length > 0 && selected.size === selectable.length;
 
   const toggle = (id: number, value: boolean) =>
-    setUnchecked((prev) => {
-      const next = new Set(prev);
-      if (value) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setOverrides((prev) => new Map(prev).set(id, value));
   const toggleAll = (value: boolean) =>
-    setUnchecked(value ? new Set() : new Set(selectable.map((row) => row.id)));
+    setOverrides(new Map(selectable.map((row) => [row.id, value])));
 
   const approveSelected = async () => {
     const ok = await askConfirm({
@@ -212,7 +222,7 @@ export function DecisionPanel({
     if (!ok) return;
     batch.mutate([...selected], {
       onSuccess: (result) => {
-        setUnchecked(new Set());
+        setOverrides(new Map());
         showToast(
           result.approved === 1 ? "Premia zatwierdzona" : `Zatwierdzono premie: ${result.approved}`,
           "success",
@@ -223,7 +233,7 @@ export function DecisionPanel({
   };
 
   return (
-    <section aria-label="Premie do decyzji" className="overflow-hidden rounded-xl border border-border bg-card">
+    <section aria-label="Premie do decyzji" data-tour="payroll.bonus-decisions" className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between gap-2 px-4 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           Premie do decyzji
@@ -246,7 +256,52 @@ export function DecisionPanel({
           ) : null}
         </div>
       </div>
-      {rows.length === 0 ? (
+      {later.length > 0 || missingRates.length > 0 ? (
+        <div role="tablist" aria-label="Zakres premii" className="flex flex-wrap gap-1 border-t border-border px-4 py-2 text-sm">
+          {(
+            [
+              ["month", `Ten miesiąc ${rows.length}`],
+              ["later", `Później ${later.length}`],
+              ["missing", `Bez stawki ${missingRates.length}`],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => {
+                setTab(key);
+                setOverrides(new Map());
+              }}
+              className={`rounded-md px-3 py-1 font-medium ${
+                tab === key ? "bg-muted text-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {tab === "missing" ? (
+        <ul>
+          {missingRates.map((item) => (
+            <li key={item.contract_id} className="flex items-center justify-between gap-3 border-t border-border px-4 py-2 text-sm">
+              <span className="min-w-0">
+                <span className="block truncate font-medium text-foreground">
+                  {item.candidate} ({item.client})
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  start {formatDayMonthPl(item.start_date)} · Rekruter {item.recruiter_name ?? "brak"} · DL {item.dl_name ?? "brak"}
+                </span>
+              </span>
+              <Link href={`/contracts/${item.contract_id}`} className="shrink-0 font-medium text-primary hover:underline">
+                Uzupełnij stawki
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : allRows.length === 0 ? (
         <p className="border-t border-border px-4 py-3 text-sm text-muted-foreground">
           Nic nie czeka na decyzję.
         </p>
@@ -273,12 +328,28 @@ export function DecisionPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {[...flagged, ...clean].map((row, index) => {
                 const can = selectable.some((item) => item.id === row.id);
                 const decision = bonusDecision(row, meId);
                 const mine = row.recipient_user_id === meId;
                 return (
-                  <tr key={row.id} className="border-t border-border">
+                  <Fragment key={row.id}>
+                  {flagged.length > 0 && (index === 0 || index === flagged.length) ? (
+                    <tr className="border-t border-border bg-muted/40">
+                      <td colSpan={5} className="px-4 py-2 text-xs font-semibold text-foreground">
+                        {index === 0 ? `Do sprawdzenia: ${flagged.length}` : `Bez uwag: ${clean.length}`}
+                      </td>
+                    </tr>
+                  ) : null}
+                  <tr
+                    className={`border-t border-border ${open && !mine ? "cursor-pointer hover:bg-muted/30" : ""}`}
+                    onClick={(event) => {
+                      if (!open || mine) return;
+                      // Pole wyboru i menu mają własne akcje.
+                      if ((event.target as HTMLElement).closest("button,a,[role=menu]")) return;
+                      onEdit(row);
+                    }}
+                  >
                     <td className="py-2 pl-4 align-middle">
                       {can ? (
                         <Checkbox
@@ -296,8 +367,23 @@ export function DecisionPanel({
                         {row.category_label}
                         {row.eligible_on ? ` · termin ${formatDayMonthPl(row.eligible_on)}` : ""}
                         {row.edited ? " · kwota poprawiona" : ""}
+                        {row.edited_recipient ? " · osoba zmieniona" : ""}
+                        {tab === "later" ? ` · wypłata ${String(row.period_month).padStart(2, "0")}.${row.period_year}` : ""}
                         {!can && open && !mine && row.can_approve === false ? " · zatwierdzi inna osoba z Płac" : ""}
                       </span>
+                      {row.flags?.length ? (
+                        <span className="mt-1 flex flex-wrap gap-1">
+                          {row.flags.map((flag) => (
+                            <span
+                              key={flag.code}
+                              title={flag.detail}
+                              className="rounded-full bg-warning-muted px-2 text-xs font-medium text-warning-muted-foreground"
+                            >
+                              {flag.label}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3 text-foreground">{row.recipient_name ?? "—"}</td>
                     <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold tabular-nums text-foreground">
@@ -318,19 +404,20 @@ export function DecisionPanel({
                               </DropdownMenuItem>
                             ) : null}
                             <DropdownMenuItem onSelect={() => onEdit(row)}>Zmień</DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => onCancel(row)}>{decision.rejectLabel}</DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => onCancel(row)}>Usuń premię</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : null}
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
             </tbody>
           </table>
         </div>
       )}
-      {selectable.length > 0 ? (
+      {selectable.length > 0 && tab !== "missing" ? (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border bg-primary/5 px-4 py-2.5">
           <span className="text-sm text-foreground">
             Zaznaczono <strong>{summary.count}</strong>

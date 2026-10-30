@@ -814,7 +814,9 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
     async with AsyncSessionLocal() as db:
         first = proposal(worker.id, "1000", eligible_on=today)
         second = proposal(other.id, "529.20", eligible_on=today)
-        early = proposal(other.id, "300", eligible_on=today + timedelta(days=5))
+        early = proposal(other.id, "300", eligible_on=today)
+        early.status = "assigned"
+        early.assigned_at = local_now()
         db.add_all([first, second, early])
         await db.commit()
 
@@ -826,7 +828,7 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
     )
     assert denied.status_code == 403
 
-    # Jedna premia przed terminem — nic nie wchodzi, komunikat mówi przy kim.
+    # Jedna premia już przyznana — nic nie wchodzi, komunikat mówi przy kim.
     refused = await app_client.post(
         "/api/hr/payroll/bonuses/approve-batch",
         json={"ids": [first.id, second.id, early.id]},
@@ -840,7 +842,7 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
             (
                 await db.execute(
                     select(HrBonus.id, HrBonus.status).where(
-                        HrBonus.id.in_([first.id, second.id, early.id])
+                        HrBonus.id.in_([first.id, second.id])
                     )
                 )
             ).all()

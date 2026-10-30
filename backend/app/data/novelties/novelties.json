@@ -586,5 +586,16 @@
     "where": "Pulpit → Aktywność rekrutacyjna → Wyniki osób",
     "href": "/dashboard",
     "dot_anchor": "dashboard.team-table.fullscreen"
+  },
+  {
+    "id": "premie-do-decyzji-okno",
+    "title": "Premie: jedna lista i okno do każdej zmiany",
+    "why": "Kliknij premię, żeby zmienić osobę, placement, kwotę albo miesiąc, zatwierdzić ją albo usunąć. Na górze są pozycje do sprawdzenia, resztę zatwierdzisz jednym przyciskiem.",
+    "tier": "dot",
+    "shipped_on": "2026-10-30",
+    "audience": {"permissions": ["payroll"]},
+    "where": "Ludzie → Płace → Premie do decyzji",
+    "href": "/people/payroll",
+    "dot_anchor": "payroll.bonus-decisions"
   }
 ]

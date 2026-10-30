@@ -97,6 +97,7 @@ import {
   ContractStatusControl,
   SELECTABLE_CONTRACT_STATUSES,
 } from "@/components/contracts/ContractStatusControl";
+import { ContractBonusesCard } from "@/components/hr/payroll/ContractBonusesCard";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
 import { permissionLabel } from "@/lib/permissions";
@@ -1431,6 +1432,8 @@ export default function ContractDetailPage() {
           </div>
         </section>
       )}
+
+      {!editing && <ContractBonusesCard contractId={id} />}
 
       {/* Tabs */}
       <div className="border-b border-border flex gap-1 overflow-x-auto">

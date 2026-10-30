@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.scheduling import business_today, local_now
 from app.services.hr import job_runs
 from app.services.hr import modules as hr_modules
+from app.services.hr.bonus_decisions import notify_ready
 from app.services.hr.bonus_rules import load_rules
 from app.services.hr.league_bonuses import sync_league
 from app.services.hr.modules import HrModule
@@ -37,9 +38,11 @@ async def refresh_proposals(db: AsyncSession, *, today: date) -> dict[str, Any]:
     rules = await load_rules(db)
     placements = await sync_placements(db, today=today, rules=rules)
     league = await sync_league(db, today=today, rules=rules)
+    ready = await notify_ready(db, today=today)
     return {
         **{f"placement_{k}": v for k, v in placements.items()},
         **{f"league_{k}": v for k, v in league.items()},
+        "ready_notified": ready,
     }
 
 

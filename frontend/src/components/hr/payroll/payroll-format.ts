@@ -420,7 +420,6 @@ export function payoutBreakdown(people: readonly PayrollPerson[]): {
 export function batchSelectable(row: BonusRow, meId: number | undefined): boolean {
   return (
     row.status === "proposed" &&
-    row.eligible !== false &&
     row.can_approve !== false &&
     row.recipient_user_id !== meId
   );

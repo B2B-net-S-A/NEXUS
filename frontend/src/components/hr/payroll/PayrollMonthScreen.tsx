@@ -47,6 +47,7 @@ import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
+import { BonusDeleteDialog } from "./BonusDeleteDialog";
 import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
@@ -89,6 +90,7 @@ export function PayrollMonthScreen({
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [bonusOpen, setBonusOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [deleting, setDeleting] = useState<BonusRow | null>(null);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
@@ -364,7 +366,9 @@ export function PayrollMonthScreen({
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                 <PayoutCard people={data.people} />
                 <DecisionPanel
-                  rows={decidable}
+                  rows={data.bonuses.filter((row) => row.status === "proposed")}
+                  later={data.later}
+                  missingRates={data.missing_rates}
                   meId={me?.id}
                   open={open}
                   canCreate={open && people.length > 0}
@@ -372,7 +376,7 @@ export function PayrollMonthScreen({
                   onImport={open ? () => setImportOpen(true) : undefined}
                   onApprove={approveRow}
                   onEdit={setEditing}
-                  onCancel={(row) => void cancelRow(row)}
+                  onCancel={setDeleting}
                   approving={approve.isPending}
                 />
               </div>
@@ -518,8 +522,14 @@ export function PayrollMonthScreen({
           }}
           people={people}
           bonus={editing}
+          fullEdit={payroll}
+          onDelete={(row) => {
+            setEditing(null);
+            setDeleting(row);
+          }}
         />
       ) : null}
+      {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
       {reopenOpen ? (
         <ReopenMonthDialog
           open={reopenOpen}
