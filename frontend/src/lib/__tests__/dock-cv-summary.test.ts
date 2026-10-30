@@ -277,6 +277,19 @@ describe("CV do klienta z kafelka (15.10.2026)", () => {
     );
   });
 
+  it("naprawa kopii umowy: oryginał z profilu, nie „dołączony do zgłoszenia”", () => {
+    expect(originalCvSentence(snapshot("2026-10-30T18:00:00Z", "contract_repair", "Jan_Testowy_CV.pdf"))).toBe(
+      "Oryginał CV: z profilu · Jan_Testowy_CV.pdf · 30.10.2026",
+    );
+    expect(
+      companyCvStale({
+        brandedStatus: "draft",
+        original: snapshot("2026-10-30T18:00:00Z", "contract_repair"),
+        draftSince: "2026-10-14T10:00:00Z",
+      }),
+    ).toBe(false);
+  });
+
   it("naprawa kopii nie każe generować CV firmowego od nowa", () => {
     expect(
       companyCvStale({

@@ -252,7 +252,9 @@ async def test_contract_text_is_cleared_only_without_successor_when_pointer_name
     assert (await _candidate(with_cv)).raw_cv_text == "Tekst odczytany z pliku"
 
 
-async def _stage_copy(candidate_id: int, *, sha256: str | None) -> int:
+async def _stage_copy(
+    candidate_id: int, *, sha256: str | None, filename: str = _CONTRACT
+) -> int:
     stage_id = await _seed_stage(candidate_id, await _seed_job())
     async with AsyncSessionLocal() as db:
         from app.models.recruitment_pipeline import CandidateStage
@@ -262,7 +264,7 @@ async def _stage_copy(candidate_id: int, *, sha256: str | None) -> int:
             candidate_stage_id=stage_id,
             candidate_id=candidate_id,
             job_id=stage.job_id,
-            original_cv_filename=_CONTRACT,
+            original_cv_filename=filename,
             original_cv_content=b"%PDF umowa",
             original_cv_sha256=sha256,
             branded_status="finalized",
