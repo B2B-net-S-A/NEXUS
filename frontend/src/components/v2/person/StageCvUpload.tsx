@@ -319,6 +319,7 @@ export function StageCvUploadButton({ upload, label = "Wgraj nowe CV" }: { uploa
         loading={upload.isPending}
         disabled={upload.isPending}
         onClick={() => input.current?.click()}
+        data-tour="person.cv.upload-new"
       >
         <Upload className="h-3.5 w-3.5" aria-hidden /> {upload.isPending ? "Wgrywanie…" : label}
       </Button>

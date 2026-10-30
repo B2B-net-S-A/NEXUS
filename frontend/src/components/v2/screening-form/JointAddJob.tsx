@@ -78,6 +78,7 @@ export function JointAddJob({
         onClick={() => setOpen(true)}
         disabled={disabled}
         data-testid="joint-add-open"
+        data-tour="screening.joint.add-other"
       >
         <Plus className="size-3.5" aria-hidden /> Dodaj inną rekrutację
       </button>
@@ -95,6 +96,7 @@ export function JointAddJob({
         <input
           autoFocus
           aria-label="Szukaj otwartej rekrutacji"
+          data-tour="screening.joint.add-search"
           className="h-8 w-0 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs"
           placeholder="Numer requestu, nazwa albo klient"
           value={phrase}

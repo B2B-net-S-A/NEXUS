@@ -613,7 +613,12 @@ function PersonMoreMenu({
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button size="icon-sm" variant="outline" aria-label="Więcej akcji osoby">
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Więcej akcji osoby"
+          data-tour="person.dock.more"
+        >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -630,7 +635,11 @@ function PersonMoreMenu({
           </Link>
         </DropdownMenuItem>
         {onAddAlso && (
-          <DropdownMenuItem onSelect={() => deferMenuAction(onAddAlso)} data-testid="dock-add-also">
+          <DropdownMenuItem
+            onSelect={() => deferMenuAction(onAddAlso)}
+            data-testid="dock-add-also"
+            data-tour="person.dock.add-also"
+          >
             <Plus className="h-3.5 w-3.5" /> Dodaj też do rekrutacji…
           </DropdownMenuItem>
         )}
@@ -1744,6 +1753,7 @@ export function PipelineCandidateDock({
               onClick={conversationMode.toggle}
               aria-pressed={conversationMode.on}
               data-testid="person-conversation-mode"
+              data-tour="person.panel.conversation-mode"
               title="Tryb rozmowy: nagłówek osoby w jednej linii, „Screening dla” zwinięte — więcej miejsca na formularz"
               className={cn(
                 "ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",

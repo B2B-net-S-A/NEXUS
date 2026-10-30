@@ -536,6 +536,7 @@ function PersonActions({
           className="min-h-11 min-w-11"
           onClick={actions.onAddCv}
           title="Nowe CV od kandydata — do profilu i do rekrutacji w toku"
+          data-tour="candidate.profile.add-cv"
         >
           <Upload className="h-4 w-4" />
           Dodaj CV

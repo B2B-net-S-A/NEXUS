@@ -450,6 +450,7 @@ function JobsTable({
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
+                    data-tour="jobs.list.title"
                     className="font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
                     {jobRowTitle(job)}

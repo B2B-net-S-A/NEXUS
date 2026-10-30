@@ -2701,6 +2701,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
                               checked={isSelected}
                               onCheckedChange={() => toggleId(candidate.id)}
                               aria-label={`Zaznacz ${fullName}`}
+                              data-tour="candidates.list.select"
                             />
                           </div>
                           {tableColumns.map((col) => {
