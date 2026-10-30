@@ -72,6 +72,10 @@ CO ZWRÓCIĆ:
 - "requirements": punkty z technologii krytycznych i wymaganych oraz
   z doświadczenia. Krytyczne idą pierwsze. Punkt mówi, jakiego doświadczenia
   oczekujemy — nie jest gołą nazwą technologii.
+- Pole „Zamienniki” to inne słowa z tego samego wiersza wymagań, często tylko
+  inna pisownia albo słowo do wyszukiwania. Gdy zamiennik to inna technologia,
+  narzędzie lub metodyka tego samego rodzaju, napisz w punkcie „X lub Y”.
+  Tłumaczenia, skróty, słowa ogólne i urwane pomiń. Nie rób z nich osobnych punktów.
 - "nice_to_have": punkty z listy „mile widziane"; pusta lista, gdy jej nie ma.
 - "offer": 0–3 punkty WYŁĄCZNIE z pola „Co wolno powiedzieć kandydatowi";
   pusta lista, gdy pole jest puste.
@@ -89,6 +93,7 @@ Wymagania (opis): {requirements}
 Technologie krytyczne: {critical}
 Wymagane technologie: {must}
 Mile widziane: {nice}
+Zamienniki: {alternatives}
 Doświadczenie w dziedzinie: {domains}
 Certyfikaty: {certifications}
 Co wolno powiedzieć kandydatowi: {pitch}
@@ -137,6 +142,7 @@ def prompt_for(material: AdMaterial, lang: str) -> str:
         critical=join(material.critical),
         must=join(material.must),
         nice=join(material.nice),
+        alternatives="; ".join(material.alternatives) or "brak",
         domains=material.domains or "brak",
         certifications=material.certifications or "brak",
         pitch=material.pitch or "brak",
