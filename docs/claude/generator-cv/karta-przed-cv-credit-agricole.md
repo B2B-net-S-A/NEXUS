@@ -93,3 +93,12 @@ trasy wzoru wołają bramkę z `central_lock=False` (graf klienta i uprawnienie
 „Klienci: dodawanie i edycja” dalej obowiązują), a sekcja „Karta przed CV
 (Word)” stoi także w widoku zasad centralnych (`CvRuleEditor`). Bez tego
 wzoru nie dało się wgrać: pierwsza próba na produkcji po #2835.
+
+## Profil kompetencji: same technologie (30.10.2026)
+
+Decyzja Artura po pierwszej karcie na produkcji: generator pogrubia w „Dlaczego
+nasz kandydat” także zdania o stażu i dziedzinie („Posiada 6 lat doświadczenia
+komercyjnego”, „sektorze bankowym”). Profil bierze tylko krótkie nazwy
+technologii (`cover_sheet._is_technology`: do 3 słów, jedno z wielką literą,
+cyfrą albo znakiem, bez słów o latach i doświadczeniu), najwyżej 8. Dziedzinę
+DL dopisuje ręcznie.

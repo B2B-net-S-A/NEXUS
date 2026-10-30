@@ -524,7 +524,7 @@ class _WhyBold(HTMLParser):
             self.current.append(data)
 
 
-PROFILE_MAX_TERMS = 12
+PROFILE_MAX_TERMS = 8
 VALUE_MAX = 500
 
 
@@ -540,13 +540,38 @@ def _unique(terms: Iterable[str]) -> list[str]:
     return out[:PROFILE_MAX_TERMS]
 
 
+# Słowa zdań o stażu i dziedzinie, które generator też pogrubia
+# („3 lata doświadczenia”) — z nimi fraza nie jest technologią.
+_NOT_TECH_WORDS = frozenset({"lat", "lata", "rok", "roku", "years", "year"})
+_TECH_MAX_WORDS = 3
+
+
+def _is_technology(term: str) -> bool:
+    """Krótka nazwa technologii: do 3 słów, w tym jedno z wielką literą, cyfrą
+    albo znakiem (Java, PL/SQL, C#, S3), bez słów o latach i doświadczeniu.
+    Produkcja 29.10.2026: „Posiada 6 lat doświadczenia komercyjnego” czy
+    „sektorze bankowym” trafiały na kartę jako kompetencje."""
+    words = term.split()
+    if not words or len(words) > _TECH_MAX_WORDS:
+        return False
+    folded = [fold(word).strip(",.;:()") for word in words]
+    if any(word in _NOT_TECH_WORDS or word.startswith("doswiadcz") for word in folded):
+        return False
+    return any(
+        any(ch.isupper() or ch.isdigit() or ch in "/#+." for ch in word)
+        for word in words
+    )
+
+
 def profile_from_cv_html(html: Optional[str]) -> list[str]:
     if not html:
         return []
     parser = _WhyBold()
     parser.feed(html)
     parser.close()
-    return _unique(parser.terms)
+    return _unique(
+        term for term in parser.terms if _is_technology(" ".join(term.split()))
+    )
 
 
 def _skill_names(items: Any) -> list[str]:
