@@ -96,8 +96,10 @@ export function BonusDialog({
   const directory = usePeople(fullEdit && people.length === 0);
   const canPickPlacement = fullEdit || (!bonus && !fixedPerson);
   const automated = bonus ? bonus.source !== "manual" : false;
-  const placements = usePlacementOptions(canPickPlacement && !automated);
   const [contractId, setContractId] = useState(bonus?.contract_id ? String(bonus.contract_id) : NO_PLACEMENT);
+  // Lista kontraktów dopiero po otwarciu pola: większość premii jej nie potrzebuje.
+  const [placementsOpened, setPlacementsOpened] = useState(Boolean(bonus?.contract_id));
+  const placements = usePlacementOptions(canPickPlacement && !automated && placementsOpened);
   const [reason, setReason] = useState("");
   const [personId, setPersonId] = useState(
     fixedPerson ? String(fixedPerson.user_id) : bonus ? String(bonus.recipient_user_id) : "",
@@ -279,7 +281,13 @@ export function BonusDialog({
         ) : null}
         {canPickPlacement && !automated ? (
           <FormField label="Za kogo (placement)" htmlFor="bonus-placement" className="sm:col-span-2">
-            <Select value={contractId} onValueChange={setContractId}>
+            <Select
+              value={contractId}
+              onValueChange={setContractId}
+              onOpenChange={(value) => {
+                if (value) setPlacementsOpened(true);
+              }}
+            >
               <SelectTrigger id="bonus-placement">
                 <SelectValue />
               </SelectTrigger>
