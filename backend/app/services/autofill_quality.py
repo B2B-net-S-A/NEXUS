@@ -443,8 +443,16 @@ async def _recipients(db) -> list[int]:
     return sorted(int(uid) for uid in (await db.scalars(query)).all())
 
 
-async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualityReport:
-    """Liczby i propozycje za tydzień od ``week_start``. Bez commitu."""
+async def compute_report(
+    db, *, week_start: date, now: datetime
+) -> tuple[dict, list[dict], bool]:
+    """Liczby i propozycje za tydzień od ``week_start`` — bez zapisu raportu.
+
+    UWAGA: gdy wołany jest model, ``model_proposals`` robi ``db.commit()``
+    (rozliczenie limitu AI przed długim wywołaniem). Dlatego tego kroku nie
+    wolno wołać wewnątrz ``db.begin_nested()`` — commit zamyka transakcję
+    i savepoint, a kolejna operacja na sesji kończy się ``InvalidRequestError``.
+    """
     since = datetime.combine(week_start, time(0), tzinfo=_tz()).astimezone(timezone.utc)
     until = since + timedelta(days=7)
     data = await summary(db, since=since, until=until, now=now)
@@ -454,6 +462,18 @@ async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualit
     from_model = bool(proposals)
     if not proposals:
         proposals = rule_proposals(data)
+    return data, proposals, from_model
+
+
+async def save_report(
+    db,
+    *,
+    week_start: date,
+    data: dict,
+    proposals: list[dict],
+    from_model: bool,
+) -> AutofillQualityReport:
+    """Zapis raportu (add + flush). Bez commitu — bezpieczne w savepoincie."""
     report = AutofillQualityReport(
         week_start=week_start,
         summary=data,
@@ -465,8 +485,31 @@ async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualit
     return report
 
 
+async def build_report(db, *, week_start: date, now: datetime) -> AutofillQualityReport:
+    """Liczby, propozycje i zapis raportu za tydzień od ``week_start``.
+
+    Sam zapis nie commituje, ale krok z modelem (``compute_report``) może
+    zrobić ``db.commit()`` — nie wołaj tego wewnątrz ``db.begin_nested()``.
+    """
+    data, proposals, from_model = await compute_report(
+        db, week_start=week_start, now=now
+    )
+    return await save_report(
+        db,
+        week_start=week_start,
+        data=data,
+        proposals=proposals,
+        from_model=from_model,
+    )
+
+
 async def send_weekly_report(db, now: datetime) -> int:
-    """Raport za poprzedni tydzień + dzwonki. Nie commituje — robi to wołający."""
+    """Raport za poprzedni tydzień + dzwonki.
+
+    Zapis raportu i dzwonki nie commitują (robi to wołający), ale gdy wołany
+    jest model, ``model_proposals`` commituje sesję — dlatego liczenie
+    propozycji odbywa się PRZED savepointem, a w savepoincie jest tylko zapis.
+    """
     from app.services.notification_triggers import emit
 
     week_start = report_week(now)
@@ -480,8 +523,22 @@ async def send_weekly_report(db, now: datetime) -> int:
     if exists is not None:
         return 0
     try:
+        # Poza savepointem: `model_proposals` może zrobić `db.commit()`.
+        data, proposals, from_model = await compute_report(
+            db, week_start=week_start, now=now
+        )
+    except Exception:  # noqa: BLE001 — raport nigdy nie psuje ticku
+        logger.exception("autofill_quality: nie udało się policzyć raportu")
+        return 0
+    try:
         async with db.begin_nested():
-            report = await build_report(db, week_start=week_start, now=now)
+            report = await save_report(
+                db,
+                week_start=week_start,
+                data=data,
+                proposals=proposals,
+                from_model=from_model,
+            )
     except IntegrityError:
         return 0  # drugi proces zrobił ten raport chwilę wcześniej
     except Exception:  # noqa: BLE001 — raport nigdy nie psuje ticku
@@ -507,8 +564,10 @@ async def send_weekly_report(db, now: datetime) -> int:
                     title=title[:255],
                     message=message,
                     ntype=NotificationType.autofill_quality_report,
+    "compute_report",
                     related_entity_type="autofill_quality_report",
                     related_entity_id=report.id,
+    "save_report",
                     link=f"{REPORT_LINK}?report={report.id}",
                 )
             sent += int(created is not None)
