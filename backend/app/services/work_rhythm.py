@@ -47,7 +47,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from zoneinfo import ZoneInfo
 
-from app.core.scheduling import DEFAULT_TZ, local_day_start_utc
+from app.core.scheduling import (
+    DEFAULT_TZ,
+    business_today,
+    local_day_start_utc,
+    local_now,
+)
 from app.models.app_setting import AppSetting
 from app.models.oauth_client import OAuthClient
 from app.models.user import User, UserRole
@@ -303,10 +308,16 @@ def _active_hours(day: Mapping[str, Any], rules: Rules) -> list[int]:
     ]
 
 
-def day_gaps(day: Mapping[str, Any], rules: Rules) -> list[tuple[int, int]]:
+def day_gaps(
+    day: Mapping[str, Any], rules: Rules, *, until: int | None = None
+) -> list[tuple[int, int]]:
     """Przerwy dnia jako ``[od, do)`` w pełnych godzinach: godziny bez żadnej
-    akcji i bez prepa między pierwszą a ostatnią aktywną godziną."""
-    active = _active_hours(day, rules)
+    akcji i bez prepa między pierwszą a ostatnią aktywną godziną.
+
+    ``until`` = bieżąca godzina dnia, który trwa: późniejsze godziny (np.
+    zaplanowane prepy) nie wyznaczają przerw, zanim nadejdą.
+    """
+    active = [h for h in _active_hours(day, rules) if until is None or h < until]
     if not active:
         return []
     # Akcja za 0 pkt (limit kontaktów, powtórka) to wciąż praca — przegląd 30.10.
@@ -987,7 +998,14 @@ async def build_rhythm(
             }
             touched = [h in cell.touched for h in HOURS]
             row["gaps"] = (
-                [list(g) for g in day_gaps({**row, "touched": touched}, rules)]
+                [
+                    list(g)
+                    for g in day_gaps(
+                        {**row, "touched": touched},
+                        rules,
+                        until=local_now().hour if day == today else None,
+                    )
+                ]
                 if available > 0
                 else []
             )
@@ -1141,7 +1159,14 @@ async def build_day(db: AsyncSession, user_id: int, day: date) -> dict[str, Any]
         "user_id": user_id,
         "name": person.name,
         "date": day,
-        "gaps": [list(g) for g in day_gaps(shape, rules)],
+        "gaps": [
+            list(g)
+            for g in day_gaps(
+                shape,
+                rules,
+                until=local_now().hour if day == business_today() else None,
+            )
+        ],
         "points": [round(cell.points.get(h, 0.0), 1) for h in HOURS],
         "meetings": [h in met for h in HOURS],
         "thin": [h in cell.thin for h in HOURS],

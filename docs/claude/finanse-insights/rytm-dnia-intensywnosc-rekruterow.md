@@ -52,7 +52,9 @@ wyniki = trzeba pracować więcej.
   Zamiast tego: **aktywne godziny** (kropki wobec normy `norm_active_hours`,
   domyślnie 8 — to norma do wzoru intensywności, nie minimum) i **przerwy**
   (`day_gaps`): pełna godzina bez akcji i bez prepa między pierwszą a ostatnią
-  aktywną godziną. Przerwa jest widoczna na heatmapie i niczego nie odejmuje.
+  aktywną godziną; godzina z akcjami za 0 pkt nie jest przerwą, a w dniu, który
+  trwa, liczą się tylko minione godziny (zaplanowane prepy nie robią przerw).
+  Przerwa jest widoczna na heatmapie i niczego nie odejmuje.
   Stare pola `min_work_hours` i `break_minutes` w zapisanych regułach są
   ignorowane.
 - **Porównanie z zespołem** (Dzień): wiersze od najwyższej intensywności,
