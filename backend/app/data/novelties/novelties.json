@@ -351,5 +351,220 @@
     "where": "Pulpit → Ogłoszenia",
     "href": "/dashboard",
     "dot_anchor": "dashboard.announcements"
+  },
+  {
+    "id": "kto-dodal-po-biore",
+    "title": "„Biorę” przenosi kartę na Ciebie, a filtr „Kto dodał” to widzi",
+    "why": "Osoby wzięte „Biorę” pokazują na karcie Ciebie i są w filtrze „Kto dodał → Ty”, także po 12 godzinach. Na dużej Tablicy szybko znajdziesz swoich ludzi do telefonu.",
+    "tier": "tour",
+    "shipped_on": "2026-10-27",
+    "pr": 2713,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Tablica → Kto dodał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.board.added-by",
+    "used_anchor": "jobs.board.added-by-menu",
+    "steps": [
+      {
+        "anchor": "jobs.board.added-by",
+        "text": "Na Tablicy rekrutacji kliknij „Kto dodał”.",
+        "hint": "To przycisk w nagłówku rekrutacji, w linii źródeł. Samo otwarcie niczego nie zmienia."
+      },
+      {
+        "anchor": "jobs.board.added-by-menu",
+        "text": "Wybierz „Ty” — osoby, które dodałeś albo wziąłeś „Biorę”.",
+        "hint": "Karta zostaje u biorącego do pierwszej weryfikacji. Filtr wyłączysz krzyżykiem obok przycisku."
+      }
+    ]
+  },
+  {
+    "id": "propozycje-najlepsze-40",
+    "title": "Propozycje z bazy: najlepsze 40 i „Ukryci przez »musi mieć«”",
+    "why": "Zamiast progu 70% widzisz 40 najlepiej dopasowanych osób. Pod listą są osoby ukryte brakiem krytycznej, choć w CV mają coś bliskiego — dodasz je albo dopiszesz wariant.",
+    "tier": "tour",
+    "shipped_on": "2026-10-28",
+    "pr": 2777,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Kandydaci do dodania → Propozycje z bazy",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.add.base-tab",
+    "steps": [
+      {
+        "anchor": "jobs.sources.search",
+        "text": "Kliknij „Szukaj w bazie”.",
+        "hint": "To przycisk w pasku „Kandydaci do dodania” na Twojej rekrutacji."
+      },
+      {
+        "anchor": "jobs.add.base-tab",
+        "text": "Przejdź na zakładkę „Propozycje z bazy”.",
+        "hint": "Najlepsze 40 osób z nocnego przeglądu, przy procencie „musi mieć X/Y”. Pod listą, gdy ktoś jest, stoi sekcja „Ukryci przez »musi mieć«”."
+      }
+    ]
+  },
+  {
+    "id": "rytm-dnia",
+    "title": "Rytm dnia — kiedy i jak intensywnie pracuje zespół",
+    "why": "Nowa zakładka w Insights: dzień każdej osoby na tle zespołu, typowy dzień (Wzorce) i zmiana tydzień do tygodnia (Trend). Przerwa to 30 minut bez akcji.",
+    "tier": "tour",
+    "shipped_on": "2026-10-28",
+    "pr": 2800,
+    "audience": {
+      "roles": [
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Insights → Rytm dnia",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.rhythm",
+    "steps": [
+      {
+        "anchor": "insights.tabs.rhythm",
+        "text": "Kliknij zakładkę „Rytm dnia”.",
+        "hint": "Widok „Dzień”: każda osoba na tle zespołu. Kliknięcie dnia osoby pokazuje jego rozkład."
+      },
+      {
+        "anchor": "insights.rhythm.patterns",
+        "text": "Kliknij „Wzorce”.",
+        "hint": "Typowy dzień każdej osoby z pełnych dni okna, bez urlopów i bez dzisiejszego dnia."
+      },
+      {
+        "anchor": "insights.rhythm.trend",
+        "text": "Kliknij „Trend”.",
+        "hint": "Średnia 5 ostatnich zakończonych dni wobec 5 wcześniejszych. Mała różnica to szum, nie zmiana."
+      }
+    ]
+  },
+  {
+    "id": "aktywnosc-wybrany-okres",
+    "title": "Aktywność rekrutacyjna za wybrany okres",
+    "why": "Kafel liczy dziś, wczoraj, tydzień, miesiąc albo własne „Od–do” — ta sama liczba w kaflu i w tabeli osób. Wybrany okres zostaje na tym urządzeniu.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "pr": 2836,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "talent_community_manager",
+        "finance",
+        "admin"
+      ]
+    },
+    "where": "Pulpit → Aktywność rekrutacyjna",
+    "href": "/dashboard",
+    "section": "pipeline",
+    "dot_anchor": "dashboard.activity.period"
+  },
+  {
+    "id": "ogloszenia-do-nadrobienia",
+    "title": "Ogłoszenia do nadrobienia — braki w jednym miejscu",
+    "why": "Rekrutacje bez strony kariery, Pracuj.pl albo JustJoin.IT otwierasz po kolei z jednego ekranu. Tu prowadzi też poranny mail o brakujących ogłoszeniach.",
+    "tier": "tour",
+    "shipped_on": "2026-10-27",
+    "pr": 2707,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacje → Ogłoszenia do nadrobienia",
+    "href": "/jobs/ogloszenia",
+    "section": "pipeline",
+    "dot_anchor": "jobs.missing-ads.mine",
+    "steps": [
+      {
+        "anchor": "jobs.missing-ads.mine",
+        "text": "Kliknij „Do zrobienia przeze mnie”.",
+        "hint": "Rekrutacje, w których brakujące ogłoszenie robisz Ty. Wybierz rekrutację z listy i „Otwórz”, żeby od razu przejść do kanału."
+      },
+      {
+        "anchor": "jobs.missing-ads.watched",
+        "text": "Kliknij „Także pilnowane”.",
+        "hint": "Dochodzą rekrutacje, które prowadzisz jako DL, choć ogłoszenie robi ktoś inny. Niczego tu nie zmienisz samym kliknięciem."
+      }
+    ]
+  },
+  {
+    "id": "wyslij-do-pracuj",
+    "title": "„Wyślij do Pracuj.pl” — ogłoszenie mailem do opiekuna konta",
+    "why": "W oknie ogłoszenia wysyłasz treść do opiekuna Pracuj.pl ze swojej skrzynki, ze stawką dla kandydata i miastem. Link dodajesz, gdy opiekun go przyśle.",
+    "tier": "dot",
+    "shipped_on": "2026-10-27",
+    "pr": 2721,
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → Ogłoszenie → Pracuj.pl",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "job-ad.pracuj.send"
+  },
+  {
+    "id": "filtr-umowa-nierozwiazana",
+    "title": "Filtr „Umowa nierozwiązana” w rejestrze kontraktów",
+    "why": "Jednym kliknięciem widzisz zakończone i kończące się projekty B2B, przy których nie zapisano jeszcze rozwiązania umowy z kontraktorem.",
+    "tier": "dot",
+    "shipped_on": "2026-10-28",
+    "pr": 2768,
+    "audience": {
+      "permissions": [
+        "delivery_view"
+      ]
+    },
+    "where": "Kontrakty → pasek filtrów",
+    "href": "/contracts",
+    "section": "delivery",
+    "dot_anchor": "contracts.list.agreement-not-terminated"
+  },
+  {
+    "id": "czat-rozwin-pole",
+    "title": "Czat: pole rośnie z tekstem, „Rozwiń pole” daje całe okno",
+    "why": "Pole czatu rekrutacji i kandydata rośnie do 8 linii. Po rozwinięciu Enter robi nową linię, Ctrl/⌘+Enter wysyła, a Esc zwija pole bez utraty szkicu.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "pr": 2822,
+    "where": "Rekrutacja → Historia i czat",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "chat.compose.expand"
+  },
+  {
+    "id": "przeglad-dl-inna-rekrutacja",
+    "title": "Przegląd DL: „+ Dodaj inną rekrutację” w „Pasuje też do…”",
+    "why": "Osobę wyślesz też do rekrutacji, której ocena nie podsunęła: szukasz wśród wszystkich otwartych rekrutacji firmy po nazwie, numerze albo kliencie.",
+    "tier": "dot",
+    "shipped_on": "2026-10-27",
+    "pr": 2714,
+    "audience": {
+      "permissions": [
+        "recruitment_manage"
+      ]
+    },
+    "where": "Rekrutacja → przegląd DL → Pasuje też do Twoich rekrutacji",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "dl-review.match.add-job"
   }
 ]

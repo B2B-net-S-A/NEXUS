@@ -58,7 +58,12 @@ export function AddedByMenuContent({
     </DropdownMenuRadioItem>
   );
   return (
-    <DropdownMenuContent align={align} className="w-72" data-testid="added-by-menu">
+    <DropdownMenuContent
+      align={align}
+      className="w-72"
+      data-testid="added-by-menu"
+      data-tour="jobs.board.added-by-menu"
+    >
       <DropdownMenuLabel>Kto dodał osobę do tej rekrutacji</DropdownMenuLabel>
       <p className="px-2 pb-1.5 text-xs text-muted-foreground">
         Jak na karcie: kto wziął „Biorę”, a bez tego kto dodał. Liczby: osoby w toku na Tablicy.
@@ -99,6 +104,7 @@ export function AddedByFilterButton({ options, value, onChange }: AddedByMenuPro
               active ? `Kto dodał: ${choice}. Widać ${visible} z ${total} osób.` : `Kto dodał: ${choice}`
             }
             data-testid="added-by-trigger"
+            data-tour="jobs.board.added-by"
           >
             <span className="font-normal text-muted-foreground">Kto dodał:</span>
             <span className="font-semibold">{choice}</span>

@@ -119,6 +119,7 @@ export function MissingAdsQueue({ api = jobAdApi }: { api?: MissingAdsQueueApi }
           size="sm"
           variant={onlyMine ? "primary" : "outline"}
           aria-pressed={onlyMine}
+          data-tour="jobs.missing-ads.mine"
           onClick={() => {
             setOnlyMine(true);
             setSelected(null);
@@ -131,6 +132,7 @@ export function MissingAdsQueue({ api = jobAdApi }: { api?: MissingAdsQueueApi }
           size="sm"
           variant={onlyMine ? "outline" : "primary"}
           aria-pressed={!onlyMine}
+          data-tour="jobs.missing-ads.watched"
           onClick={() => {
             setOnlyMine(false);
             setSelected(null);

@@ -366,6 +366,7 @@ export function InsightsView() {
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
+                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}

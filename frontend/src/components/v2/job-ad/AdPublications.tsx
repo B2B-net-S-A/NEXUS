@@ -251,6 +251,7 @@ export function AdPublications({
                           disabled={busy || !!blockedReason}
                           onClick={onSendPracuj}
                           data-testid="pracuj-send"
+                          data-tour="job-ad.pracuj.send"
                         >
                           {request ? "Wyślij ponownie" : "Wyślij do Pracuj.pl"}
                         </Button>

@@ -1279,6 +1279,7 @@ export function ContractsListV2({
  size="sm"
  variant="outline"
  aria-pressed={agreementNotTerminated}
+ data-tour="contracts.list.agreement-not-terminated"
  className={cn(
  "gap-1.5",
  agreementNotTerminated &&

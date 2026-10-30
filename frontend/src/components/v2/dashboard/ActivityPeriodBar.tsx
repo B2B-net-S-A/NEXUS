@@ -129,7 +129,12 @@ export function ActivityPeriodBar({
   const reversed = range.start > range.end
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card px-3 py-2 @4xl:flex-row @4xl:items-center @4xl:justify-between">
-      <div role="group" aria-label="Okres" className="flex flex-wrap items-center gap-1.5">
+      <div
+        role="group"
+        aria-label="Okres"
+        data-tour="dashboard.activity.period"
+        className="flex flex-wrap items-center gap-1.5"
+      >
         {PERIODS.map((option) => (
           <button
             key={option.key}
