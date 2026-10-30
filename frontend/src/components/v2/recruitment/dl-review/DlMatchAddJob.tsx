@@ -52,6 +52,7 @@ export function DlMatchAddJob({ candidateId, fromJobId, listedIds, onAdd, disabl
         onClick={() => setOpen(true)}
         disabled={disabled}
         data-testid="dl-match-add-open"
+        data-tour="dl-review.match.add-job"
       >
         <Plus className="size-3" aria-hidden /> Dodaj inną rekrutację
       </button>

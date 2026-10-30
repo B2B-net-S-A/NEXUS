@@ -116,6 +116,7 @@ export function ExpandComposeButton({ expanded, onToggle }: ExpandComposeButtonP
       className="flex items-center justify-center w-10 h-10 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted"
       aria-label={expanded ? "Zwiń pole" : "Rozwiń pole"}
       aria-pressed={expanded}
+      data-tour="chat.compose.expand"
       title={expanded ? "Zwiń pole (Esc)" : "Rozwiń pole na całe okno czatu"}
     >
       {expanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
