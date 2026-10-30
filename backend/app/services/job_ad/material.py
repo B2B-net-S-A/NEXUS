@@ -20,6 +20,7 @@ from typing import Any, Optional
 
 from app.services import champion_view, critical_skills
 from app.services import job_public_profile as jpp
+from app.services.champion_requirement_rows import ALTERNATIVE_JOINER, full_labels
 
 # `draft_material` wpisuje te słowa w miejsce pustych pól (prompt strony kariery).
 _EMPTY_MARKERS = {"brak", "nie podano"}
@@ -60,6 +61,10 @@ class AdMaterial:
     # wycięcie adresu (28.10.2026) nie jest zmianą rekrutacji i nie może
     # zapalić „Rekrutacja zmieniła się… Przygotuj ponownie”.
     location: Optional[str] = None
+    # Zamienniki z wierszy wymagań, tylko dla modelu: „Agile: Prince2”. Poza
+    # odciskiem (decyzja Artura 30.10.2026): zapisane ogłoszenia zostają bez
+    # zmian i bez „Przygotuj ponownie”, które nadpisałoby ręczne poprawki.
+    alternatives: tuple[str, ...] = ()
 
 
 def _text(value: Any) -> str:
@@ -93,6 +98,27 @@ def _critical(job: Any, must: list[str]) -> tuple[str, ...]:
     if not stored:
         return ()
     return tuple(critical_skills.match_must_labels(stored, must))
+
+
+def _alternatives(raw: Any, labels: list[str]) -> tuple[str, ...]:
+    """Słowa wiersza, których nie ma w etykiecie (`row_label` zna tylko słownik).
+
+    Bez składni wyszukiwania: końcowa gwiazdka odpada, a słowa z gwiazdką
+    w środku („hurtown* danych”) kandydat by nie przeczytał.
+    """
+    if not isinstance(raw, dict) or not raw:
+        return ()
+    full = full_labels(champion_view.stack(raw))
+    out: list[str] = []
+    for label in labels:
+        if label not in full:
+            continue
+        extra = full[label].removeprefix(label + ALTERNATIVE_JOINER)
+        words = [word.removesuffix("*") for word in extra.split(ALTERNATIVE_JOINER)]
+        words = [word for word in words if "*" not in word]
+        if words:
+            out.append(f"{label}: {', '.join(words)}")
+    return tuple(out)
 
 
 def build_material(job: Any, title: str) -> AdMaterial:
@@ -129,6 +155,7 @@ def build_material(job: Any, title: str) -> AdMaterial:
         duration=params.get("duration"),
         language=language or None,
         working_time=getattr(work_mode, "value", work_mode) or None,
+        alternatives=_alternatives(raw, [*must, *nice]),
     )
 
 

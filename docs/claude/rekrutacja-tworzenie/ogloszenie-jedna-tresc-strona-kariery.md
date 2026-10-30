@@ -33,6 +33,21 @@ Harness `/preview/job-ad?state=ready|published`.
   Zmiana samych punktów w ogłoszeniu = stan `outdated`; strony opublikowane
   przed 29.10.2026 mają `outdated`, dopóki ktoś nie kliknie „Zaktualizuj na
   stronie”.
+- **Zamienniki z wierszy wymagań idą do modelu, nie do etykiet (decyzja Artura
+  30.10.2026, po #2853).** Wiersz „Prince2*, Agile, Prince2” ma etykietę „Agile”,
+  więc ogłoszenie pisane z samych etykiet mówiło kandydatowi tylko o Agile.
+  `AdMaterial.alternatives` („Agile: Prince2”) to osobne pole promptu. Etykiet
+  nie podmieniamy: pomiar na kopii z 22.10 to 156 takich wierszy w 63 otwartych
+  rekrutacjach, a tylko ok. 50 to prawdziwe „X lub Y” (ręczna ocena). Reszta to
+  tłumaczenia, skróty i słowa do szukania („hurtown* danych”, „Application lub
+  User”), które model pomija, a złożenie bez modelu wypisałoby wprost — dlatego
+  złożenie i lista technologii portalu zostają przy etykietach. Pole jest poza
+  `_HASH_FIELDS`: zapisane ogłoszenia zostają bez zmian i bez „Przygotuj
+  ponownie”, działa przy każdym nowym przygotowaniu. Strona kariery dostaje to
+  przez punkty ogłoszenia. Generator CV bez zmian: w 277 CV pod te rekrutacje
+  nie było mapy wymagań ani udostępnienia, żadna reguła klienta przy tych CV nie ma polityki
+  wyróżnień `must`, a z 122 wierszy, które kandydat spełnia tylko zamiennikiem,
+  101 zostało w CV, a 21 wypadło, przeważnie tłumaczenia i skróty.
 - **Tytuł strony zostaje tytułem publicznym rekrutacji.** Ogłoszenie i tak od
   niego zaczyna, a tytuł wchodzi do odcisku materiału
   (`material._HASH_FIELDS`): przepisanie go z ogłoszenia zapalałoby w oknie
