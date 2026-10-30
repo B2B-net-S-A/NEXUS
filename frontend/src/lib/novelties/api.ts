@@ -112,7 +112,6 @@ export function useStartStatus(enabled: boolean): StartStatus | null {
     queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
     enabled,
     staleTime: 60_000,
-    retry: 1,
   });
   return mounted ? (query.data ?? null) : null;
 }

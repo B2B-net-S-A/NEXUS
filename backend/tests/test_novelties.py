@@ -462,12 +462,20 @@ def test_start_gate_off_preview_or_nothing_to_do_never_blocks() -> None:
 
 
 @pytest.fixture
-def frozen_start(monkeypatch):
+async def frozen_start(monkeypatch):
     from app.api import novelties as api
+    from app.core.database import AsyncSessionLocal
+    from app.models.app_setting import AppSetting
 
     tour = _novelty(id="start-test", audience={"roles": ["recruiter"]})
     monkeypatch.setattr(api, "load_novelties", lambda: {})
     monkeypatch.setattr(api, "load_start_tours", lambda: {tour.id: tour})
+    # Brak wiersza = blokada włączona; inny test (np. seed E2E) mógł go zostawić.
+    async with AsyncSessionLocal() as db:
+        row = await db.get(AppSetting, api.START_GATE_KEY)
+        if row is not None:
+            await db.delete(row)
+            await db.commit()
     return tour
 
 

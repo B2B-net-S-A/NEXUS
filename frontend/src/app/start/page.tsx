@@ -27,7 +27,6 @@ export default function StartPage() {
   const query = useQuery({
     queryKey: startKey,
     queryFn: async () => (await api.get<StartStatus>("/api/novelties/start")).data,
-    retry: 1,
   });
 
   const begin = (id: string, href: string) => {
