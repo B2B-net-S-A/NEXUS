@@ -308,6 +308,7 @@ export function PersonPanelColumn({ split, testId = "person-panel-column", child
           aria-valuetext={columnWidth != null ? `${columnWidth} px` : "domyślna"}
           title="Przeciągnij, żeby poszerzyć panel · dwuklik: domyślna szerokość"
           data-testid="person-panel-column-resize"
+          data-tour="person.panel.column-resize"
           onPointerDown={startResize}
           onDoubleClick={() => setLayout?.({ columnWidth: null })}
           onKeyDown={onResizeKey}

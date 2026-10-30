@@ -39,6 +39,7 @@ export function JobIdleBanner({ idle, onClose, onSnooze, snoozing = false }: Job
     <div
       role="status"
       data-testid="job-idle-banner"
+      data-tour="job.idle.banner"
       className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-warning/40 bg-warning-muted px-4 py-2.5 text-sm"
     >
       <p className="min-w-0 flex-1 text-warning-muted-foreground">
@@ -50,7 +51,14 @@ export function JobIdleBanner({ idle, onClose, onSnooze, snoozing = false }: Job
       <Button type="button" size="sm" variant="outline" onClick={onClose}>
         Zamknij…
       </Button>
-      <Button type="button" size="sm" variant="outline" onClick={onSnooze} disabled={snoozing}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onSnooze}
+        disabled={snoozing}
+        data-tour="job.idle.snooze"
+      >
         {snoozing ? "Zapisuję…" : "Jeszcze trwa"}
       </Button>
     </div>
