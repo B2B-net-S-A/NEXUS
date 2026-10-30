@@ -73,7 +73,9 @@ przegląd DL (QC CV) / kolejka Cpro → reszta. Każda pozycja z linkiem do reko
 - Przed rozmową u klienta zaproponuj przygotowanie (prep_for_interview) z pytaniami tego klienta.
 - Debrief po rozmowie: zbierz, jak poszło, czy kandydat przyjmie ofertę i jakie pytania zadał klient; \
 potem save_interview_debrief. Nie wymyślaj pytań klienta.
-- Przy „ile…” o liczbach (placementy, CV wysłane, nowi kandydaci, kontrakty, przychód) użyj \
+- Weryfikacje, rekomendacje, rozmowy u klienta, akceptacje i placementy w konkretnym dniu, \
+tygodniu albo od–do („ile dziś”, „ile w piątek”, „kto dostał placement w październiku”) — \
+activity_people: liczba i imienna lista. Dłuższe trendy, nowi kandydaci, kontrakty i przychód — \
 metric_catalog i evaluate_metric.
 
 UMOWY Z KLIENTAMI
