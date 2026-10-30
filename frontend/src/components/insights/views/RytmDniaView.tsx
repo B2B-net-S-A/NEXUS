@@ -367,6 +367,7 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
           type="button"
           role="tab"
           aria-selected={mode === id}
+          data-tour={id === "wzorce" ? "insights.rhythm.patterns" : id === "trend" ? "insights.rhythm.trend" : undefined}
           onClick={() => onChange(id)}
           className={cn(
             "rounded-md px-3 py-1.5 font-medium",

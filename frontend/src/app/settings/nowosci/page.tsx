@@ -94,8 +94,8 @@ function StartGateSwitch() {
       const on = await setStartGate(!status.gate_on);
       showSuccess(
         on
-          ? "Blokada Startu włączona — kto nie przeklikał, zobaczy listę Startu."
-          : "Blokada Startu wyłączona — nikt nie jest zatrzymywany.",
+          ? "Włączone — Start i okna nowości znów obowiązują."
+          : "Wyłączone — nikt nie jest zatrzymywany przez Start ani okna nowości.",
       );
       await queryClient.invalidateQueries({ queryKey: startKey });
     } catch (error) {
@@ -112,12 +112,13 @@ function StartGateSwitch() {
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-foreground">
-          Start w NEXUSIE: blokada {status.gate_on ? "włączona" : "wyłączona"}
+          Start w NEXUSIE i obowiązkowe nowości:{" "}
+          {status.gate_on ? "włączone" : "wyłączone"}
         </p>
         <p className="text-xs text-muted-foreground">
           {status.gate_on
-            ? "Kto nie przeklikał najważniejszych funkcji swojej roli, widzi tylko pulpit i listę Startu. Postęp osób jest niżej, przy pozycjach „Start”."
-            : "Lista Startu jest dostępna, ale nikogo nie zatrzymuje."}
+            ? "Kto nie przeklikał najważniejszych funkcji swojej roli, widzi tylko pulpit i listę Startu, a każda nowość do przeklikania ma okno na swoim ekranie (odłożyć można raz). Każdy dostaje tylko to, do czego ma dostęp. Postęp osób jest niżej."
+            : "Start i nowości są dostępne, ale nikogo nie zatrzymują — zostaje tylko okno zmiany procesu."}
         </p>
       </div>
       <Button
@@ -126,7 +127,7 @@ function StartGateSwitch() {
         disabled={saving}
         onClick={() => void toggle()}
       >
-        {status.gate_on ? "Wyłącz blokadę" : "Włącz blokadę"}
+        {status.gate_on ? "Wyłącz obowiązek" : "Włącz obowiązek"}
       </Button>
     </section>
   );

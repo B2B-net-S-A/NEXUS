@@ -130,9 +130,30 @@ def test_new_tour_shows_the_card_until_later_and_again_after_a_reminder() -> Non
 
 
 def test_dot_never_shows_a_card() -> None:
-    assert (
-        shape_for_user(_novelty(tier="dot", steps=[]), None, NOW)["show_card"] is False
-    )
+    shaped = shape_for_user(_novelty(tier="dot", steps=[]), None, NOW)
+    assert shaped["show_card"] is False
+    # Drobiazg zalicza się pierwszym kliknięciem — bez obowiązkowego okna.
+    assert shaped["required_now"] is False and shaped["can_postpone"] is False
+
+
+def test_new_tour_is_required_until_postponed_once() -> None:
+    """Decyzja Artura z 30.10.2026: każdą nowość do przeklikania trzeba
+    przejść — okno przy wejściu na jej ekran, odłożyć można raz do rana."""
+    novelty = _novelty()
+    fresh = shape_for_user(novelty, None, NOW)
+    assert fresh["required_now"] is True and fresh["can_postpone"] is True
+    postponed = _row(postponed_until=NOW + timedelta(hours=10))
+    assert shape_for_user(novelty, postponed, NOW)["required_now"] is False
+    later = shape_for_user(novelty, postponed, NOW + timedelta(hours=11))
+    assert later["required_now"] is True and later["can_postpone"] is False
+    done = shape_for_user(novelty, _row(completed_at=NOW, completed_via="used"), NOW)
+    assert done["required_now"] is False
+    # Wyłącznik blokady (awaria, stack E2E) zdejmuje obowiązek z nowości,
+    # ale nie ze zmiany procesu.
+    off = shape_for_user(novelty, None, NOW, tours_mandatory=False)
+    assert off["required_now"] is False and off["can_postpone"] is False
+    process = _novelty(tier="process", path_prefix="/contracts")
+    assert shape_for_user(process, None, NOW, tours_mandatory=False)["required_now"]
 
 
 def test_process_change_is_required_until_postponed_once() -> None:
@@ -158,17 +179,18 @@ def test_events_count_views_and_keep_the_first_way_of_completing() -> None:
     assert row.completed_via == "tour" and row.completed_at == NOW
 
 
-def test_postponing_twice_or_a_tour_is_refused() -> None:
-    process = _novelty(tier="process", path_prefix="/contracts")
-    row = _row()
-    apply_event(row, process, "postponed", NOW)
-    with pytest.raises(HTTPException) as again:
-        apply_event(row, process, "postponed", NOW)
-    assert again.value.status_code == 409
-    assert again.value.detail["code"] == "postpone_used"
-    with pytest.raises(HTTPException) as tour:
-        apply_event(_row(), _novelty(), "postponed", NOW)
-    assert tour.value.detail["code"] == "postpone_not_allowed"
+def test_postponing_twice_or_a_dot_is_refused() -> None:
+    for novelty in (_novelty(tier="process", path_prefix="/contracts"), _novelty()):
+        row = _row()
+        apply_event(row, novelty, "postponed", NOW)
+        assert row.postponed_until is not None
+        with pytest.raises(HTTPException) as again:
+            apply_event(row, novelty, "postponed", NOW)
+        assert again.value.status_code == 409
+        assert again.value.detail["code"] == "postpone_used"
+    with pytest.raises(HTTPException) as dot:
+        apply_event(_row(), _novelty(tier="dot", steps=[]), "postponed", NOW)
+    assert dot.value.detail["code"] == "postpone_not_allowed"
 
 
 def test_postponed_until_next_morning_in_company_time() -> None:
@@ -538,3 +560,70 @@ async def test_start_progress_shows_in_the_adoption_panel(
     assert [(p["id"], p["start"], p["active"]) for p in panel] == [
         ("start-test", True, True)
     ]
+
+
+# ── Tylko to, do czego osoba ma dostęp (Artur, 30.10.2026) ────────────────────
+
+
+class _Person:
+    """Osoba po uwierzytelnieniu: role i sekcje z bazy (``effective_section_access``)."""
+
+    def __init__(self, roles: set[str], sections: dict[str, str]) -> None:
+        from app.models.user import UserRole
+
+        self._roles = [UserRole(r) for r in roles]
+        self.role = self._roles[0]
+        self.effective_section_access = sections
+
+    def get_all_roles(self):
+        return self._roles
+
+
+def test_novelty_of_a_section_without_read_access_is_not_for_the_person(
+    monkeypatch,
+) -> None:
+    from app.api import novelties as api
+
+    monkeypatch.setattr(api, "named_permissions_of", lambda user: set())
+    board = _novelty(section="pipeline", audience={"roles": ["recruiter"]})
+    with_pipeline = _Person({"recruiter"}, {"pipeline": "read"})
+    without_pipeline = _Person({"recruiter"}, {"pipeline": "none"})
+    assert api._audience_of(with_pipeline, board) is True
+    assert api._audience_of(without_pipeline, board) is False
+    # Bez sekcji decydują tylko odbiorcy.
+    assert api._audience_of(without_pipeline, _novelty()) is True
+
+
+def test_every_start_tour_on_a_section_screen_names_its_section() -> None:
+    """Pozycja Startu blokuje pracę — nie może trafić do osoby, która jej ekranu
+    nie otworzy. Ekrany z sekcją w middleware muszą ją mieć w rejestrze."""
+    screen_section = {
+        "/jobs": "pipeline",
+        "/candidates": "sourcing",
+        "/contracts": "delivery",
+        "/finance": "finance",
+        "/insights": "insights",
+    }
+    for tour in load_start_tours().values():
+        expected = next(
+            (
+                sec
+                for prefix, sec in screen_section.items()
+                if tour.href.startswith(prefix)
+            ),
+            None,
+        )
+        assert (tour.section.value if tour.section else None) == expected, tour.id
+    for novelty in load_novelties().values():
+        expected = next(
+            (
+                sec
+                for prefix, sec in screen_section.items()
+                if novelty.href.startswith(prefix)
+            ),
+            None,
+        )
+        if expected is not None:
+            assert novelty.section is not None and novelty.section.value == expected, (
+                novelty.id
+            )
