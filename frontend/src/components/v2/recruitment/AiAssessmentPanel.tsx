@@ -235,6 +235,7 @@ export function AiAssessmentPanel({
       aria-label="Ocena AI"
       className="flex h-full flex-col"
       data-testid="ai-assessment-panel"
+      data-tour="jobs.add.ai-panel"
     >
       <header className="space-y-2 border-b border-border px-5 pb-3 pt-4">
         <div className="flex items-start justify-between gap-3">
@@ -399,6 +400,7 @@ export function AssessWithAiButton({
       disabled={disabled || count === 0 || tooMany}
       title={tooMany ? `Oceniamy najwyżej ${AI_ASSESSMENT_MAX} osób naraz — odznacz część.` : undefined}
       data-testid="assess-with-ai"
+      data-tour="jobs.add.assess-ai"
     >
       <Sparkles className="h-3.5 w-3.5" aria-hidden /> Oceń z AI
     </Button>

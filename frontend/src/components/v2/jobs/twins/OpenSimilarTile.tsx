@@ -133,6 +133,7 @@ export function OpenSimilarTile({ jobId, enabled }: { jobId: number; enabled: bo
           <button
             type="button"
             data-testid="source-tile-open-similar"
+            data-tour="jobs.sources.open-similar"
             title="Otwarte rekrutacje podobne do tej — P1 na górze. Tu łączysz bliźniaka."
             className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
           >
@@ -143,7 +144,10 @@ export function OpenSimilarTile({ jobId, enabled }: { jobId: number; enabled: bo
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[min(560px,calc(100vw-32px))] p-0">
-          <div className="border-b border-border px-3 py-2">
+          <div
+            className="border-b border-border px-3 py-2"
+            data-tour="jobs.twins.open-similar-panel"
+          >
             <p className="text-sm font-semibold">Otwarte podobne</p>
             <p className="text-xs text-muted-foreground">Tylko otwarte, P1 na górze. Zamknięte są w „Podobnych rekrutacjach”.</p>
           </div>

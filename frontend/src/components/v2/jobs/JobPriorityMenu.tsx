@@ -162,6 +162,7 @@ export function JobPriorityMenu({
             className="hit-area inline-flex shrink-0 items-center gap-0.5 rounded-md hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             title="P0 — ultrapilne. Zmień priorytet"
             data-testid="job-header-priority"
+            data-tour="job.header.priority"
             data-priority="p0"
           >
             <P0Chip until={p0?.p0_until} reason={p0?.p0_reason} size="md" />
@@ -181,6 +182,7 @@ export function JobPriorityMenu({
               : `${PRIORITY_LEVEL_LABEL[value]} — zmień priorytet`
           }
           data-testid="job-header-priority"
+          data-tour="job.header.priority"
           data-priority={value}
           data-paused={valuePaused ? "true" : undefined}
         >
@@ -195,6 +197,7 @@ export function JobPriorityMenu({
           <DropdownMenuItem
             className="items-start"
             data-testid="job-priority-option-p0"
+            data-tour="job.priority.p0"
             onSelect={() => setP0DialogOpen(true)}
           >
             <span className="min-w-0">
@@ -212,6 +215,7 @@ export function JobPriorityMenu({
           <DropdownMenuItem
             className="items-start"
             data-testid="job-priority-option-p0-request"
+            data-tour="job.priority.p0"
             onSelect={() => setP0DialogOpen(true)}
           >
             <span className="min-w-0">

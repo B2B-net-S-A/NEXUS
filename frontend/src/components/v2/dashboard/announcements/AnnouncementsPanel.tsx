@@ -198,6 +198,7 @@ export function AnnouncementsPanel({ className }: { className?: string }) {
       aria-label="Ogłoszenia"
       className={cn("grid gap-2.5 rounded-xl border border-primary/30 bg-card p-3", className)}
       data-testid="announcements-panel"
+      data-tour="dashboard.announcements"
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <h2 className="text-base font-bold">

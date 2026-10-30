@@ -81,5 +81,275 @@
     "where": "Robot Jarvisa w rogu ekranu",
     "href": "/dashboard",
     "dot_anchor": "jarvis.mascot.hide"
+  },
+  {
+    "id": "blizniacze-rekrutacje",
+    "title": "Bliźniacze rekrutacje — jedna rozmowa pod dwie rekrutacje",
+    "why": "Podobne otwarte rekrutacje widzisz w kaflu „Otwarte podobne”. Połączone w bliźniaki dzielą jedną rozmowę: osobę weryfikujesz raz, pod obie naraz.",
+    "tier": "tour",
+    "shipped_on": "2026-10-29",
+    "pr": 2795,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Kandydaci do dodania",
+    "href": "/jobs",
+    "dot_anchor": "jobs.sources.open-similar",
+    "steps": [
+      {
+        "anchor": "jobs.sources.open-similar",
+        "text": "Kliknij kafel „Otwarte podobne”.",
+        "hint": "Stoi w pasku „Kandydaci do dodania” na Twojej rekrutacji. Pokazuje otwarte rekrutacje podobne do tej, P1 na górze."
+      },
+      {
+        "anchor": "jobs.twins.open-similar-panel",
+        "text": "Przy rekrutacji, którą da się połączyć, stoi „⇄ Bliźniak”.",
+        "hint": "Łączy DL rekrutacji albo HoR. W screeningu bliźniak jest zaznaczony zawsze — jedna rozmowa idzie pod obie rekrutacje.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "dodaj-inna-rekrutacje",
+    "title": "Sam dorzucasz osobie inną rekrutację",
+    "why": "Gdy osoba pasuje też gdzie indziej, nie czekasz na podpowiedź: w screeningu „+ Dodaj inną rekrutację”, na dalszych etapach „Dodaj też do rekrutacji…”.",
+    "tier": "tour",
+    "shipped_on": "2026-10-29",
+    "pr": 2826,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Screening dla",
+    "href": "/jobs",
+    "dot_anchor": "screening.joint.add-other",
+    "used_anchor": "person.dock.add-also",
+    "steps": [
+      {
+        "anchor": "screening.joint.add-other",
+        "text": "W „Screening dla” kliknij „+ Dodaj inną rekrutację”.",
+        "hint": "To w formularzu screeningu osoby, pod listą rekrutacji tej rozmowy."
+      },
+      {
+        "anchor": "screening.joint.add-search",
+        "text": "Tu wpisujesz numer, nazwę albo klienta rekrutacji.",
+        "hint": "„+ Dodaj i dołącz” doda osobę do Nowych i weźmie rekrutację do tej rozmowy. Nic nie musisz dodawać — „Zamknij” chowa pole.",
+        "ack": true
+      },
+      {
+        "anchor": "person.dock.more",
+        "text": "Na dalszych etapach otwórz „⋯” w panelu osoby.",
+        "hint": "To menu „Więcej akcji osoby” obok przycisków etapu."
+      },
+      {
+        "anchor": "person.dock.add-also",
+        "text": "„Dodaj też do rekrutacji…” doda osobę do Nowych innej rekrutacji.",
+        "hint": "Działa na każdym etapie, a osoba zostaje też w tej rekrutacji.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "nowe-cv-od-kandydata",
+    "title": "Nowe CV od kandydata: „Dodaj CV” w profilu i w rekrutacji",
+    "why": "CV przysłane na LinkedInie albo mailem wgrywasz jednym przyciskiem. Trafia do profilu i do rekrutacji w toku, a CV do klienta powstaje z nowego pliku.",
+    "tier": "tour",
+    "shipped_on": "2026-10-29",
+    "pr": 2827,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Profil kandydata → pasek osoby",
+    "href": "/candidates",
+    "dot_anchor": "candidate.profile.add-cv",
+    "used_anchor": "person.cv.upload-new",
+    "steps": [
+      {
+        "anchor": "candidate.profile.add-cv",
+        "text": "Na profilu kandydata kliknij „Dodaj CV”.",
+        "hint": "To przycisk w pasku osoby. Okno niczego nie zapisze, dopóki nie wybierzesz pliku."
+      },
+      {
+        "anchor": "candidate.add-cv.dialog",
+        "text": "Wybierasz plik i rekrutacje w toku, do których ma trafić.",
+        "hint": "W tych rekrutacjach NEXUS zrobi z niego CV do klienta albo zapyta, gdy obecne ktoś już poprawił. Bez pliku zamknij okno.",
+        "ack": true
+      },
+      {
+        "anchor": "person.cv.upload-new",
+        "text": "W rekrutacji to samo robi „Wgraj nowe CV” w sekcji „CV”.",
+        "hint": "Albo kafelek „Mam nowsze CV” w karcie „CV do klienta”. Nie musisz wracać do profilu.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "tryb-rozmowy-w-screeningu",
+    "title": "„Tryb rozmowy” i szersza kolumna w panelu osoby",
+    "why": "Na laptopie formularz screeningu był za ciasny. „Tryb rozmowy” zwija nagłówek osoby do jednej linii, a prawą kolumnę poszerzysz, przeciągając jej krawędź.",
+    "tier": "tour",
+    "shipped_on": "2026-10-29",
+    "pr": 2832,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → Rozwiń",
+    "href": "/jobs",
+    "dot_anchor": "person.panel.conversation-mode",
+    "used_anchor": "person.panel.conversation-mode",
+    "steps": [
+      {
+        "anchor": "person.panel.conversation-mode",
+        "text": "Kliknij „Tryb rozmowy” w pasku osoby.",
+        "hint": "Jest w rozwiniętym panelu osoby. Nagłówek i „Screening dla” zwiną się do linii; drugi klik wyłącza tryb."
+      },
+      {
+        "anchor": "person.panel.column-resize",
+        "text": "Tę krawędź przeciągasz, żeby poszerzyć prawą kolumnę.",
+        "hint": "Działa, gdy widać CV. Dwuklik wraca do szerokości domyślnej, a NEXUS zapamięta Twój układ.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "rekrutacje-bez-ruchu",
+    "title": "Rekrutacje bez ruchu: 14 dni DL, 21 dni HoR, po 28 NEXUS zamyka",
+    "why": "Bez CV do klienta i odpowiedzi klienta po 14 dniach przypomnienie dostaje DL, po 21 także HoR, a po 28 NEXUS zamyka rekrutację jako przegraną.",
+    "tier": "process",
+    "shipped_on": "2026-10-29",
+    "pr": 2794,
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacje → rekrutacja → pasek nad Tablicą",
+    "href": "/jobs",
+    "path_prefix": "/jobs",
+    "dot_anchor": "job.idle.banner",
+    "used_anchor": "job.idle.snooze",
+    "steps": [
+      {
+        "anchor": "jobs.list.title",
+        "text": "Otwórz dowolną swoją rekrutację — kliknij jej nazwę.",
+        "hint": "Niczego nie zmienisz. Przeklikanie pokaże, gdzie stoi pasek rekrutacji bez ruchu."
+      },
+      {
+        "anchor": "job.idle.banner",
+        "text": "Rekrutacja bez ruchu od 14 dni ma nad Tablicą taki pasek.",
+        "hint": "Ruch to CV do klienta albo odpowiedź klienta. Screening i notatki licznika nie zerują. Pasek widzi DL tej rekrutacji.",
+        "ack": true
+      },
+      {
+        "anchor": "job.idle.snooze",
+        "text": "„Jeszcze trwa” liczy od nowa, „Zamknij…” zamyka rekrutację teraz.",
+        "hint": "Bez decyzji po 21 dniach przypomnienie dostaje też HoR, a po 28 NEXUS zamyka rekrutację. Zamkniętą otworzysz ponownie.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "p0-ultrapilne-24h",
+    "title": "P0 — ultrapilne przez 24 godziny, DL prosi o P0",
+    "why": "Rekrutacja z P0 stoi na górze listy i Daily, a jej zespół widzi ją w górnym pasku. HoR ustawia P0 od razu, DL rekrutacji o nie prosi. Po terminie znika.",
+    "tier": "tour",
+    "shipped_on": "2026-10-28",
+    "pr": 2774,
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Rekrutacja → priorytet przy tytule",
+    "href": "/jobs",
+    "dot_anchor": "job.header.priority",
+    "used_anchor": "job.priority.p0",
+    "steps": [
+      {
+        "anchor": "job.header.priority",
+        "text": "Kliknij plakietkę priorytetu przy tytule rekrutacji.",
+        "hint": "Otworzy się menu priorytetu. Samo otwarcie niczego nie zmienia."
+      },
+      {
+        "anchor": "job.priority.p0",
+        "text": "Tu jest „P0 Teraz” albo „Poproś o P0…”.",
+        "hint": "Wybierasz powód i czas: 24 h, 48 h albo do piątku. Prośbę DL zatwierdza HoR. Priorytet pod spodem zostaje po terminie.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "ocen-z-ai-zaznaczonych",
+    "title": "„Oceń z AI” na zaznaczonych osobach",
+    "why": "Zamiast czytać CV po kolei zaznaczasz do 30 osób, a AI układa je w kolejności dzwonienia: Dzwoń, Może, Nie pasuje — z cytatem z CV. CV nie wychodzi poza NEXUSA.",
+    "tier": "tour",
+    "shipped_on": "2026-10-29",
+    "pr": 2778,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → Kandydaci do dodania",
+    "href": "/jobs",
+    "dot_anchor": "jobs.add.assess-ai",
+    "used_anchor": "jobs.add.assess-ai",
+    "steps": [
+      {
+        "anchor": "jobs.sources.search",
+        "text": "Kliknij „Szukaj w bazie”.",
+        "hint": "To przycisk w pasku „Kandydaci do dodania” na Twojej rekrutacji."
+      },
+      {
+        "anchor": "jobs.add.manual-tab",
+        "text": "Przejdź na zakładkę „Szukaj ręcznie”.",
+        "hint": "„Oceń z AI” jest też w „Propozycjach z bazy” i „Nowych z ogłoszeń”, w stopce."
+      },
+      {
+        "anchor": "candidates.list.select",
+        "text": "Zaznacz kilka osób.",
+        "hint": "Najwyżej 30 naraz. Zaznaczenie niczego nie dodaje do rekrutacji."
+      },
+      {
+        "anchor": "jobs.add.assess-ai",
+        "text": "Kliknij „Oceń z AI”.",
+        "hint": "Ocena trwa kilka sekund i zapisuje się przy rekrutacji. Nikt nie trafia do Nowych sam."
+      },
+      {
+        "anchor": "jobs.add.ai-panel",
+        "text": "Osoby w kolejności dzwonienia, każda z powodem i cytatem.",
+        "hint": "„Dodaj „Dzwoń” do Nowych” doda je w tej kolejności. AI niczego nie odrzuca — decyzja jest Twoja.",
+        "ack": true
+      }
+    ]
+  },
+  {
+    "id": "ogloszenia-na-pulpicie",
+    "title": "Ogłoszenia na pulpicie",
+    "why": "Ważne sprawy zespołu są teraz na górze pulpitu. Kliknij „Przeczytane”, żeby ogłoszenie zniknęło z nieprzeczytanych. Publikują HoR i admin.",
+    "tier": "dot",
+    "shipped_on": "2026-10-29",
+    "pr": 2786,
+    "where": "Pulpit → Ogłoszenia",
+    "href": "/dashboard",
+    "dot_anchor": "dashboard.announcements"
   }
 ]

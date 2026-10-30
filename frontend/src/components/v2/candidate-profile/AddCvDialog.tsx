@@ -159,7 +159,11 @@ export function AddCvDialog({
 
   return (
     <Dialog open={open} onOpenChange={close}>
-      <DialogContent className="max-w-lg" data-testid="add-cv-dialog">
+      <DialogContent
+        className="max-w-lg"
+        data-testid="add-cv-dialog"
+        data-tour="candidate.add-cv.dialog"
+      >
         <DialogHeader>
           <DialogTitle>Dodaj CV · {candidateName}</DialogTitle>
           <DialogDescription>Np. CV, które kandydat przysłał na LinkedInie albo mailem.</DialogDescription>
