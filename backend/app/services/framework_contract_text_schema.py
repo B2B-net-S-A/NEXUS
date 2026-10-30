@@ -90,8 +90,7 @@ AMENDMENT_DOWNGRADE_DDL = (
     "DELETE FROM client_framework_contract_chunks WHERE amendment_id IS NOT NULL",
     "DROP INDEX IF EXISTS ux_client_framework_contract_chunks_amendment",
     "DROP INDEX IF EXISTS ux_client_framework_contract_chunks_contract",
-    "ALTER TABLE client_framework_contract_chunks "
-    "DROP COLUMN IF EXISTS amendment_id",
+    "ALTER TABLE client_framework_contract_chunks DROP COLUMN IF EXISTS amendment_id",
     "ALTER TABLE client_framework_contract_chunks "
     "ADD CONSTRAINT uq_client_framework_contract_chunks_position "
     "UNIQUE (framework_contract_id, chunk_index)",
