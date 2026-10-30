@@ -16,13 +16,16 @@ Liczymy od 12.10.2026 — od tego dnia zespół pracuje w NEXUSIE.
 * **Godzina pracy** — co najmniej ``work_hour_min_points`` albo prep
   ustawiony z NEXUSA trwający ≥ 30 min w tej godzinie; liczona 8:00–18:00.
   Godzina z samych drobnych akcji przy jednym kandydacie się nie liczy.
-* **Czas pracy** (29.10.2026) — suma odcinków, w których osoba coś robi
-  w NEXUSIE: akcje (także te bez punktów, poza automatem) i prepy. 30 min
-  bez akcji i bez prepa = przerwa, nie praca. Minimum to 8 h dziennie (``min_work_hours``); poniżej średnio
-  8 h nikt nie jest wzorem ani nie ma „wysokiej” intensywności.
-* **Intensywność dnia (0–100)** — ½ × godziny pracy / norma godzin + ½ ×
-  punkty dnia / norma punktów, każda część najwyżej 1. Pół dnia urlopu
+* **Bez godzin pracy** (decyzja Artura 30.10.2026) — akcje w NEXUSIE nie
+  mierzą obecności (telefon, rozmowa, LinkedIn wyglądają jak cisza), więc nie
+  liczymy „czasu pracy” ani minimum 8 h. Przerwa to godzina bez akcji i bez
+  prepa w środku dnia (``day_gaps``) — widoczna, niczego nie odejmuje.
+* **Intensywność dnia (0–100)** — ½ × godziny pracy / norma aktywnych godzin
+  + ½ × punkty dnia / norma punktów, każda część najwyżej 1. Pół dnia urlopu
   obniża obie normy o połowę, cały dzień urlopu nie liczy się wcale.
+* **Wzorzec i trend** (30.10.2026) — typowy dzień osoby ze średnich punktów
+  w godzinach pełnych dni (``person_pattern``) i średnia intensywność
+  ostatnich 5 dni roboczych wobec 5 wcześniejszych (``person_trend``).
 * **Podpowiedź dla lidera** — intensywność okresu zestawiona z CV do klienta
   (zasługa jak w celach, z migawki ``credited``) wobec mediany zespołu.
 
@@ -86,8 +89,8 @@ DEFAULT_RULES: dict[str, Any] = {
     # Progi poziomów godziny = kwartyle zespołu od 12.10 (P25 3,5 · P50 11 · P75 25).
     "hour_levels": [4, 11, 25],
     "work_hour_min_points": 4,
-    # Minimum czasu pracy dziennie i norma godzin intensywnych (decyzja Artura 29.10.2026).
-    "min_work_hours": 8,
+    # Norma aktywnych godzin dnia — nie minimum czasu pracy (decyzja Artura 30.10.2026).
+    "norm_active_hours": 8,
     "norm_day_points": 120,
     "level_high": 75,
     "level_mid": 50,
@@ -102,8 +105,6 @@ DEFAULT_RULES: dict[str, Any] = {
     "stage_return_points": 0,
     "contacts_per_day": 10,
     "thin_hour_candidates": 2,
-    # 30 min bez akcji i bez prepa = przerwa (decyzja Artura 29.10.2026).
-    "break_minutes": 30,
 }
 GUARD_FIELDS: tuple[str, ...] = (
     "auto_cv_points",
@@ -114,7 +115,6 @@ GUARD_FIELDS: tuple[str, ...] = (
     "stage_return_points",
     "contacts_per_day",
     "thin_hour_candidates",
-    "break_minutes",
 )
 _FLOAT_GUARDS = frozenset({"auto_cv_points", "stage_return_points"})
 
@@ -133,7 +133,7 @@ class Rules:
     weights: Mapping[str, float]
     hour_levels: tuple[float, float, float]
     work_hour_min_points: float
-    min_work_hours: float
+    norm_active_hours: float
     norm_day_points: float
     level_high: int
     level_mid: int
@@ -147,14 +147,13 @@ class Rules:
     stage_return_points: float = 0
     contacts_per_day: int = 10
     thin_hour_candidates: int = 2
-    break_minutes: int = 30
 
     def as_json(self) -> dict[str, Any]:
         return {
             "weights": {k: self.weights[k] for k in KINDS},
             "hour_levels": list(self.hour_levels),
             "work_hour_min_points": self.work_hour_min_points,
-            "min_work_hours": self.min_work_hours,
+            "norm_active_hours": self.norm_active_hours,
             "norm_day_points": self.norm_day_points,
             "level_high": self.level_high,
             "level_mid": self.level_mid,
@@ -173,7 +172,7 @@ def rules_from_json(raw: Mapping[str, Any] | None) -> Rules:
         weights={k: float(weights[k]) for k in KINDS},
         hour_levels=(levels[0], levels[1], levels[2]),
         work_hour_min_points=float(data["work_hour_min_points"]),
-        min_work_hours=float(data["min_work_hours"]),
+        norm_active_hours=float(data["norm_active_hours"]),
         norm_day_points=float(data["norm_day_points"]),
         level_high=int(data["level_high"]),
         level_mid=int(data["level_mid"]),
@@ -259,7 +258,7 @@ def day_index(
         return None
     hours = work_hours(points, meetings, rules, thin=thin)
     day_points = sum(points.values())
-    coverage = min(1.0, hours / (rules.min_work_hours * available))
+    coverage = min(1.0, hours / (rules.norm_active_hours * available))
     volume = min(1.0, day_points / (rules.norm_day_points * available))
     return round((coverage + volume) / 2 * 100)
 
@@ -280,77 +279,166 @@ def intensity_level(index: int | None, rules: Rules) -> str | None:
     return "low"
 
 
-def gate_index(index: int | None, work_time: float | None, rules: Rules) -> int | None:
-    """Poniżej minimum godzin nie ma „wysokiej” intensywności (najwyżej próg − 1)."""
-    if index is None or work_time is None or work_time >= rules.min_work_hours:
-        return index
-    return min(index, rules.level_high - 1)
+def diagnose(index: int | None, results_pct: float | None, rules: Rules) -> str | None:
+    """Podpowiedź dla lidera z intensywności i wyników (bez godzin, 30.10.2026).
 
-
-def gated_day_index(
-    points: Mapping[int, float],
-    meetings: Iterable[int],
-    rules: Rules,
-    *,
-    available: float,
-    work_time: float | None,
-    thin: Iterable[int] = (),
-) -> int | None:
-    """Intensywność dnia z bramką minimum godzin (pół dnia urlopu = pół minimum)."""
-    index = day_index(points, meetings, rules, available=available, thin=thin)
-    if index is None or work_time is None:
-        return index
-    return gate_index(index, work_time / available, rules)
-
-
-def diagnose(
-    index: int | None,
-    results_pct: float | None,
-    rules: Rules,
-    *,
-    work_time: float | None,
-) -> str | None:
-    """Podpowiedź dla lidera — najpierw minimum 8 h, potem intensywność i wyniki.
-
-    Poniżej minimum: ``short_good`` (dobre wyniki, za mało godzin) albo
-    ``more_work``. Przy minimum: ``model`` · ``quality`` (dużo pracy, mało CV) ·
-    ``idle`` (jest w NEXUSIE, ale mało robi).
+    ``model`` · ``quality`` (intensywnie, mało CV) · ``efficient`` (wynik przy
+    niskiej intensywności w NEXUSIE — część pracy dzieje się poza nim) ·
+    ``more_work`` (mało pracy i słabe wyniki).
     """
-    if index is None or results_pct is None or work_time is None:
+    if index is None or results_pct is None:
         return None
     good = results_pct >= rules.diag_results_pct
-    if work_time < rules.min_work_hours:
-        return "short_good" if good else "more_work"
-    if index < rules.diag_intensity:
-        return "idle"
-    return "model" if good else "quality"
+    if index >= rules.diag_intensity:
+        return "model" if good else "quality"
+    return "efficient" if good else "more_work"
 
 
-def worked_time(
-    stamps: Iterable[datetime],
-    meetings: Iterable[tuple[datetime, datetime]],
-    rules: Rules,
-) -> tuple[float, list[tuple[datetime, datetime]]]:
-    """Czas pracy w godzinach i jego odcinki.
+def _active_hours(day: Mapping[str, Any], rules: Rules) -> list[int]:
+    """Godziny dnia z pracą: dość punktów (bez samych drobiazgów) albo prep."""
+    return [
+        h
+        for h, pts, met, thin in zip(HOURS, day["points"], day["meetings"], day["thin"])
+        if met or (pts >= rules.work_hour_min_points and not thin)
+    ]
 
-    Akcje bliżej siebie niż ``break_minutes`` (i prepy, w całości) tworzą jeden
-    odcinek pracy; dłuższa cisza to przerwa. Pojedyncza akcja bez sąsiadów nie
-    daje czasu — nie wiemy, ile trwała.
+
+def day_gaps(day: Mapping[str, Any], rules: Rules) -> list[tuple[int, int]]:
+    """Przerwy dnia jako ``[od, do)`` w pełnych godzinach: godziny bez żadnej
+    akcji i bez prepa między pierwszą a ostatnią aktywną godziną."""
+    active = _active_hours(day, rules)
+    if not active:
+        return []
+    # Akcja za 0 pkt (limit kontaktów, powtórka) to wciąż praca — przegląd 30.10.
+    touched = day.get("touched") or [p > 0 for p in day["points"]]
+    gaps: list[tuple[int, int]] = []
+    run: list[int] = []
+    for h, pts, met, hit in zip(HOURS, day["points"], day["meetings"], touched):
+        if not active[0] < h < active[-1]:
+            continue
+        if pts <= 0 and not hit and not met:
+            run.append(h)
+            continue
+        if run:
+            gaps.append((run[0], run[-1] + 1))
+            run = []
+    if run:
+        gaps.append((run[0], run[-1] + 1))
+    return gaps
+
+
+PATTERN_MIN_DAYS = 3
+
+
+def person_pattern(days: Sequence[Mapping[str, Any]], rules: Rules) -> dict[str, Any]:
+    """Typowy dzień osoby ze zwykłych, zakończonych dni bez urlopu.
+
+    ``profile`` = średnie punkty w każdej godzinie ``HOURS``; ``typical_start``
+    i ``typical_end`` = mediana pierwszej aktywnej godziny i końca ostatniej;
+    ``start_spread`` = odchylenie startu w godzinach; ``morning_share`` = %
+    punktów 8–12 wobec 8–18. Poniżej ``PATTERN_MIN_DAYS`` dni wzorca nie ma.
     """
-    spans = sorted([(t, t) for t in stamps] + [(s, e) for s, e in meetings])
-    if not spans:
-        return 0.0, []
-    gap = timedelta(minutes=rules.break_minutes)
-    merged = [spans[0]]
-    for start, end in spans[1:]:
-        last_start, last_end = merged[-1]
-        if start - last_end < gap:
-            merged[-1] = (last_start, max(last_end, end))
-        else:
-            merged.append((start, end))
-    # Pełne minuty w dół: 7:59:46 to 7 h 59, nigdy „8 h” po zaokrągleniu.
-    minutes = int(sum((e - s).total_seconds() for s, e in merged) // 60)
-    return minutes / 60, merged
+    full = [
+        d
+        for d in days
+        if not d["before_start"]
+        and not d.get("in_progress")
+        and d["leave"] == 0
+        and d["index"] is not None
+    ]
+    empty: dict[str, Any] = {
+        "pattern_days": len(full),
+        "profile": None,
+        "typical_start": None,
+        "typical_end": None,
+        "start_spread": None,
+        "peak_hour": None,
+        "morning_share": None,
+    }
+    if len(full) < PATTERN_MIN_DAYS:
+        return empty
+    profile = [
+        round(statistics.mean(d["points"][i] for d in full), 1)
+        for i in range(len(HOURS))
+    ]
+    spans = [hours for d in full if (hours := _active_hours(d, rules))]
+    starts = [hours[0] for hours in spans]
+    morning = sum(p for h, p in zip(HOURS, profile) if 8 <= h < 12)
+    day_total = sum(p for h, p in zip(HOURS, profile) if 8 <= h < 18)
+    return {
+        **empty,
+        "profile": profile,
+        "typical_start": statistics.median(starts) if starts else None,
+        "typical_end": (
+            statistics.median(hours[-1] + 1 for hours in spans) if spans else None
+        ),
+        "start_spread": round(statistics.pstdev(starts), 1)
+        if len(starts) > 1
+        else None,
+        "peak_hour": HOURS[profile.index(max(profile))] if max(profile) > 0 else None,
+        "morning_share": round(100 * morning / day_total) if day_total else None,
+    }
+
+
+TREND_DAYS = 5
+
+
+def trend_days(start: date, end: date) -> list[date]:
+    """Dni źródłowe trendu: okno i dwa tygodnie przed nim (nie przed startem).
+
+    Domyślne okno to 10 dni roboczych razem z dzisiejszym — zakończonych jest 9,
+    więc bez dni sprzed okna trend porównywałby 5 dni z 4 (przegląd 30.10.2026).
+    """
+    return business_days(max(RHYTHM_START, start - timedelta(days=14)), end)
+
+
+def trend_periods(
+    days: Sequence[date], *, today: date | None
+) -> tuple[list[date], list[date]]:
+    """Ostatnie ``TREND_DAYS`` zakończonych dni roboczych okna i tyle samo wcześniej."""
+    done = [d for d in days if d != today]
+    last = done[-TREND_DAYS:]
+    prev = done[-2 * TREND_DAYS : -TREND_DAYS]
+    return (prev, last) if prev else ([], [])
+
+
+def person_trend(
+    days: Sequence[Mapping[str, Any]], prev: Sequence[date], last: Sequence[date]
+) -> dict[str, int | None]:
+    """Średnia intensywność dni pracy w obu częściach i zmiana między nimi."""
+
+    def mean_index(period: Sequence[date]) -> int | None:
+        wanted = set(period)
+        return period_index(
+            d["index"]
+            for d in days
+            if d["date"] in wanted
+            and not d.get("in_progress")
+            and not d["before_start"]
+        )
+
+    before, after = mean_index(prev), mean_index(last)
+    return {
+        "trend_prev": before,
+        "trend_last": after,
+        "trend": after - before if before is not None and after is not None else None,
+    }
+
+
+def team_day_index(
+    people: Sequence[Mapping[str, Any]], days: Sequence[date]
+) -> dict[date, float | None]:
+    """Mediana intensywności dnia wśród osób, które tego dnia pracowały w NEXUSIE."""
+    out: dict[date, float | None] = {}
+    for day in days:
+        values = [
+            d["index"]
+            for p in people
+            for d in p["days"]
+            if d["date"] == day and d["index"] is not None and d["day_points"] > 0
+        ]
+        out[day] = statistics.median(values) if values else None
+    return out
 
 
 @dataclass(frozen=True)
@@ -677,7 +765,8 @@ class DayCell:
     counts: dict[int, int] = field(default_factory=lambda: defaultdict(int))
     skipped: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     thin: set[int] = field(default_factory=set)
-    stamps: list[datetime] = field(default_factory=list)
+    # Godziny z jakąkolwiek akcją osoby (także za 0 pkt), poza automatem.
+    touched: set[int] = field(default_factory=set)
     first: datetime | None = None
     last: datetime | None = None
 
@@ -718,10 +807,8 @@ def build_cells(
         for e, points, reason in items:
             hour = e.ts.hour
             cell.points[hour] += points
-            # Akcja bez punktów (podgląd ponad limit, powtórka) to wciąż chwila
-            # pracy — liczy się do czasu pracy; automat nie (Artur 29.10.2026).
             if reason != "automat":
-                cell.stamps.append(e.ts)
+                cell.touched.add(hour)
             if reason is None:
                 cell.counts[hour] += 1
             else:
@@ -735,21 +822,16 @@ def build_cells(
 
 async def _meetings(
     db: AsyncSession, ids: Sequence[int], start: date, end: date
-) -> tuple[
-    dict[tuple[int, date], set[int]],
-    dict[tuple[int, date], list[tuple[datetime, datetime]]],
-]:
-    """Prepy osoby: godziny z ≥ 30 min prepa i same odcinki (do czasu pracy)."""
+) -> dict[tuple[int, date], set[int]]:
+    """Prepy osoby: godziny z ≥ 30 min prepa."""
     rows = (
         await db.execute(text(_MEETINGS_SQL), {"ids": list(ids), **_bounds(start, end)})
     ).all()
     hours: dict[tuple[int, date], set[int]] = defaultdict(set)
-    spans: dict[tuple[int, date], list[tuple[datetime, datetime]]] = defaultdict(list)
     for row in rows:
-        spans[(int(row.uid), row.s.date())].append((row.s, row.e))
         for day, hour in meeting_hours(row.s, row.e):
             hours[(int(row.uid), day)].add(hour)
-    return hours, spans
+    return hours
 
 
 def meeting_hours(start: datetime, end: datetime) -> list[tuple[date, int]]:
@@ -786,30 +868,15 @@ def summarize_days(
 
     Liczą się tylko dni zakończone i od założenia konta: dzisiejszy dzień
     (``in_progress``) i dni przed kontem (``before_start``) zostają na ekranie,
-    ale nie wchodzą do średniej, dni pracy, urlopu ani median. Czas pracy dnia
-    z pół dnia urlopu przeliczamy na pełny etat (4 h z 4 = 8 h).
+    ale nie wchodzą do średniej, dni pracy, urlopu ani median.
     """
     counted = [
         d for d in person_days if not d["before_start"] and not d.get("in_progress")
     ]
     worked = [d for d in counted if d["index"] is not None]
     worked_days = round(sum(1.0 - d["leave"] for d in counted), 1)
-    timed = [
-        (d["work_time"], 1.0 - d["leave"])
-        for d in counted
-        if d.get("work_time") is not None and d["leave"] < 1
-    ]
-    # Bez zaokrąglania przed porównaniem z minimum: średnia 7,96 h to nie 8 h.
-    avg_work_time = statistics.mean(t / share for t, share in timed) if timed else None
-    index = gate_index(period_index(d["index"] for d in worked), avg_work_time, rules)
     return {
-        "index": index,
-        # Bez zaokrąglenia — ta sama liczba idzie do bramki, podpowiedzi i na ekran.
-        "avg_work_time": avg_work_time,
-        "full_days": sum(
-            1 for t, share in timed if t >= rules.min_work_hours * share - 1e-9
-        ),
-        "timed_days": len(timed),
+        "index": period_index(d["index"] for d in worked),
         "worked_days": worked_days,
         "leave_days": round(len(counted) - worked_days, 1),
         "days_before_start": sum(1 for d in person_days if d["before_start"]),
@@ -862,13 +929,21 @@ async def build_rhythm(
             "rules": rules.as_json(),
             "people": [],
             "team_cv_per_day_median": None,
+            "team_day_index": {},
+            "team_profile": None,
+            "trend_prev": [],
+            "trend_last": [],
         }
 
+    # Dni sprzed okna liczą się tylko do trendu (poprzednie 5 dni zakończonych).
+    source_days = trend_days(start, end)
+    trend_prev, trend_last = trend_periods(source_days, today=today)
+    load_start = min(source_days[0], start) if source_days else start
     cells = build_cells(
-        classify_events(await _raw_events(db, ids, start, end), rules), rules
+        classify_events(await _raw_events(db, ids, load_start, end), rules), rules
     )
-    meetings, meeting_spans = await _meetings(db, ids, start, end)
-    absence = await absence_by_user(db, ids, start, end)
+    meetings = await _meetings(db, ids, load_start, end)
+    absence = await absence_by_user(db, ids, load_start, end)
     cv_end = end - timedelta(days=1) if today is not None and end >= today else end
     cv_sent = (
         await _cv_sent(db, ids, start, cv_end)
@@ -880,56 +955,51 @@ async def build_rhythm(
     for user in people:
         absent = absence.get(user.id, {})
         started = account_start(user)
-        person_days: list[dict[str, Any]] = []
-        for day in days:
+        rows: list[dict[str, Any]] = []
+        for day in sorted(set(source_days) | set(days)):
             cell = cells.get((user.id, day), DayCell())
-            spans_today = meeting_spans.get((user.id, day), [])
             met = meetings.get((user.id, day), set())
             points = {h: cell.points.get(h, 0.0) for h in range(24)}
             before_start = started is not None and day < started
             available = (
                 0.0 if before_start else max(0.0, 1.0 - min(1.0, absent.get(day, 0.0)))
             )
-            day_time = (
-                worked_time(cell.stamps, spans_today, rules)[0]
+            row = {
+                "date": day,
+                "before_start": before_start,
+                "in_progress": day == today,
+                "leave": 0.0 if before_start else round(1.0 - available, 2),
+                "points": [round(points[h], 1) for h in HOURS],
+                "levels": [hour_level(points[h], rules) for h in HOURS],
+                "counts": [cell.counts.get(h, 0) for h in HOURS],
+                "thin": [h in cell.thin for h in HOURS],
+                "skipped": {k: round(v, 1) for k, v in cell.skipped.items()},
+                "meetings": [h in met for h in HOURS],
+                "first": cell.first.strftime("%H:%M") if cell.first else None,
+                "last": cell.last.strftime("%H:%M") if cell.last else None,
+                "work_hours": work_hours(points, met, rules, thin=cell.thin)
                 if available > 0
-                else None
+                else None,
+                "day_points": round(sum(points.values()), 1),
+                "index": day_index(
+                    points, met, rules, available=available, thin=cell.thin
+                ),
+            }
+            touched = [h in cell.touched for h in HOURS]
+            row["gaps"] = (
+                [list(g) for g in day_gaps({**row, "touched": touched}, rules)]
+                if available > 0
+                else []
             )
-            person_days.append(
-                {
-                    "date": day,
-                    "before_start": before_start,
-                    "in_progress": day == today,
-                    "leave": 0.0 if before_start else round(1.0 - available, 2),
-                    "points": [round(points[h], 1) for h in HOURS],
-                    "levels": [hour_level(points[h], rules) for h in HOURS],
-                    "counts": [cell.counts.get(h, 0) for h in HOURS],
-                    "thin": [h in cell.thin for h in HOURS],
-                    "skipped": {k: round(v, 1) for k, v in cell.skipped.items()},
-                    "meetings": [h in met for h in HOURS],
-                    "first": cell.first.strftime("%H:%M") if cell.first else None,
-                    "last": cell.last.strftime("%H:%M") if cell.last else None,
-                    "work_hours": work_hours(points, met, rules, thin=cell.thin)
-                    if available > 0
-                    else None,
-                    "work_time": day_time,
-                    "day_points": round(sum(points.values()), 1),
-                    # Dzień, który trwa, bez bramki — rano zawsze brakuje godzin.
-                    "index": gated_day_index(
-                        points,
-                        met,
-                        rules,
-                        available=available,
-                        work_time=None if day == today else day_time,
-                        thin=cell.thin,
-                    ),
-                }
-            )
+            rows.append(row)
+        person_days = [r for r in rows if start <= r["date"] <= end]
         entry: dict[str, Any] = {
             "user_id": user.id,
             "name": user.name,
             "days": person_days,
             **summarize_days(person_days, rules),
+            **person_pattern(person_days, rules),
+            **person_trend(rows, trend_prev, trend_last),
         }
         entry["level"] = intensity_level(entry["index"], rules)
         if with_results:
@@ -950,9 +1020,8 @@ async def build_rhythm(
                 else None
             )
             p["results_pct"] = pct
-            p["diagnosis"] = diagnose(
-                p["index"], pct, rules, work_time=p["avg_work_time"]
-            )
+            p["diagnosis"] = diagnose(p["index"], pct, rules)
+    profiles = [p["profile"] for p in out_people if p["profile"] is not None]
     return {
         "from": start,
         "to": end,
@@ -960,6 +1029,16 @@ async def build_rhythm(
         "rules": rules.as_json(),
         "people": out_people,
         "team_cv_per_day_median": team_median,
+        "team_day_index": {
+            d.isoformat(): v for d, v in team_day_index(out_people, days).items()
+        },
+        "team_profile": (
+            [round(statistics.median(col), 1) for col in zip(*profiles)]
+            if profiles
+            else None
+        ),
+        "trend_prev": trend_prev,
+        "trend_last": trend_last,
     }
 
 
@@ -1041,9 +1120,7 @@ async def build_day(db: AsyncSession, user_id: int, day: date) -> dict[str, Any]
     raw = await _raw_events(db, [u.id for u in people], day, day)
     classified = [c for c in classify_events(raw, rules) if c[0].uid == user_id]
     cell = build_cells(classified, rules).get((user_id, day), DayCell())
-    hours, spans = await _meetings(db, [user_id], day, day)
-    met = hours.get((user_id, day), set())
-    time_h, work_spans = worked_time(cell.stamps, spans.get((user_id, day), []), rules)
+    met = (await _meetings(db, [user_id], day, day)).get((user_id, day), set())
     cand_ids = {cid for e, _, _ in classified if (cid := candidate_id_of(e.src, e.ent))}
     names: dict[int, str] = {}
     if cand_ids:
@@ -1054,16 +1131,21 @@ async def build_day(db: AsyncSession, user_id: int, day: date) -> dict[str, Any]
         names = {
             int(r.id): " ".join(p for p in (r.name, r.lastname) if p) for r in rows
         }
+    shape = {
+        "points": [cell.points.get(h, 0.0) for h in HOURS],
+        "meetings": [h in met for h in HOURS],
+        "thin": [h in cell.thin for h in HOURS],
+        "touched": [h in cell.touched for h in HOURS],
+    }
     return {
         "user_id": user_id,
         "name": person.name,
         "date": day,
+        "gaps": [list(g) for g in day_gaps(shape, rules)],
         "points": [round(cell.points.get(h, 0.0), 1) for h in HOURS],
         "meetings": [h in met for h in HOURS],
         "thin": [h in cell.thin for h in HOURS],
         "skipped": {k: round(v, 1) for k, v in cell.skipped.items()},
-        "work_time": round(time_h, 2),
-        "spans": [[s.strftime("%H:%M"), e.strftime("%H:%M")] for s, e in work_spans],
         "events": [
             {
                 "time": e.ts.strftime("%H:%M"),

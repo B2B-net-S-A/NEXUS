@@ -53,7 +53,7 @@ class WorkRhythmRulesIn(BaseModel):
     weights: dict[str, float]
     hour_levels: list[float] = Field(min_length=3, max_length=3)
     work_hour_min_points: float = Field(gt=0, le=100)
-    min_work_hours: float = Field(ge=1, le=10)
+    norm_active_hours: float = Field(DEFAULT_RULES["norm_active_hours"], ge=1, le=10)
     norm_day_points: float = Field(ge=10, le=1000)
     level_high: int = Field(ge=1, le=100)
     level_mid: int = Field(ge=1, le=100)
@@ -74,7 +74,6 @@ class WorkRhythmRulesIn(BaseModel):
     thin_hour_candidates: int = Field(
         DEFAULT_RULES["thin_hour_candidates"], ge=0, le=10
     )
-    break_minutes: int = Field(DEFAULT_RULES["break_minutes"], ge=10, le=180)
 
     @model_validator(mode="after")
     def _consistent(self) -> "WorkRhythmRulesIn":
@@ -107,7 +106,7 @@ async def insights_work_rhythm(
     rules_hash = hashlib.sha1(
         json.dumps(rules.as_json(), sort_keys=True).encode()
     ).hexdigest()[:10]
-    cache_key = f"insights:work-rhythm:v2:{start}:{end}:{today}:{rules_hash}"
+    cache_key = f"insights:work-rhythm:v3:{start}:{end}:{today}:{rules_hash}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is None:

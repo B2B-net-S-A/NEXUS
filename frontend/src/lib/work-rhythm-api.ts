@@ -32,7 +32,8 @@ export interface WorkRhythmRules {
   /** Progi poziomu godziny: od ilu punktów robocza, intensywna, bardzo intensywna. */
   hour_levels: [number, number, number];
   work_hour_min_points: number;
-  min_work_hours: number;
+  /** Norma aktywnych godzin dnia do intensywności — nie minimum czasu pracy (30.10.2026). */
+  norm_active_hours: number;
   norm_day_points: number;
   level_high: number;
   level_mid: number;
@@ -47,8 +48,6 @@ export interface WorkRhythmRules {
   stage_return_points: number;
   contacts_per_day: number;
   thin_hour_candidates: number;
-  /** Tyle minut bez akcji i bez prepa to przerwa, nie praca. */
-  break_minutes: number;
 }
 
 /** Powody, dla których akcja nie dała punktów — lustro `SKIP_REASONS` z serwera. */
@@ -89,16 +88,16 @@ export interface WorkRhythmDay {
   first: string | null;
   last: string | null;
   work_hours: number | null;
-  /** Czas pracy dnia w godzinach; `null` = dzień nie liczy się (urlop, przed kontem). */
-  work_time: number | null;
+  /** Przerwy `[od, do)` w pełnych godzinach: bez akcji i prepa w środku dnia. */
+  gaps: [number, number][];
   day_points: number;
   /** `null` = dzień nie liczy się (urlop, przed startem). */
   index: number | null;
 }
 
 export type WorkRhythmLevel = "high" | "mid" | "low";
-/** Podpowiedź: najpierw minimum 8 h, potem intensywność i wyniki (29.10.2026). */
-export type WorkRhythmDiagnosis = "model" | "quality" | "idle" | "short_good" | "more_work";
+/** Podpowiedź z intensywności i wyników, bez godzin (30.10.2026). */
+export type WorkRhythmDiagnosis = "model" | "quality" | "efficient" | "more_work";
 
 export interface WorkRhythmPerson {
   user_id: number;
@@ -110,13 +109,22 @@ export interface WorkRhythmPerson {
   leave_days: number;
   days_before_start: number;
   avg_work_hours: number | null;
-  /** Średni czas pracy dziennie (h): odcinki z akcjami i prepami, 30 min ciszy = przerwa. */
-  avg_work_time: number | null;
-  /** Dni z pełnym minimum godzin (pół dnia urlopu = połowa minimum). */
-  full_days: number;
-  /** Dni z policzonym czasem pracy (mianownik dla `full_days`). */
-  timed_days: number;
   median_points: number | null;
+  /** Wzorzec (typowy dzień) z pełnych dni; `profile` = `null` przy < 3 dniach. */
+  pattern_days: number;
+  profile: number[] | null;
+  /** Godzina startu i końca (mediana pełnych godzin, np. 9,5 = 9:30). */
+  typical_start: number | null;
+  typical_end: number | null;
+  /** Odchylenie godziny startu między dniami (h). */
+  start_spread: number | null;
+  peak_hour: number | null;
+  /** % punktów 8–12 wobec 8–18. */
+  morning_share: number | null;
+  /** Średnia intensywność 5 wcześniejszych i 5 ostatnich dni okna oraz zmiana. */
+  trend_prev: number | null;
+  trend_last: number | null;
+  trend: number | null;
   /** Tylko dla widzów zakładki (admin, Head of Recruitment). */
   cv_sent?: number;
   cv_per_day?: number | null;
@@ -131,6 +139,13 @@ export interface WorkRhythmResponse {
   rules: WorkRhythmRules;
   people: WorkRhythmPerson[];
   team_cv_per_day_median: number | null;
+  /** Mediana intensywności dnia wśród osób, które tego dnia pracowały. */
+  team_day_index: Record<string, number | null>;
+  /** Mediana wzorców zespołu, godzina po godzinie. */
+  team_profile: number[] | null;
+  /** Dni porównania trendu: 5 wcześniejszych i 5 ostatnich zakończonych. */
+  trend_prev: string[];
+  trend_last: string[];
   can_edit_rules: boolean;
   with_results: boolean;
 }
@@ -157,9 +172,8 @@ export interface WorkRhythmDayDetail {
   meetings: boolean[];
   thin: boolean[];
   skipped: Partial<Record<WorkRhythmSkipReason, number>>;
-  work_time: number;
-  /** Odcinki pracy [od, do] (HH:MM); między nimi przerwy. */
-  spans: [string, string][];
+  /** Przerwy `[od, do)` w pełnych godzinach. */
+  gaps: [number, number][];
   events: WorkRhythmDayEvent[];
 }
 

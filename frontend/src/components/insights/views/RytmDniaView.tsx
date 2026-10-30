@@ -28,14 +28,18 @@ import { RhythmDayDialog } from "./RhythmDayDialog";
 import { RhythmRulesDialog } from "./RhythmRulesDialog";
 
 /**
- * Insights → „Rytm dnia” (decyzje Artura 28–29.10.2026). Kiedy i jak
+ * Insights → „Rytm dnia” (decyzje Artura 28–30.10.2026). Kiedy i jak
  * intensywnie rekruterzy pracują w NEXUSIE. Na razie widzą to tylko Head of
  * Recruitment i admin. Pokazujemy każdego z rolą rekrutera (też DL-i), bez HoR,
  * bez formy współpracy, od 12.10. Kolumny wyników i podpowiedzi rysujemy tylko,
  * gdy serwer je przysłał (`with_results`).
+ *
+ * Od 30.10.2026 bez „czasu pracy” i minimum 8 h: akcje w NEXUSIE nie mierzą
+ * obecności. Widoki: Dzień (porównanie z zespołem), Wzorce (typowy dzień),
+ * Trend (tydzień do tygodnia) i 2 tygodnie (karta osoby).
  */
 
-type Mode = "dzien" | "okres" | "intensywnosc";
+type Mode = "dzien" | "wzorce" | "trend" | "okres";
 type OpenDay = (p: WorkRhythmPerson, date: string) => void;
 
 const LEVEL_CLASSES = ["bg-muted", "bg-primary/20", "bg-primary/45", "bg-primary/75", "bg-primary"];
@@ -45,50 +49,31 @@ const DIAGNOSIS: Record<
   WorkRhythmDiagnosis,
   { label: string; hint: string; variant: "success" | "warning" | "info" | "danger" }
 > = {
-  model: { label: "Wzór", hint: "Pełne godziny, intensywnie i z wynikiem", variant: "success" },
+  model: { label: "Wzór", hint: "Intensywnie i z wynikiem", variant: "success" },
   quality: {
     label: "Pomóż z jakością",
-    hint: "Pełne godziny i dużo pracy, mało przechodzi: przegląd notatek i doboru z DL",
+    hint: "Dużo pracy w NEXUSIE, mało przechodzi: przegląd notatek i doboru z DL",
     variant: "warning",
   },
-  idle: {
-    label: "Jest, ale mało robi",
-    hint: "Pełne godziny w NEXUSIE, mało punktów: co robi między akcjami",
+  efficient: {
+    label: "Wynik przy niskiej intensywności",
+    hint: "Dobre wyniki przy małej liczbie akcji: zapytaj, co robi poza NEXUSEM",
     variant: "info",
-  },
-  short_good: {
-    label: "Dobre wyniki, poniżej 8 h",
-    hint: "Wynik jest, ale nie przepracowuje minimum — nie jest wzorem",
-    variant: "warning",
   },
   more_work: {
     label: "Za mało pracy",
-    hint: "Poniżej minimum godzin i słabe wyniki: rozmowa i plan dnia",
+    hint: "Niska intensywność i słabe wyniki: rozmowa i plan dnia",
     variant: "danger",
   },
 };
 
-function fmtHours(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "—";
-  // W dół do pełnej minuty — 7 h 59 z kawałkiem nie może wyglądać jak 8 h.
-  const total = Math.floor(value * 60 + 1e-6);
-  return `${Math.floor(total / 60)} h ${String(total % 60).padStart(2, "0")}`;
-}
-
-function WorkTime({ value, norm }: { value: number | null; norm: number }) {
-  if (value === null) return <span className="text-xs text-muted-foreground">—</span>;
-  const ok = value >= norm - 1e-9;
-  const max = Math.max(norm * 1.25, 10);
-  return (
-    <span className="flex items-center gap-2" title={`Czas pracy ${fmtHours(value)} · minimum ${fmtNumber(norm)} h`}>
-      <span className="relative h-2 w-20 rounded-full bg-muted">
-        <span className={cn("absolute inset-y-0 left-0 rounded-full", ok ? "bg-success" : "bg-destructive")} style={{ width: `${Math.min(100, (value / max) * 100)}%` }} />
-        <span className="absolute -top-0.5 h-3 w-0.5 bg-foreground" style={{ left: `${(norm / max) * 100}%` }} />
-      </span>
-      <span className={cn("text-sm font-semibold tabular-nums", ok ? "text-foreground" : "text-destructive")}>{fmtHours(value)}</span>
-    </span>
-  );
-}
+/** Zmiana intensywności do ±5 to szum, nie trend. */
+const TREND_NOISE = 5;
+/** Typ rytmu z udziału punktów przed 12:00. */
+const MORNING_TYPE = 40;
+const AFTERNOON_TYPE = 20;
+/** Kolor dnia w pasku trendu: progi intensywności dnia. */
+const INDEX_STEPS = [40, 60, 75, 90];
 
 function fmtNumber(value: number): string {
   return String(value).replace(".", ",");
@@ -109,6 +94,25 @@ function toMin(t: string): number {
 
 function fromMin(v: number): string {
   return `${String(Math.floor(v / 60)).padStart(2, "0")}:${String(Math.round(v % 60)).padStart(2, "0")}`;
+}
+
+/** 9,5 → „9:30”. */
+function fmtClock(hour: number | null): string {
+  if (hour === null) return "—";
+  const h = Math.floor(hour);
+  return `${h}:${String(Math.round((hour - h) * 60)).padStart(2, "0")}`;
+}
+
+function levelOf(points: number, rules: WorkRhythmRules): number {
+  const [low, mid, high] = rules.hour_levels;
+  if (points <= 0) return 0;
+  if (points < low) return 1;
+  if (points < mid) return 2;
+  return points < high ? 3 : 4;
+}
+
+function indexStep(value: number): number {
+  return INDEX_STEPS.filter((t) => value >= t).length;
 }
 
 function median(values: number[]): number | null {
@@ -132,10 +136,13 @@ function IntensityMeter({
   value,
   rules,
   compact = false,
+  team = null,
 }: {
   value: number | null;
   rules: WorkRhythmRules;
   compact?: boolean;
+  /** Kreska mediany zespołu na pasku. */
+  team?: number | null;
 }) {
   if (value === null) return <span className="text-xs text-muted-foreground">—</span>;
   const tone =
@@ -143,8 +150,11 @@ function IntensityMeter({
   const label = value >= rules.level_high ? "wysoka" : value >= rules.level_mid ? "średnia" : "niska";
   return (
     <span className="flex items-center gap-2" title={`Intensywność ${value}/100 (${label})`}>
-      <span className={cn("relative h-2 overflow-hidden rounded-full bg-muted", compact ? "w-14" : "w-20")}>
+      <span className={cn("relative h-2 rounded-full bg-muted", compact ? "w-14" : "w-20")}>
         <span className={cn("absolute inset-y-0 left-0 rounded-full", tone)} style={{ width: `${value}%` }} />
+        {team !== null ? (
+          <span className="absolute -top-1 h-4 w-0.5 rounded-full bg-foreground" style={{ left: `calc(${team}% - 1px)` }} title={`Mediana zespołu ${Math.round(team)}`} />
+        ) : null}
       </span>
       <span className="w-7 text-right text-sm font-semibold tabular-nums text-foreground">{value}</span>
       {!compact ? <span className="text-xs text-muted-foreground">{label}</span> : null}
@@ -153,6 +163,7 @@ function IntensityMeter({
 }
 
 function HourCells({ day, compact = false }: { day: WorkRhythmDay; compact?: boolean }) {
+  const gap = new Set((day.gaps ?? []).flatMap(([a, b]) => Array.from({ length: b - a }, (_, i) => a + i)));
   return (
     <div className="grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${WORK_RHYTHM_HOURS.length}, minmax(0,1fr))` }}>
       {day.levels.map((level, i) => (
@@ -161,10 +172,10 @@ function HourCells({ day, compact = false }: { day: WorkRhythmDay; compact?: boo
             className={cn(
               compact ? "h-3" : "h-6",
               "rounded-[3px]",
-              LEVEL_CLASSES[level] ?? LEVEL_CLASSES[0],
+              gap.has(WORK_RHYTHM_HOURS[i]) ? "bg-destructive/10 ring-1 ring-inset ring-destructive/40" : LEVEL_CLASSES[level] ?? LEVEL_CLASSES[0],
               day.thin?.[i] ? "ring-1 ring-inset ring-warning" : "",
             )}
-            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · prep z NEXUSA" : ""}${day.thin?.[i] ? " · drobiazgi przy jednym kandydacie, nie jest godziną pracy" : ""}`}
+            title={`${WORK_RHYTHM_HOURS[i]}:00 — ${fmtNumber(day.points[i])} pkt, ${day.counts[i]} akcji (${LEVEL_NAMES[level]})${day.meetings[i] ? " · prep z NEXUSA" : ""}${day.thin?.[i] ? " · drobiazgi przy jednym kandydacie, nie jest godziną pracy" : ""}${gap.has(WORK_RHYTHM_HOURS[i]) ? " · przerwa: bez akcji i prepa w środku dnia" : ""}`}
           />
           <span className={cn("h-[3px] rounded-full", day.meetings[i] ? "bg-warning" : "bg-transparent")} />
         </div>
@@ -201,6 +212,20 @@ function isOff(day: WorkRhythmDay): boolean {
   return day.before_start || day.leave >= 1;
 }
 
+function ProfileCells({ profile, rules }: { profile: number[]; rules: WorkRhythmRules }) {
+  return (
+    <div className="grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${WORK_RHYTHM_HOURS.length}, minmax(0,1fr))` }}>
+      {profile.map((points, i) => (
+        <span
+          key={i}
+          className={cn("h-5 rounded-[3px]", LEVEL_CLASSES[levelOf(points, rules)])}
+          title={`${WORK_RHYTHM_HOURS[i]}:00 — średnio ${fmtNumber(points)} pkt`}
+        />
+      ))}
+    </div>
+  );
+}
+
 function HoursHeader() {
   return (
     <div className="grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${WORK_RHYTHM_HOURS.length}, minmax(0,1fr))` }}>
@@ -233,6 +258,9 @@ function Legend({ rules }: { rules: WorkRhythmRules }) {
       </span>
       <span className="flex items-center gap-1.5">
         <span className="h-3 w-4 rounded-[3px] bg-primary/20 ring-1 ring-inset ring-warning" /> drobiazgi — nie godzina pracy
+      </span>
+      <span className="flex items-center gap-1.5">
+        <span className="h-3 w-4 rounded-[3px] bg-destructive/10 ring-1 ring-inset ring-destructive/40" /> przerwa w środku dnia
       </span>
       <span>Kliknij osobę albo dzień, żeby zobaczyć, co się liczyło.</span>
     </div>
@@ -278,13 +306,13 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
             <b className="text-foreground">Poziom godziny</b> = suma punktów w tej godzinie: lekka poniżej {fmtNumber(low)}, robocza od {fmtNumber(low)}, intensywna od {fmtNumber(mid)}, bardzo intensywna od {fmtNumber(high)}.
           </p>
           <p>
-            <b className="text-foreground">Czas pracy</b> = odcinki, w których coś się dzieje w NEXUSIE (akcje z punktami i prepy); {rules.break_minutes} min bez akcji i bez prepa to przerwa i się nie liczy. Minimum: {fmtNumber(rules.min_work_hours)} h dziennie.
+            <b className="text-foreground">Przerwa</b> = pełna godzina bez akcji i bez prepa między pierwszą a ostatnią aktywną godziną. Widać ją na heatmapie i niczego nie odejmuje — akcje w NEXUSIE nie mierzą obecności (telefon, LinkedIn).
           </p>
           <p>
             <b className="text-foreground">Godzina intensywna</b> = co najmniej {fmtNumber(rules.work_hour_min_points)} pkt albo prep ustawiony z NEXUSA ≥ 30 min, liczona 8:00–18:00.
           </p>
           <p>
-            <b className="text-foreground">Intensywność dnia (0–100)</b> = ½ × godziny intensywne / {fmtNumber(rules.min_work_hours)} + ½ × punkty dnia / {fmtNumber(rules.norm_day_points)}, każda część najwyżej 1.
+            <b className="text-foreground">Intensywność dnia (0–100)</b> = ½ × godziny intensywne / {fmtNumber(rules.norm_active_hours)} + ½ × punkty dnia / {fmtNumber(rules.norm_day_points)}, każda część najwyżej 1. „vs zespół” = różnica do mediany osób, które tego dnia pracowały.
           </p>
         </div>
         <div className="min-w-0 space-y-1.5 text-xs text-muted-foreground">
@@ -296,7 +324,10 @@ function RulesPanel({ rules, onEdit }: { rules: WorkRhythmRules; onEdit?: () => 
             <b className="text-foreground">Poziom:</b> wysoka ≥ {rules.level_high}, średnia {rules.level_mid}–{rules.level_high - 1}, niska &lt; {rules.level_mid}.
           </p>
           <p>
-            <b className="text-foreground">Podpowiedź dla lidera:</b> najpierw średnio ≥ {fmtNumber(rules.min_work_hours)} h czasu pracy — poniżej nikt nie jest wzorem, a intensywność to najwyżej {rules.level_high - 1}. Przy pełnych godzinach: intensywność ≥ {rules.diag_intensity} i CV do klienta ≥ {rules.diag_results_pct}% mediany → wzór; intensywnie, a mało CV → pomóż z jakością; mało punktów → jest, ale mało robi.
+            <b className="text-foreground">Wzorzec</b> = średnie punkty w każdej godzinie z pełnych dni okna (bez urlopu i dzisiejszego dnia, od 3 dni). <b className="text-foreground">Trend</b> = średnia intensywność 5 ostatnich zakończonych dni wobec 5 wcześniejszych; ±{TREND_NOISE} to szum.
+          </p>
+          <p>
+            <b className="text-foreground">Podpowiedź dla lidera:</b> intensywność ≥ {rules.diag_intensity} i CV do klienta ≥ {rules.diag_results_pct}% mediany → wzór; intensywnie, a mało CV → pomóż z jakością; mało akcji, a wynik dobry → wynik przy niskiej intensywności; mało akcji i słaby wynik → za mało pracy.
           </p>
           <p>Rozmowy z telefonu i praca na LinkedIn poza wtyczką nie są widoczne.</p>
         </div>
@@ -324,8 +355,9 @@ function limitText(limit: number, one: string, many: string): string {
 function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
   const opts: [Mode, string][] = [
     ["dzien", "Dzień"],
+    ["wzorce", "Wzorce"],
+    ["trend", "Trend"],
     ["okres", "2 tygodnie"],
-    ["intensywnosc", "Intensywność"],
   ];
   return (
     <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-sm" role="tablist" aria-label="Widok rytmu dnia">
@@ -350,25 +382,69 @@ function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => voi
 
 // ── Widok „Dzień” ───────────────────────────────────────────────────────────
 
-const DAY_COLS = "160px 1fr 48px 48px 140px 62px 140px";
+const DAY_COLS = "150px minmax(220px,1fr) 44px 44px 92px 96px 140px 56px";
+
+/** Aktywne godziny dnia jako kropki wobec normy — nie czas pracy. */
+function ActivePips({ value, norm }: { value: number; norm: number }) {
+  const slots = Math.max(1, Math.round(norm));
+  return (
+    <span className="flex items-center gap-1.5" title={`${value} aktywnych godzin (norma ${fmtNumber(norm)})`}>
+      <span className="flex gap-[2px]">
+        {Array.from({ length: slots }, (_, i) => (
+          <span key={i} className={cn("h-3 w-1.5 rounded-[1px]", i < value ? "bg-primary/75" : "bg-muted")} />
+        ))}
+      </span>
+      <span className="text-xs tabular-nums text-muted-foreground">{value}</span>
+    </span>
+  );
+}
+
+function DeltaBadge({ value, title }: { value: number | null; title?: string }) {
+  if (value === null) return <span className="text-xs text-muted-foreground">—</span>;
+  const v = Math.round(value);
+  const variant = v > TREND_NOISE ? "success" : v < -TREND_NOISE ? "danger" : "neutral";
+  return (
+    <Badge variant={variant} size="md" className="tabular-nums" title={title}>
+      {v > 0 ? "+" : ""}
+      {v}
+    </Badge>
+  );
+}
+
+function GapChips({ gaps }: { gaps: [number, number][] }) {
+  if (!gaps.length) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {gaps.map(([a, b]) => (
+        <span key={a} className="rounded bg-destructive/10 px-1.5 text-[11px] tabular-nums text-foreground" title="Pełna godzina bez akcji i prepa">
+          {a}–{b}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: string; onOpen: OpenDay }) {
+  const team = data.team_day_index?.[date] ?? null;
+  const rows = data.people
+    .map((p) => ({ p, d: p.days.find((x) => x.date === date) }))
+    .filter((r): r is { p: WorkRhythmPerson; d: WorkRhythmDay } => Boolean(r.d))
+    .sort((a, b) => Number(isOff(a.d)) - Number(isOff(b.d)) || (b.d.index ?? -1) - (a.d.index ?? -1));
   return (
     <Card className="min-w-0 p-4">
       <div className="overflow-x-auto">
-        <div className="min-w-[900px]">
+        <div className="min-w-[920px]">
           <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: DAY_COLS }}>
             <span>Rekruter</span>
             <HoursHeader />
             <span className="text-right">Start</span>
             <span className="text-right">Koniec</span>
-            <span>Czas pracy (min. {fmtNumber(data.rules.min_work_hours)} h)</span>
-            <span className="text-right">Brakuje</span>
-            <span>Intensywność dnia</span>
+            <span>Aktywne godziny</span>
+            <span>Przerwy</span>
+            <span>Intensywność{team !== null ? ` · zespół ${Math.round(team)}` : ""}</span>
+            <span className="text-right">vs zespół</span>
           </div>
-          {data.people.map((p) => {
-            const d = p.days.find((x) => x.date === date);
-            if (!d) return null;
+          {rows.map(({ p, d }) => {
             const off = isOff(d);
             return (
               <div key={p.user_id} className="grid items-center gap-3 border-b border-border/60 py-1.5 last:border-0" style={{ gridTemplateColumns: DAY_COLS }}>
@@ -384,28 +460,28 @@ function DayTable({ data, date, onOpen }: { data: WorkRhythmResponse; date: stri
                 {off ? <OffBand day={d} /> : <HourCells day={d} />}
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.first ?? "—"}</span>
                 <span className="text-right text-sm tabular-nums text-foreground">{off ? "—" : d.last ?? "—"}</span>
-                {off ? <span className="text-sm text-muted-foreground">—</span> : <WorkTime value={d.work_time} norm={data.rules.min_work_hours * (1 - d.leave)} />}
-                <span className="text-right text-sm font-semibold tabular-nums">
-                  {off || d.work_time === null ? (
-                    <span className="text-muted-foreground">—</span>
-                  ) : d.in_progress ? (
-                    <span className="text-xs font-normal text-muted-foreground">trwa</span>
-                  ) : d.work_time >= data.rules.min_work_hours * (1 - d.leave) - 1e-9 ? (
-                    <span className="text-success">✓</span>
-                  ) : (
-                    <span className="text-destructive">−{fmtHours(data.rules.min_work_hours * (1 - d.leave) - d.work_time)}</span>
-                  )}
-                </span>
+                {off ? <span className="text-sm text-muted-foreground">—</span> : <ActivePips value={d.work_hours ?? 0} norm={data.rules.norm_active_hours * (1 - d.leave)} />}
+                {off ? <span className="text-sm text-muted-foreground">—</span> : <GapChips gaps={d.gaps ?? []} />}
                 <span className="flex items-center gap-2">
-                  <IntensityMeter value={d.index} rules={data.rules} compact />
+                  <IntensityMeter value={d.index} rules={data.rules} compact team={off ? null : team} />
                   {d.leave > 0 && d.leave < 1 ? <span className="text-[11px] text-info-muted-foreground">½ urlopu</span> : null}
-                  {d.in_progress ? <span className="text-[11px] text-muted-foreground">dzień trwa</span> : null}
+                  {d.in_progress ? <span className="text-[11px] text-muted-foreground">trwa</span> : null}
+                </span>
+                <span className="text-right">
+                  {off || d.index === null || team === null ? (
+                    <span className="text-xs text-muted-foreground">—</span>
+                  ) : (
+                    <DeltaBadge value={d.index - team} title="Różnica do mediany zespołu tego dnia" />
+                  )}
                 </span>
               </div>
             );
           })}
         </div>
       </div>
+      {rows.some((r) => r.d.in_progress) ? (
+        <p className="mt-2 text-xs text-muted-foreground">Dzień trwa: intensywność i mediana zespołu rosną do wieczora.</p>
+      ) : null}
     </Card>
   );
 }
@@ -427,8 +503,14 @@ function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRh
       </div>
       <p className="mb-2 text-xs tabular-nums text-muted-foreground">
         {start !== null && end !== null ? `zwykle ${fromMin(start)}–${fromMin(end)} · ` : ""}
-        {p.avg_work_time !== null ? `${fmtHours(p.avg_work_time)} pracy dziennie (min. ${fmtNumber(rules.min_work_hours)} h) · ${p.full_days} dni z pełnymi godzinami · ` : ""}
+        {p.peak_hour !== null ? `szczyt ${p.peak_hour}:00 · ` : ""}
+        {p.morning_share !== null ? `${p.morning_share}% punktów przed 12:00 · ` : ""}
         {p.median_points !== null ? `${p.median_points} pkt` : "brak dni pracy"}
+        {p.trend !== null ? (
+          <span className="ml-1 inline-flex items-center gap-1">
+            · trend <DeltaBadge value={p.trend} title={`Ostatnie 5 dni ${p.trend_last} wobec ${p.trend_prev} wcześniej`} />
+          </span>
+        ) : null}
         {p.leave_days > 0 ? (
           <span className="ml-1 inline-flex items-center gap-1 text-info-muted-foreground">
             · <Palmtree className="h-3 w-3" /> urlop {fmtNumber(p.leave_days)} d., liczone z {fmtNumber(p.worked_days)} dni
@@ -462,22 +544,178 @@ function PersonPeriod({ p, rules, onOpen }: { p: WorkRhythmPerson; rules: WorkRh
   );
 }
 
-// ── Widok „Intensywność” ────────────────────────────────────────────────────
+// ── Widok „Wzorce” ─────────────────────────────────────────────────────────
 
-function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
+type PatternSort = "start" | "index" | "morning";
+const PATTERN_COLS = "150px minmax(220px,1fr) 100px 64px 52px 112px 120px 44px";
+
+function rhythmType(share: number | null): { label: string; variant: "warning" | "info" | "neutral" } | null {
+  if (share === null) return null;
+  if (share >= MORNING_TYPE) return { label: "poranny", variant: "warning" };
+  if (share <= AFTERNOON_TYPE) return { label: "popołudniowy", variant: "info" };
+  return { label: "równy", variant: "neutral" };
+}
+
+function regularity(spread: number | null): string {
+  if (spread === null) return "—";
+  return spread < 1 ? "stała" : spread < 1.6 ? "dość stała" : "zmienna";
+}
+
+function MorningSplit({ share }: { share: number | null }) {
+  if (share === null) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <span className="flex items-center gap-2" title={`${share}% punktów 8–12, reszta 12–18`}>
+      <span className="relative h-2 w-16 overflow-hidden rounded-full bg-primary/20">
+        <span className="absolute inset-y-0 left-0 bg-warning" style={{ width: `${share}%` }} />
+      </span>
+      <span className="text-xs tabular-nums text-foreground">{share}%</span>
+    </span>
+  );
+}
+
+function PatternBoard({ data }: { data: WorkRhythmResponse }) {
+  const [sort, setSort] = React.useState<PatternSort>("start");
+  const withPattern = data.people.filter((p) => p.profile !== null);
+  const without = data.people.filter((p) => p.profile === null);
+  const key: Record<PatternSort, (p: WorkRhythmPerson) => number> = {
+    start: (p) => (p.typical_start ?? 99) * 1000 - (p.morning_share ?? 0),
+    index: (p) => -(p.index ?? -1),
+    morning: (p) => -(p.morning_share ?? -1),
+  };
+  const rows = [...withPattern].sort((a, b) => key[sort](a) - key[sort](b));
+  const med = (pick: (p: WorkRhythmPerson) => number | null) =>
+    median(withPattern.map(pick).filter((v): v is number => v !== null));
+  const teamShare = med((p) => p.morning_share);
+  const teamPeak = data.team_profile ? WORK_RHYTHM_HOURS[data.team_profile.indexOf(Math.max(...data.team_profile))] : null;
+  const sorts: [PatternSort, string][] = [
+    ["start", "wg startu"],
+    ["index", "wg intensywności"],
+    ["morning", "wg udziału rana"],
+  ];
+  return (
+    <Card className="min-w-0 space-y-3 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Typowy dzień z pełnych dni {fmtDay(data.from)} – {fmtDay(data.to)}: średnie punkty w każdej godzinie (bez urlopu i dzisiejszego dnia). Pierwszy wiersz to mediana zespołu.
+        </p>
+        <div className="inline-flex rounded-lg border border-border p-0.5 text-xs" role="group" aria-label="Sortowanie wzorców">
+          {sorts.map(([id, label]) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={sort === id}
+              onClick={() => setSort(id)}
+              className={cn("rounded-md px-2.5 py-1", sort === id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <div className="min-w-[920px]">
+          <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: PATTERN_COLS }}>
+            <span>Rekruter</span>
+            <HoursHeader />
+            <span>Rytm</span>
+            <span>Rozkręca się</span>
+            <span>Szczyt</span>
+            <span>Rano / po 12</span>
+            <span>Regularność</span>
+            <span className="text-right" title="Intensywność okresu">Intens.</span>
+          </div>
+          {data.team_profile ? (
+            <div className="grid items-center gap-3 rounded-md bg-primary/5 py-1.5 text-sm font-semibold" style={{ gridTemplateColumns: PATTERN_COLS }}>
+              <span className="pl-1 text-foreground">Zespół (mediana)</span>
+              <ProfileCells profile={data.team_profile} rules={data.rules} />
+              <span />
+              <span className="tabular-nums">{fmtClock(med((p) => p.typical_start))}</span>
+              <span className="tabular-nums">{teamPeak !== null ? `${teamPeak}:00` : "—"}</span>
+              <MorningSplit share={teamShare !== null ? Math.round(teamShare) : null} />
+              <span />
+              <span className="text-right tabular-nums">{med((p) => p.index) !== null ? Math.round(med((p) => p.index) as number) : "—"}</span>
+            </div>
+          ) : null}
+          {rows.map((p) => {
+            const type = rhythmType(p.morning_share);
+            return (
+              <div key={p.user_id} className="grid items-center gap-3 border-b border-border/60 py-1.5 last:border-0" style={{ gridTemplateColumns: PATTERN_COLS }}>
+                <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+                  <Initials name={p.name} />
+                  <span className="truncate">{p.name}</span>
+                </span>
+                <ProfileCells profile={p.profile as number[]} rules={data.rules} />
+                <span>{type ? <Badge variant={type.variant} size="md">{type.label}</Badge> : null}</span>
+                <span className="text-sm tabular-nums text-foreground">{fmtClock(p.typical_start)}</span>
+                <span className="text-sm tabular-nums text-foreground">{p.peak_hour !== null ? `${p.peak_hour}:00` : "—"}</span>
+                <MorningSplit share={p.morning_share} />
+                <span className="text-sm text-foreground">
+                  {regularity(p.start_spread)}
+                  {p.start_spread !== null ? <span className="ml-1 text-xs tabular-nums text-muted-foreground">±{fmtNumber(p.start_spread)} h</span> : null}
+                </span>
+                <span className="text-right text-sm font-semibold tabular-nums text-foreground">{p.index ?? "—"}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      {without.length ? (
+        <p className="text-xs text-muted-foreground">
+          Za mało pełnych dni na wzorzec (potrzeba 3): {without.map((p) => `${p.name} (${p.pattern_days})`).join(", ")}.
+        </p>
+      ) : null}
+    </Card>
+  );
+}
+
+// ── Widok „Trend” ───────────────────────────────────────────────────────────
+
+function DayStrip({ p, days }: { p: WorkRhythmPerson; days: string[] }) {
+  return (
+    <span className="flex items-center gap-[3px]">
+      {days.map((date, i) => {
+        const d = p.days.find((x) => x.date === date);
+        const monday = i > 0 && new Date(`${date}T12:00:00`).getDay() === 1;
+        const off = !d || isOff(d);
+        return (
+          <span
+            key={date}
+            className={cn(
+              "h-4 w-3.5 shrink-0 rounded-[3px]",
+              monday ? "ml-1.5" : "",
+              off ? "border border-dashed border-info/40 bg-info-muted" : LEVEL_CLASSES[indexStep(d.index ?? 0)],
+              d?.in_progress ? "opacity-50" : "",
+            )}
+            title={`${fmtDay(date)} · ${!d || d.before_start ? "przed kontem" : d.leave >= 1 ? "urlop" : `${d.index ?? "—"}${d.in_progress ? " (dzień trwa)" : ""}`}`}
+          />
+        );
+      })}
+    </span>
+  );
+}
+
+function periodLabel(days: string[]): string {
+  return days.length ? `${fmtDay(days[0])} – ${fmtDay(days[days.length - 1])}` : "—";
+}
+
+function TrendBoard({ data }: { data: WorkRhythmResponse }) {
   const leader = data.with_results;
-  const rows = [...data.people].sort((a, b) => (b.avg_work_time ?? -1) - (a.avg_work_time ?? -1));
-  const cols = leader ? "160px 150px 60px 150px 56px 56px 90px 1fr" : "160px 150px 60px 150px 56px 56px";
+  const rows = [...data.people].sort((a, b) => (b.trend ?? -999) - (a.trend ?? -999) || (b.index ?? -1) - (a.index ?? -1));
+  const cols = leader
+    ? "160px 210px 56px 56px 64px 128px 52px 48px 84px minmax(200px,1fr)"
+    : "160px 210px 56px 56px 64px 128px 52px 48px";
   return (
     <div className="grid gap-4">
       <Card className="min-w-0 p-4">
         <div className="overflow-x-auto">
-          <div className={leader ? "min-w-[980px]" : "min-w-[680px]"}>
+          <div className={leader ? "min-w-[1120px]" : "min-w-[840px]"}>
             <div className="grid items-end gap-3 border-b border-border pb-2 text-xs text-muted-foreground" style={{ gridTemplateColumns: cols }}>
               <span>Rekruter</span>
-              <span>Czas pracy / dzień (min. {fmtNumber(data.rules.min_work_hours)} h)</span>
-              <span className="text-right">Dni z min.</span>
-              <span>Intensywność ({fmtDay(data.from)} – {fmtDay(data.to)})</span>
+              <span>Intensywność dzień po dniu</span>
+              <span className="text-right" title={periodLabel(data.trend_prev ?? [])}>Wcześniej</span>
+              <span className="text-right" title={periodLabel(data.trend_last ?? [])}>Ostatnio</span>
+              <span className="text-right">Zmiana</span>
+              <span>Okres ({fmtDay(data.from)} – {fmtDay(data.to)})</span>
               <span className="text-right">Pkt / dzień</span>
               <span className="text-right">Urlop</span>
               {leader ? <span className="text-right">CV do klienta / dzień</span> : null}
@@ -491,8 +729,12 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
                     <Initials name={p.name} />
                     <span className="truncate">{p.name}</span>
                   </span>
-                  <WorkTime value={p.avg_work_time} norm={data.rules.min_work_hours} />
-                  <span className="text-right text-sm tabular-nums text-foreground">{p.avg_work_time !== null ? `${p.full_days}/${p.timed_days}` : "—"}</span>
+                  <DayStrip p={p} days={data.days} />
+                  <span className="text-right text-sm tabular-nums text-muted-foreground">{p.trend_prev ?? "—"}</span>
+                  <span className="text-right text-sm font-semibold tabular-nums text-foreground">{p.trend_last ?? "—"}</span>
+                  <span className="text-right">
+                    <DeltaBadge value={p.trend} title="Ostatnie 5 zakończonych dni wobec 5 wcześniejszych" />
+                  </span>
                   <IntensityMeter value={p.index} rules={data.rules} compact />
                   <span className="text-right text-sm tabular-nums text-foreground">{p.median_points ?? "—"}</span>
                   <span className="text-right text-sm tabular-nums text-muted-foreground">{p.leave_days > 0 ? `${fmtNumber(p.leave_days)} d.` : "—"}</span>
@@ -522,9 +764,10 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
           </div>
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          {leader
-            ? `Czas pracy = odcinki z akcjami i prepami; ${data.rules.break_minutes} min bez akcji to przerwa. Poniżej ${fmtNumber(data.rules.min_work_hours)} h intensywność najwyżej ${data.rules.level_high - 1}. CV do klienta w nawiasie: % mediany zespołu${data.team_cv_per_day_median !== null ? ` (${data.team_cv_per_day_median.toFixed(2).replace(".", ",")} CV dziennie)` : ""}.`
-            : "Bez wyników w tym widoku."}
+          „Wcześniej” {periodLabel(data.trend_prev ?? [])}, „Ostatnio” {periodLabel(data.trend_last ?? [])}: średnia intensywność zakończonych dni pracy. Zmiana do ±{TREND_NOISE} to szum.
+          {leader && data.team_cv_per_day_median !== null
+            ? ` CV do klienta w nawiasie: % mediany zespołu (${data.team_cv_per_day_median.toFixed(2).replace(".", ",")} CV dziennie).`
+            : ""}
         </p>
       </Card>
       {leader ? (
@@ -532,26 +775,21 @@ function IntensityBoard({ data }: { data: WorkRhythmResponse }) {
           <Quadrant data={data} />
           <Card className="min-w-0 space-y-3 p-4 text-sm">
             <p className="font-semibold text-foreground">Co robi lider z każdą podpowiedzią</p>
-            <p className="text-xs text-muted-foreground">Najpierw minimum {fmtNumber(data.rules.min_work_hours)} h dziennie — poniżej nikt nie jest wzorem.</p>
             <p>
               <Badge variant="success" size="sm">Wzór</Badge>{" "}
               <span className="text-muted-foreground">nic nie zmieniać; dobry materiał na wspólny przegląd notatek dla zespołu.</span>
             </p>
             <p>
               <Badge variant="warning" size="sm">Pomóż z jakością</Badge>{" "}
-              <span className="text-muted-foreground">pracuje pełne godziny i dużo, a CV nie przechodzą: DL przegląda 3 ostatnie notatki i odrzucenia.</span>
+              <span className="text-muted-foreground">dużo pracy, a CV nie przechodzą: DL przegląda 3 ostatnie notatki i odrzucenia.</span>
             </p>
             <p>
-              <Badge variant="info" size="sm">Jest, ale mało robi</Badge>{" "}
-              <span className="text-muted-foreground">godziny są, punktów mało: zobacz rozkład dnia, co dzieje się między akcjami.</span>
-            </p>
-            <p>
-              <Badge variant="warning" size="sm">Dobre wyniki, poniżej 8 h</Badge>{" "}
-              <span className="text-muted-foreground">wynik jest, minimum godzin nie: rozmowa o pełnym dniu pracy.</span>
+              <Badge variant="info" size="sm">Wynik przy niskiej intensywności</Badge>{" "}
+              <span className="text-muted-foreground">wynik jest, akcji w NEXUSIE mało: zapytaj, co działa poza systemem, i czy notuje rozmowy.</span>
             </p>
             <p>
               <Badge variant="danger" size="sm">Za mało pracy</Badge>{" "}
-              <span className="text-muted-foreground">rozmowa 1:1, wspólny plan dnia, sprawdzenie po tygodniu.</span>
+              <span className="text-muted-foreground">rozmowa 1:1, wspólny plan dnia, sprawdzenie po tygodniu w Trendzie.</span>
             </p>
           </Card>
         </div>
@@ -566,36 +804,35 @@ function Quadrant({ data }: { data: WorkRhythmResponse }) {
   const pad = 34;
   const rules = data.rules;
   const resultsCap = 200;
-  const hoursCap = 10;
-  const norm = rules.min_work_hours;
-  const x = (v: number) => pad + (Math.min(v, hoursCap) / hoursCap) * (W - pad * 2);
+  const norm = rules.diag_intensity;
+  const x = (v: number) => pad + (Math.min(v, 100) / 100) * (W - pad * 2);
   const y = (v: number) => H - pad - (Math.min(v, resultsCap) / resultsCap) * (H - pad * 2);
-  const dots = data.people.filter((p) => p.avg_work_time !== null && p.results_pct !== null && p.results_pct !== undefined);
+  const dots = data.people.filter((p) => p.index !== null && p.results_pct !== null && p.results_pct !== undefined);
   return (
     <Card className="min-w-0 p-4">
-      <p className="text-sm font-semibold text-foreground">Czas pracy × wyniki</p>
-      <p className="mb-2 text-xs text-muted-foreground">Oś X: czas pracy dziennie (kreska = minimum {fmtNumber(norm)} h). Oś Y: CV do klienta wobec mediany zespołu.</p>
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Czas pracy a wyniki">
+      <p className="text-sm font-semibold text-foreground">Intensywność × wyniki</p>
+      <p className="mb-2 text-xs text-muted-foreground">Oś X: intensywność okresu (kreska = {norm}). Oś Y: CV do klienta wobec mediany zespołu.</p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="Intensywność a wyniki">
         <rect x={x(norm)} y={y(rules.diag_results_pct)} width={W - pad - x(norm)} height={H - pad - y(rules.diag_results_pct)} className="fill-warning/15" />
         <rect x={pad} y={y(rules.diag_results_pct)} width={x(norm) - pad} height={H - pad - y(rules.diag_results_pct)} className="fill-destructive/10" />
-        <rect x={pad} y={pad} width={x(norm) - pad} height={y(rules.diag_results_pct) - pad} className="fill-warning/10" />
+        <rect x={pad} y={pad} width={x(norm) - pad} height={y(rules.diag_results_pct) - pad} className="fill-info/10" />
         <rect x={x(norm)} y={pad} width={W - pad - x(norm)} height={y(rules.diag_results_pct) - pad} className="fill-success/10" />
         <line x1={pad} x2={W - pad} y1={H - pad} y2={H - pad} className="stroke-muted-foreground/40" />
         <line x1={pad} x2={pad} y1={pad} y2={H - pad} className="stroke-muted-foreground/40" />
         <text x={W - pad - 4} y={pad + 12} textAnchor="end" className="fill-success-muted-foreground text-[11px] font-semibold">wzór</text>
-        <text x={pad + 4} y={pad + 12} className="fill-warning-muted-foreground text-[10px] font-semibold">dobre wyniki, poniżej {fmtNumber(norm)} h</text>
+        <text x={pad + 4} y={pad + 12} className="fill-info-muted-foreground text-[10px] font-semibold">wynik przy niskiej intensywności</text>
         <text x={W - pad - 4} y={H - pad - 6} textAnchor="end" className="fill-warning-muted-foreground text-[10px] font-semibold">pomóż z jakością</text>
         <text x={pad + 4} y={H - pad - 6} className="fill-destructive-muted-foreground text-[10px] font-semibold">za mało pracy</text>
-        {[0, 2, 4, 6, 8, 10].map((t) => (
-          <text key={t} x={x(t)} y={H - pad + 13} textAnchor="middle" className="fill-muted-foreground text-[10px]">{t} h</text>
+        {[0, 20, 40, 60, 80, 100].map((t) => (
+          <text key={t} x={x(t)} y={H - pad + 13} textAnchor="middle" className="fill-muted-foreground text-[10px]">{t}</text>
         ))}
         {[0, 50, 100, 150, 200].map((t) => (
           <text key={t} x={pad - 5} y={y(t) + 3} textAnchor="end" className="fill-muted-foreground text-[10px]">{t}%</text>
         ))}
         {dots.map((p) => {
           const pct = p.results_pct as number;
-          const idx = p.avg_work_time as number;
-          const right = idx > 8.5;
+          const idx = p.index as number;
+          const right = idx > 85;
           return (
             <g key={p.user_id}>
               <circle cx={x(idx)} cy={y(pct)} r={4} className="fill-primary" />
@@ -654,7 +891,9 @@ export function RytmDniaView() {
   });
 
   const raw = params.get("widok");
-  const mode: Mode = raw === "okres" || raw === "intensywnosc" ? raw : "dzien";
+  // „intensywnosc” = dawny widok sprzed 30.10 (zakładki w historii przeglądarki) → Trend.
+  const mode: Mode =
+    raw === "okres" || raw === "wzorce" || raw === "trend" ? raw : raw === "intensywnosc" ? "trend" : "dzien";
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params.toString());
     next.set("tab", "rytm");
@@ -677,7 +916,7 @@ export function RytmDniaView() {
   const onLeave = today.filter((d) => !d.before_start && d.leave >= 1).length;
   const medStart = median(working.map((d) => toMin(d.first!)));
   const medEnd = median(working.map((d) => toMin(d.last!)));
-  const medIdx = median(counted.map((d) => d.index ?? 0));
+  const medIdx = data.team_day_index?.[date] ?? null;
 
   return (
     <div className="space-y-4">
@@ -723,7 +962,7 @@ export function RytmDniaView() {
             <StatCard label="Pracowało w NEXUSIE" value={`${working.length} / ${counted.length}`} sub={onLeave ? `na urlopie: ${onLeave}` : fmtDay(date, true)} icon={Clock} />
             <StatCard label="Start dnia (mediana)" value={medStart !== null ? fromMin(medStart) : "—"} sub="pierwsza akcja z punktami" icon={Sunrise} />
             <StatCard label="Koniec dnia (mediana)" value={medEnd !== null ? fromMin(medEnd) : "—"} sub="ostatnia akcja z punktami" icon={Sunset} />
-            <StatCard label="Intensywność zespołu" value={medIdx !== null ? Math.round(medIdx) : "—"} sub="mediana dnia, 0–100" icon={Gauge} />
+            <StatCard label="Intensywność zespołu" value={medIdx !== null ? Math.round(medIdx) : "—"} sub="mediana osób, które pracowały, 0–100" icon={Gauge} />
           </StatCardGrid>
           <Legend rules={data.rules} />
           <DayTable data={data} date={date} onOpen={onOpen} />
@@ -741,7 +980,9 @@ export function RytmDniaView() {
         </>
       ) : null}
 
-      {data.people.length > 0 && mode === "intensywnosc" ? <IntensityBoard data={data} /> : null}
+      {data.people.length > 0 && mode === "wzorce" ? <PatternBoard data={data} /> : null}
+
+      {data.people.length > 0 && mode === "trend" ? <TrendBoard data={data} /> : null}
 
       <RulesPanel rules={data.rules} onEdit={data.can_edit_rules ? () => setEditing(true) : undefined} />
       <p className="text-xs text-muted-foreground">
