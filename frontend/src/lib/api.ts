@@ -5462,6 +5462,12 @@ export interface ChampionProfileResponse {
    */
   requirement_find_words?: Record<string, string[]>;
   /**
+   * Pełne brzmienie wymagania do czytania (30.10.2026): etykieta → „Agile lub
+   * Prince2”. Tylko gdy wiersz ma zamienniki spoza etykiety; klucze i krytyczne
+   * zostają po etykiecie.
+   */
+  requirement_full_labels?: Record<string, string>;
+  /**
    * Audyt 06.10.2026 (N2): odcisk SAMEGO profilu. Edytor odsyła go w zapisie
    * jako `expected_profile_hash`; profil zmieniony od wczytania = 409.
    */

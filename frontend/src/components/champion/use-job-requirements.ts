@@ -50,6 +50,8 @@ export interface JobRequirements {
   conditions: JobRequirementConditions;
   /** Słowa lupy „Szukaj w CV” z serwera (`requirement_find_words`). */
   findWords: Readonly<Record<string, readonly string[]>>;
+  /** Pełne brzmienie wiersza z zamiennikami (`requirement_full_labels`). */
+  fullLabels: Readonly<Record<string, string>>;
 }
 
 /**
@@ -162,6 +164,7 @@ export function useJobRequirements(jobId: number, budgetHourly: number | null = 
         language: text(basics.language),
       },
       findWords: findWordsFromResponse(query.data?.requirement_find_words),
+      fullLabels: query.data?.requirement_full_labels ?? {},
     },
   };
 }

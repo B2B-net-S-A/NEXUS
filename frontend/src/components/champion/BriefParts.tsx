@@ -62,6 +62,7 @@ export function Chips({
   tone,
   critical = [],
   glossary,
+  fullLabels,
   onPick,
 }: {
   items: string[];
@@ -69,6 +70,8 @@ export function Chips({
   /** Pozycje, na których działa bramka (gwiazdka „krytyczna”). */
   critical?: readonly string[];
   glossary: Map<string, GlossaryTerm>;
+  /** Pełne brzmienie wiersza z zamiennikami (`requirement_full_labels`). */
+  fullLabels?: Readonly<Record<string, string>>;
   /** Klik w chip (np. „szukaj w CV”). Chip ze słowniczkiem zostaje dymkiem. */
   onPick?: (name: string) => void;
 }) {
@@ -77,14 +80,15 @@ export function Chips({
       {items.map((name) => {
         const isCritical = includesLabel(critical, name);
         const term = glossary.get(glossaryKey(name));
+        const shown = fullLabels?.[name] ?? name;
         const className =
           tone === "must"
-            ? `inline-flex h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
-            : "inline-flex h-[26px] items-center rounded-full bg-muted px-2.5 text-xs font-medium text-muted-foreground";
+            ? `inline-flex min-h-[26px] items-center gap-1 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary${isCritical ? " ring-1 ring-primary" : ""}`
+            : "inline-flex min-h-[26px] items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground";
         const content = (
           <>
-            {isCritical ? <Star className="h-3 w-3 fill-current" aria-hidden /> : null}
-            {name}
+            {isCritical ? <Star className="h-3 w-3 shrink-0 fill-current" aria-hidden /> : null}
+            {shown}
             {isCritical ? <span className="sr-only"> — krytyczna</span> : null}
           </>
         );
@@ -111,7 +115,7 @@ export function Chips({
                 type="button"
                 className={`${className} hover:underline`}
                 onClick={() => onPick(name)}
-                title={`Szukaj „${name}” w CV`}
+                title={`Szukaj „${shown}” w CV`}
               >
                 {content}
               </button>
