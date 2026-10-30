@@ -66,14 +66,18 @@ function BonusLine({
 }
 
 export function BonusDecisionsTopbarButton({ className }: { className?: string }) {
-  const { showToast } = useToast();
   const user = useAuthStore((state) => state.user);
   const config = useHrConfig(Boolean(user));
-  const allowed = Boolean(config.data?.me.payroll && config.data?.open_modules.payroll);
-  const decisions = useBonusDecisions(allowed);
+  if (!config.data?.me.payroll || !config.data?.open_modules.payroll) return null;
+  return <DecisionsMenu className={className} />;
+}
+
+function DecisionsMenu({ className }: { className?: string }) {
+  const { showToast } = useToast();
+  const decisions = useBonusDecisions(true);
   const approve = useApproveBonus();
   const confirm = useConfirmVoucher();
-  if (!allowed || !decisions.isSuccess) return null;
+  if (!decisions.isSuccess) return null;
   const { signed, league, check, vouchers } = decisions.data;
   const total = signed.length + league.length + check.length + vouchers.length;
   if (total === 0) return null;

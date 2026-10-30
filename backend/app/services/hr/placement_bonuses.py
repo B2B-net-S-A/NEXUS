@@ -118,6 +118,7 @@ EDIT_MARKS: tuple[str, ...] = (
     "edited_period",
     "recipient_change_reason",
     "automat_recipient_user_id",
+    "settlement_import",
 )
 STARTED_STATUSES: frozenset[ContractStatus] = frozenset(
     {ContractStatus.active, ContractStatus.ending, ContractStatus.ended}

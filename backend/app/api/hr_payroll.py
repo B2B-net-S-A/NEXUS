@@ -1168,6 +1168,7 @@ class SettlementApplyIn(BaseModel):
     rows: list[SettlementRowIn] = Field(
         min_length=1, max_length=settlement_import.MAX_ROWS
     )
+    as_proposal: bool = False
 
 
 @router.post("/months/{year}/{month}/settlement-import/preview")
@@ -1205,6 +1206,7 @@ async def apply_settlement_import(
             [row.model_dump() for row in payload.rows],
             year=year,
             month=month,
+            as_proposal=payload.as_proposal,
         )
 
 
