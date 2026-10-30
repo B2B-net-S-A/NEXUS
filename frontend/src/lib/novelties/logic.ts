@@ -78,20 +78,34 @@ export function cardCandidate(
   );
 }
 
-/** Okno zmiany procesu dla otwartego ekranu. */
+/**
+ * Obowiązkowe okno dla otwartego ekranu. Od 30.10.2026 (decyzja Artura)
+ * każdą nowość do przeklikania trzeba przejść, nie tylko zmianę procesu:
+ * okno staje na ekranie nowości (`path_prefix`, a bez niego `href`).
+ * Drobiazg okna nie ma. Dopóki osoba nie skończy Startu, nowości milczą —
+ * najpierw podstawy.
+ */
 export function requiredForPath(
   list: readonly Novelty[],
   pathname: string,
 ): Novelty | null {
+  if (pathname.startsWith(START_PATH)) return null;
+  if (list.some((n) => n.start && !n.done)) return null;
   return (
     list.find(
       (n) =>
-        n.tier === "process" &&
+        !n.start &&
+        n.tier !== "dot" &&
         n.required_now &&
-        n.path_prefix != null &&
-        pathname.startsWith(n.path_prefix),
+        onScreen(pathname, n.path_prefix ?? n.href),
     ) ?? null
   );
+}
+
+/** Ekran nowości: „/” to sam pulpit, reszta to prefiks adresu. */
+function onScreen(pathname: string, prefix: string): boolean {
+  if (prefix === "/") return pathname === "/";
+  return pathname === prefix || pathname.startsWith(`${prefix}/`) || pathname.startsWith(`${prefix}?`);
 }
 
 /** Selektor kotwicy: `data-tour` nowości albo `data-help` przewodnika ekranu. */

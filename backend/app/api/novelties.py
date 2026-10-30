@@ -42,6 +42,7 @@ from app.models.app_setting import AppSetting
 from app.models.novelty import NoveltyProgress
 from app.models.user import User
 from app.services.action_permissions import named_permissions_of
+from app.services.section_permissions import SectionAccess, section_access_for_user
 
 router = APIRouter()
 
@@ -51,6 +52,10 @@ NoveltyEvent = Literal[
 
 #: Zdarzenie, które zalicza nowość, i jak to zapisujemy.
 _COMPLETING: dict[str, str] = {"toured": "tour", "used": "used", "dot_clicked": "dot"}
+
+#: Nowości z obowiązkowym oknem (odłożyć można raz, do rana). Drobiazg
+#: zalicza pierwsze kliknięcie kropki.
+MANDATORY_TIERS = frozenset({"tour", "process"})
 
 #: Okno zmiany procesu wraca następnego dnia o tej godzinie (Europe/Warsaw).
 POSTPONE_TO = time(8, 0)
@@ -90,6 +95,15 @@ def _role_values(user: Any) -> set[str]:
 
 
 def _audience_of(user: Any, novelty: Novelty) -> bool:
+    """Rola albo uprawnienie z odbiorców i odczyt w sekcji ekranu nowości.
+
+    Sekcję czyta ta sama funkcja co bramka tras (``section_access``), więc
+    osoba z odebraną sekcją nie dostaje przeklikania ekranu, którego nie
+    otworzy — ani okna, ani pozycji Startu, która by ją zablokowała."""
+    if novelty.section is not None and (
+        section_access_for_user(user, novelty.section) < SectionAccess.read
+    ):
+        return False
     return in_audience(novelty, _role_values(user), named_permissions_of(user))
 
 
@@ -106,12 +120,18 @@ def shape_for_user(
     now: datetime,
     *,
     start: bool = False,
+    tours_mandatory: bool = True,
 ) -> dict[str, Any]:
     """Nowość z punktu widzenia osoby: co pokazać i czy już umie.
 
     Przeklikanie Startu (``start=True``) nie ma kropki, karty ani okna — prowadzi
     do niego ekran ``/start``."""
     done = progress is not None and progress.completed_at is not None
+    # Wyłącznik blokady Startu wyłącza też obowiązkowe okno nowości do
+    # przeklikania (awaryjnie i na stacku E2E); zmiana procesu zostaje.
+    mandatory = novelty.tier == "process" or (
+        novelty.tier == "tour" and tours_mandatory
+    )
     dismissed = progress is not None and progress.card_dismissed_at is not None
     reminded_after_dismiss = (
         dismissed
@@ -143,13 +163,12 @@ def shape_for_user(
         and not done
         and novelty.tier != "dot"
         and (not dismissed or reminded_after_dismiss),
-        # Okno zmiany procesu: do zaliczenia, poza czasem odłożenia.
-        "required_now": not start
-        and not done
-        and novelty.tier == "process"
-        and not postponed,
+        # Okno przy wejściu na ekran nowości: do zaliczenia, poza czasem
+        # odłożenia. Od 30.10.2026 (decyzja Artura) każdą nowość do
+        # przeklikania trzeba przejść, nie tylko zmianę procesu; drobiazg nie.
+        "required_now": not start and not done and mandatory and not postponed,
         "can_postpone": not start
-        and novelty.tier == "process"
+        and mandatory
         and (progress is None or progress.postponed_until is None),
     }
 
@@ -186,9 +205,11 @@ async def my_novelties(
         db, current_user.id, [n.id for n in mine] + [t.id for t in starts]
     )
     now = datetime.now(timezone.utc)
-    shaped = [shape_for_user(n, progress.get(n.id), now) for n in mine] + [
-        shape_for_user(t, progress.get(t.id), now, start=True) for t in starts
-    ]
+    gate_on = await start_gate_on(db)
+    shaped = [
+        shape_for_user(n, progress.get(n.id), now, tours_mandatory=gate_on)
+        for n in mine
+    ] + [shape_for_user(t, progress.get(t.id), now, start=True) for t in starts]
     if _impersonating(request):
         return [quiet_for_preview(item) for item in shaped]
     return shaped
@@ -232,12 +253,12 @@ def apply_event(
     elif event == "card_dismissed":
         row.card_dismissed_at = now
     elif event == "postponed":
-        if novelty.tier != "process":
+        if novelty.tier not in MANDATORY_TIERS:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "code": "postpone_not_allowed",
-                    "message": "Odłożyć można tylko zmianę procesu.",
+                    "message": "Drobiazgu się nie odkłada — wystarczy go kliknąć.",
                 },
             )
         if row.postponed_until is not None:

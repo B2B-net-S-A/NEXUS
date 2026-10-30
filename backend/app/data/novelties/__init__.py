@@ -32,6 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.models.user import UserRole
 from app.services import permission_catalog
+from app.services.section_permissions import ProductSection
 
 NOVELTIES_PATH = Path(__file__).resolve().parent / "novelties.json"
 
@@ -105,6 +106,10 @@ class Novelty(BaseModel):
     used_anchor: Optional[str] = Field(default=None, pattern=_ANCHOR)
     #: Ekran, przy którego otwarciu pokazuje się okno zmiany procesu.
     path_prefix: Optional[str] = Field(default=None, pattern=r"^/[a-z0-9/_-]*$")
+    #: Sekcja ekranu nowości (ta sama, którą sprawdza middleware i bramka
+    #: tras). Osoba bez odczytu w tej sekcji nie dostaje nowości ani okna —
+    #: nikt nie przeklikuje ekranu, do którego nie ma dostępu (Artur, 30.10.2026).
+    section: Optional[ProductSection] = None
     steps: list[TourStep] = Field(default_factory=list, max_length=6)
     active_days: int = Field(default=DEFAULT_ACTIVE_DAYS, ge=7, le=90)
 

@@ -174,6 +174,28 @@ describe("logika nowości", () => {
     ).toBeNull();
   });
 
+  it("nowość do przeklikania wymaga okna na swoim ekranie (href), drobiazg nie (30.10.2026)", () => {
+    const tour = novelty({ required_now: true });
+    expect(requiredForPath([tour], "/jobs/12")?.id).toBe("wybieram");
+    expect(requiredForPath([tour], "/candidates")).toBeNull();
+    const dot = novelty({ id: "kropka", tier: "dot", required_now: true });
+    expect(requiredForPath([dot], "/jobs")).toBeNull();
+    // Ekran „/” to tylko pulpit, nie każdy adres.
+    const home = novelty({ id: "pulpit", href: "/", required_now: true });
+    expect(requiredForPath([home], "/")?.id).toBe("pulpit");
+    expect(requiredForPath([home], "/jobs")).toBeNull();
+  });
+
+  it("w trakcie Startu i na liście Startu żadna nowość nie wyskakuje", () => {
+    const tour = novelty({ required_now: true });
+    const startPending = novelty({ id: "start-x", start: true, done: false });
+    expect(requiredForPath([tour, startPending], "/jobs")).toBeNull();
+    expect(requiredForPath([tour], "/start")).toBeNull();
+    expect(
+      requiredForPath([tour, { ...startPending, done: true }], "/jobs")?.id,
+    ).toBe("wybieram");
+  });
+
   it("krok przechodzi po kliknięciu w kotwicę (także w jej środek), a ostatni kończy", () => {
     const n = novelty();
     expect(
