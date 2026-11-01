@@ -238,10 +238,35 @@ def _close_open_json(text_value: str) -> str:
     ogon dokumentu — częściowe insights są lepsze niż wieczny błąd. Na
     poprawnym JSON-ie to no-op (pusty stos, poza stringiem).
     """
+    # Samo domknięcie nawiasów nie wystarcza (NEXUS-BE-50): ucięcie po
+    # przecinku, kluczu, dwukropku albo w środku literału (`tru`, `1.`)
+    # dawało nadal niepoprawny JSON. Śledzimy więc ostatni „bezpieczny”
+    # punkt — po kompletnej wartości albo zaraz po otwarciu kontenera — i
+    # niekompletny ogon obcinamy do niego przed domknięciem nawiasów.
     stack: list[str] = []
+    # Stan per kontener: "key" | "colon" | "value" | "next".
+    expect: list[str] = []
+    safe_end = 0
+    safe_stack: list[str] = []
     in_string = False
     escaped = False
-    for ch in text_value:
+    string_is_key = False
+    string_start = 0
+
+    def mark(end: int) -> None:
+        nonlocal safe_end, safe_stack
+        safe_end = end
+        safe_stack = list(stack)
+
+    def complete(end: int) -> None:
+        if expect:
+            expect[-1] = "next"
+        mark(end)
+
+    n = len(text_value)
+    i = 0
+    while i < n:
+        ch = text_value[i]
         if in_string:
             if escaped:
                 escaped = False
@@ -249,18 +274,65 @@ def _close_open_json(text_value: str) -> str:
                 escaped = True
             elif ch == '"':
                 in_string = False
+                if string_is_key:
+                    expect[-1] = "colon"
+                else:
+                    complete(i + 1)
+            i += 1
+            continue
+        if ch in " \t\r\n":
+            i += 1
             continue
         if ch == '"':
             in_string = True
+            string_is_key = bool(expect) and expect[-1] == "key"
+            string_start = i
         elif ch in "{[":
             stack.append(ch)
+            expect.append("key" if ch == "{" else "value")
+            mark(i + 1)
         elif ch in "}]":
             if stack:
                 stack.pop()
-    repaired = text_value
-    if in_string:
-        repaired += '"'
-    for opener in reversed(stack):
+                expect.pop()
+            if not stack:
+                # Kompletny dokument — ewentualny postamble odpada.
+                return text_value[: i + 1]
+            complete(i + 1)
+        elif ch == ":":
+            if expect:
+                expect[-1] = "value"
+        elif ch == ",":
+            if expect:
+                expect[-1] = "key" if stack[-1] == "{" else "value"
+        else:
+            # Liczba / true / false / null — kompletna tylko, gdy po niej
+            # stoi separator; urwana na końcu tekstu jest obcinana.
+            j = i
+            while j < n and text_value[j] not in ' \t\r\n,:]}"{[':
+                j += 1
+            if j < n:
+                complete(j)
+            i = j
+            continue
+        i += 1
+
+    if in_string and not string_is_key:
+        # Urwana wartość tekstowa: zachowujemy ją, zdejmując niedokończoną
+        # sekwencję ucieczki (samotny `\` albo `\u` z <4 cyframi hex).
+        body = text_value[string_start:]
+        if escaped:
+            body = body[:-1]
+        else:
+            m = re.search(r"(\\+)u[0-9a-fA-F]{0,3}$", body)
+            if m and len(m.group(1)) % 2 == 1:
+                body = body[: m.start() + len(m.group(1)) - 1]
+        repaired = text_value[:string_start] + body + '"'
+        openers = stack
+    else:
+        repaired = text_value[:safe_end]
+        openers = safe_stack
+    for opener in reversed(openers):
         repaired += "}" if opener == "{" else "]"
     return repaired
 
@@ -386,7 +458,26 @@ async def extract_insights(notes_blob: str) -> dict:
         # obcinał wszystko za sobą, zanim naprawa cokolwiek zobaczyła.
         # Postamble po poprawnym JSON-ie nieosiągalny: wtedy pierwszy parse
         # payloadu po prostu się udaje.
-        parsed = _validated_insights(json.loads(_close_open_json(raw[start:])))
+        try:
+            repaired = json.loads(_close_open_json(raw[start:]))
+        except json.JSONDecodeError as err:
+            # Nienaprawialna odpowiedź modelu: zostaje zgłoszona (terminal
+            # failure), ale z diagnostyką zamiast gołego JSONDecodeError.
+            # Bez treści notatek — tylko metadane odpowiedzi.
+            stop_reason = getattr(msg, "stop_reason", None)
+            logger.warning(
+                "notes-insights: nienaprawialny JSON z modelu "
+                "(stop_reason=%s, raw_len=%d, err_pos=%s, err=%s)",
+                stop_reason,
+                len(raw),
+                err.pos,
+                err.msg,
+            )
+            raise ValueError(
+                f"unparseable_notes_response (stop_reason={stop_reason}, "
+                f"raw_len={len(raw)}, err_pos={err.pos}, err={err.msg})"
+            ) from err
+        parsed = _validated_insights(repaired)
     return _drop_ungrounded_rate(parsed, notes_blob)
 
 
