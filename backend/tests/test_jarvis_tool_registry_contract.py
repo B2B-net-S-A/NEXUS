@@ -335,6 +335,35 @@ def test_contract_passages_reach_the_model_whole():
     assert not {search.name, read.name} & WEB_SAFE_TOOLS
 
 
+def test_contract_dates_are_read_from_the_contract_not_from_the_directory():
+    """Rozmowa na produkcji 01.11.2026: na „do kiedy obowiązuje umowa z Nordeą”
+    Jarvis wziął `expiry_date` z katalogu klientów (inna data niż w aneksie)
+    i dopiero zapytał, czy sprawdzić aneksy."""
+    from app.services.jarvis.prompt import SYSTEM_PROMPT
+    from app.services.jarvis.tools import TOOLS_BY_NAME
+
+    section = SYSTEM_PROMPT.split("UMOWY Z KLIENTAMI")[1].split("PAMIĘĆ")[0]
+    assert "okres obowiązywania" in section
+    assert "data zawarcia" in section
+    assert "nie pytaj, czy masz je sprawdzić" in section
+
+    directory = TOOLS_BY_NAME["list_clients"].description
+    assert "expiry_date" in directory
+    assert "search_framework_contracts" in directory
+
+
+def test_prompt_reads_the_matching_amendment_and_passes_on_its_note():
+    """PANSA i Nordea: data stoi we fragmencie aneksu obok znalezionego.
+    mLeasing: `note` o piśmie ręcznym jest przy umowie i aneksie, a Jarvis
+    przeniósł ostrzeżenie tylko na aneks i podał datę umowy jako pewną."""
+    from app.services.jarvis.prompt import SYSTEM_PROMPT
+
+    section = SYSTEM_PROMPT.split("UMOWY Z KLIENTAMI")[1].split("PAMIĘĆ")[0]
+    assert "doczytaj ten aneks (read_contract_amendment)" in section
+    assert "Pole note" in section
+    assert "do sprawdzenia w PDF-ie" in section
+
+
 def test_long_text_fields_are_not_cut_to_a_teaser():
     from app.services.jarvis.tools import trim
 
