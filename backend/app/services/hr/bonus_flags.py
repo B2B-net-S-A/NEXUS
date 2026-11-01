@@ -221,10 +221,15 @@ def stage_facts(contract: Contract, *, signed: bool, today: date) -> dict[str, A
     """Etapy premii dla osoby: podpis, kontrakt, zamówienie, start (bez kwot)."""
 
     start = contract.start_date
+    active = str(getattr(contract.status, "value", contract.status)) in (
+        "active",
+        "ending",
+        "ended",
+    )
     return {
-        "signed": signed,
-        "contract_active": str(getattr(contract.status, "value", contract.status))
-        in ("active", "ending", "ended"),
+        # Kontrakt spoza Generatora nie ma znacznika podpisu, a działa: etap minął.
+        "signed": signed or active,
+        "contract_active": active,
         "order": contract.client_order_start_date is not None,
         "started": start is not None and start <= today,
         "start_date": start.isoformat() if start else None,
