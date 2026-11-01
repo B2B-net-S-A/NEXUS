@@ -7,7 +7,8 @@ from decimal import Decimal
 
 import pytest
 
-from app.services.hr.bonus_flags import margin_flag
+from app.models.contract import Contract, ContractStatus
+from app.services.hr.bonus_flags import margin_flag, stage_facts
 from app.services.hr.bonus_rules import (
     DEFAULT_RULES,
     BonusRulesError,
@@ -121,3 +122,12 @@ def test_day_rate_margin_is_flagged_but_normal_is_not() -> None:
     assert margin_flag(_bonus("1180.00"))["code"] == "high_margin"
     assert margin_flag(_bonus("100.00")) is None
     assert margin_flag(_bonus("42.50")) is None
+
+
+def test_active_contract_outside_generator_counts_as_signed() -> None:
+    active = Contract(status=ContractStatus.active, start_date=date(2026, 10, 20))
+    draft = Contract(status=ContractStatus.draft, start_date=date(2026, 10, 20))
+    today = date(2026, 11, 1)
+    assert stage_facts(active, signed=False, today=today)["signed"] is True
+    assert stage_facts(draft, signed=False, today=today)["signed"] is False
+    assert stage_facts(draft, signed=True, today=today)["signed"] is True
