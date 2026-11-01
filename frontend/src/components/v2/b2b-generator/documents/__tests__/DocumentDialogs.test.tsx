@@ -2,7 +2,7 @@ import * as React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   effects: vi.fn(),
@@ -464,6 +464,15 @@ describe("Kreator — oświadczenia i deklaracje do umowy zlecenie", () => {
 });
 
 describe("Wypowiedzenie Partnera (runda 6 audytu, DOC-3)", () => {
+  // Doręczenie domyślnie to dziś, a data rozwiązania nie może być wcześniejsza.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-15T10:00:00+02:00"));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("umowa bez wersji wzoru wymaga daty rozwiązania", async () => {
     mocks.partnerNotice.mockResolvedValue({ termination_date: "2026-10-31" });
     renderWith(

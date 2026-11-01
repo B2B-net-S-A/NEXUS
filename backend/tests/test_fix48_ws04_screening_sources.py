@@ -10,10 +10,12 @@
 Dane fikcyjne.
 """
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import time_machine
 
 from app.services import cv_review_sources
 from app.services.cv_generator_b2b import standalone_service as svc
@@ -143,7 +145,16 @@ async def test_approval_review_reads_frozen_notes_without_questions(monkeypatch)
     assert "O: Nie, z Grafaną." in review.screening_notes
 
 
-def test_upload_notes_reach_the_model_without_rates(monkeypatch):
+@pytest.mark.parametrize(
+    ("day", "date_in_prompt"),
+    [
+        # Data generacji w prompcie zawiera wtedy „1.11”, jak notatka o starcie.
+        (datetime(2026, 11, 1, 10, tzinfo=timezone.utc), "01.11.2026"),
+        (datetime(2026, 11, 11, 10, tzinfo=timezone.utc), "11.11.2026"),
+        (datetime(2026, 6, 15, 10, tzinfo=timezone.utc), "15.06.2026"),
+    ],
+)
+def test_upload_notes_reach_the_model_without_rates(monkeypatch, day, date_in_prompt):
     # Notatki wpisane w formularzu generacji (upload, CV bez procesu) nie
     # przechodzą przez kolektor — filtr stoi też w samym przepływie.
     import json
@@ -175,17 +186,24 @@ def test_upload_notes_reach_the_model_without_rates(monkeypatch):
     monkeypatch.setattr(legacy, "analyze_with_ai", analyze)
     monkeypatch.setattr(legacy, "render_cv_to_bytes", lambda *a, **k: b"DOCX")
     monkeypatch.setattr(factual_verification, "analyze_with_ai", forbidden)
-    svc._run_generation_pipeline(
-        cv_bytes=b"cv",
-        cv_filename="cv.pdf",
-        champion_dto=None,
-        screening_notes_text="Zna Kafkę, stawka 150 B2B. Start: od 1.11",
-        language="pl",
-        blind_cv=False,
-        request_id="fix48-ws04",
-        fallback_name="Jan Testowy",
-        started_at=time.time(),
-        content_mode="polished",
-    )
-    assert "Zna Kafkę," in prompts[0]
-    assert "150" not in prompts[0] and "1.11" not in prompts[0]
+    with time_machine.travel(day, tick=False):
+        svc._run_generation_pipeline(
+            cv_bytes=b"cv",
+            cv_filename="cv.pdf",
+            champion_dto=None,
+            screening_notes_text="Zna Kafkę, stawka 150 B2B. Start: od 1.11",
+            language="pl",
+            blind_cv=False,
+            request_id="fix48-ws04",
+            fallback_name="Jan Testowy",
+            started_at=time.time(),
+            content_mode="polished",
+        )
+    prompt = prompts[0]
+    assert f"Dzisiejsza data: {date_in_prompt}" in prompt
+    # Sam blok notatek: reszta promptu niesie datę generacji.
+    notes = prompt.split("<screening_notes>")[1].split("</screening_notes>")[0]
+    assert "Zna Kafkę," in notes
+    assert "150" not in notes and "1.11" not in notes
+    # Poza blokiem też nic nie przeciekło.
+    assert "150" not in prompt and "od 1.11" not in prompt

@@ -30,7 +30,7 @@ from app.services.care import access as care_access
 from app.services.care import cadence as care_cadence
 from app.services.care import plan as care_plan
 from app.services.care import records
-from app.services.care.cadence_rules import add_months
+from app.services.care.cadence_rules import CadencePeriod, add_months
 from app.services.hr_foundation_schema import HR_DIVISIONS_SETTING
 from tests.test_care_api import (
     care_off,  # noqa: F401  (fixture)
@@ -42,6 +42,23 @@ from tests.test_care_api import (
 )
 
 pytestmark = pytest.mark.asyncio
+
+
+def talks_after_temporary_biweekly(today: date, until: date) -> list[date]:
+    """Co 2 tygodnie od dziś do „do kiedy”, potem co miesiąc od dnia powrotu.
+
+    Kolejne miesiące po powrocie sięgają do końca okna planu włącznie: ile ich
+    wejdzie, zależy od długości miesięcy, więc i od dnia uruchomienia testu.
+    """
+
+    horizon = today + timedelta(days=care_plan.LOOKAHEAD_DAYS)
+    talks = [today + timedelta(days=14 * k) for k in range(1, 5)]
+    back = until + timedelta(days=1)
+    months = 1
+    while (talk := add_months(back, months)) <= horizon:
+        talks.append(talk)
+        months += 1
+    return talks
 
 
 async def set_owner(contract_id: int, user_id: int) -> None:
@@ -172,11 +189,9 @@ async def test_owner_changes_rhythm_and_the_plan_follows(app_client) -> None:
     assert back["future"] is True
 
     # Plan: co 2 tygodnie od dziś do „do kiedy”, potem co miesiąc od dnia powrotu.
-    expected = [today + timedelta(days=14 * k) for k in range(1, 5)]
-    expected.append(add_months(until + timedelta(days=1), 1))
     rhythm = await open_rhythm(contract_id)
     # Przyszłe rozmowy dawnego „co miesiąc” zniknęły.
-    assert rhythm == [day for day in expected if day <= today + timedelta(days=120)]
+    assert rhythm == talks_after_temporary_biweekly(today, until)
 
     (event,) = await audit_events(contract_id, "care.cadence_set")
     assert event.actor_user_id == owner.id
@@ -186,6 +201,36 @@ async def test_owner_changes_rhythm_and_the_plan_follows(app_client) -> None:
     assert event.details["until_on"] == until.isoformat()
     # Notatka zostaje w okresie rytmu, nie w śladzie.
     assert "note" not in event.details
+
+
+@pytest.mark.parametrize(
+    ("today", "monthly_after_return"),
+    [
+        (date(2026, 6, 15), [date(2026, 9, 15)]),
+        (date(2026, 10, 30), [date(2027, 1, 30)]),
+        # 31.12 + 2 miesiące = 28.02, czyli dokładnie koniec okna.
+        (date(2026, 10, 31), [date(2027, 1, 31), date(2027, 2, 28)]),
+        # Styczeń i luty mają razem 59 dni: druga rozmowa wypada na końcu okna.
+        (date(2026, 11, 1), [date(2027, 2, 1), date(2027, 3, 1)]),
+        (date(2026, 11, 11), [date(2027, 2, 11), date(2027, 3, 11)]),
+        (date(2026, 12, 29), [date(2027, 3, 28), date(2027, 4, 28)]),
+        (date(2026, 12, 30), [date(2027, 4, 1)]),
+    ],
+)
+async def test_plan_after_temporary_rhythm_on_any_day(
+    today: date, monthly_after_return: list[date]
+) -> None:
+    until = today + timedelta(days=60)
+    slots = care_plan.planned_slots(
+        today - timedelta(days=200),
+        None,
+        today,
+        periods=(CadencePeriod(1, "biweekly", today, until),),
+    )
+    rhythm = [s.due_on for s in slots if s.kind == "cadence" and s.due_on >= today]
+    biweekly = [today + timedelta(days=14 * k) for k in range(1, 5)]
+    assert rhythm == biweekly + monthly_after_return
+    assert rhythm == talks_after_temporary_biweekly(today, until)
 
 
 @pytest.mark.usefixtures("care_on")
