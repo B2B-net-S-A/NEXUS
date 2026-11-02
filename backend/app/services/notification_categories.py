@@ -283,6 +283,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.admin_case_assigned: _C.people,
     _T.back_office_escalated: _C.people,
     _T.back_office_assigned: _C.people,
+    _T.portal_low_rating: _C.people,
+    _T.portal_monthly_review: _C.people,
     _T.equipment_task: _C.people,
     _T.equipment_protocol_signed: _C.people,
     _T.equipment_return_reminder: _C.people,

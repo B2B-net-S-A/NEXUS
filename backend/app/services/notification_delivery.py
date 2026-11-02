@@ -548,6 +548,8 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "admin_case_assigned",
     "back_office_escalated",
     "back_office_assigned",
+    "portal_low_rating",
+    "portal_monthly_review",
     "equipment_task",
     "equipment_protocol_signed",
     "equipment_return_reminder",
