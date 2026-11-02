@@ -15,6 +15,7 @@ w ``_ENUM_STATEMENTS`` — ta lista jest zdefiniowana przed importami.
 from __future__ import annotations
 
 from app.services import admin_cases_schema as admin_cases
+from app.services import back_office_schema as back_office
 from app.services import board_role_schema as board_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
@@ -69,6 +70,8 @@ MODULES = (
     equipment_cancel,
     # 0622: zastępca do Cpro we wniosku urlopowym (29.10.2026).
     leave_cpro,
+    # 0629: kolejka spraw całego back office'u (02.11.2026).
+    back_office,
 )
 
 COLUMN_DDL: tuple[str, ...] = (

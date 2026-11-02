@@ -281,6 +281,8 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_lifecycle_task: _C.people,
     _T.hr_work_handover: _C.people,
     _T.admin_case_assigned: _C.people,
+    _T.back_office_escalated: _C.people,
+    _T.back_office_assigned: _C.people,
     _T.equipment_task: _C.people,
     _T.equipment_protocol_signed: _C.people,
     _T.equipment_return_reminder: _C.people,

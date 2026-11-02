@@ -97,6 +97,12 @@ CHAIN = (
         "0621_pair_departure_care",  # down_revision — przepina rechain_migration.py
         "hr_leave_cpro_schema",
     ),
+    # Kolejka spraw back office'u (02.11.2026).
+    (
+        "0629_back_office",
+        "0628_sales_meeting_transcripts",  # down_revision — przepina rechain_migration.py
+        "back_office_schema",
+    ),
 )
 
 

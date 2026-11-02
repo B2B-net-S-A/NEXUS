@@ -119,6 +119,32 @@ async def admin_cases_mail_ingest_loop() -> None:
     )
 
 
+# ── Back office: karty ze źródeł, kroki i eskalacja ─────────────────────────
+BACK_OFFICE_SYNC_INTERVAL_SECONDS = 5 * 60
+
+
+async def back_office_sync_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.back_office.sync import run_once
+
+    result = await run_once(db, today=business_today())
+    return None if result.get("status") == "disabled" else result
+
+
+async def back_office_sync_loop() -> None:
+    if not loops_enabled("back_office_sync"):
+        return
+    beat = loop_heartbeat.register(
+        "back_office_sync",
+        max_silence_seconds=BACK_OFFICE_SYNC_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "back_office_sync",
+        beat,
+        BACK_OFFICE_SYNC_INTERVAL_SECONDS,
+        back_office_sync_job,
+    )
+
+
 # ── Zgody: odpowiedź „approved” mailem (etap 2, 20.10.2026) ─────────────────
 HR_APPROVAL_MAIL_INTERVAL_SECONDS = 2 * 60
 

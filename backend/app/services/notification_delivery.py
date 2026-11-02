@@ -546,6 +546,8 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_lifecycle_task",
     "hr_work_handover",
     "admin_case_assigned",
+    "back_office_escalated",
+    "back_office_assigned",
     "equipment_task",
     "equipment_protocol_signed",
     "equipment_return_reminder",
