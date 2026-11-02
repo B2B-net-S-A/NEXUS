@@ -388,7 +388,7 @@ function seedCardStates(qc: QueryClient) {
         fresh,
       );
     }
-    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] }, fresh);
+    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] });
     qc.setQueryData(stageBrandedQueryKey(person.stageId), {
       status: person.variant === "none" ? "none" : "draft",
       from_generator: person.variant !== "none" && person.variant !== "copy",
