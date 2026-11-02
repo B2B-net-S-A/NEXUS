@@ -189,6 +189,8 @@ class AIFeatureKey(str, enum.Enum):
     # 0620 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
     # „Kandydaci do dodania” — Dzwoń / Może / Nie pasuje z cytatem z CV.
     candidate_ai_assessment = "candidate_ai_assessment"
+    # 0628 (02.11.2026): podsumowanie transkryptu Teams spotkania handlowca.
+    sales_meeting_summary = "sales_meeting_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -233,6 +235,7 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
     AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
     AIFeatureKey.candidate_ai_assessment: "„Oceń z AI” — kolejność dzwonienia do zaznaczonych osób w rekrutacji",
+    AIFeatureKey.sales_meeting_summary: "Sprzedaż — podsumowanie transkryptu spotkania z Teams",
 }
 
 
@@ -420,6 +423,10 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tekst CV zaznaczonych osób i ich notatki z rozmów i spotkań (bez maili)",
         "Tytuł rekrutacji, umiejętności krytyczne, must-have, nice-to-have i opis projektu",
         "(bez stawek, nazwy klienta i danych kontaktowych z profilu)",
+    ],
+    AIFeatureKey.sales_meeting_summary: [
+        "Temat spotkania handlowca i transkrypt z Teams z podpisami mówców",
+        "(bez danych z kartoteki firmy, szans i kandydatów)",
     ],
 }
 

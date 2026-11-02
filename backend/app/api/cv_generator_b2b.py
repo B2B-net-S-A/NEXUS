@@ -3002,7 +3002,9 @@ async def generate_from_upload(
                 else None
             )
         if job is not None:
-            position = job.title or position
+            from app.services.job_working_title import cv_role_title_for_job
+
+            position = await cv_role_title_for_job(db, job) or position
 
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,

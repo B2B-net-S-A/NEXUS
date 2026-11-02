@@ -317,6 +317,13 @@ def date(value):
     return None
 
 
+def hour_minute(value):
+    match = re.fullmatch(
+        r"([01]?\d|2[0-3])[:.]([0-5]\d)(?::[0-5]\d)?", str(value).strip()
+    )
+    return f"{int(match[1]):02d}:{match[2]}" if match else None
+
+
 # A requirement longer than this reads like prose rather than a technology. It
 # is KEPT (in the stack and in `jobs.must_skills`) and only flagged: until
 # 09.2026 crossing either bound moved the entry to `intake.unresolved` and out
@@ -624,6 +631,7 @@ def prepare_profile(
         "work_mode": mode,
         "start_date": date,
         "deadline": date,
+        "deadline_time": hour_minute,
     }
     text_limits = {
         "role_name": 255,
@@ -1163,6 +1171,7 @@ def _rubric_job_value(job, key, column):
 
 def response_context(job):
     deadline = getattr(job, "deadline", None)
+    deadline_time = getattr(job, "deadline_time", None)
 
     return {
         "validation": validation(job.champion_profile, job),
@@ -1179,6 +1188,7 @@ def response_context(job):
             },
             "role_name": getattr(job, "title", None),
             "deadline": deadline.isoformat() if deadline else None,
+            "deadline_time": deadline_time.strftime("%H:%M") if deadline_time else None,
             # 0407: edytor startuje sekcję 1 z pary pól (tydzień / miesiąc).
             "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
         },
