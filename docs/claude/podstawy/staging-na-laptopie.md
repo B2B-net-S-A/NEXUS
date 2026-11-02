@@ -29,7 +29,36 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
 - `scripts/staging/refresh_code.sh` — backend i front z `origin/main` na tej samej
   bazie (co noc, `rutyny-nocne.md`). Kod wyjścia 3 = kopia ma rewizję, której main
   już nie zna: `/api/health` mówi wtedy „healthy”, a schemat jest stary, więc
-  potrzebna jest nowa kopia i `STAGING_DATABASE_NAME`.
+  potrzebna jest nowa kopia i `STAGING_DATABASE_NAME`. Kod wyjścia 4 = ranking
+  liczy co innego niż produkcja (niżej).
+
+## Ranking jak na produkcji
+
+Wnioski ze stagingu idą do decyzji Artura, więc wynik i kolejność muszą się
+zgadzać. 02.11.2026 staging nie miał flag z produkcji (ta sama osoba 45,1 i 66,3),
+a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
+
+- **Flagi:** `docker-compose.staging.yml`, sekcja „Ranking jak na produkcji”.
+  Nowa flaga z `_SCORING_CACHE_INPUTS` włączona na produkcji albo inna wartość
+  w workflow „Coolify set env” = ta sama zmiana w compose i
+  `env.staging.example`. Różnice, które zostają celowo: integracje, poczta,
+  pętle w tle.
+- **Nowa kopia bazy = wyrównanie Qdranta.** Klon z Hetznera przenosi samą bazę,
+  a outbox w kopii ma `indexed_hash` z produkcji. `index_drift_reconciler`
+  porównuje z nim treść, nie z Qdrantem, więc tej różnicy nie widzi. Skrypt niżej
+  porównuje hasz z punktem w Qdrancie i liczy tylko osoby ze zmianą (02.11: 2 252
+  osoby, ok. 3,3 mln tokenów):
+
+  ```bash
+  docker exec nexus-staging-backend-1 python -m scripts.reembed_collections --target candidates --resume --commit
+  ```
+
+- **Strażnik:** `scripts/staging_ranking_parity.py` (też z `refresh_code.sh`)
+  porównuje `ranker_version` z ostatnim automatycznym przeglądem z kopii i liczy
+  osoby z innym wektorem. Stempel nie obejmuje `HYBRID_POOL_ENABLED`,
+  `KNOWN_PEOPLE_BOOST_ENABLED`, `KEYWORD_SEARCH_FOLDED_FTS` ani `MATCH_POOL_SIZE`.
+- **Skrypt pomiarowy poza procesem web** wywołuje `refresh_alias_map()`
+  i `critical_skills.refresh_cache()`, bo robi to dopiero lifespan.
 
 ## Kopia bez klucza age i późniejsze przenoszenie zmian
 

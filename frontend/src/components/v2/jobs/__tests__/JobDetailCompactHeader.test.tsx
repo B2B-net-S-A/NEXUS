@@ -295,6 +295,19 @@ describe("JobDetailCompactHeader", () => {
     expect(within(await openMenu()).getByTestId("menu-files")).toHaveTextContent(/^Pliki$/);
   });
 
+  it("menu „⋯”: „Panel klienta” tylko z prawem i otwiera okno panelu", async () => {
+    const onOpenClientPanel = vi.fn();
+    const first = renderHeader({ onOpenClientPanel });
+    const item = within(await openMenu()).getByTestId("menu-client-panel");
+    expect(item).toHaveTextContent(/^Panel klienta$/);
+    await userEvent.click(item);
+    await waitFor(() => expect(onOpenClientPanel).toHaveBeenCalled());
+    first.unmount();
+
+    renderHeader();
+    expect(within(await openMenu()).queryByTestId("menu-client-panel")).toBeNull();
+  });
+
   it("podmenu „Dodaj kandydatów”: po nazwisku, z pliku CV, z moich ludzi, przegląd całej bazy", async () => {
     const onAddByName = vi.fn();
     const onAddFromCv = vi.fn();

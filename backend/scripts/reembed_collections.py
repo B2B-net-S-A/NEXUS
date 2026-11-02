@@ -143,7 +143,12 @@ async def _mark_embedded(model: "type[Candidate] | type[Job]", ids: list[int]) -
             await db.execute(
                 update(model)
                 .where(model.id.in_(ids))
-                .values(embedding_id=cast(model.id, String))
+                # Znacznik to nie edycja osoby. Bez jawnego `updated_at` zapis
+                # bierze `onupdate=now()` i osoba wygląda na świeżo zmienioną.
+                .values(
+                    embedding_id=cast(model.id, String),
+                    updated_at=model.updated_at,
+                )
             )
             await db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -726,7 +731,7 @@ async def _reembed_candidates(
             est_requests,
             max_batch_chars,
         )
-        return processed, 0, 0
+        return processed, succeeded, failed
 
     logger.info(
         "[reembed candidates] DONE %s/%s (ok=%s, skipped=%s, fail=%s, outbox=%s)",

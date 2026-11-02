@@ -1,10 +1,10 @@
 """„Znamy tę osobę” — punkty kolejki w „Nowych” (decyzja Artura z 02.11.2026).
 
 Makiety i pomiar: https://claude.ai/artifact/8x6AxqnTihmecy2uw3Dhoh. Wagi dobrane
-na 178 wysłanych z 01–22.10, sprawdzone na 139 wysłanych od 23.10 (bez osób
-dopisanych do bazy tuż przed dodaniem): w top 20 z 32% do 41%, w top 40 z 50%
-do 62%, rekrutacje z trafieniem w top 20 z 51% do 69%. Mocniejsze „musi mieć”
-ani punkty za umiejętności nic tu nie dokładały.
+na 178 wysłanych z 01–22.10, sprawdzone z flagami produkcji na 146 wysłanych od
+23.10 (bez osób dopisanych do bazy tuż przed dodaniem): w top 20 z 32% do 38%,
+w top 40 z 49% do 62%, rekrutacje z trafieniem w top 20 z 45% do 62%. Mocniejsze
+„musi mieć” ani punkty za umiejętności nic tu nie dokładały.
 
 Punkty zmieniają WYŁĄCZNIE kolejność kandydatów do „Nowych” i kart w kolumnie;
 procent dopasowania zostaje (ta sama zasada co ``known_people_signal``). Zapis
@@ -13,7 +13,7 @@ w ``app_settings``, domyślne działają bez wiersza.
 Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta
 (``ended_by = 'client'``). Warunek z ``known_people_signal`` liczy też stare
 wiersze z pustym ``ended_by`` po wysyłce CV: pod niego wpadało 33 z 82 wysłanych
-ze zweryfikacją u tego klienta i top 40 spadało z 62% do 53%.
+ze zweryfikacją u tego klienta i top 40 spadało z 62% do 53% (pomiar bez flag).
 """
 
 from __future__ import annotations

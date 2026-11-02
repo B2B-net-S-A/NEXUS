@@ -287,11 +287,16 @@ async def get_my_link_results(
     # Suma widocznych wierszy — kafel liczony z innego zbioru niż lista pod
     # nim nie daje się sprawdzić wzrokiem.
     totals = {
-        key: sum(getattr(r, key) for r in rows)
+        key: sum(getattr(r, key) or 0 for r in rows)
         for key in CareerLinkResultCounts.model_fields
     }
+    if since is None:
+        totals["visits_in_period"] = None
     return CareerLinkResults(
-        days=days or None, totals=CareerLinkResultCounts(**totals), links=rows
+        days=days or None,
+        visits_tracked_from=await clr.visits_tracked_from(db),
+        totals=CareerLinkResultCounts(**totals),
+        links=rows,
     )
 
 

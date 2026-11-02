@@ -29,10 +29,10 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
 
 Silnik (`services/known_queue_points.py`) dodaje do kolejności +6 za weryfikację
 u tego klienta, +8 za notatkę do 30 dni, +2 za notatkę do 90 dni. Wagi dobrane na
-178 wysłanych z 01–22.10, sprawdzone na 139 wysłanych od 23.10 (bez osób
-dopisanych do bazy do 7 dni przed dodaniem): top 20 z 32% do 41%, top 40 z 50% do
-62%, rekrutacje z trafieniem w top 20 z 51% do 69%. Mocniejsze „musi mieć” i punkty
-za umiejętności nic nie dokładały.
+178 wysłanych z 01–22.10, sprawdzone z flagami produkcji na 146 wysłanych od 23.10
+(bez osób dopisanych do bazy do 7 dni przed dodaniem): top 20 z 32% do 38%, top 40
+z 49% do 62%, rekrutacje z trafieniem w top 20 z 45% do 62%. Mocniejsze „musi mieć”
+i punkty za umiejętności nic nie dokładały.
 
 - **Tylko kolejność.** `ranked_picks` sortuje po wyniku z punktami, a
   `entry_meta.score` i procent na karcie zostają sam wynik. Nie dodawaj punktów do
@@ -40,7 +40,7 @@ za umiejętności nic nie dokładały.
 - **Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta**
   (`ended_by = 'client'`). Nie używaj tu warunku z `known_people_signal`: liczy
   też stare wiersze z pustym `ended_by` po wysyłce CV, pod który wpadało 33 z 82
-  wysłanych ze zweryfikacją u klienta (top 40 spada wtedy z 62% do 53%).
+  wysłanych ze zweryfikacją u klienta (top 40 spada wtedy z 62% do 53%, pomiar bez flag).
 - **Tablica liczy fakty na żywo** (`entry_autofill.known`, dwa zapytania na odczyt
   Tablicy, tylko gdy są karty od systemu), więc świeża notatka podnosi kartę od razu.
 - **Punkty ustawia Head of Recruitment** w „Ranking kandydatów → Wagi”

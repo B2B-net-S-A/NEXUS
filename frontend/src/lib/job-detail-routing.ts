@@ -111,6 +111,7 @@ const SLIDE_OVERS: readonly RecruitmentSlideOver[] = [
   "order",
   "questions",
   "files",
+  "client-panel",
   "history-chat",
   "manual-search",
   "similar",
