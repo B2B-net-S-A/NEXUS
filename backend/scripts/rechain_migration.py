@@ -16,6 +16,8 @@ jest potrzebne — linie PR-a liczymy od merge-base)::
     python3 backend/scripts/rechain_migration.py             # zmiana plików
     python3 backend/scripts/rechain_migration.py --base origin/main
     python3 backend/scripts/rechain_migration.py --check-heads  # bramka CI
+    python3 backend/scripts/rechain_migration.py --stack-on origin/gałąź-przed-tym
+    python3 backend/scripts/rechain_migration.py --stub-missing-parent  # CI na PR-ze
 
 Skrypt nie commituje — po nim przejrzyj ``git diff``, puść testy lustra
 migracji i zacommituj. Po każdym pushu na main z nową migracją robi to za
@@ -33,6 +35,13 @@ są już na mainie, więc nie liczą się jako migracja ani linie tego PR-a.
 gdy nie ma dokładnie jednej. Biegnie jako pierwszy krok wymaganego
 „Backend (lint + migrations)”, więc grupa z dwiema głowami wypada z kolejki
 po ~1–2 min, a nie po ~25 min pełnego pytesta.
+
+``--stack-on <ref>`` (pas migracji, 02.11.2026): PR dostaje za rodzica ostatnią
+migrację PR-a przed nim w kolejce i numer o jeden wyższy, więc grupa „main + oba”
+ma jedną głowę. Na samym PR-ze tego rodzica nie ma, dlatego CI na ``pull_request``
+woła ``--stub-missing-parent``, które kładzie pustą migrację o tym id na głowie
+drzewa (plik tylko w kopii roboczej). W ``merge_group`` zaślepki nie ma: gdy PR
+przed nim wypadnie, „Jedna głowa” czerwieni grupę, zanim cokolwiek wejdzie na main.
 
 Czego NIE robi: nie obsługuje migracji scalających (krotka w
 ``down_revision``) dodanych przez PR ani plików migracji, których nie ma
@@ -198,10 +207,90 @@ def check_heads(repo: str, versions_dir: str, out=print) -> int:
     return 1
 
 
-def added_migration_paths(repo: str, base: str, versions_dir: str) -> List[str]:
-    """Pliki migracji z HEAD, których nie ma na czubku bazy.
+def load_stack(
+    repo: str, base: str, stack_on: str, versions_dir: str
+) -> List[Migration]:
+    """Migracje PR-a przed tym w kolejce: pliki ze ``stack_on``, których nie ma w bazie."""
+    migrations = []
+    for path in added_migration_paths(repo, base, versions_dir, ref=stack_on):
+        mig = parse_migration(path, git(repo, "show", f"{stack_on}:{path}"))
+        if mig is not None:
+            migrations.append(mig)
+    return migrations
 
-    Diff dwukropkowy (drzewo bazy ↔ HEAD), nie od merge-base: PR zbudowany na
+
+STUB_TEMPLATE = '''"""Zaślepka migracji z PR-a przed tym w kolejce (tylko CI na PR-ze).
+
+Revision ID: {revision}
+Revises: {down}
+"""
+
+revision = "{revision}"
+down_revision = "{down}"
+branch_labels = None
+depends_on = None
+
+
+def upgrade():
+    pass
+
+
+def downgrade():
+    pass
+'''
+
+
+def stub_missing_parent(repo: str, versions_dir: str, out=print) -> int:
+    """Kładzie pustą migrację o id brakującego rodzica na głowie reszty drzewa.
+
+    Ta głowa to jedyna, której łańcuch nie dochodzi do brakującego rodzica.
+    Więcej niż jeden brakujący rodzic to nie łańcuch pasa, tylko błąd: kod 1.
+    """
+    migrations = load_worktree(repo, versions_dir)
+    by_revision = {m.revision: m for m in migrations}
+    missing = sorted(
+        {down for m in migrations for down in down_list(m.down_revision)}
+        - set(by_revision)
+    )
+    if not missing:
+        out("Wszyscy rodzice migracji są w drzewie — zaślepka niepotrzebna.")
+        return 0
+    if len(missing) > 1:
+        out(f"::error::Kilku brakujących rodziców migracji: {', '.join(missing)}.")
+        return 1
+
+    def reaches_missing(revision: str) -> bool:
+        pending, seen = [revision], set()
+        while pending:
+            current = pending.pop()
+            if current == missing[0]:
+                return True
+            if current in seen or current not in by_revision:
+                continue
+            seen.add(current)
+            pending.extend(down_list(by_revision[current].down_revision))
+        return False
+
+    tips = [h for h in heads_of(migrations) if not reaches_missing(h)]
+    if len(tips) != 1:
+        out(f"::error::Rodzic {missing[0]} nie ma jednej głowy do podpięcia: {tips}.")
+        return 1
+    path = os.path.join(repo, versions_dir, f"{missing[0]}.py")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(STUB_TEMPLATE.format(revision=missing[0], down=tips[0]))
+    out(
+        f"Zaślepka {missing[0]} na głowie {tips[0]}: migracja PR-a stoi na migracji "
+        "PR-a przed nim w kolejce. W kolejce merge'ów zaślepki nie ma."
+    )
+    return 0
+
+
+def added_migration_paths(
+    repo: str, base: str, versions_dir: str, ref: str = "HEAD"
+) -> List[str]:
+    """Pliki migracji z ``ref``, których nie ma na czubku bazy.
+
+    Diff dwukropkowy (drzewo bazy ↔ ``ref``), nie od merge-base: PR zbudowany na
     gałęzi innego PR-a po squashu tamtego ma jego migrację w historii od
     merge-base, a ta sama migracja jest już na mainie — to nie jest migracja
     tego PR-a (#2516 → #2522 → #2524, 21.10.2026).
@@ -213,7 +302,7 @@ def added_migration_paths(repo: str, base: str, versions_dir: str) -> List[str]:
         "--name-status",
         "--diff-filter=A",
         base,
-        "HEAD",
+        ref,
         "--",
         versions_dir,
     )
@@ -455,13 +544,29 @@ def rewrite_added_lines(
     return changes
 
 
-def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> int:
+def run(
+    repo: str,
+    base: str,
+    versions_dir: str,
+    dry_run: bool,
+    out=print,
+    stack_on: Optional[str] = None,
+) -> int:
     base_migrations = load_base(repo, base, versions_dir)
+    target = base
+    if stack_on:
+        base_migrations += load_stack(repo, base, stack_on, versions_dir)
+        target = f"{base} + {stack_on}"
     heads = heads_of(base_migrations)
     if len(heads) != 1:
         raise RechainError(
-            f"{base} ma {len(heads)} głowy migracji ({', '.join(heads) or 'brak'}) "
-            "zamiast jednej — najpierw trzeba to naprawić na mainie."
+            f"{target} ma {len(heads)} głowy migracji ({', '.join(heads) or 'brak'}) "
+            "zamiast jednej — "
+            + (
+                "najpierw trzeba przepiąć PR przed tym w kolejce."
+                if stack_on
+                else "najpierw trzeba to naprawić na mainie."
+            )
         )
     head = heads[0]
 
@@ -486,7 +591,7 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
     if chain[0].down_revision == head and not collisions:
         out(
             f"Migracje PR-a ({', '.join(m.revision for m in chain)}) już stoją "
-            f"na głowie {base} ({head}) z wolnymi numerami — nic do zrobienia."
+            f"na głowie {target} ({head}) z wolnymi numerami — nic do zrobienia."
         )
         return 0
 
@@ -497,7 +602,7 @@ def run(repo: str, base: str, versions_dir: str, dry_run: bool, out=print) -> in
         ):
             raise RechainError(f"{r.new_path} już istnieje — przerwano.")
 
-    out(f"Głowa {base}: {head}")
+    out(f"Głowa {target}: {head}")
     out("Plan:" if dry_run else "Zmiany:")
     for r in renames:
         mig = r.migration
@@ -564,13 +669,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         action="store_true",
         help="tylko sprawdź, że drzewo robocze ma jedną głowę (kod 1, gdy nie)",
     )
+    parser.add_argument(
+        "--stack-on",
+        help="ref PR-a przed tym w kolejce: rodzicem będzie jego ostatnia migracja",
+    )
+    parser.add_argument(
+        "--stub-missing-parent",
+        action="store_true",
+        help="CI na PR-ze: pusta migracja w miejsce rodzica z PR-a przed tym w kolejce",
+    )
     args = parser.parse_args(argv)
     try:
         repo = git(os.getcwd(), "rev-parse", "--show-toplevel").strip()
         versions_dir = args.versions_dir.strip("/")
         if args.check_heads:
             return check_heads(repo, versions_dir)
-        return run(repo, args.base, versions_dir, args.dry_run)
+        if args.stub_missing_parent:
+            return stub_missing_parent(repo, versions_dir)
+        return run(repo, args.base, versions_dir, args.dry_run, stack_on=args.stack_on)
     except RechainError as exc:
         print(f"Błąd: {exc}", file=sys.stderr)
         return 1

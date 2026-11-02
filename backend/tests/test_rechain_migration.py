@@ -157,6 +157,7 @@ def run_script(repo: Path, *args: str) -> tuple[int, str]:
         VERSIONS,
         dry_run="--dry-run" in args,
         out=lines.append,
+        stack_on=args[args.index("--stack-on") + 1] if "--stack-on" in args else None,
     )
     return code, "\n".join(lines)
 
@@ -437,3 +438,111 @@ def test_stacked_pr_rechains_only_its_own_migration(tmp_path: Path) -> None:
     entrypoint = (repo / "backend/entrypoint.sh").read_text()
     assert "# 0369: ocena prepu (0369_prep)" in entrypoint
     assert (repo / "docs/use.md").read_text() == "0371 używa 0369_prep\n"
+
+
+def add_ahead_branch(repo: Path, number: str = "0369") -> None:
+    """Gałąź PR-a przed tym w kolejce, z migracją na głowie maina."""
+    sh(repo, "checkout", "-q", "-b", "pr-ahead", "main")
+    write(
+        repo,
+        f"{VERSIONS}/{number}_ahead.py",
+        migration(f"{number}_ahead", "0368_y", "PR przed tym"),
+    )
+    commit(repo, "ahead")
+    sh(repo, "checkout", "-q", "main")
+
+
+def test_stack_on_gives_the_ahead_tail_as_parent_and_next_number(
+    tmp_path: Path,
+) -> None:
+    # 02.11.2026: siedem PR-ów czekało w pasie po 36 min każdy, bo dwa PR-y na
+    # tym samym rodzicu dają w grupie kolejki dwie głowy.
+    repo = base_repo(tmp_path)
+    add_ahead_branch(repo)
+    add_pr_branch(repo)
+    code, output = run_script(repo, "--stack-on", "pr-ahead")
+    assert code == 0, output
+    assert not (repo / f"{VERSIONS}/0369_prep.py").exists()
+    text = (repo / f"{VERSIONS}/0370_prep.py").read_text(encoding="utf-8")
+    assert 'revision = "0370_prep"' in text
+    assert 'down_revision = "0369_ahead"' in text
+
+
+def test_stack_on_is_a_noop_when_already_on_the_ahead_tail(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    add_ahead_branch(repo)
+    add_pr_branch(repo)
+    assert run_script(repo, "--stack-on", "pr-ahead")[0] == 0
+    commit(repo, "stos")
+    code, output = run_script(repo, "--stack-on", "pr-ahead")
+    assert code == 0, output
+    assert "nic do zrobienia" in output
+    assert sh(repo, "status", "--porcelain").strip() == ""
+
+
+def test_stack_on_a_stale_ahead_pr_aborts_without_changes(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    add_ahead_branch(repo)
+    add_pr_branch(repo)
+    advance_main_with_collision(repo)
+    with pytest.raises(rechain.RechainError, match="PR przed tym"):
+        run_script(repo, "--stack-on", "pr-ahead")
+    assert sh(repo, "status", "--porcelain").strip() == ""
+
+
+def test_ahead_pr_gone_rechain_returns_to_the_main_head(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    add_ahead_branch(repo)
+    add_pr_branch(repo)
+    assert run_script(repo, "--stack-on", "pr-ahead")[0] == 0
+    commit(repo, "stos")
+    code, output = run_script(repo)
+    assert code == 0, output
+    text = (repo / f"{VERSIONS}/0369_prep.py").read_text(encoding="utf-8")
+    assert 'down_revision = "0368_y"' in text
+
+
+def test_stub_lets_a_stacked_pr_pass_the_one_head_gate(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    write(
+        repo,
+        f"{VERSIONS}/0370_prep.py",
+        migration("0370_prep", "0369_ahead", "PR na stosie"),
+    )
+    lines: list[str] = []
+    assert rechain.check_heads(str(repo), VERSIONS, out=lines.append) == 1
+    assert rechain.stub_missing_parent(str(repo), VERSIONS, out=lines.append) == 0
+    stub = (repo / f"{VERSIONS}/0369_ahead.py").read_text(encoding="utf-8")
+    assert 'revision = "0369_ahead"' in stub
+    assert 'down_revision = "0368_y"' in stub
+    assert rechain.check_heads(str(repo), VERSIONS, out=lines.append) == 0
+
+
+def test_stub_is_not_needed_when_every_parent_is_in_the_tree(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    before = sorted(p.name for p in (repo / VERSIONS).iterdir())
+    assert rechain.stub_missing_parent(str(repo), VERSIONS, out=lambda _: None) == 0
+    assert sorted(p.name for p in (repo / VERSIONS).iterdir()) == before
+
+
+def test_stub_refuses_two_missing_parents(tmp_path: Path) -> None:
+    repo = base_repo(tmp_path)
+    write(repo, f"{VERSIONS}/0370_a.py", migration("0370_a", "0369_x", "a"))
+    write(repo, f"{VERSIONS}/0371_b.py", migration("0371_b", "0369_y", "b"))
+    lines: list[str] = []
+    assert rechain.stub_missing_parent(str(repo), VERSIONS, out=lines.append) == 1
+    assert "::error::" in lines[0]
+
+
+def test_group_without_the_ahead_pr_has_two_heads_and_stays_red(tmp_path: Path) -> None:
+    # Bez zaślepki (merge_group): main + PR, którego rodzic wypadł z kolejki.
+    # Ta czerwień to jedyna rzecz, która trzyma osieroconą migrację poza mainem.
+    repo = base_repo(tmp_path)
+    write(
+        repo,
+        f"{VERSIONS}/0370_prep.py",
+        migration("0370_prep", "0369_ahead", "PR na stosie"),
+    )
+    lines: list[str] = []
+    assert rechain.check_heads(str(repo), VERSIONS, out=lines.append) == 1
+    assert "2 głowy" in lines[0]

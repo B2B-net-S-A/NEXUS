@@ -438,6 +438,10 @@ jobs:
       AI_QUOTA_STRICT: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Ten job biegnie tylko na `pull_request`: drugi PR w pasie migracji ma
+      # rodzica w PR-ze przed nim (`ci-gate.yml`, „Zaślepka rodzica”).
+      - name: Zaślepka rodzica z PR-a przed tym w pasie
+        run: python3 scripts/rechain_migration.py --stub-missing-parent
       - name: Wybierz testy dla zmienionych plików
         id: pick
         env:
