@@ -86,7 +86,8 @@ export interface M365Status {
   last_profile_sync: M365JobRun | null;
   secret: M365Secret;
   custom_oof_mailboxes: { user_id: number; name: string; last_reconciled_at: string | null }[];
-  mailbox_errors: { user_id: number; name: string; last_error: string }[];
+  /** `scope_exempt`: osoba zostaje poza grupą aplikacji świadomie, alarm o niej nie mówi. */
+  mailbox_errors: { user_id: number; name: string; last_error: string; scope_exempt: boolean }[];
 }
 
 export const M365_MODE_LABELS: Record<M365Mode, string> = {
@@ -269,6 +270,23 @@ export function useM365Operations(tab: M365QueueTab, enabled = true) {
         )
       ).data,
     enabled,
+  });
+}
+
+/** Tylko brak dostępu naprawia się grupą aplikacji — przy nim jest decyzja „Zostaw poza grupą”. */
+export const M365_OUT_OF_SCOPE_ERROR = "forbidden (403)";
+
+export function useSetM365ScopeExempt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, exempt }: { userId: number; exempt: boolean }) =>
+      (
+        await api.post<{ user_id: number; scope_exempt: boolean }>(
+          `/api/hr/admin/m365/mailboxes/${userId}/scope-exempt`,
+          { exempt },
+        )
+      ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
   });
 }
 
