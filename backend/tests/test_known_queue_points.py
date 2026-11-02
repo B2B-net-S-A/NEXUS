@@ -62,7 +62,7 @@ async def _world() -> dict:
             client_id=other_client.id,
             status=JobStatus.published,
         )
-        people = [Candidate(name="Znana", lastname=f"{i}-{tag}") for i in range(4)]
+        people = [Candidate(name="Znana", lastname=f"{i}-{tag}") for i in range(5)]
         db.add_all([job, earlier, elsewhere, *people])
         await db.commit()
         return {
@@ -95,13 +95,16 @@ async def _note(cid: int, days_ago: int) -> None:
 @pytest.mark.asyncio
 async def test_facts_count_this_client_and_fresh_notes_only():
     w = await _world()
-    familiar, other_client, rejected, stranger = w["ids"]
+    familiar, other_client, rejected, stranger, legacy = w["ids"]
     await _stage(familiar, w["earlier"], PipelineStage.verified)
     await _note(familiar, 2)
     await _stage(other_client, w["elsewhere"], PipelineStage.verified)
     await _stage(rejected, w["earlier"], PipelineStage.cv_sent)
     await _stage(rejected, w["earlier"], PipelineStage.rejected, ended_by="client")
     await _note(rejected, 1)
+    # Stary wiersz: odrzucenie po wysyłce bez `ended_by` nie zabiera punktów.
+    await _stage(legacy, w["earlier"], PipelineStage.cv_sent)
+    await _stage(legacy, w["earlier"], PipelineStage.rejected)
     async with AsyncSessionLocal() as db:
         facts = await known.facts_for(
             db,
@@ -115,7 +118,8 @@ async def test_facts_count_this_client_and_fresh_notes_only():
     assert facts[familiar].last_note_days == 2
     # Weryfikacja u innego klienta nie daje punktów, odrzucenie przez tego klienta
     # zabiera też punkty za świeżą notatkę.
-    assert set(facts) == {familiar}
+    assert set(facts) == {familiar, legacy}
+    assert facts[legacy].points == 6
 
 
 @pytest.mark.asyncio

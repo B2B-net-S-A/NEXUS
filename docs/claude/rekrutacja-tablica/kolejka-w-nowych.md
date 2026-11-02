@@ -37,8 +37,10 @@ za umiejętności nic nie dokładały.
 - **Tylko kolejność.** `ranked_picks` sortuje po wyniku z punktami, a
   `entry_meta.score` i procent na karcie zostają sam wynik. Nie dodawaj punktów do
   `canonical_fit`.
-- **Osoba odrzucona przez tego klienta nie dostaje żadnych punktów**
-  (`known_people_signal._rejected_by_client`).
+- **Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta**
+  (`ended_by = 'client'`). Nie używaj tu warunku z `known_people_signal`: liczy
+  też stare wiersze z pustym `ended_by` po wysyłce CV, pod który wpadało 33 z 82
+  wysłanych ze zweryfikacją u klienta (top 40 spada wtedy z 62% do 53%).
 - **Tablica liczy fakty na żywo** (`entry_autofill.known`, dwa zapytania na odczyt
   Tablicy, tylko gdy są karty od systemu), więc świeża notatka podnosi kartę od razu.
 - **Punkty ustawia Head of Recruitment** w „Ranking kandydatów → Wagi”

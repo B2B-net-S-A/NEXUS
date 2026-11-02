@@ -7,9 +7,13 @@ do 62%, rekrutacje z trafieniem w top 20 z 51% do 69%. Mocniejsze „musi mieć�
 ani punkty za umiejętności nic tu nie dokładały.
 
 Punkty zmieniają WYŁĄCZNIE kolejność kandydatów do „Nowych” i kart w kolumnie;
-procent dopasowania zostaje (ta sama zasada co ``known_people_signal``). Osoba
-odrzucona przez tego klienta nie dostaje punktów. Zapis w ``app_settings``,
-domyślne działają bez wiersza.
+procent dopasowania zostaje (ta sama zasada co ``known_people_signal``). Zapis
+w ``app_settings``, domyślne działają bez wiersza.
+
+Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta
+(``ended_by = 'client'``). Warunek z ``known_people_signal`` liczy też stare
+wiersze z pustym ``ended_by`` po wysyłce CV: pod niego wpadało 33 z 82 wysłanych
+ze zweryfikacją u tego klienta i top 40 spadało z 62% do 53%.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
-from app.services.known_people_signal import POSITIVE_STAGES, _rejected_by_client
+from app.services.known_people_signal import POSITIVE_STAGES
 
 SETTING_KEY = "queue_known_points"
 RECENT_NOTE_DAYS = 30
@@ -92,6 +96,33 @@ def points_for(
     return client, 0
 
 
+async def _rejected_by_client(
+    db: AsyncSession, client_id: Optional[int], job_id: int, candidate_ids: list[int]
+) -> set[int]:
+    """Najnowszy wiersz pary z innej rekrutacji klienta to jawne odrzucenie przez niego."""
+    if client_id is None:
+        return set()
+    rows = await db.execute(
+        text(
+            """
+            WITH last AS (
+              SELECT DISTINCT ON (cs.candidate_id, cs.job_id)
+                     cs.candidate_id, cs.stage::text AS stage, cs.ended_by
+              FROM candidate_stages cs
+              JOIN jobs j ON j.id = cs.job_id
+              WHERE j.client_id = :client AND cs.job_id <> :job
+                AND cs.candidate_id = ANY(:ids)
+              ORDER BY cs.candidate_id, cs.job_id, cs.moved_at DESC, cs.id DESC
+            )
+            SELECT DISTINCT candidate_id FROM last
+            WHERE stage = 'rejected' AND ended_by = 'client'
+            """
+        ),
+        {"client": client_id, "job": job_id, "ids": candidate_ids},
+    )
+    return {int(cid) for cid in rows.scalars()}
+
+
 async def facts_for(
     db: AsyncSession,
     *,
@@ -138,7 +169,7 @@ async def facts_for(
         {"ids": candidate_ids},
     )
     note_days = {int(cid): (now - at).days for cid, at in rows.all() if at is not None}
-    rejected = await _rejected_by_client(db, client_id, candidate_ids)
+    rejected = await _rejected_by_client(db, client_id, job_id, candidate_ids)
     out: dict[int, KnownFacts] = {}
     for candidate_id in candidate_ids:
         if candidate_id in rejected:
