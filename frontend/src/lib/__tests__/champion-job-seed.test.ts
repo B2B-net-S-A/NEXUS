@@ -229,6 +229,68 @@ describe("seedBasicsFromJob", () => {
   });
 });
 
+describe("seedBasicsFromJob — godzina terminu", () => {
+  const withDate = {
+    ...legacy,
+    basics: { ...legacy.basics, deadline: "2026-11-30" },
+  };
+
+  it("godzina wjeżdża razem z datą z rekrutacji", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    expect(profile.basics.deadline_time).toBe("12:30");
+    expect(seededBasics).toEqual({ deadline: "2026-11-30", deadline_time: "12:30" });
+  });
+
+  it("profil z tą samą datą dostaje godzinę, z inną datą nie", () => {
+    expect(
+      seedBasicsFromJob(withDate, { deadline: "2026-11-30", deadline_time: "12:30" }).profile
+        .basics.deadline_time,
+    ).toBe("12:30");
+    const other = seedBasicsFromJob(withDate, {
+      deadline: "2026-12-01",
+      deadline_time: "12:30",
+    });
+    expect(other.profile.basics.deadline_time ?? null).toBeNull();
+    expect(other.seededBasics).toBeNull();
+  });
+
+  it("zmieniona data niesie w zapisie godzinę, którą widać w polu", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    const saved = championSavePayload(
+      { ...profile, basics: { ...profile.basics, deadline: "2026-12-05" } },
+      { seededStack: null, seededBasics },
+    );
+    expect(saved.basics.deadline).toBe("2026-12-05");
+    expect(saved.basics.deadline_time).toBe("12:30");
+  });
+
+  it("godzina wpisana przy dacie z seedu jedzie razem z tą datą", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, { deadline: "2026-11-30" });
+    const saved = championSavePayload(
+      { ...profile, basics: { ...profile.basics, deadline_time: "09:15" } },
+      { seededStack: null, seededBasics },
+    );
+    expect(saved.basics.deadline).toBe("2026-11-30");
+    expect(saved.basics.deadline_time).toBe("09:15");
+  });
+
+  it("nietknięty seed daty i godziny nie jedzie w zapisie", () => {
+    const { profile, seededBasics } = seedBasicsFromJob(legacy, {
+      deadline: "2026-11-30",
+      deadline_time: "12:30",
+    });
+    const saved = championSavePayload(profile, { seededStack: null, seededBasics });
+    expect(saved.basics).not.toHaveProperty("deadline");
+    expect(saved.basics).not.toHaveProperty("deadline_time");
+  });
+});
+
 describe("seedChampionFromJob", () => {
   it("łączy seed stacku (wszystko-albo-nic) i sekcji 1 (per pole) w jednym wywołaniu", () => {
     const { profile, seededStack, seededBasics } = seedChampionFromJob(

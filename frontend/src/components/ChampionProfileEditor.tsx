@@ -1346,14 +1346,30 @@ export function ChampionProfileEditor({
             />
           </Labeled>
           <Labeled label="Deadline na kandydatów" field="basics.deadline">
-            <input
-              type="text"
-              disabled={disabled}
-              value={draft.basics.deadline ?? ""}
-              onChange={(e) => patchBasics({ deadline: e.target.value })}
-              placeholder="RRRR-MM-DD, np. 2026-09-18"
-              className={inputClass}
-            />
+            <span className="flex gap-1">
+              <input
+                type="text"
+                disabled={disabled}
+                value={draft.basics.deadline ?? ""}
+                onChange={(e) =>
+                  patchBasics(
+                    e.target.value
+                      ? { deadline: e.target.value }
+                      : { deadline: "", deadline_time: "" },
+                  )
+                }
+                placeholder="RRRR-MM-DD, np. 2026-09-18"
+                className={cn(inputClass, "w-0 min-w-0 flex-1")}
+              />
+              <input
+                type="time"
+                aria-label="Godzina deadline'u (opcjonalnie)"
+                disabled={disabled || !draft.basics.deadline}
+                value={draft.basics.deadline_time ?? ""}
+                onChange={(e) => patchBasics({ deadline_time: e.target.value })}
+                className={cn(inputClass, "w-[5rem] shrink-0 px-1.5")}
+              />
+            </span>
           </Labeled>
           {/* Język CV — TYLKO DO ODCZYTU, z reguł CV klienta.
               To jedyna wartość, której słucha generator; edytowalne pole obok
