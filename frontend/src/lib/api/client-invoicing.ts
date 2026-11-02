@@ -212,6 +212,28 @@ export interface AssignmentOption {
   currency: string;
 }
 
+export type BuyerNumberState = "add" | "same" | "differs" | "taken" | "none";
+
+/** Numer nabywcy z faktury względem klienta wybranego w „Przypisz”. */
+export interface BuyerNumberCheck {
+  state: BuyerNumberState;
+  number: string | null;
+  kind: "nip" | "vat_ue";
+  client_name: string | null;
+  existing: string | null;
+  owner_name: string | null;
+  other_waiting: number;
+}
+
+export interface BuyerNumberSaved {
+  state: BuyerNumberState;
+  number: string | null;
+  client_id: number | null;
+  saved: boolean;
+  retried: number;
+  matched: number;
+}
+
 export interface CreditImportResult {
   format: string;
   statement: string;
@@ -351,7 +373,12 @@ export function useAssignmentOptions(
     queryKey: invoicingKeys.options(invoiceId, clientId, period),
     queryFn: async () =>
       (
-        await api.get<{ client_id: number | null; period?: string; options: AssignmentOption[] }>(
+        await api.get<{
+          client_id: number | null;
+          period?: string;
+          options: AssignmentOption[];
+          buyer_number?: BuyerNumberCheck;
+        }>(
           `${FINANCE}/${invoiceId}/options`,
           { params: { client_id: clientId ?? undefined, year, month } },
         )
@@ -397,13 +424,32 @@ export function useAssignSalesInvoice() {
       targets: { group_id?: number; order_id?: number }[];
       year: number;
       month: number;
+      saveBuyerNumber?: boolean;
     }) =>
       (
-        await api.post<SalesInvoice>(`${FINANCE}/${payload.invoiceId}/assign`, {
-          targets: payload.targets,
-          year: payload.year,
-          month: payload.month,
-        })
+        await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
+          `${FINANCE}/${payload.invoiceId}/assign`,
+          {
+            targets: payload.targets,
+            year: payload.year,
+            month: payload.month,
+            save_buyer_number: payload.saveBuyerNumber ?? false,
+          },
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveBuyerNumber() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: { invoiceId: number; clientId: number }) =>
+      (
+        await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
+          `${FINANCE}/${payload.invoiceId}/buyer-number`,
+          { client_id: payload.clientId },
+        )
       ).data,
     onSuccess: invalidate,
   });

@@ -53,3 +53,15 @@
   równa: w próbie 20 faktur Nordei nazwisko wskazywało jedną osobę 20/20, cena była równa 20/20, godziny
   różne 18/20. Warunek: pełne imię i nazwisko prowadzi do jednej pozycji zamówień miesiąca i cena równa
   co do grosza; inaczej faktura czeka na Finanse. Numer zamówienia i równa kwota mają pierwszeństwo.
+- **Numer nabywcy idzie do klienta przy ręcznym przypisaniu.** Pomiar z 02.11.2026 na fakturach z października:
+  173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
+  klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje
+  numer u klienta kanonicznego i od razu dopasowuje pozostałe faktury tego nabywcy. Nie czekamy na `rematch_pending`,
+  bo bierze on 200 najnowszych czekających. Numeru nie zapisujemy, gdy klient albo jego scalony duplikat ma inny numer
+  (także tekst w tym polu), ani gdy numer ma inny klient: dopisanie zrobiłoby `ambiguous_buyer` i zatrzymało faktury
+  obu klientów. Faktura przypisuje się wtedy normalnie. Zapis trafia do Historii zdarzeń
+  (`client.registry_number_added`). Dopisanie jest z potwierdzeniem (decyzja Artura z 02.11.2026): obok głównego
+  przycisku jest „Tylko przypisz”, bo faktura spółki zależnej bywa rozliczana z zamówienia spółki matki. Klient bez
+  zamówień w miesiącu faktury dostaje „Dopisz NIP bez przypisywania” (`POST /{id}/buyer-number`); odmowa zapisu to tam 409.
+  Klucz obcy ma co najmniej 5 cyfr: VAT z literą w środku (`FR1A…`, `IE9S…`) `normalize_registry_id` ucina do jednej
+  cyfry, a taki klucz mają różne firmy, więc ani go nie zapisujemy, ani nie wiążemy nim faktur.

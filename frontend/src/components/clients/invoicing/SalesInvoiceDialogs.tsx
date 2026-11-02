@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { ClientSinglePicker, type ClientRef } from "@/components/clients/ClientSinglePicker";
 import { AppModal } from "@/components/ds/AppModal";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,10 @@ import {
   useIgnoreCredit,
   useInvoiceReason,
   useMarkSalesPaid,
+  useSaveBuyerNumber,
   type AssignmentOption,
+  type BuyerNumberCheck,
+  type BuyerNumberSaved,
   type InvoiceDecision,
   type SalesCredit,
   type SalesInvoice,
@@ -38,6 +42,51 @@ function ErrorLine({ error }: { error: string | null }) {
 const optionKey = (option: AssignmentOption) =>
   option.group_id ? `g${option.group_id}` : `o${option.order_id}`;
 
+const numberLabel = (kind: BuyerNumberCheck["kind"]) => (kind === "vat_ue" ? "VAT UE" : "NIP");
+
+/** Co się stanie z numerem nabywcy; zapis wybierają Finanse przyciskiem w stopce okna. */
+function BuyerNumberNote({ check }: { check: BuyerNumberCheck }) {
+  const label = numberLabel(check.kind);
+  if (check.state === "add") {
+    return (
+      <p className="mb-3 rounded-md border border-border bg-muted/50 p-3 text-sm">
+        <strong className="font-medium">{check.client_name}</strong> nie ma numeru w NEXUSIE. Po
+        dopisaniu {label} {check.number} kolejne faktury tego nabywcy będą trafiać do tego klienta
+        same
+        {check.other_waiting > 0 ? ` (teraz czeka jeszcze: ${check.other_waiting})` : ""}.
+      </p>
+    );
+  }
+  if (check.state === "differs") {
+    return (
+      <p className="mb-3 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+        Klient ma już inny numer ({check.existing}), więc {label} z faktury ({check.number}) nie
+        zostanie dopisany. Jeśli numer u klienta jest błędny, popraw go w profilu klienta.
+      </p>
+    );
+  }
+  if (check.state === "taken") {
+    return (
+      <p className="mb-3 rounded-md border border-border bg-muted/50 p-3 text-sm text-muted-foreground">
+        {label} {check.number} ma już{" "}
+        {check.owner_name ? `klient ${check.owner_name}` : "kilku innych klientów"}, więc nie zostanie
+        dopisany do tego klienta.
+      </p>
+    );
+  }
+  return null;
+}
+
+const othersMessage = (saved: BuyerNumberSaved) =>
+  saved.retried
+    ? ` Faktury tego nabywcy (${saved.retried}) są już u tego klienta, z zamówieniem: ${saved.matched}.`
+    : "";
+
+const assignedMessage = (saved?: BuyerNumberSaved) =>
+  saved?.saved
+    ? `Faktura przypisana, numer dopisany do klienta.${othersMessage(saved)}`
+    : "Faktura przypisana";
+
 /** „Przypisz” — zamówienie (albo kilka, albo jedna osoba z zamówienia MD) w miesiącu faktury. */
 export function AssignInvoiceDialog({
   invoice,
@@ -50,11 +99,17 @@ export function AssignInvoiceDialog({
 }) {
   const { showToast } = useToast();
   const period = invoice.period ?? fallbackPeriod;
-  const options = useAssignmentOptions(invoice.id, invoice.client_id, period);
+  const [client, setClient] = useState<ClientRef | null>(null);
+  const clientId = invoice.client_id ?? client?.id ?? null;
+  const options = useAssignmentOptions(invoice.id, clientId, period);
   const assign = useAssignSalesInvoice();
+  const saveNumber = useSaveBuyerNumber();
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const list = options.data?.options ?? [];
+  const buyerNumber = options.data?.buyer_number;
+  const canAddNumber = buyerNumber?.state === "add";
+  const hasNote = canAddNumber || buyerNumber?.state === "differs" || buyerNumber?.state === "taken";
 
   const toggle = (key: string, on: boolean) =>
     setPicked((current) => {
@@ -64,7 +119,30 @@ export function AssignInvoiceDialog({
       return next;
     });
 
-  const submit = () => {
+  const pickClient = (next: ClientRef | null) => {
+    setClient(next);
+    setPicked(new Set());
+    setError(null);
+  };
+
+  const addNumberOnly = () => {
+    if (clientId === null) return;
+    saveNumber.mutate(
+      { invoiceId: invoice.id, clientId },
+      {
+        onSuccess: (result) => {
+          showToast(
+            `Numer dopisany do klienta.${result.buyer_number ? othersMessage(result.buyer_number) : ""}`,
+            "success",
+          );
+          onClose();
+        },
+        onError: (err) => setError(apiErrorMessage(err, "Nie udało się dopisać numeru.")),
+      },
+    );
+  };
+
+  const submit = (saveBuyerNumber: boolean) => {
     const targets = list
       .filter((option) => picked.has(optionKey(option)))
       .map((option) =>
@@ -75,10 +153,10 @@ export function AssignInvoiceDialog({
       return;
     }
     assign.mutate(
-      { invoiceId: invoice.id, targets, ...splitPeriod(period) },
+      { invoiceId: invoice.id, targets, ...splitPeriod(period), saveBuyerNumber },
       {
-        onSuccess: () => {
-          showToast("Faktura przypisana", "success");
+        onSuccess: (result) => {
+          showToast(assignedMessage(result.buyer_number), "success");
           onClose();
         },
         onError: (err) => setError(apiErrorMessage(err, "Nie udało się przypisać faktury.")),
@@ -98,27 +176,64 @@ export function AssignInvoiceDialog({
           <Button variant="ghost" onClick={onClose}>
             Anuluj
           </Button>
-          <Button onClick={submit} disabled={assign.isPending || !list.length}>
-            {assign.isPending ? "Zapisywanie…" : "Przypisz"}
-          </Button>
+          {canAddNumber && options.isSuccess && !list.length ? (
+            <Button onClick={addNumberOnly} disabled={saveNumber.isPending}>
+              {saveNumber.isPending
+                ? "Zapisywanie…"
+                : `Dopisz ${numberLabel(buyerNumber.kind)} bez przypisywania`}
+            </Button>
+          ) : canAddNumber ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => submit(false)}
+                disabled={assign.isPending || !list.length}
+              >
+                Tylko przypisz
+              </Button>
+              <Button onClick={() => submit(true)} disabled={assign.isPending || !list.length}>
+                {assign.isPending
+                  ? "Zapisywanie…"
+                  : `Przypisz i dopisz ${numberLabel(buyerNumber.kind)}`}
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => submit(false)} disabled={assign.isPending || !list.length}>
+              {assign.isPending ? "Zapisywanie…" : "Przypisz"}
+            </Button>
+          )}
         </>
       }
     >
+      {!invoice.client_id ? (
+        <div className="mb-3 space-y-2">
+          <p className="text-sm text-muted-foreground">
+            Nabywca na fakturze: {invoice.buyer_name ?? "bez nazwy"}
+            {invoice.buyer_nip || invoice.buyer_foreign_id
+              ? ` · ${invoice.buyer_nip ? "NIP" : "VAT UE"} ${invoice.buyer_nip ?? invoice.buyer_foreign_id}`
+              : ""}
+            . Wskaż klienta, którego dotyczy faktura.
+          </p>
+          <ClientSinglePicker
+            value={client}
+            onChange={pickClient}
+            queryKey="sales-invoice-assign-clients"
+          />
+        </div>
+      ) : null}
+      {buyerNumber ? <BuyerNumberNote check={buyerNumber} /> : null}
       {options.isLoading ? (
         <p className="text-sm text-muted-foreground">Wczytywanie zamówień…</p>
       ) : options.isError ? (
         <p className="text-sm text-destructive">
           {apiErrorMessage(options.error, "Nie udało się wczytać zamówień.")}
         </p>
-      ) : !invoice.client_id ? (
-        <p className="text-sm text-muted-foreground">
-          NIP nabywcy nie należy do żadnego klienta w NEXUSIE. Dopisz NIP w profilu klienta —
-          kolejne pobranie dopasuje fakturę samo — albo pomiń fakturę.
-        </p>
-      ) : list.length === 0 ? (
+      ) : clientId === null ? null : list.length === 0 ? (
         <p className="text-sm text-muted-foreground">Klient nie ma zamówień w tym miesiącu.</p>
       ) : (
-        <ul className="max-h-[50dvh] space-y-1.5 overflow-y-auto">
+        <ul
+          className={`${invoice.client_id && !hasNote ? "max-h-[50dvh]" : "max-h-[34dvh]"} space-y-1.5 overflow-y-auto`}
+        >
           {list.map((option) => {
             const key = optionKey(option);
             return (

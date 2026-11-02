@@ -523,6 +523,38 @@ async def invoice_detail(
     return payload
 
 
+async def buyer_number_view(
+    db: AsyncSession, invoice: ClientSalesInvoice, client_id: int
+) -> dict[str, Any]:
+    """Numer nabywcy względem klienta wybranego w „Przypisz”."""
+
+    check = await clients.check_buyer_number(
+        db, client_id, matching.buyer_number(invoice)
+    )
+    known = await clients.names(
+        db, [cid for cid in (check.client_id, check.owner_id) if cid is not None]
+    )
+    waiting = (
+        await matching.waiting_for_number(db, check.number)
+        if check.state == "add"
+        else 0
+    )
+    waits_itself = (
+        invoice.match_status == "unmatched" and invoice.match_reason == "unknown_buyer"
+    )
+    return {
+        "state": check.state,
+        "number": check.number,
+        "kind": "vat_ue"
+        if invoice.buyer_foreign_id and not invoice.buyer_nip
+        else "nip",
+        "client_name": known.get(check.client_id) if check.client_id else None,
+        "existing": check.existing,
+        "owner_name": known.get(check.owner_id) if check.owner_id else None,
+        "other_waiting": max(waiting - int(waits_itself), 0),
+    }
+
+
 async def assignment_options(
     db: AsyncSession, *, client_id: int, year: int, month: int
 ) -> list[dict[str, Any]]:
@@ -563,6 +595,7 @@ __all__ = [
     "KIND_LABELS",
     "ROW_STATUS_LABELS",
     "assignment_options",
+    "buyer_number_view",
     "chain_for",
     "chain_payload",
     "client_summary",
