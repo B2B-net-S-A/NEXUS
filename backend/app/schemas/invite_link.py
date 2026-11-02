@@ -151,6 +151,19 @@ class CareerLinkPeople(BaseModel):
     people: list[CareerLinkPerson] = Field(default_factory=list)
 
 
+class JobTeamLink(BaseModel):
+    """Link rekrutacji w zespole (makieta C, 02.11.2026)."""
+
+    owner_id: int
+    owner_name: str
+    slug: Optional[str] = None
+    label: Optional[str] = None
+    created_at: datetime
+    visits: int = 0
+    applications: int = 0
+    state: Literal["active", "expired", "revoked"]
+
+
 class CareerLinkUpdate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=64)
     # 0489: pole pominięte = bez zmiany, pusty napis = usuń. Limit 280 znaków

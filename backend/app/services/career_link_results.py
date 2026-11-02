@@ -164,6 +164,27 @@ ORDER BY apps.applied_at DESC, apps.candidate_id
 LIMIT :limit
 """
 
+# Linki jednej rekrutacji w zespole (makieta C, 02.11.2026). Zgłoszenia jak
+# w lejku: unikalne osoby, właściciel linku w ``user_id``.
+_JOB_TEAM_LINKS_SQL = """
+SELECT l.created_by AS owner_id, u.name AS owner_name, l.slug, l.label, l.created_at,
+       l.visit_count AS visits, l.revoked, l.expires_at,
+       (
+           SELECT count(DISTINCT a.entity_id)
+           FROM activities a
+           WHERE a.action = 'applied_via_invite'
+             AND a.entity_type = 'candidate'
+             AND a.user_id = l.created_by
+             AND a.details->>'invite_token_sha256' = COALESCE(
+                 l.token_sha256, encode(sha256(convert_to(l.token, 'UTF8')), 'hex')
+             )
+       ) AS applications
+FROM candidate_invite_links l
+JOIN users u ON u.id = l.created_by
+WHERE l.job_id = :job_id AND l.kind = 'job'
+ORDER BY l.revoked, l.visit_count DESC, l.created_at DESC
+"""
+
 
 @dataclass
 class LinkResult:
@@ -230,6 +251,16 @@ async def link_people(
         [{**row, "in_my_people": int(row["candidate_id"]) in listed} for row in rows],
         total,
     )
+
+
+async def job_team_links(db: AsyncSession, job_id: int) -> list[dict[str, Any]]:
+    """Wszystkie linki rekrutacji: kto je ma i co przyniosły."""
+    return [
+        dict(row)
+        for row in (
+            await db.execute(text(_JOB_TEAM_LINKS_SQL), {"job_id": job_id})
+        ).mappings()
+    ]
 
 
 def as_dict(item: LinkResult) -> dict[str, Any]:
