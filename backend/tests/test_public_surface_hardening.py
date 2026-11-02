@@ -76,7 +76,7 @@ _RATE_LIMITED_MODULES = (
     "api/dashboard_metrics.py",
     # Strona kariery (0339): publiczne GET-y i formularz multipart.
     "api/public_career.py",
-    # Panel klienta (0631): dane kandydatów pod samym linkiem, bez logowania.
+    # Panel klienta (0632): dane kandydatów pod samym linkiem, bez logowania.
     "api/public_client_panel.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
     "api/job_request_intake.py",

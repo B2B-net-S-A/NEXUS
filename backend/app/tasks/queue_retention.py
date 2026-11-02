@@ -32,7 +32,7 @@ Kasujemy paczkami po ``BATCH_SIZE`` z commitem po każdej, najwyżej
 ``MAX_BATCHES`` paczek na tabelę w jednym cyklu — zaległość po wdrożeniu
 schodzi w kilka cykli zamiast jednej wielominutowej transakcji.
 
-Od 02.11.2026 (0631) pętla kasuje wiersze dziennika wejść panelu klienta
+Od 02.11.2026 (0632) pętla kasuje wiersze dziennika wejść panelu klienta
 (``client_panel_views``) starsze niż 180 dni.
 """
 
@@ -103,7 +103,7 @@ _PRUNE_INDEX_OUTBOX = text(
 )
 
 
-# Dziennik wejść panelu klienta (0631): wie, kto i kiedy otworzył link.
+# Dziennik wejść panelu klienta (0632): wie, kto i kiedy otworzył link.
 CLIENT_PANEL_VIEWS_RETENTION_DAYS = 180
 _PRUNE_CLIENT_PANEL_VIEWS = text(
     """
