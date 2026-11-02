@@ -72,6 +72,18 @@ SETTINGS_SNIPPET = (
 DUMP_DEADLINE_UTC = (2, 15)
 WINDOW_START_UTC_HOUR = 22
 WINDOW_END_UTC_HOUR = 1
+# Wdrożenie restartuje Postgresa produkcji, a nocą scalenia wchodzą same.
+DUMP_ATTEMPTS = 4
+DUMP_RETRY_PAUSE = 120
+DEPLOY_INTERRUPTED = (
+    "source_container_changed",
+    "source_connection_terminated",
+    "source_connection_closed",
+    "source_connection_reset",
+    "source_connection_broken_pipe",
+)
+PROD_WAIT_ATTEMPTS = 20
+PROD_WAIT_INTERVAL = 60
 # Pełne przeliczenie to ok. 70 tys. osób i kilka godzin w środku nocnych rutyn.
 # Tyle różnic oznacza zmianę tekstu albo modelu, a to decyzja człowieka.
 MAX_REEMBED_PEOPLE = 5000
@@ -392,8 +404,20 @@ def prod_container(cfg: Config, prefix: str) -> str:
     return ids[0]
 
 
+def wait_for_prod_container(cfg: Config, prefix: str) -> str:
+    """Wdrożenie na chwilę usuwa kontenery produkcji, także Postgresa."""
+    for attempt in range(PROD_WAIT_ATTEMPTS):
+        try:
+            return prod_container(cfg, prefix)
+        except SyncError:
+            if attempt == PROD_WAIT_ATTEMPTS - 1:
+                raise
+            time.sleep(PROD_WAIT_INTERVAL)
+    raise AssertionError("unreachable")
+
+
 def read_prod_settings(cfg: Config, allowed: tuple[str, ...]) -> dict:
-    backend = prod_container(cfg, "backend-ocgkw")
+    backend = wait_for_prod_container(cfg, "backend-ocgkw")
     out = ssh(
         cfg,
         ["docker", "exec", backend, "python", "-c", SETTINGS_SNIPPET, *allowed],
@@ -497,10 +521,12 @@ def dump_production(cfg: Config, database: str, output_root: Path) -> Path:
         "--output-root",
         str(output_root),
     ]
-    for attempt in (1, 2):
-        now = datetime.now(timezone.utc)
-        seconds = (dump_deadline(now) - now).total_seconds()
-        source = prod_container(cfg, "postgres-ocgkw")
+    deadline = dump_deadline(datetime.now(timezone.utc))
+    for attempt in range(1, DUMP_ATTEMPTS + 1):
+        source = wait_for_prod_container(cfg, "postgres-ocgkw")
+        seconds = (deadline - datetime.now(timezone.utc)).total_seconds()
+        if seconds <= 0:
+            raise SyncError("Zrzut produkcji: minął termin przed backupem produkcji")
         try:
             return Path(
                 clone_step(
@@ -510,9 +536,12 @@ def dump_production(cfg: Config, database: str, output_root: Path) -> Path:
                 )
             )
         except SyncError as error:
-            # Wdrożenie podmienia kontener w trakcie zrzutu; drugi raz z nowym id.
-            if attempt == 2 or "source_container_changed" not in str(error):
+            # 03.11.2026: scalenie o północy zrestartowało Postgresa w 9. minucie zrzutu.
+            if attempt == DUMP_ATTEMPTS or not any(
+                reason in str(error) for reason in DEPLOY_INTERRUPTED
+            ):
                 raise
+            time.sleep(DUMP_RETRY_PAUSE)
     raise AssertionError("unreachable")
 
 
