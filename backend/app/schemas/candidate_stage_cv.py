@@ -190,6 +190,10 @@ class CVBrandedResponse(BaseModel):
     text_align: Literal["justify", "left"] = "justify"
     docx_available: bool = False
     docx_filename: str | None = None
+    # Nazwa pliku także dla szkicu (`docx_filename` jest tylko przy zatwierdzonym)
+    # i nazwa ze wzoru klienta, gdy ktoś zmienił ją ręcznie (02.11.2026).
+    current_filename: str | None = None
+    pattern_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
     # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
@@ -440,3 +444,12 @@ class PublicCVView(BaseModel):
     job_title: Optional[str] = None
     cv_html: str
     expires_at: Optional[datetime] = None
+
+
+class CVFilenameUpdate(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+
+
+class CVFilenameResponse(BaseModel):
+    filename: str
+    pattern_filename: str | None = None

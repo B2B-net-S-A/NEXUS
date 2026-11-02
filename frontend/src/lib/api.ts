@@ -6688,6 +6688,9 @@ export interface CVBrandedState {
   text_align?: "justify" | "left";
   docx_available?: boolean;
   docx_filename?: string | null;
+  /** Nazwa pliku także dla szkicu, a przy ręcznej zmianie nazwa ze wzoru klienta. */
+  current_filename?: string | null;
+  pattern_filename?: string | null;
   generated_document_id?: number | null;
   from_generator?: boolean;
   /** Skąd treść: generator, plik Word z profilu kandydata albo stary szablon. */
@@ -6913,6 +6916,11 @@ export const candidateStageCvApi = {
       }, { timeout: SLOW_ENDPOINT_TIMEOUT_MS }),
     get: (stageId: number) =>
       api.get<CVBrandedState>(`/api/candidates/stages/${stageId}/cv/branded`),
+    rename: (stageId: number, filename: string) =>
+      api.patch<{ filename: string; pattern_filename?: string | null }>(
+        `/api/candidates/stages/${stageId}/cv/branded/filename`,
+        { filename },
+      ),
     update: (
       stageId: number,
       payload:
