@@ -612,6 +612,17 @@
     "dot_anchor": "sales.tabs"
   },
   {
+    "id": "raporty-godzin-filtr-i-cofniecie",
+    "title": "Raporty godzin: filtr statusu i cofnięcie nieobecności",
+    "why": "Chipem pokażesz same raporty do akceptacji, szkice albo zaakceptowane. A gdy ktoś wpisał nieobecność przez pomyłkę, cofniesz ją z podglądu raportu, podając powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
+    "where": "Ludzie → Akceptacje → Raporty godzin",
+    "href": "/people/approvals",
+    "dot_anchor": "hr.timesheet-status"
+  },
+  {
     "id": "sprzedaz-mapa-decyzyjna-edycja",
     "title": "Mapę decyzyjną poprawisz w NEXUSIE",
     "why": "W szansach z lejka Fabryki IT dodasz, poprawisz i usuniesz osobę na mapie decyzyjnej. Telefon, mail, LinkedIn i notatka uzupełnią też puste pola jej kontaktu.",
@@ -623,6 +634,18 @@
     "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
     "href": "/sales",
     "dot_anchor": "sales.decision-map.add"
+  },
+  {
+    "id": "nowi-kolejka-zadzwon-najpierw",
+    "title": "Nowi: „Zadzwoń najpierw” na górze kolejki od systemu",
+    "why": "Najlepsze osoby od systemu stały dotąd na dole kolumny. Teraz pod osobami dodanymi przez zespół widzisz kolejkę od najwyższego wyniku, a pierwszych pięć ma numer.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
   },
   {
     "id": "oryginal-cv-po-generatorze",

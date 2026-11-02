@@ -39,7 +39,9 @@ drugi przebieg tego samego dnia nic nie robi. „Uzgodnij teraz” w karcie
 przebiegiem (ręcznym albo dziennym) chroni wspólna blokada ``LOCK_KIND``. Odczyt skrzynki nieudany =
 „nie wiadomo”, a nie „pusto” — wtedy niczego nie wnioskujemy. Skrzynek osób,
 które odeszły (konto wyłączone albo kartoteka ``exited``), nie czytamy wcale —
-licznik ``skipped_exited``, nie ``read_errors``.
+licznik ``skipped_exited``, nie ``read_errors``. Błąd skrzynki, której przebieg
+nie czytał, jest zdejmowany (``stale_errors_cleared``): karta „Skrzynki z błędem”
+ma pokazywać to, co można naprawić.
 """
 
 from __future__ import annotations
@@ -52,10 +54,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.hr_leave import HrM365Operation, LeaveRequest
+from app.models.hr_leave import HrM365MailboxState, HrM365Operation, LeaveRequest
 from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.hr import job_runs, leave_outlook
@@ -337,6 +339,7 @@ async def _reconcile(
 
     allowed = allowlist() if mode == "live" else frozenset()
     day_key = today.isoformat()
+    read_ids: set[int] = set()
     for user in await mailbox_users(db, owners, only):
         upn = mailbox_address(user)
         if upn is None:
@@ -345,6 +348,7 @@ async def _reconcile(
             counts["not_allowlisted"] += 1
             continue
         counts["mailboxes"] += 1
+        read_ids.add(user.id)
         user_leaves = by_user.get(user.id, [])
         error: Optional[str] = None
         custom_flag: Optional[bool] = None
@@ -475,7 +479,35 @@ async def _reconcile(
                 reconciled_at=now if error is None else None,
             )
         await db.commit()
+    if mode == "live":
+        cleared = await _clear_stale_errors(db, read_ids, only)
+        if cleared:
+            counts["stale_errors_cleared"] = cleared
+        await db.commit()
     return dict(counts)
+
+
+async def _clear_stale_errors(
+    db: AsyncSession, read_ids: set[int], only: Optional[Collection[int]]
+) -> int:
+    """Zdejmuje błąd skrzynek, których ten przebieg nie czytał.
+
+    Osoba po odejściu i konto spoza kartoteki bez urlopu nie wchodzą do
+    przeglądu, więc ich błąd nie miał jak zniknąć i wyglądał jak bieżący
+    (prod 02.11.2026: 11 z 18 pozycji na karcie). Gdy taka skrzynka znów wejdzie
+    do przeglądu, odczyt zapisze błąd od nowa.
+    """
+
+    query = update(HrM365MailboxState).where(
+        HrM365MailboxState.last_error.is_not(None),
+        HrM365MailboxState.user_id.not_in(read_ids),
+    )
+    if only is not None:
+        query = query.where(HrM365MailboxState.user_id.in_(list(only)))
+    result = await db.execute(
+        query.values(last_error=None).execution_options(synchronize_session=False)
+    )
+    return result.rowcount or 0
 
 
 async def _requests_from_custom_oof(

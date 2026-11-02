@@ -84,6 +84,8 @@ const CHECK: M365MailboxCheck = {
       substitute_name: null,
       health: "unknown",
       reason: "Reguła nie pasuje do żadnego wniosku w NEXUSIE.",
+      mailbox_keeps_mail: true,
+      mailbox_note: null,
     },
   ],
 };
@@ -192,6 +194,43 @@ describe("M365ForwardsPanel", () => {
       "Brak uprawnień aplikacji w Exchange (403)",
     );
     expect(post).toHaveBeenCalledWith("/api/hr/admin/m365/forwards/check");
+  });
+
+  it("shows what the person's mailbox rules do and counts a risky rule as a problem", async () => {
+    mockApi();
+    post.mockResolvedValue({
+      data: {
+        ...CHECK,
+        unreadable: [],
+        items: [
+          {
+            ...CHECK.items[0],
+            health: "ok",
+            reason: null,
+            mailbox_keeps_mail: false,
+            mailbox_note: "własna reguła osoby: przekazywanie albo kasowanie",
+          },
+          {
+            ...CHECK.items[0],
+            rule_id: "rule-2",
+            user_id: 8,
+            health: "ok",
+            reason: null,
+            mailbox_note: "reguły przenoszące maile do folderów: 2",
+          },
+        ],
+      },
+    });
+    renderPanel();
+    await userEvent.click(await screen.findByRole("button", { name: "Sprawdź skrzynki" }));
+
+    expect(await screen.findByText("Maile mogą nie zostawać")).toBeInTheDocument();
+    expect(screen.getByText("własna reguła osoby: przekazywanie albo kasowanie")).toBeInTheDocument();
+    expect(screen.getByText("Bez reguł zabierających pocztę")).toBeInTheDocument();
+    expect(screen.getByText("reguły przenoszące maile do folderów: 2")).toBeInTheDocument();
+    expect(screen.getByText(/Do wyjaśnienia: 1\./)).toBeInTheDocument();
+    // Zdanie o granicy kontroli: NEXUS nie widzi przekierowania z Exchange.
+    expect(screen.getByText(/ustawionego przez admina w Exchange/)).toBeInTheDocument();
   });
 
   it("says plainly when Microsoft 365 is off instead of showing an empty check", async () => {

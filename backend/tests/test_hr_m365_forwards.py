@@ -148,6 +148,47 @@ async def test_check_mailboxes_reads_rules_live_without_writing() -> None:
     assert fake.writes == []
 
 
+async def test_check_mailboxes_reports_rules_that_take_mail_away() -> None:
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        _, running_owner, running, _, _ = await _scene(db)
+        missing_owner = await make_user(db, name="Piotr Bez Reguły")
+        await make_leave(
+            db,
+            missing_owner,
+            D(2026, 10, 19),
+            D(2026, 10, 21),
+            substitute=running_owner,
+            consent=True,
+        )
+        await db.commit()
+        fake.add_rule(
+            running_owner.email,
+            f"NEXUS · zastępstwo · {running.id}",
+            actions={"forwardTo": [{"emailAddress": {"address": "z@example.com"}}]},
+        )
+        fake.add_rule(missing_owner.email, "Moja", actions={"delete": True})
+        result = await forward_admin.check_mailboxes(
+            db,
+            today=TODAY,
+            ops=fake,
+            mode="live",
+            user_ids=[running_owner.id, missing_owner.id],
+        )
+
+    assert [item["user_id"] for item in result["items"]] == [
+        missing_owner.id,  # alarm na górze, także przed samą brakującą regułą
+        running_owner.id,
+    ]
+    alarm, fine = result["items"]
+    assert alarm["health"] == "missing"
+    assert alarm["mailbox_keeps_mail"] is False
+    assert alarm["mailbox_note"] == "własna reguła osoby: przekazywanie albo kasowanie"
+    assert fine["mailbox_keeps_mail"] is True
+    assert fine["mailbox_note"] is None
+    assert fake.writes == []
+
+
 async def test_check_mailboxes_in_off_mode_says_so() -> None:
     async with AsyncSessionLocal() as db:
         result = await forward_admin.check_mailboxes(db, today=TODAY, mode="off")

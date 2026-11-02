@@ -14,19 +14,24 @@ name: Queue failure feedback
 #   * dopisuje/aktualizuje komentarz (znacznik <!-- queue-failure-feedback -->)
 #     z listą czerwonych testów i PR-ami z grupy.
 #
+# Czerwone E2E w kolejce nie wyrzuca PR-a (nie jest wymaganym kontekstem), więc
+# ma własny status „E2E w kolejce” i własny komentarz, które mówią, że PR wejdzie
+# na main, jeśli sesja nic nie zrobi. Bez tego zepsute harnessy z 27.10.2026
+# (#2692, #2732) widać by było dopiero nocą.
+#
 # `workflow_run` biegnie z definicji z maina i robi checkout maina — kod
 # z gałęzi kolejki nie jest tu wykonywany. Do ręcznej próby / uzupełnienia:
 # „Run workflow” z `run_id` (i `dry_run`, który tylko wypisuje).
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["CI", "E2E (Playwright)"]
     types: [completed]
     branches: ["gh-readonly-queue/**"]
   workflow_dispatch:
     inputs:
       run_id:
-        description: "ID biegu CI z kolejki (merge_group, failure)"
+        description: "ID biegu CI albo E2E z kolejki (merge_group, failure)"
         required: true
       dry_run:
         description: "Tylko wypisz, co zostałoby wysłane"

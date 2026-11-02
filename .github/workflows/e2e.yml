@@ -5,8 +5,9 @@ on:
   # 2026-09-20 na KAŻDYM PR-ze. Przeniesiony do kolejki merge'ów, bo rachunek
   # i statystyka mówiły to samo: 1 506 min billable przez 5 dni (16–20.09) za
   # 226 przebiegów, z których czerwone były 3. To nie jest wymagany check, więc
-  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce zawiadamia tak samo,
-  # a przy okazji zaczyna bramkować: czerwona grupa nie wchodzi na main.
+  # na PR-ze nie bramkował niczego — zawiadamiał. W kolejce też tylko zawiadamia:
+  # kolejka nie czeka na ten workflow, a czerwona grupa i tak wchodzi na main.
+  # Czerwony bieg dociera do PR-a przez `queue-failure-feedback.yml`.
   #
   # `pull_request` wraca tu w dniu, w którym „E2E stack (ci-chromium)" trafi do
   # rulesetu jako wymagany kontekst — wtedy sygnał na PR-ze zaczyna mieć skutek.
@@ -130,12 +131,44 @@ jobs:
             | tee playwright-output.txt
         env:
           PLAYWRIGHT_JSON_OUTPUT_NAME: playwright-results.json
+      # 27.10.2026 #2692 i #2732 zepsuły testy harnessów, kolejka była zielona,
+      # a nocny bieg czerwony przez 5 nocy (#2745). Dlatego harnessy biegną też
+      # w kolejce, ale tylko gdy grupa dotyka frontendu: 259 z 361 grup z 26.10–
+      # 02.11, ok. 5,4 min na grupę. Harnessy to sam frontend, więc zmiana bez
+      # `frontend/` nie ma ich jak zepsuć. `base_sha` to HEAD poprzedniego wpisu
+      # kolejki, więc porównanie widzi zmianę tego wpisu, nie całej grupy.
+      # Niepewna lista plików = bieg, tak jak E2E wtyczki w `ci.yml`.
+      - name: Czy grupa dotyka frontendu?
+        id: preview-scope
+        if: ${{ github.event_name == 'merge_group' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+        run: |
+          set -eu
+          files=$(gh api "/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA" \
+            --jq 'if (.files | length) >= 300 then "LIMIT" else .files[].filename end') || files=""
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qx LIMIT; then
+            echo "::warning::Niepewna lista plików grupy — harnessy biegną."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if hit=$(printf '%s\n' "$files" | grep -E '^frontend/|^docker-compose\.e2e\.yml$|^\.github/workflows/e2e\.yml$' | head -1) && [ -n "$hit" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Harnessy: zmieniony $hit"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Grupa nie dotyka frontendu — harnessy pominięte."
+          fi
       - name: Playwright — harnessy /preview/* (preview-chromium)
         # Runda 10 (R10-N10-1): na produkcji harnessy wymagają logowania, więc
         # publiczny projekt `preview-chromium` chodzi tu — na stacku zbudowanym
         # z `NEXT_PUBLIC_PREVIEW_PUBLIC=1`, ze źródeł tego samego commitu.
-        # Nocą i ręcznie; w kolejce merge'ów nie (minuty Actions są płatne).
-        if: ${{ github.event_name != 'merge_group' }}
+        # Nocą, ręcznie i w kolejce przy zmianie frontendu (krok wyżej).
+        if: ${{ github.event_name != 'merge_group' || steps.preview-scope.outputs.run == 'true' }}
         run: |
           set -o pipefail
           npx playwright test --project=preview-chromium --reporter=list \
