@@ -64,8 +64,11 @@ RECOMPUTE_EVERY = timedelta(days=7)
 _SEED_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "critical_skill_stats_seed.json"
 )
-# Etapy „wysłany do klienta” (widok `analytics_first_milestones`).
-_SENT_STAGES = ("cv_sent", "interview", "client_interview", "acceptance", "hired")
+# Etapy „wysłany do klienta” (widok `analytics_first_milestones`), ten sam zbiór
+# co `api.jobs.SENT_TO_CLIENT_STAGES`. Bez `interview` (decyzja Artura 02.11.2026):
+# to rozmowa wewnętrzna przed wysyłką, a połowę osób, które na niej skończyły,
+# odrzucono, zanim klient je zobaczył.
+_SENT_STAGES = ("cv_sent", "client_interview", "acceptance", "hired")
 _JOB_BATCH = 50
 
 CriticalSource = Literal["dl", "suggested", "none"]
