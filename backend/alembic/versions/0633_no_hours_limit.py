@@ -1,7 +1,7 @@
 """Kartoteka: raport godzin bez limitu dnia dla wybranej osoby.
 
-Revision ID: 0632_no_hours_limit
-Revises: 0631_user_receives_board_report
+Revision ID: 0633_no_hours_limit
+Revises: 0632_access_usage_daily
 
 SQL ma jedno źródło (``app/services/hr_foundation_schema.py``) — ten sam
 moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import hr_foundation_schema as schema
 
-revision = "0632_no_hours_limit"
-down_revision = "0631_user_receives_board_report"
+revision = "0633_no_hours_limit"
+down_revision = "0632_access_usage_daily"
 branch_labels = None
 depends_on = None
 
