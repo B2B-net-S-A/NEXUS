@@ -34,8 +34,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
 from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
@@ -74,6 +76,8 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "original_missing",
     }
 )
+#: Ostatnia faktura po kolei w ``rematch_pending`` (``{"after_id": …}``).
+REMATCH_CURSOR_KEY = "client_sales_rematch_cursor"
 
 
 @dataclass(frozen=True)
@@ -528,18 +532,61 @@ async def _retry(
     return {"retried": len(pending), "matched": matched}
 
 
-async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, int]:
-    """Kolejna próba dla faktur czekających z powodu, który mógł zniknąć."""
+async def _rematch_batch(db: AsyncSession, after_id: int, limit: int) -> list[int]:
+    """Kolejne ``limit`` czekających po ``after_id``, po końcu kolejki od jej początku."""
 
+    waiting = (
+        select(ClientSalesInvoice.id)
+        .where(
+            ClientSalesInvoice.match_status == "unmatched",
+            ClientSalesInvoice.match_reason.in_(sorted(RETRY_REASONS)),
+        )
+        .order_by(ClientSalesInvoice.id)
+    )
+    batch = list(
+        await db.scalars(waiting.where(ClientSalesInvoice.id > after_id).limit(limit))
+    )
+    if len(batch) < limit:
+        batch += list(
+            await db.scalars(
+                waiting.where(ClientSalesInvoice.id <= after_id).limit(
+                    limit - len(batch)
+                )
+            )
+        )
+    return batch
+
+
+async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, int]:
+    """Kolejna próba dla faktur czekających z powodu, który mógł zniknąć.
+
+    ``limit`` to budżet przebiegu (``billing_rows`` liczy się na każdą fakturę),
+    a kolejka bywa dłuższa, więc przebiegi idą po niej po kolei. Kursor zapisujemy
+    przed próbami: wycofany przebieg nie wraca na tę samą paczkę, bo jedna
+    wadliwa faktura zatrzymałaby wtedy całą kolejkę.
+    """
+
+    cursor = await db.scalar(
+        select(AppSetting.value).where(AppSetting.key == REMATCH_CURSOR_KEY)
+    )
+    after_id = int(cursor.get("after_id") or 0) if isinstance(cursor, dict) else 0
+    batch = await _rematch_batch(db, after_id, limit)
+    if not batch:
+        return await _retry(db, [])
+    statement = insert(AppSetting).values(
+        key=REMATCH_CURSOR_KEY, value={"after_id": batch[-1]}
+    )
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[AppSetting.key], set_={"value": statement.excluded.value}
+        )
+    )
+    await db.commit()
     pending = list(
         await db.scalars(
             select(ClientSalesInvoice)
-            .where(
-                ClientSalesInvoice.match_status == "unmatched",
-                ClientSalesInvoice.match_reason.in_(sorted(RETRY_REASONS)),
-            )
-            .order_by(ClientSalesInvoice.issue_date.desc(), ClientSalesInvoice.id)
-            .limit(limit)
+            .where(ClientSalesInvoice.id.in_(batch))
+            .order_by(ClientSalesInvoice.id)
         )
     )
     return await _retry(db, pending)
@@ -578,8 +625,8 @@ async def save_buyer_number(
 ) -> dict[str, Any]:
     """Numer nabywcy u klienta z faktury i od razu reszta faktur tego nabywcy.
 
-    Nie czekamy na ``rematch_pending``: bierze on 200 najnowszych czekających,
-    więc starsze faktury tego nabywcy mogłyby do niego nie dojść.
+    Nie czekamy na ``rematch_pending``: idzie po kolejce paczkami, więc starsze
+    faktury tego nabywcy doszłyby do niego dopiero po kilku przebiegach.
     """
 
     check = await clients.add_buyer_number(
@@ -610,6 +657,7 @@ __all__ = [
     "Decision",
     "MatchingError",
     "REASON_LABELS",
+    "REMATCH_CURSOR_KEY",
     "Target",
     "assign",
     "auto_match",

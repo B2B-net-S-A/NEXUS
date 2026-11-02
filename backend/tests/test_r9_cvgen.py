@@ -27,7 +27,7 @@ async def test_current_cv_query_loads_bytea_and_skips_non_cv_kinds():
     # undefer: kolumna BYTEA jest w SELECT, nie doczytywana leniwie.
     assert "candidate_documents.file_content" in sql.split("FROM")[0]
     assert "document_kind NOT IN ('certificate', 'cover_letter')" in sql
-    assert "CASE WHEN (candidate_documents.document_kind = 'cv')" in sql
+    assert "candidate_documents.document_kind = 'cv'" in sql.split("ORDER BY")[1]
 
 
 async def test_generation_source_query_loads_bytea_and_skips_non_cv_kinds():

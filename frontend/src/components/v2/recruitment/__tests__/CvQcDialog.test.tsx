@@ -1489,6 +1489,40 @@ describe("CvQcDialog — QC CV", () => {
     });
   });
 
+  // 02.11.2026: okres stanowiska inny niż w oryginale, poprawka jednego stanowiska.
+  describe("„Daty stanowisk jak w oryginale”", () => {
+    const DATE_ITEM = {
+      key: "role_dates|w cv: „08.2022 - obecnie”. w oryginale: „08.2022 - 05.2026”.|lead · hays",
+      role: "Lead · Hays",
+      detail: "W CV: „08.2022 - obecnie”. W oryginale: „08.2022 - 05.2026”.",
+      fix: "restore_dates" as const,
+      role_index: 1,
+    };
+    it("„Przywróć daty z oryginału” wysyła numer stanowiska", async () => {
+      const base = result();
+      const check: QcCheck = {
+        key: "role_dates",
+        label: "Daty stanowisk jak w oryginale",
+        severity: "warning",
+        status: "fail",
+        summary: "1 do sprawdzenia",
+        items: [DATE_ITEM],
+      };
+      serve({ ...base, checks: [...base.checks, check] });
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Daty stanowisk jak w oryginale/ }));
+      expect(within(notes).getByText(DATE_ITEM.detail)).toBeTruthy();
+      expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
+      await userEvent.click(within(notes).getByRole("button", { name: "Przywróć daty z oryginału" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/apply`, { action: "restore_dates", role_index: 1 }),
+      );
+    });
+  });
+
   // 16.10.2026, decyzje Artura D1–D7: uwaga z jednym przyciskiem, a zamiast
   // „To nieprawda” jedno kliknięcie „Zostaw tę kolejność”.
   describe("„Stanowiska od najnowszego”", () => {

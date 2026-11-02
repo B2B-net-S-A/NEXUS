@@ -115,6 +115,7 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "pre_contract_sweeper",
         "job_deadline_alerts",
         "job_idle",
+        "cpro_mail",
         "kpi_email_reports",
         "daily_digest_email",
         "notification_email_outbox",

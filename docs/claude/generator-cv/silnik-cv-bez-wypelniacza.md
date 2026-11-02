@@ -289,3 +289,34 @@ słowa w punkcie „Dlaczego” 13,9 → 18,9 (pliki 21), wymagania bez źródł
 wymagania w całym CV 109 → 110 na 175. Wymagania w opisach ról 76 → 70 (pliki
 85): prompt tego nie podnosi, różnica mieści się w rozrzucie modelu. Od tego
 jest pytanie o rolę przy potwierdzeniu i przed generacją.
+
+## Daty stanowisk jak w oryginale (02.11.2026)
+
+Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.
+Pomiar (797 CV z 30 dni, tylko odczyt): 59 z 555 porównywalnych „obecnie” przeczyło
+oryginałowi. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip. Decyzja
+Artura: oryginał wygrywa także wtedy, gdy kandydat mówi w rozmowie co innego. Taką
+zmianę rekruter wpisuje ręcznie w edytorze.
+
+- **Reguła w `services/cv_source_dates.py`.** Różnica liczy się tylko przy pewnym
+  dopasowaniu: w oryginale jeden okres z tym samym początkiem, a do 400 znaków od
+  niego nazwa firmy albo stanowiska. Studia z tym samym początkiem nie zamykają pracy,
+  a inny okres trwający tej samej firmy (złączone awanse) zostawia „obecnie”.
+- **Generator poprawia sam tylko fałszywe „obecnie”** (`restore_experience_dates`,
+  przed kolejnością stanowisk i latami, w `legacy_v7` i `v10`), także zapisane datą:
+  bieżący miesiąc jako koniec przy wcześniejszym końcu w oryginale (próba na prawdziwym
+  generatorze: 11.2026 przy 09.2026). Inna data końca bywa
+  świadomym złączeniem albo podziałem ról („Wcześniejsze projekty”, awanse), więc kod
+  jej nie zmienia. Pomiar: 46 ról poprawionych, wszystkie przejrzane ręcznie.
+- **Prompt `legacy_v7` (wersja 10):** „obecnie” tylko, gdy źródło podaje stanowisko
+  jako trwające, a data końca ze źródła przechodzi bez zmian.
+- **Uwaga QC „Daty stanowisk jak w oryginale”** (`role_dates`, nie blokuje) pokazuje
+  każdą różnicę: fałszywe „obecnie”, odwrotnie i inną datę końca (90 ról na 795 CV).
+  Przycisk „Przywróć daty z oryginału” (`restore_dates`, `role_index`) zmienia jedno
+  stanowisko i nie wchodzi do „Popraw wszystko”. Bez znaczników stanowisk i bez tekstu
+  oryginału sprawdzenie nie dotyczy. `QC_VERSION` bez zmian: zaliczenie jest to samo.
+- CV wygenerowane wcześniej nie zmieniają się same.
+
+Testy: `tests/test_cv_source_dates.py`, sekcja „Daty stanowisk” w `tests/test_cv_qc.py`,
+`CvQcDialog.test.tsx` („Daty stanowisk jak w oryginale”).
+

@@ -197,11 +197,15 @@ class QcFixesResponse(BaseModel):
 
 
 class QcApplyRequest(BaseModel):
-    action: Literal["ai_fix", "bold_all", "remove_term", "spelling", "role_order"]
+    action: Literal[
+        "ai_fix", "bold_all", "remove_term", "spelling", "role_order", "restore_dates"
+    ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # `restore_dates`: numer stanowiska w CV (bez niego wszystkie).
+    role_index: Optional[int] = Field(default=None, ge=0, le=99)
     # Wersja szkicu z odpowiedzi QC; inna niż w bazie = 409 `CV_CHANGED`.
     # Opcjonalna: karty otwarte przed tą zmianą jej nie wysyłają.
     expected_revision: Optional[int] = Field(default=None, ge=0)
@@ -216,6 +220,7 @@ class QcTransformAction(BaseModel):
         "remove_term",
         "spelling",
         "role_order",
+        "restore_dates",
         "years",
         "title",
         "strip_client_rules",
@@ -225,6 +230,8 @@ class QcTransformAction(BaseModel):
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # `restore_dates`: numer stanowiska w CV (bez niego wszystkie).
+    role_index: Optional[int] = Field(default=None, ge=0, le=99)
 
 
 class QcTransformRequest(BaseModel):

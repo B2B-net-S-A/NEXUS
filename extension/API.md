@@ -58,7 +58,7 @@ Wejście: `ProfileRead` plus opcjonalne `active_job_id` (rekrutacja z paska „P
  "candidate": {"id": 1, "name": "…", "headline": "…", "city": "…", "url": "https://…/candidates/1", "in_nexus_since": "2024-03-02"},
  "ambiguous": [{"id": 2, "name": "…", "company": "…", "url": "…"}],
  "owner": {"user_id": 85, "name": "Katarzyna", "is_me": false, "last_contact_at": "…"},
- "processes": [{"job_id": 1, "job_title": "…", "client_name": "Nordea", "stage_label": "Screening", "recruiter_name": "Katarzyna", "closed": false, "close_label": null, "updated_at": "…"}],
+ "processes": [{"job_id": 1, "job_title": "…", "client_name": "Nordea", "stage_label": "Screening", "recruiter_name": "Katarzyna", "closed": false, "close_label": null, "close_kind": null, "updated_at": "…"}],
  "contacts": [{"at": "…", "user_name": "Katarzyna", "channel_label": "telefon", "note": "…"}],
  "rate": {"label": "150 zł/h B2B", "as_of": "2025-05-01"},
  "rodo": {"status": "valid | expired | none", "label": "zgoda do 03.2027"},
@@ -70,6 +70,9 @@ Wejście: `ProfileRead` plus opcjonalne `active_job_id` (rekrutacja z paska „P
  "usage": {"reads_today": 35, "reads_limit": 150}}
 ```
 Pola obiektowe mogą być `null`, listy puste. `rate` jest `null`, gdy rola nie widzi stawek.
+`close_kind` to `hired | rejected | withdrawn | job_closed`, a `null` przy otwartym procesie.
+`close_label` podaje stan z powodem (`Odrzucony · powód`, `Rekrutacja zamknięta`); przy `hired`
+jest `null` i panel pokazuje `stage_label`.
 `matches` ma próg 50%, `active_job` podaje procent zawsze. `active_job.score` jest `null`, gdy
 nie udało się go policzyć (awaria dopasowania nie psuje odpowiedzi). `active_job` jest `null`,
 gdy nie pytano o rekrutację albo jest zamknięta lub nie istnieje; to nie jest błąd.

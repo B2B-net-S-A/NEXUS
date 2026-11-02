@@ -30,6 +30,7 @@
  ],
  "routes": {
   "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/jobs/{job_id}/link-results": "PDPPDDDDPPPPDDDDDDDDDDDDDDD",
   "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",

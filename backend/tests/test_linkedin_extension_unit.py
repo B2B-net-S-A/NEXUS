@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.models.recruitment_pipeline import PipelineStage
 from app.schemas.linkedin_extension import ExperienceItem, ProfileRead
 from app.services import linkedin_extension_auth as auth
 from app.services import linkedin_extension_lookup as lookup
@@ -172,6 +173,28 @@ def test_resolve_same_name_with_other_link_is_someone_else() -> None:
         by_name,
     )
     assert result.status == "not_found"
+
+
+@pytest.mark.parametrize(
+    ("stage", "is_open", "reason", "label", "kind"),
+    [
+        (PipelineStage.screening, True, None, None, None),
+        (PipelineStage.screening, False, None, "Rekrutacja zamknięta", "job_closed"),
+        (PipelineStage.hired, True, None, None, "hired"),
+        # Etap osoby mówi więcej niż zamknięta rekrutacja.
+        (PipelineStage.hired, False, None, None, "hired"),
+        (PipelineStage.withdrawn, True, None, "Wycofany", "withdrawn"),
+        (PipelineStage.rejected, False, "Inne", "Odrzucony · Inne", "rejected"),
+    ],
+)
+def test_process_closure(
+    stage: PipelineStage,
+    is_open: bool,
+    reason: str | None,
+    label: str | None,
+    kind: str | None,
+) -> None:
+    assert lookup.process_closure(stage, is_open, reason) == (label, kind)
 
 
 def test_job_change_only_when_companies_differ() -> None:

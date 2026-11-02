@@ -58,6 +58,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   scoring: "Ranking kandydatów",
   "prep-review": "Ocena prepów",
   "twin-rules": "Zasady bliźniaków",
+  cpro: "CPro (Nordea)",
   "pipeline-templates": "Procesy",
   "contract-templates": "Wzory umów",
   compare: "Porównanie",

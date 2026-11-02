@@ -203,6 +203,18 @@ export interface LinkResults {
 /** 30, 90 albo 0 (= od początku). */
 export type LinkResultsPeriod = 30 | 90 | 0;
 
+/** Link rekrutacji w zespole: czyj, skąd się wziął i co przyniósł. */
+export interface JobTeamLink {
+  owner_id: number;
+  owner_name: string;
+  slug: string | null;
+  label: string | null;
+  created_at: string;
+  visits: number;
+  applications: number;
+  state: "active" | "expired" | "revoked";
+}
+
 /** Jedno zgłoszenie z linku osoby: kto, z którego linku i gdzie jest teraz. */
 export interface LinkPerson {
   candidate_id: number;
@@ -256,6 +268,8 @@ export const linkResultsQueryKey = (days: LinkResultsPeriod) =>
   ["career-link", "results", days] as const;
 export const linkPeopleQueryKey = (days: LinkResultsPeriod) =>
   ["career-link", "people", days] as const;
+export const jobTeamLinksQueryKey = (jobId: number) =>
+  ["career-link", "job-team", jobId] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -350,6 +364,11 @@ export const careerLinksApi = {
   getLinkPeople: async (days: LinkResultsPeriod): Promise<LinkPeople> => {
     const res = await api.get("/api/me/career-link/people", { params: { days } });
     return res.data as LinkPeople;
+  },
+
+  getJobTeamLinks: async (jobId: number): Promise<JobTeamLink[]> => {
+    const res = await api.get(`/api/jobs/${jobId}/link-results`);
+    return res.data as JobTeamLink[];
   },
 
   getLinkResults: async (days: LinkResultsPeriod): Promise<LinkResults> => {
@@ -514,6 +533,14 @@ export function useLinkPeople(enabled: boolean, days: LinkResultsPeriod) {
     queryKey: linkPeopleQueryKey(days),
     queryFn: () => careerLinksApi.getLinkPeople(days),
     enabled,
+  });
+}
+
+export function useJobTeamLinks(enabled: boolean, jobId: number | null) {
+  return useQuery({
+    queryKey: jobTeamLinksQueryKey(jobId ?? 0),
+    queryFn: () => careerLinksApi.getJobTeamLinks(jobId as number),
+    enabled: enabled && jobId != null,
   });
 }
 

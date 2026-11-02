@@ -146,6 +146,26 @@ class RechainBranchTests(unittest.TestCase):
         log = sh(self.origin, "log", "-1", "--format=%an|%s", "feature")
         self.assertTrue(log.startswith(f"{QRM.BOT_NAME}|fix(migracje):"), log)
 
+    def test_stack_on_points_the_branch_at_the_pr_ahead(self):
+        sh(self.seed, "checkout", "-q", "-b", "ahead", "main")
+        write(self.seed, f"{VERSIONS}/0003_ahead.py", migration("0003_ahead", "0002_b"))
+        self.commit_push(self.seed, "ahead", "ahead: 0003")
+        sh(self.work, "fetch", "-q", "origin")
+
+        outcome = QRM.rechain_branch(
+            self.work,
+            QRM.Candidate(9, "feature"),
+            SCRIPT,
+            runner=runner,
+            stack_on="ahead",
+        )
+
+        self.assertEqual(outcome.state, "pushed", outcome.log)
+        moved = self.remote_file(f"{VERSIONS}/0004_pr.py")
+        self.assertIn('down_revision = "0003_ahead"', moved)
+        message = sh(self.origin, "log", "-1", "--format=%s", "feature")
+        self.assertIn("`ahead`", message)
+
     def test_branch_already_on_head_is_left_alone(self):
         before = sh(self.origin, "rev-parse", "feature")
 
@@ -213,6 +233,97 @@ class BuildCommentTests(unittest.TestCase):
         self.assertTrue(body.startswith(QRM.MARKER))
         self.assertIn("abcdef123", body)
         self.assertIn("git pull", body)
+
+
+class PlanStepsTest(unittest.TestCase):
+    @staticmethod
+    def pr(number, **kw):
+        return QRM.lane.Pr(
+            number,
+            f"PR_{number}",
+            kw.get("queue"),
+            kw.get("armed", False),
+            kw.get("waiting", False),
+            kw.get("healthy", True),
+            True,
+            kw.get("parent"),
+            kw.get("tail"),
+        )
+
+    def test_lane_and_green_waiting_stack_the_rest_goes_to_main(self):
+        candidates = [QRM.Candidate(n, f"b{n}") for n in (1, 2, 3, 4)]
+        steps = QRM.plan_steps(
+            candidates,
+            [
+                self.pr(1, queue=1, armed=True, tail="0634_a"),
+                self.pr(2, waiting=True),
+                self.pr(3, waiting=True, healthy=False),
+                self.pr(4),
+            ],
+        )
+        self.assertEqual(
+            steps,
+            [
+                QRM.Step(1, stackable=True, queued=True),
+                QRM.Step(2, stackable=True),
+                QRM.Step(3),
+                QRM.Step(4),
+            ],
+        )
+
+    def steps_result(self, steps, states):
+        by_number = {n: QRM.Candidate(n, f"b{n}") for n in (1, 2, 3, 4)}
+        calls = []
+
+        def rechain(candidate, stack_on):
+            calls.append((candidate.number, stack_on))
+            return QRM.Outcome(
+                candidate.number, states.get(candidate.number, "noop"), ""
+            )
+
+        results = list(QRM.run_steps(steps, by_number, rechain))
+        return calls, [(c.number, ahead) for c, _, ahead in results]
+
+    def test_second_stacks_on_the_queued_first_third_goes_to_main(self):
+        calls, results = self.steps_result(
+            [
+                QRM.Step(1, stackable=True, queued=True),
+                QRM.Step(2, stackable=True),
+                QRM.Step(3, stackable=True),
+                QRM.Step(4),
+            ],
+            {},
+        )
+        self.assertEqual(
+            calls, [(2, "b1"), (3, None), (4, None)], "Kolejki nie ruszamy."
+        )
+        self.assertEqual(results, [(2, 1), (3, None), (4, None)])
+
+    def test_first_not_queued_takes_main_second_stacks_on_it(self):
+        calls, _ = self.steps_result(
+            [QRM.Step(1, stackable=True), QRM.Step(2, stackable=True)], {1: "pushed"}
+        )
+        self.assertEqual(calls, [(1, None), (2, "b1")])
+
+    def test_failed_rechain_does_not_hold_a_slot(self):
+        calls, _ = self.steps_result(
+            [
+                QRM.Step(1, stackable=True),
+                QRM.Step(2, stackable=True),
+                QRM.Step(3, stackable=True),
+            ],
+            {1: "error"},
+        )
+        self.assertEqual(calls, [(1, None), (2, None), (3, "b2")])
+
+    def test_unknown_lane_state_sends_everyone_to_main(self):
+        candidates = [QRM.Candidate(n, f"b{n}") for n in (1, 2)]
+        self.assertEqual(QRM.plan_steps(candidates, []), [QRM.Step(1), QRM.Step(2)])
+
+    def test_stacked_comment_names_the_pr_ahead_and_the_local_stub(self):
+        body = QRM.build_comment(QRM.Outcome(2, "pushed", "log"), "a" * 40, ahead=1)
+        self.assertIn("#1", body)
+        self.assertIn("--stub-missing-parent", body)
 
 
 if __name__ == "__main__":

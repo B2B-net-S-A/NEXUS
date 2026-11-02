@@ -57,11 +57,24 @@
   173 ze 188 NIP-ów nabywców nie ma klienta w NEXUSIE, ok. 197 faktur miesięcznie; numer w profilu ma 18 ze 169
   klientów. Okno „Przypisz” pozwala wskazać klienta, a przycisk „Przypisz i dopisz NIP” (`save_buyer_number`) zapisuje
   numer u klienta kanonicznego i od razu dopasowuje pozostałe faktury tego nabywcy. Nie czekamy na `rematch_pending`,
-  bo bierze on 200 najnowszych czekających. Numeru nie zapisujemy, gdy klient albo jego scalony duplikat ma inny numer
+  bo idzie po kolejce paczkami (niżej). Numeru nie zapisujemy, gdy klient albo jego scalony duplikat ma inny numer
   (także tekst w tym polu), ani gdy numer ma inny klient: dopisanie zrobiłoby `ambiguous_buyer` i zatrzymało faktury
   obu klientów. Faktura przypisuje się wtedy normalnie. Zapis trafia do Historii zdarzeń
   (`client.registry_number_added`). Dopisanie jest z potwierdzeniem (decyzja Artura z 02.11.2026): obok głównego
   przycisku jest „Tylko przypisz”, bo faktura spółki zależnej bywa rozliczana z zamówienia spółki matki. Klient bez
   zamówień w miesiącu faktury dostaje „Dopisz NIP bez przypisywania” (`POST /{id}/buyer-number`); odmowa zapisu to tam 409.
-  Klucz obcy ma co najmniej 5 cyfr: VAT z literą w środku (`FR1A…`, `IE9S…`) `normalize_registry_id` ucina do jednej
-  cyfry, a taki klucz mają różne firmy, więc ani go nie zapisujemy, ani nie wiążemy nim faktur.
+  Klucz obcy ma co najmniej 5 cyfr: faktury zapisane przed pełnym numerem (niżej) mają VAT z literą ucięty do jednej
+  cyfry (`FR1`, `IE9`), a taki klucz mają różne firmy, więc ani go nie zapisujemy, ani nie wiążemy nim faktur.
+- **VAT UE zapisujemy w całości, z literami** (`normalize_buyer_number`): `FR1A123456789`, `IE9S99999L`, `ATU12345678`,
+  `NL123456789B01`. Tą samą funkcją idą `buyer_foreign_id`, klucz `nip_registry`, numer dopisywany do klienta i numer
+  w eksporcie, bo klucz musi być taki sam po obu stronach. `normalize_registry_id` zostaje bez zmian dla poczty zamówień:
+  ucina takie numery, ale skan tekstu znajduje tylko polskie i fińskie, więc ucięty klucz nigdy tam nie trafia.
+  Faktura nie trzyma XML-a (tylko `xml_sha256`), więc numeru uciętego przed tą zmianą nie da się poprawić z bazy; trzeba
+  pobrać fakturę z KSeF ponownie po `ksef_number`. Pomiar z 02.11.2026: na produkcji 0 faktur przy wyłączonym module,
+  więc modułu włączonego po wdrożeniu tej zmiany to nie dotyczy i skryptu naprawczego nie ma.
+- **`rematch_pending` idzie po całej kolejce** paczkami po 200 w kolejności `id`, kursor w
+  `app_settings['client_sales_rematch_cursor']`. Wcześniej brał 200 najnowszych, więc przy ponad 200 czekających
+  starsze faktury nie dostawały kolejnej próby (kolejka rośnie o ok. 197 faktur `unknown_buyer` miesięcznie).
+  Przebieg jest co godzinę, więc faktura wraca najpóźniej po `kolejka / 200` godzinach. Limitu nie zwiększamy, bo
+  `billing_rows` liczy się na każdą fakturę z klientem. Kursor zapisujemy przed próbami: wycofany przebieg nie wraca na
+  tę samą paczkę, więc jedna wadliwa faktura nie zatrzymuje reszty.

@@ -299,3 +299,51 @@ def roles_newest_first(markup: str) -> Optional[tuple[str, int]]:
         lxml_html.tostring(block, encoding="unicode", with_tail=False) for block in out
     )
     return html, sum(1 for k, n in enumerate(order) if k != n)
+
+
+def _replace_in_text_nodes(element: HtmlElement, old: str, new: str) -> bool:
+    """Podmień tekst w jednym węźle, żeby pogrubienia i układ zostały."""
+    for node in element.iter():
+        if node.text and old in node.text:
+            node.text = node.text.replace(old, new, 1)
+            return True
+        if node is not element and node.tail and old in node.tail:
+            node.tail = node.tail.replace(old, new, 1)
+            return True
+    return False
+
+
+def restore_role_dates_html(
+    markup: str, source: str, role_index: Optional[int] = None
+) -> Optional[tuple[str, int]]:
+    """Okresy stanowisk jak w oryginale — poprawka QC „Przywróć daty z oryginału”.
+
+    Reguła to `cv_source_dates`, a ``role_index`` wskazuje jedno stanowisko
+    (bez niego wszystkie). Zwraca ``(treść, ile okresów zmieniono)``,
+    przy zerze treść wejściową, albo ``None``, gdy stanowisk nie da się tu
+    bezpiecznie rozpoznać. Okres rozbity na kilka węzłów zostaje do ręcznej
+    poprawki.
+    """
+    from app.services import cv_source_dates
+
+    blocks = _blocks(markup)
+    spans = _role_spans(blocks)
+    if spans is None:
+        return None
+    count = 0
+    for index, (first, end) in enumerate(spans):
+        if role_index is not None and index != role_index:
+            continue
+        head = blocks[first]
+        line = " ".join(head.text_content().split())
+        employer = _plain(blocks[first + 1]) if first + 1 < end else ""
+        fix = cv_source_dates.date_fix(line, source, f"{line} {employer}")
+        if fix is not None and _replace_in_text_nodes(head, fix.current, fix.expected):
+            count += 1
+    if not count:
+        return markup, 0
+    html = "".join(
+        lxml_html.tostring(block, encoding="unicode", with_tail=False)
+        for block in blocks
+    )
+    return html, count

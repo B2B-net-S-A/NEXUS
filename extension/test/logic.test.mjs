@@ -117,9 +117,23 @@ test("off-limits: 6 odpowiedzi „sam się zgłosił” + „Nie, to my” bez r
   assert.deepEqual(jobIdsForHow("linkedin_inbound", [1, 2]), [1, 2]);
 });
 
-test("pill procesu: etap albo „Odrzucona · powód”", () => {
+test("pill procesu: otwarty pokazuje etap", () => {
   assert.deepEqual(processPill({ closed: false, stage_label: "Screening" }), { text: "Screening", tone: "info" });
-  assert.deepEqual(processPill({ closed: true, close_label: "za wysoka stawka" }), { text: "Odrzucona · za wysoka stawka", tone: "error" });
+});
+
+test("pill procesu: zamknięty pokazuje prawdziwy stan, nie zawsze „Odrzucona”", () => {
+  const closed = (stage_label, close_label, close_kind) => processPill({ closed: true, stage_label, close_label, close_kind });
+  assert.deepEqual(closed("Zatrudniony", null, "hired"), { text: "Zatrudniony", tone: "success" });
+  assert.deepEqual(closed("Wycofany", "Wycofany · Kontroferta", "withdrawn"), { text: "Wycofany · Kontroferta", tone: "muted" });
+  assert.deepEqual(closed("Wycofany", "Wycofany", "withdrawn"), { text: "Wycofany", tone: "muted" });
+  assert.deepEqual(closed("Odrzucony", "Odrzucony · Za wysokie oczekiwania", "rejected"), { text: "Odrzucony · Za wysokie oczekiwania", tone: "error" });
+  assert.deepEqual(closed("Odrzucony", "Odrzucony", "rejected"), { text: "Odrzucony", tone: "error" });
+  assert.deepEqual(closed("Screening", "Rekrutacja zamknięta", "job_closed"), { text: "Rekrutacja zamknięta", tone: "muted" });
+});
+
+test("pill procesu: bez rodzaju zamknięcia nie twierdzi, że osobę odrzucono", () => {
+  assert.deepEqual(processPill({ closed: true, stage_label: "Screening", close_label: null }), { text: "Screening", tone: "muted" });
+  assert.deepEqual(processPill({ closed: true }), { text: "Zamknięta", tone: "muted" });
 });
 
 test("domyślna rekrutacja do wiadomości: otwarty proces, potem najlepsze dopasowanie", () => {

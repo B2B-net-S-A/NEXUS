@@ -5,12 +5,15 @@ numerem, numer przełamany myślnikiem, NIP-y osób trzecich), ale nazwy i numer
 są zmyślone z poprawną sumą kontrolną. Realny korpus zostaje poza repo.
 """
 
+import pytest
+
 from app.services.order_client_identity import (
     ClientMarkers,
     ClientRegistry,
     fi_business_id_valid,
     identify_client,
     nip_checksum_valid,
+    normalize_buyer_number,
     normalize_registry_id,
     registry_ids_in_text,
 )
@@ -55,6 +58,50 @@ class TestNormalizationAndChecksum:
 
     def test_foreign_prefix_is_part_of_identity(self):
         assert normalize_registry_id("FI12345678") == "FI12345678"
+
+
+class TestBuyerNumber:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("FR1A123456789", "FR1A123456789"),
+            ("fr 1a-123 456 789", "FR1A123456789"),
+            ("IE9S99999L", "IE9S99999L"),
+            ("ATU12345678", "ATU12345678"),
+            ("ESX1234567L", "ESX1234567L"),
+            ("NL123456789B01", "NL123456789B01"),
+            ("DE 123.456.789", "DE123456789"),
+            ("FI12345678", "FI12345678"),
+        ],
+    )
+    def test_eu_vat_stays_whole(self, raw, expected):
+        assert normalize_buyer_number(raw) == expected
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            ("PL 123-456-32-18", BANK_A),
+            ("NIP: 123 456 32 18", BANK_A),
+            ("NIP 1234563218", BANK_A),
+            ("VAT 1234563218", BANK_A),
+            ("GB123456789", "GB123456789"),
+            ("", ""),
+            ("brak", ""),
+        ],
+    )
+    def test_everything_else_goes_like_the_registry(self, raw, expected):
+        assert normalize_buyer_number(raw) == expected
+
+    def test_full_number_in_a_profile_does_not_change_order_mail(self):
+        """Poczta zamówień ma stary klucz, a skan znajduje tylko numery PL i FI."""
+
+        assert normalize_registry_id("FR1A123456789") == "FR1"
+        assert normalize_registry_id("ATU12345678") == "2345678"
+        registry = ClientRegistry(
+            by_registry_id={"FR1A123456789": "a", "ATU12345678": "b"}
+        )
+        text = "VAT FR1A123456789 ATU12345678 FR1 2345678"
+        assert identify_client(text, registry).client_key is None
 
 
 class TestRegistryIdsInText:

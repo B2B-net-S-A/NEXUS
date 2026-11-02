@@ -631,6 +631,7 @@ export function issueRows(list: IssueList, fixes: readonly QcFix[], fixesPending
           const term = (item.term ?? item.requirement ?? "").trim();
           const fixable =
             item.fix === "role_order" ||
+            item.fix === "restore_dates" ||
             (item.fix === "remove_term" && term !== "") ||
             (item.fix === "ai" && (own.length > 0 || fixesPending)) ||
             itemQuickFix(check, item) !== null;
@@ -693,6 +694,8 @@ export function appliedLabel(action: QcFixAction, checks: readonly QcCheck[], fi
       return "Poprawiono pisownię technologii";
     case "role_order":
       return "Ułożono stanowiska od najnowszego";
+    case "restore_dates":
+      return "Przywrócono daty stanowisk z oryginału";
     case "years":
       return "Lata doświadczenia według historii";
     case "title": {

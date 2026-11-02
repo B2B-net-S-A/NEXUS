@@ -335,6 +335,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
     # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
+    # 0634: słowa z CV wysłanych do wiersza „musi mieć” (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'requirement_word_hints'",
     # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
     # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
@@ -797,6 +799,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
+    # 0635: zdarzenia z maili CPro (services/cpro_mail.py).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_candidate_rejected'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_interview_change'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_close_needs_decision'",
     # 0621: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'departed_pairs_care'",
     # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
@@ -1273,6 +1279,16 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
+
+# Dziennik zdarzeń z maili CPro (0635) — JEDNO źródło z migracją
+# (`app/services/cpro_mail_schema.py`).
+try:
+    from app.services import cpro_mail_schema as _cpro_mail_schema
+
+    _CPRO_MAIL_DDL = list(_cpro_mail_schema.TABLE_DDL)
+except Exception as _cpro_mail_schema_err:  # noqa: BLE001
+    print(f"cpro mail schema unavailable: {_cpro_mail_schema_err!r}")
+    _CPRO_MAIL_DDL = []
 
 # Ogłoszenia na pulpicie (0619): tabele i indeksy — JEDNO źródło z migracją
 # (`app/services/announcements_schema.py`).
@@ -6939,6 +6955,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
     *_CLIENT_PANEL_DDL,
+    *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
@@ -7726,6 +7743,11 @@ _DATA_STATEMENTS = [
     "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
+    # 0634: seed klucza AI słów z CV wysłanych do wiersza „musi mieć”.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'requirement_word_hints', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'requirement_word_hints')",
     # 0608: seed klucza AI szkicu wiadomości z wtyczki LinkedIn.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "

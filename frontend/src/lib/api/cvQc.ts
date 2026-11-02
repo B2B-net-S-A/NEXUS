@@ -23,7 +23,9 @@ export type QcFixKind =
   | "ai"
   | "spelling"
   /** „Ułóż od najnowszego” — kolejność stanowisk (16.10.2026). */
-  | "role_order";
+  | "role_order"
+  /** „Przywróć daty z oryginału” — okres stanowiska inny niż w oryginale (02.11.2026). */
+  | "restore_dates";
 
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
@@ -211,6 +213,7 @@ export type QcFixAction =
   | { action: "remove_term"; term: string }
   | { action: "spelling" }
   | { action: "role_order" }
+  | { action: "restore_dates"; role_index?: number }
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
