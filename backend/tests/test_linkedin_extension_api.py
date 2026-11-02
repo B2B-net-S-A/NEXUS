@@ -8,6 +8,7 @@ i rekrutacji → osoba „jest w NEXUSIE” z procesem i kontaktem → limit dzi
 from __future__ import annotations
 
 import time
+from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
@@ -385,3 +386,280 @@ async def test_contacts_hide_client_rate_notes_from_recruiter(app_auth_headers) 
         shown = await load_contacts(db, admin, candidate.id)
     assert hidden and hidden[0].note is None
     assert shown and shown[0].note == "Wyślijmy za 161 zł/h"
+
+
+# ── Tryb pracy na requeście (wersja 1.0.5, decyzja Artura 02.11.2026) ───────
+
+
+async def _make_job(*, is_open: bool = True, status: JobStatus = JobStatus.published) -> int:
+    from app.models.client import Client
+
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Klient Testowy {time.time_ns()}")
+        db.add(client)
+        await db.flush()
+        job = Job(
+            title=f"Rekrutacja (pytest {time.time_ns()})",
+            status=status,
+            client_id=client.id,
+            is_open=is_open,
+        )
+        db.add(job)
+        await db.commit()
+        return job.id
+
+
+def _fix_score(monkeypatch, total: int) -> dict:
+    """Stały wynik modelu dopasowania; oddaje podobieństwo, które dostał ranking."""
+    seen: dict = {}
+
+    async def _rank(_candidate, jobs, _db, *, similarity_map=None, **_kwargs):
+        seen["similarity"] = dict(similarity_map or {})
+        return [SimpleNamespace(job_id=j.id, total=total) for j in jobs]
+
+    monkeypatch.setattr("app.services.scoring_service.rank_jobs_for_candidate", _rank)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_active_job_score_below_list_threshold(
+    app_client, app_auth_headers, open_job, monkeypatch
+) -> None:
+    seen = _fix_score(monkeypatch, 23)
+    calls: list[dict] = []
+
+    async def _search(_text, **kwargs):
+        calls.append(kwargs)
+        # Rekrutacja spoza czołówki: bez zapytania o nią podobieństwo byłoby 0.
+        return [{"job_id": open_job, "score": 0.77}] if kwargs.get("job_ids") else []
+
+    monkeypatch.setattr("app.services.embedding_service.search_jobs_semantic", _search)
+    key = await _connect(app_client, app_auth_headers)
+    resp = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**_profile(f"aktywna-{time.time_ns()}"), "active_job_id": open_job},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["active_job"]["job_id"] == open_job
+    assert body["active_job"]["score"] == 23
+    assert body["active_job"]["client_name"].startswith("Klient Testowy")
+    assert body["matches"] == []
+    assert seen["similarity"] == {open_job: 0.77}
+    only = next(c for c in calls if c.get("job_ids"))
+    assert only["job_ids"] == [open_job]
+    assert "statuses" not in only
+    assert only["raise_on_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_active_job_outage_keeps_lookup_and_gives_no_score(
+    app_client, app_auth_headers, open_job, monkeypatch
+) -> None:
+    async def _down(_text, **kwargs):
+        if kwargs.get("job_ids"):
+            raise RuntimeError("voyage leży")
+        return []
+
+    monkeypatch.setattr("app.services.embedding_service.search_jobs_semantic", _down)
+    key = await _connect(app_client, app_auth_headers)
+    resp = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**_profile(f"awaria-{time.time_ns()}"), "active_job_id": open_job},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "not_found"
+    assert body["active_job"]["job_id"] == open_job
+    assert body["active_job"]["title"].startswith("Java Developer")
+    assert body["active_job"]["score"] is None, "awaria to brak procentu, nie 0%"
+
+
+@pytest.mark.asyncio
+async def test_active_job_closed_or_missing_is_null_without_error(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    _fix_score(monkeypatch, 90)
+    closed = await _make_job(is_open=False, status=JobStatus.closed)
+    key = await _connect(app_client, app_auth_headers)
+    for job_id in (closed, 2_147_483_647):
+        resp = await app_client.post(
+            "/api/extension/lookup",
+            headers=key,
+            json={**_profile(f"zamknieta-{time.time_ns()}"), "active_job_id": job_id},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["active_job"] is None
+        again = await app_client.post(
+            "/api/extension/active-job",
+            headers=key,
+            json={"job_id": job_id, "profile": _profile("zamknieta")},
+        )
+        assert again.status_code == 200, again.text
+        assert again.json() == {"active_job": None}
+
+
+@pytest.mark.asyncio
+async def test_active_job_open_draft_still_scored_like_the_picker_offers_it(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    _fix_score(monkeypatch, 61)
+    draft = await _make_job(status=JobStatus.draft)
+    key = await _connect(app_client, app_auth_headers)
+    resp = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**_profile(f"szkic-{time.time_ns()}"), "active_job_id": draft},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_job"]["score"] == 61
+
+
+@pytest.mark.asyncio
+async def test_lookup_without_active_job_stays_as_before(
+    app_client, app_auth_headers, monkeypatch
+) -> None:
+    calls: list[dict] = []
+
+    async def _search(_text, **kwargs):
+        calls.append(kwargs)
+        return []
+
+    monkeypatch.setattr("app.services.embedding_service.search_jobs_semantic", _search)
+    key = await _connect(app_client, app_auth_headers)
+    resp = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(f"bez-{time.time_ns()}")
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["active_job"] is None
+    assert len(calls) == 1
+    assert "job_ids" not in calls[0]
+
+
+@pytest.mark.asyncio
+async def test_lookup_rejects_malformed_active_job_id(
+    app_client, app_auth_headers
+) -> None:
+    key = await _connect(app_client, app_auth_headers)
+    for bad in (0, -1, 2_147_483_648, "abc"):
+        resp = await app_client.post(
+            "/api/extension/lookup",
+            headers=key,
+            json={**_profile("zly-id"), "active_job_id": bad},
+        )
+        assert resp.status_code == 422, bad
+
+
+@pytest.mark.asyncio
+async def test_active_job_route_does_not_count_read_and_works_at_limit(
+    app_client, app_auth_headers, open_job, monkeypatch
+) -> None:
+    _fix_score(monkeypatch, 42)
+    monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_DAILY_READ_LIMIT", 1)
+    key = await _connect(app_client, app_auth_headers)
+    slug = f"limit-paska-{time.time_ns()}"
+    first = await app_client.post(
+        "/api/extension/lookup", headers=key, json=_profile(slug)
+    )
+    assert first.status_code == 200
+    reads_after_lookup = first.json()["usage"]["reads_today"]
+
+    # Zmiana wyboru na pasku przy odczytanym profilu: bez licznika, także przy wyczerpanym limicie.
+    for _ in range(3):
+        resp = await app_client.post(
+            "/api/extension/active-job",
+            headers=key,
+            json={"job_id": open_job, "profile": _profile(slug)},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["active_job"]["score"] == 42
+    me = await app_client.get("/api/extension/me", headers=key)
+    assert me.json()["usage"]["reads_today"] == reads_after_lookup
+
+    # Lookup z wyborem to nadal odczyt strony.
+    blocked = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**_profile(slug), "active_job_id": open_job},
+    )
+    assert blocked.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_active_job_route_needs_extension_key(
+    app_client, app_auth_headers, open_job
+) -> None:
+    payload = {"job_id": open_job, "profile": _profile("bez-klucza")}
+    assert (await app_client.post("/api/extension/active-job", json=payload)).status_code == 401
+    jwt_only = await app_client.post(
+        "/api/extension/active-job", headers=app_auth_headers, json=payload
+    )
+    assert jwt_only.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_active_job_preselection_does_not_bypass_off_limits(
+    app_client, app_auth_headers, open_job, monkeypatch
+) -> None:
+    _fix_score(monkeypatch, 80)
+
+    async def _labels(db):  # noqa: ARG001
+        return [("bank testowy", 999_999, "Bank Testowy")]
+
+    monkeypatch.setattr(client_off_limits, "off_limits_labels", _labels)
+    key = await _connect(app_client, app_auth_headers)
+    profile = _profile(f"off-limits-pasek-{time.time_ns()}", company="Bank Testowy S.A.")
+    seen = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**profile, "active_job_id": open_job},
+    )
+    assert seen.status_code == 200, seen.text
+    assert seen.json()["off_limits"]["client_name"] == "Bank Testowy"
+    assert seen.json()["active_job"]["score"] == 80, "procent nie zdejmuje ostrzeżenia"
+    asked = await app_client.post(
+        "/api/extension/candidates",
+        headers=key,
+        json={"profile": profile, "job_ids": [open_job]},
+    )
+    assert asked.status_code == 409
+    assert asked.json()["detail"]["code"] == "off_limits_confirmation_required"
+
+
+@pytest.mark.asyncio
+async def test_active_job_sql_failure_in_scoring_keeps_lookup_alive(
+    app_client, app_auth_headers, open_job, monkeypatch
+) -> None:
+    """Błąd SQL w scoringu nie może zostawić transakcji w stanie aborted."""
+    from sqlalchemy import text
+
+    async def _broken(_candidate, _jobs, db, **_kwargs):
+        await db.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr("app.services.scoring_service.rank_jobs_for_candidate", _broken)
+    key = await _connect(app_client, app_auth_headers)
+    slug = f"sql-awaria-{time.time_ns()}"
+    added = await app_client.post(
+        "/api/extension/candidates", headers=key, json={"profile": _profile(slug)}
+    )
+    assert added.status_code == 201, added.text
+    resp = await app_client.post(
+        "/api/extension/lookup",
+        headers=key,
+        json={**_profile(slug), "active_job_id": open_job},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "found"
+    assert body["active_job"]["job_id"] == open_job
+    assert body["active_job"]["score"] is None
+    assert body["usage"]["reads_today"] >= 1
+    again = await app_client.post(
+        "/api/extension/active-job",
+        headers=key,
+        json={"job_id": open_job, "profile": _profile(slug)},
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["active_job"]["score"] is None

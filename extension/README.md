@@ -63,7 +63,16 @@ wtyczkę — panel wraca wtedy do ekranu „Połącz wtyczkę z NEXUSEM”.
 
 Limit odczytów stron LinkedIna na osobę dziennie (licznik w menu) chroni konta
 Recruiter przed wyglądem automatu. Profil albo strona wyników = 1 odczyt;
-powrót na już sprawdzony profil w ciągu 10 minut nie zużywa odczytu.
+powrót na już sprawdzony profil w ciągu 10 minut nie zużywa odczytu, zmiana wyboru
+na pasku „Pracuję nad” też nie (strona nie jest czytana ponownie).
+
+## Pasek „Pracuję nad”
+
+Raz wybrana rekrutacja zostaje w tej przeglądarce: osobno dla każdego projektu
+Recruitera, poza projektem jedna wspólna. Na ekranie dodawania jest pierwsza
+i zaznaczona, karta osoby mówi „W tej rekrutacji: etap” albo „Dodaj do tej rekrutacji”,
+kontakt i szkic wskazują ją, gdy osoba w niej jest, a lista dodaje do niej zaznaczone
+osoby. Off-limits pyta tak samo jak bez paska.
 
 ## Staging na laptopie
 
@@ -217,3 +226,6 @@ wyszukiwarce Recruitera (`/talent/search`, `/talent/search/profile/…`), lista
 Recruitera po kliknięciu przewija się do końca, bo z 25 wierszy na starcie są 3,
 wiersz listy podaje obecną firmę z historii doświadczenia, a profil oddaje
 wszystkie widoczne umiejętności i „Informacje” bez „… more”.
+
+Wersja **1.0.5** (decyzja właściciela 02.11.2026): pasek „Pracuję nad”, czyli tryb
+pracy na requeście. Reguły: `docs/claude/integracje/wtyczka-linkedin.md`.

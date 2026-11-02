@@ -1413,8 +1413,12 @@ async def search_jobs_semantic(
     *,
     raise_on_error: bool = False,
     statuses: Optional[Sequence[str]] = None,
+    job_ids: Optional[Sequence[int]] = None,
 ) -> list[dict]:
     """Embed *query* and return top-k closest job ids from nexus_jobs.
+
+    ``job_ids`` zawęża wyszukiwanie do wskazanych rekrutacji: tak mierzy się
+    podobieństwo do konkretnej rekrutacji, także spoza czołówki ``top_k``.
 
     The *query* text (candidate profile, CV extract or free-text search) is the
     search input against a corpus of job *documents*, so it MUST be embedded
@@ -1448,6 +1452,7 @@ async def search_jobs_semantic(
         from qdrant_client.models import (
             FieldCondition,
             Filter,
+            HasIdCondition,
             IsEmptyCondition,
             MatchAny,
             PayloadField,
@@ -1471,6 +1476,8 @@ async def search_jobs_semantic(
             if statuses
             else None
         )
+        if job_ids is not None:
+            query_filter = Filter(should=[HasIdCondition(has_id=list(job_ids))])
         hits = client.search(
             collection_name=_jobs_collection(),
             query_vector=embedding,

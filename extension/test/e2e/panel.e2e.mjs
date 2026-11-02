@@ -36,6 +36,10 @@ const NEWER_VERSION = MANIFEST.version.replace(/\d+$/, (n) => String(Number(n) +
 const PROFILE_URL = "https://www.linkedin.com/in/zofia-testowa-123/";
 const SEARCH_URL = "https://www.linkedin.com/search/results/people/?keywords=java";
 const OTHER_PROFILE_URL = "https://www.linkedin.com/in/inna-osoba-testowa/";
+const THIRD_PROFILE_URL = "https://www.linkedin.com/in/trzecia-osoba-testowa/";
+const FEED_URL = "https://www.linkedin.com/feed/";
+const projectList = (id) => `https://www.linkedin.com/talent/hire/${id}/manage/all`;
+const projectProfile = (id, person) => `https://www.linkedin.com/talent/hire/${id}/manage/all/profile/${person}`;
 
 /** Fikcyjny NEXUS: odpowiedzi zgodne z API.md, zapis zapytań do sprawdzenia. */
 function createFakeNexus() {
@@ -52,6 +56,16 @@ function createFakeNexus() {
     in_nexus_since: "2026-10-29",
   };
   const match = { job_id: 700001, title: "Senior Java Developer", client_name: "Fikcyjny Bank", recruiter_name: "Ola Przykładowa", score: 81 };
+  const jobs = [
+    { id: 700001, title: "Senior Java Developer", client_name: "Fikcyjny Bank", recruiter_name: "Ola Przykładowa" },
+    { id: 700002, title: "Kotlin Developer", client_name: "Wymyślona Firma", recruiter_name: "Igor Przykładowy" },
+    { id: 700009, title: "Stara rekrutacja", client_name: "Wymyślona Firma", recruiter_name: null },
+  ];
+  // 700009 zamknięto po wczytaniu listy do wyboru: NEXUS odpowiada null, nie błędem.
+  const activeJob = (id) => {
+    const job = jobs.find((j) => j.id === id && j.id !== 700009);
+    return job ? { job_id: job.id, title: job.title, client_name: job.client_name, recruiter_name: job.recruiter_name, score: 42 } : null;
+  };
 
   const handlers = {
     "GET /me": () => ({
@@ -60,8 +74,10 @@ function createFakeNexus() {
       frontend_url: FRONT_URL,
       latest_version: NEWER_VERSION,
     }),
-    "POST /lookup": () =>
-      state.added
+    "POST /active-job": (body) => ({ active_job: activeJob(body.job_id) }),
+    "POST /lookup": (body) => ({
+      active_job: body.active_job_id ? activeJob(body.active_job_id) : null,
+      ...(state.added
         ? {
             status: "found",
             matched_by: "linkedin",
@@ -77,7 +93,8 @@ function createFakeNexus() {
             matches: [match],
             usage,
           }
-        : { status: "not_found", matched_by: null, candidate: null, owner: null, processes: [], contacts: [], rate: null, rodo: null, off_limits: null, contractor: null, job_change: null, matches: [match], usage },
+        : { status: "not_found", matched_by: null, candidate: null, owner: null, processes: [], contacts: [], rate: null, rodo: null, off_limits: null, contractor: null, job_change: null, matches: [match], usage }),
+    }),
     "POST /lookup-batch": (body) => ({
       items: body.people.map((p, index) =>
         index === 0
@@ -90,7 +107,7 @@ function createFakeNexus() {
       state.added = true;
       return [201, { candidate_id: candidate.id, url: candidate.url, created: true, assigned_job_ids: body.job_ids, skipped: [] }];
     },
-    "GET /jobs": () => ({ items: [{ id: 700001, title: "Senior Java Developer", client_name: "Fikcyjny Bank", recruiter_name: "Ola Przykładowa" }] }),
+    "GET /jobs": () => ({ items: jobs }),
   };
 
   async function handle(route) {
@@ -108,6 +125,8 @@ function createFakeNexus() {
       unexpected.push(name);
       return json(404, { detail: "not_found" });
     }
+    if (name === "POST /lookup" && state.lookupDelayMs) await new Promise((r) => setTimeout(r, state.lookupDelayMs));
+    if (name === "POST /active-job" && state.activeJobDelayMs) await new Promise((r) => setTimeout(r, state.activeJobDelayMs));
     const out = handler(body);
     return Array.isArray(out) ? json(out[0], out[1]) : json(200, out);
   }
@@ -132,6 +151,26 @@ async function viewMatching(pattern, timeout = 15000) {
     assert.fail(`Panel nie pokazał ${pattern} w ${timeout} ms. Na ekranie:\n${now}`);
   }
   return panel.locator("#view").innerText();
+}
+
+// Pasek „Pracuję nad”.
+const barValue = () => panel.locator("#workbar .picker__value").innerText();
+const barHint = () => panel.locator("#workbar .workbar__hint").innerText();
+const storedJobs = async () => (await panel.evaluate(() => chrome.storage.local.get("activeJobs"))).activeJobs?.staging || {};
+const focusInBar = () => panel.evaluate(() => document.querySelector("#workbar").contains(document.activeElement));
+
+async function chooseOnBar(title) {
+  await panel.locator("#workbar .picker__toggle").click();
+  await panel.locator("#workbar .picker__option", { hasText: title }).click();
+}
+
+async function barShows(title) {
+  await panel.waitForFunction((t) => document.querySelector("#workbar .picker__value")?.textContent === t, title, { timeout: 15000 });
+}
+
+// Zrzut 400 × 720 do przeklikania: `E2E_SHOTS_DIR=… npm run test:e2e`.
+async function shot(name) {
+  if (process.env.E2E_SHOTS_DIR) await panel.screenshot({ path: join(process.env.E2E_SHOTS_DIR, `${name}.png`) });
 }
 
 async function waitForCall(name, count = 1) {
@@ -161,7 +200,14 @@ before(async () => {
   await ctx.route(`${API_BASE}/**`, (route) => nexus.handle(route));
   await ctx.route("https://www.linkedin.com/**", (route) => {
     const u = new URL(route.request().url());
-    const file = u.pathname.startsWith("/in/") ? "profile-public.html" : u.pathname.startsWith("/search/results/people") ? "search-results.html" : null;
+    if (u.pathname === "/slow.png") return new Promise((r) => setTimeout(r, 1200)).then(() => route.fulfill({ status: 204, body: "" }));
+    if (u.pathname === "/in/wolna-strona-testowa/") {
+      const html = readFileSync(join(FIXTURES, "profile-public.html"), "utf8").replace("</body>", '<img src="/slow.png" alt=""></body>');
+      return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: html });
+    }
+    if (u.pathname === "/feed/") return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: "<!doctype html><title>Feed</title><main>Feed</main>" });
+    const isList = u.pathname.startsWith("/search/results/people") || /^\/talent\/hire\/[^/]+\/manage\/all$/.test(u.pathname);
+    const file = u.pathname.startsWith("/in/") ? "profile-public.html" : u.pathname.includes("/profile/") ? "recruiter-profile.html" : isList ? "search-results.html" : null;
     if (!file) return route.fulfill({ status: 204, body: "" });
     return route.fulfill({ status: 200, contentType: "text/html; charset=utf-8", body: readFileSync(join(FIXTURES, file)) });
   });
@@ -262,12 +308,164 @@ test("lista wyników: osoby z żywej strony, bez „Członka LinkedIn” i dupli
   assert.match(view, /Screening · Fikcyjny Bank/);
 });
 
-test("unieważniony klucz → panel wraca do połączenia i usuwa klucz", async () => {
+test("strona kończy ładowanie w trakcie odczytu: panel nie zostaje na ekranie ładowania", async () => {
+  nexus.state.lookupDelayMs = 3000;
+  await li.goto("https://www.linkedin.com/in/wolna-strona-testowa/", { waitUntil: "commit" });
+  await viewMatching(/Zofia Testowa/, 12000);
+  nexus.state.lookupDelayMs = 0;
+});
+
+test("pasek: znika na stronie spoza panelu i wraca po przejściu na profil, bez nowego odczytu", async () => {
+  await panel.setViewportSize({ width: 400, height: 720 });
+  const lookups = nexus.callsOf("POST /lookup").length;
+  await li.goto(FEED_URL);
+  await viewMatching(/Otwórz profil albo wyniki/);
+  assert.equal(await panel.locator("#workbar").isVisible(), false);
+  await li.goto(PROFILE_URL);
+  await viewMatching(/Zofia Testowa/);
+  assert.equal(await panel.locator("#workbar").isVisible(), true);
+  assert.equal(await barValue(), "wybierz rekrutację");
+  assert.equal(nexus.callsOf("POST /lookup").length, lookups, "powrót na sprawdzony profil nie zużywa odczytu");
+});
+
+test("wybór na pasku przy odczytanym profilu: bez lookup i licznika, procent z /active-job, fokus w pickerze", async () => {
+  const lookups = nexus.callsOf("POST /lookup").length;
+  await chooseOnBar("Kotlin Developer");
+  const call = await waitForCall("POST /active-job");
+  assert.equal(call.body.job_id, 700002);
+  assert.equal(call.body.profile.full_name, "Zofia Testowa");
+  const view = await viewMatching(/Jeszcze nie w rekrutacji „Kotlin Developer” · dopasowanie 42%/);
+  assert.match(view, /Dodaj do tej rekrutacji/);
+  assert.equal(nexus.callsOf("POST /lookup").length, lookups, "zmiana wyboru nie czyta strony ponownie");
+  assert.equal(await focusInBar(), true);
+  assert.equal((await storedJobs()).global.id, 700002);
+  await shot("osoba-nie-w-rekrutacji");
+});
+
+test("przerysowanie ekranu nie zabiera fokusu z szukania w pickerze, a lookup niesie wybór", async () => {
+  await panel.locator("#workbar .picker__toggle").click();
+  const search = panel.locator("#workbar input[type=search]");
+  await search.fill("kot");
+  await shot("picker-otwarty");
+  await li.goto(THIRD_PROFILE_URL);
+  const lookup = await waitForCall("POST /lookup", nexus.callsOf("POST /lookup").length + 1);
+  assert.equal(lookup.body.active_job_id, 700002);
+  await viewMatching(/Jeszcze nie w rekrutacji „Kotlin Developer”/);
+  assert.equal(await search.isVisible(), true);
+  assert.equal(await search.inputValue(), "kot");
+  assert.equal(await panel.evaluate(() => document.activeElement?.type), "search");
+  await search.press("Escape");
+});
+
+test("otwarta notatka nie zabiera fokusu pickerowi, gdy procent wraca po ponownym otwarciu listy", async () => {
+  await panel.getByRole("button", { name: "Notatka", exact: true }).click();
+  nexus.state.activeJobDelayMs = 1000;
+  const before = nexus.callsOf("POST /active-job").length;
+  await chooseOnBar("Senior Java Developer");
+  await panel.locator("#workbar .picker__toggle").click();
+  const search = panel.locator("#workbar input[type=search]");
+  await search.fill("java");
+  await waitForCall("POST /active-job", before + 1);
+  await viewMatching(/W tej rekrutacji: Screening/);
+  await new Promise((r) => setTimeout(r, 1200));
+  assert.equal(await search.isVisible(), true);
+  assert.equal(await panel.evaluate(() => document.activeElement?.type), "search");
+  nexus.state.activeJobDelayMs = 0;
+  await search.press("Escape");
+  await panel.getByRole("button", { name: "Notatka", exact: true }).click();
+});
+
+test("zamknięta rekrutacja: bez błędu, pasek mówi o zamknięciu, pamięć czyszczona, nic nie jest zaznaczone", async () => {
+  await chooseOnBar("Stara rekrutacja");
+  await barShows("wybierz rekrutację");
+  assert.match(await barHint(), /„Stara rekrutacja” jest już zamknięta/);
+  assert.equal((await storedJobs()).global, undefined);
+  const view = await panel.locator("#view").innerText();
+  assert.doesNotMatch(view, /Dodaj do tej rekrutacji/);
+  await chooseOnBar("Kotlin Developer");
+  await viewMatching(/Jeszcze nie w rekrutacji „Kotlin Developer”/);
+  assert.equal(await panel.locator("#workbar .workbar__hint").isVisible(), false);
+});
+
+test("projekt Recruitera: własny wybór, pamięć między projektami, lista bez „Do:” i bez dodatkowych zapytań", async () => {
+  const activeCalls = nexus.callsOf("POST /active-job").length;
+  await li.goto(projectList(555));
+  await viewMatching(/Projekt w Recruiterze/);
+  await barShows("wybierz rekrutację");
+  assert.equal(await panel.locator("#view .picker").count(), 0, "lista bez drugiego wyboru");
+
+  await chooseOnBar("Senior Java Developer");
+  await viewMatching(/Dodane osoby trafią do rekrutacji „Senior Java Developer”/);
+  assert.equal(await barHint(), "Zapamiętane dla tego projektu w Recruiterze");
+
+  await li.goto(projectList(777));
+  await barShows("wybierz rekrutację");
+  await viewMatching(/dodane osoby trafią tylko do bazy/);
+  await chooseOnBar("Kotlin Developer");
+
+  await li.goto(projectList(555));
+  await barShows("Senior Java Developer");
+  await viewMatching(/Dodane osoby trafią do rekrutacji „Senior Java Developer”/);
+  await li.goto(projectList(777));
+  await barShows("Kotlin Developer");
+  await li.goto(PROFILE_URL);
+  await barShows("Kotlin Developer");
+  const stored = await storedJobs();
+  assert.deepEqual([stored["hire/555"].id, stored["hire/777"].id, stored.global.id], [700001, 700002, 700002]);
+  assert.equal(nexus.callsOf("POST /active-job").length, activeCalls, "lista nie liczy procentów, a profil ma procent tej rekrutacji w pamięci");
+});
+
+test("lista w projekcie: „Dodaj zaznaczone” bierze rekrutację z paska", async () => {
+  await li.goto(projectList(555));
+  await barShows("Senior Java Developer");
+  await panel.getByRole("button", { name: "Sprawdź tę stronę" }).click();
+  await viewMatching(/Dodaj zaznaczone \(1\)/);
+  await shot("lista-w-projekcie");
+  const before = nexus.callsOf("POST /candidates").length;
+  await panel.getByRole("button", { name: /Dodaj zaznaczone/ }).click();
+  const add = await waitForCall("POST /candidates", before + 1);
+  assert.deepEqual(add.body.job_ids, [700001]);
+  assert.equal(add.body.profile.full_name, "Marta Fikcyjna");
+});
+
+test("profil w projekcie: etap w wybranej; ten sam profil z innego projektu = bez nowego odczytu", async () => {
+  await li.goto(projectProfile(555, "AEM1"));
+  const view = await viewMatching(/W tej rekrutacji: Screening/);
+  assert.doesNotMatch(view, /Dodaj do tej rekrutacji/);
+  await shot("osoba-w-rekrutacji");
+  assert.equal(nexus.callsOf("POST /lookup").at(-1).body.active_job_id, 700001);
+
+  const lookups = nexus.callsOf("POST /lookup").length;
+  await li.goto(projectProfile(777, "AEM1"));
+  await barShows("Kotlin Developer");
+  await viewMatching(/Jeszcze nie w rekrutacji „Kotlin Developer” · dopasowanie 42%/);
+  assert.equal(nexus.callsOf("POST /lookup").length, lookups);
+});
+
+test("osoba spoza NEXUSA w projekcie: wybrana pierwsza i zaznaczona, z procentem, trafia do dodania", async () => {
+  nexus.state.added = false;
+  await li.goto(projectProfile(555, "AEM2"));
+  await viewMatching(/Nie ma w NEXUSIE/);
+  const first = panel.locator(".match").first();
+  assert.match(await first.innerText(), /Senior Java Developer/);
+  assert.match(await first.innerText(), /42%/, "procent wybranej ma pierwszeństwo przed dopasowaniem listy");
+  assert.equal(await first.locator("input").isChecked(), true);
+  assert.equal(await panel.locator(".match").count(), 1, "bez powtórzenia z listy dopasowań");
+  await shot("dodawanie");
+  const before = nexus.callsOf("POST /candidates").length;
+  await panel.getByRole("button", { name: "Dodaj do NEXUSA i do 1 rekrutacji" }).click();
+  const add = await waitForCall("POST /candidates", before + 1);
+  assert.deepEqual(add.body.job_ids, [700001]);
+  await viewMatching(/Rekrutacje: Senior Java Developer/);
+});
+
+test("unieważniony klucz → panel wraca do połączenia, usuwa klucz i chowa pasek", async () => {
   nexus.state.keyValid = false;
   await li.goto(OTHER_PROFILE_URL);
   await viewMatching(/Połącz wtyczkę ponownie|Połącz wtyczkę z NEXUSEM/);
   const stored = await panel.evaluate(() => chrome.storage.local.get("connection"));
   assert.equal(stored.connection, undefined);
+  assert.equal(await panel.locator("#workbar").isVisible(), false);
 });
 
 test("żadne zapytanie nie wyszło poza podstawione strony i znane trasy", () => {

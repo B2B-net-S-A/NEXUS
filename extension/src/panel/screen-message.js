@@ -15,19 +15,19 @@ const REMIND_OPTIONS = [
   { value: "14", label: "Przypomnij za 14 dni" },
 ];
 
-function jobPresets(lookup) {
+function jobPresets(lookup, activeJob) {
   const fromProcesses = lookup.processes
     .filter((p) => !p.closed)
     .map((p) => ({ id: p.job_id, title: p.job_title, client_name: p.client_name, recruiter_name: p.recruiter_name }));
   const fromMatches = lookup.matches.map((m) => ({ id: m.job_id, title: m.title, client_name: m.client_name, recruiter_name: m.recruiter_name }));
-  return [...fromProcesses, ...fromMatches];
+  return [...(activeJob ? [activeJob] : []), ...fromProcesses, ...fromMatches];
 }
 
 function messageState(ctx) {
   const ps = ctx.state.person;
   if (!ps.message) {
-    const presets = jobPresets(ctx.state.lookup);
-    const id = defaultJobId(ctx.state.lookup);
+    const presets = jobPresets(ctx.state.lookup, ctx.state.activeJob);
+    const id = defaultJobId(ctx.state.lookup, ctx.state.activeJob);
     ps.message = {
       job: presets.find((j) => j.id === id) || null,
       kind: "inmail",
@@ -141,7 +141,7 @@ export function renderMessage(ctx) {
       api: ctx.api,
       value: ms.job,
       noneLabel: null,
-      presets: jobPresets(ctx.state.lookup),
+      presets: jobPresets(ctx.state.lookup, ctx.state.activeJob),
       onChange: (job) => {
         ms.job = job;
         draft(ctx, ms);
