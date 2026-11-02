@@ -339,7 +339,7 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” albo admin, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
+        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” oraz osoby z imiennym nadaniem w „Osoby i role”, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
     ),
     # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
     # `services/board_placement_alerts.py`, wysyła pętla raportów.

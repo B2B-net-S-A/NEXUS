@@ -12,8 +12,8 @@ w Ustawieniach → Powiadomienia):
   z dodatkową rolą recruiter (reaudyt 14.09, R01).
 * ``board_monthly_report`` — **1. dzień roboczy miesiąca od 8:00**:
   podsumowanie Rady za zamknięty miesiąc (`insights_board.compute_board`
-  + tabela rok-do-roku) wyłącznie do Rady nadzorczej i adminów (decyzja Artura
-  02.11.2026; „Moduł Finanse” go nie otwiera).
+  + tabela rok-do-roku) wyłącznie do Rady nadzorczej i osób z imiennym nadaniem
+  (decyzja Artura 02.11.2026; ani rola admin, ani „Moduł Finanse” go nie otwierają).
 * ``board_placement_alert`` — **każdy tick** (co 10 min): mail „Nowy
   placement” do Rady nadzorczej przy pierwszym „Zatrudniony” pary
   (`services/board_placement_alerts.py`, decyzja Artura 22.10.2026); klucz
@@ -258,8 +258,8 @@ def _board_readers(users: list[User]) -> list[User]:
     """Kto z listy dostaje mail zarządu — konta z dołączoną polityką dostępu.
 
     Mail niesie zbiorczy przychód i marżę firmy, więc idzie wyłącznie do Rady
-    nadzorczej i adminów (decyzja Artura 02.11.2026). Odczyt sekcji Insights
-    jak przy raporcie tygodniowym.
+    nadzorczej i osób z imiennym nadaniem (decyzja Artura 02.11.2026). Odczyt
+    sekcji Insights jak przy raporcie tygodniowym.
     """
     return [
         u
@@ -270,7 +270,7 @@ def _board_readers(users: list[User]) -> list[User]:
 
 
 async def _board_recipients(db: AsyncSession) -> list[User]:
-    """Aktywna Rada i admini z odczytem sekcji Insights.
+    """Aktywna Rada i osoby z imiennym nadaniem, z odczytem sekcji Insights.
 
     Pętla w tle nie przechodzi przez uwierzytelnienie żądania, więc politykę
     sekcji dołączamy z bazy sami — bez tego odczyt Insights liczyłby się

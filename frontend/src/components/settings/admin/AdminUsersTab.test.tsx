@@ -235,6 +235,7 @@ describe("AdminUsersTab — Osoby i role", () => {
       role: "talent_community_manager",
       roles: ["talent_community_manager"],
       can_delete_clients: false,
+      receives_board_report: false,
     });
     expect(adminApi.updateUserSectionPermissions).toHaveBeenCalledWith(
       90,
