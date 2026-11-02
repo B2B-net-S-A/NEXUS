@@ -79,7 +79,9 @@ CV_ENRICHMENT = PromptTemplate(
     # zatrudnienia i lokalizacja per stanowisko; daty użycia skilli; wykształcenie
     # z latami i poziomem; certyfikaty, projekty i osiągnięcia. Oś technologii
     # (`skill_timeline`) liczy Python z tych dat — model jej nie pisze.
-    version=7,
+    # v8 (02.11.2026): JSON bez wcięć. 81% kosztu parsera to wyjście, a próba na
+    # 5 CV dała 19% tokenów mniej przy tej samej liczbie umiejętności i stanowisk.
+    version=8,
     expected_format="json",
     system_prompt=(
         "You are a recruitment assistant. Extract structured facts from CVs "
@@ -157,7 +159,8 @@ CV_ENRICHMENT = PromptTemplate(
         "representing how certain you are. Use 0.95+ when the value is explicit and unambiguous; "
         "0.60–0.85 when inferred from context (e.g. full name from an email signature); "
         "0.0–0.4 when guessing or missing. Include keys for ALL top-level fields you filled in.\n\n"
-        "Respond with ONLY the raw JSON, no prose.\n\n"
+        "Respond with ONLY the raw minified JSON on one line, without indentation or "
+        "line breaks between tokens, no prose.\n\n"
         "CV:\n{cv_text}\n"
     ),
 )

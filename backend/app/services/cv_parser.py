@@ -665,7 +665,7 @@ def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
 def _user_content(template: PromptTemplate, cv_input: str) -> list[dict[str, Any]]:
     """Stałe instrukcje jako blok z cache'em, a CV w osobnym bloku za nim.
 
-    Instrukcje mają ok. 1400 tokenów, a 95% wywołań dzieli mniej niż 5 minut.
+    Instrukcje mają ok. 1950 tokenów, a 95% wywołań dzieli mniej niż 5 minut.
     Znacznik stoi przed CV, bo znacznik za CV płaci za zapis, którego nikt nie
     odczyta. Dostawcy spoza Anthropic sklejają bloki w ten sam tekst.
     """

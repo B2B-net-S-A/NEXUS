@@ -123,8 +123,9 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   zmieni bez `fallback_models=` w wywołaniu; do 02.11 nie przekazywały go parser CV,
   uzasadnienia, kafelki CV i lint reguł. Daty doświadczenia idą przez parser, więc
   mają jego łańcuch i nie mają osobnego wpisu.
-- **Cache:** w parserze 81% kosztu to wyjście, więc cache instrukcji daje tylko
-  kilkanaście USD miesięcznie. Znacznik stoi przed CV (`cv_parser._user_content`).
+- **Cache:** w parserze 81% kosztu to wyjście, więc cache instrukcji daje ok. 26 USD
+  miesięcznie, a JSON bez wcięć (prompt v8) ok. 50 USD. Znacznik stoi przed CV
+  (`cv_parser._user_content`), a próba na 5 CV potwierdziła odczyt 1941 tokenów z cache.
   Generator ma TTL 1 godzina, bo 96% wywołań dzieli mniej niż godzina, a 5 minut
   tylko 44%. Jarvis zostaje przy 5 minutach: narzędzia z 5-minutowym znacznikiem
   stoją przed systemem, a dłuższy TTL musi poprzedzać krótszy, inaczej API zwraca 400.
