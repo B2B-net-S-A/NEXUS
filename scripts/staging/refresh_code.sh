@@ -9,7 +9,8 @@
 #
 # Użycie: scripts/staging/refresh_code.sh
 # Kod wyjścia: 0 = staging na origin/main, 3 = kod nowy, schemat bazy nieaktualny,
-# 4 = kod nowy, ale ranking liczy co innego niż produkcja (flagi albo stary Qdrant).
+# 4 = kod nowy, ale ranking liczy co innego niż produkcja (flagi albo stary Qdrant),
+# 5 = nocna kopia danych (`nightly_sync.py`) nie skończyła się w 3 godziny.
 set -euo pipefail
 
 REPO="${NEXUS_REPO:-$HOME/NEXUS}"
@@ -19,6 +20,17 @@ API="http://localhost:8100"
 FRONT="http://localhost:3100"
 
 [ -f "$ENV_FILE" ] || { echo "Brak pliku $ENV_FILE (wzór: scripts/staging/env.staging.example)." >&2; exit 2; }
+
+# Nocna kopia wyrównuje wtedy Qdrant w backendzie: odtworzenie kontenera przerwałoby ją.
+LOCK="${STAGING_SYNC_LOCK:-$HOME/.nexus-staging/nightly-sync.pid}"
+for _ in $(seq 1 360); do
+  [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK")" 2>/dev/null || break
+  sleep 30
+done
+if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
+  echo "Nocna kopia danych wciąż trwa ($LOCK)." >&2
+  exit 5
+fi
 
 # Staging z innym rankingiem działa normalnie, a wnioski z niego idą do decyzji Artura.
 check_ranking_parity() {
@@ -52,6 +64,9 @@ BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export BUILT_AT
 compose=(docker compose -p nexus-staging --project-directory "$CODE"
   -f "$CODE/docker-compose.staging.yml" --env-file "$ENV_FILE")
+# Flagi z produkcji zapisuje `nightly_sync.py`; bez pliku zostają wartości domyślne.
+FLAGS_FILE="$(dirname "$ENV_FILE")/.env.staging-flags.local"
+[ ! -f "$FLAGS_FILE" ] || compose+=(--env-file "$FLAGS_FILE")
 
 # Najpierw build: gdy padnie, stare kontenery działają dalej.
 "${compose[@]}" build backend frontend

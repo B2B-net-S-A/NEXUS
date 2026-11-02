@@ -36,12 +36,14 @@ klient) — to też są kroki.
   W=~/.codex/worktrees/nexus-staging-data-promotion  # katalog, z którego stoi staging
   docker compose -p nexus-staging --project-directory $W \
     -f docker-compose.staging.yml --env-file $W/.env.staging.local \
+    --env-file $W/.env.staging-flags.local \
     run -d --rm --no-deps --name nexus-staging-backend-branch \
     -p 127.0.0.1:8101:8000 -v "$PWD/backend:/app" \
     -e 'CORS_ORIGINS=["http://localhost:3101"]' backend
   ```
 
-  Po teście `docker stop nexus-staging-backend-branch`. Jeden taki kontener
+  Baza główna zmienia się co noc (`staging-na-laptopie.md`), a zapisy z testu
+  zostają na starej kopii. Po teście `docker stop nexus-staging-backend-branch`. Jeden taki kontener
   naraz — nazwa jest stała celowo, druga sesja dostanie konflikt zamiast
   cichego drugiego backendu na tej samej bazie.
 - **Zmiana schematu bazy** nie idzie na wspólną bazę stagingu (entrypoint

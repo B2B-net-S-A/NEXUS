@@ -26,8 +26,10 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
   sync kończy się samymi `NoSuchBucket` bez skopiowanego pliku.
   Klucz prywatny age bierze z pęku kluczy macOS (`nexus-backup-age`).
 - `scripts/staging/env.staging.example` — wzór `.env.staging.local`.
+- `scripts/staging/nightly_sync.py` — co noc nowa kopia produkcji (niżej).
 - `scripts/staging/refresh_code.sh` — backend i front z `origin/main` na tej samej
-  bazie (co noc, `rutyny-nocne.md`). Kod wyjścia 3 = kopia ma rewizję, której main
+  bazie (co noc, `rutyny-nocne.md`). Czeka, aż nocna kopia skończy, bo odtworzenie
+  backendu przerwałoby wyrównanie Qdranta (kod 5 po 3 godzinach). Kod wyjścia 3 = kopia ma rewizję, której main
   już nie zna: `/api/health` mówi wtedy „healthy”, a schemat jest stary, więc
   potrzebna jest nowa kopia i `STAGING_DATABASE_NAME`. Kod wyjścia 4 = ranking
   liczy co innego niż produkcja (niżej).
@@ -39,11 +41,11 @@ zgadzać. 02.11.2026 staging nie miał flag z produkcji (ta sama osoba 45,1 i 66
 a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
 
 - **Flagi:** `docker-compose.staging.yml`, sekcja „Ranking jak na produkcji”.
-  Nowa flaga z `_SCORING_CACHE_INPUTS` włączona na produkcji albo inna wartość
-  w workflow „Coolify set env” = ta sama zmiana w compose i
-  `env.staging.example`. Różnice, które zostają celowo: integracje, poczta,
-  pętle w tle.
-- **Nowa kopia bazy = wyrównanie Qdranta.** Klon z Hetznera przenosi samą bazę,
+  Wartości bierze co noc `nightly_sync.py`. Nowa nazwa w `_SCORING_CACHE_INPUTS`
+  wymaga wpisu w compose, bo inaczej nie dojdzie do backendu (pilnuje
+  `tests/test_staging_nightly_sync.py`). Różnice, które zostają celowo: integracje,
+  poczta, pętle w tle.
+- **Nowa kopia bazy = wyrównanie Qdranta** (co noc robi to `nightly_sync.py`). Klon z Hetznera przenosi samą bazę,
   a outbox w kopii ma `indexed_hash` z produkcji. `index_drift_reconciler`
   porównuje z nim treść, nie z Qdrantem, więc tej różnicy nie widzi. Skrypt niżej
   porównuje hasz z punktem w Qdrancie i liczy tylko osoby ze zmianą (02.11: 2 252
@@ -59,6 +61,56 @@ a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
   `KNOWN_PEOPLE_BOOST_ENABLED`, `KEYWORD_SEARCH_FOLDED_FTS` ani `MATCH_POOL_SIZE`.
 - **Skrypt pomiarowy poza procesem web** wywołuje `refresh_alias_map()`
   i `critical_skills.refresh_cache()`, bo robi to dopiero lifespan.
+
+## Nocna kopia produkcji
+
+Decyzja Artura z 02.11.2026: staging co noc staje się aktualną kopią produkcji,
+bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
+`scripts/staging/nightly_sync.py` (rutyna 00:00, `rutyny-nocne.md`) robi po kolei:
+
+1. Czyta z procesu backendu produkcji przez SSH ustawienia bool i liczbowe oraz
+   listę dozwolonych: `_SCORING_CACHE_INPUTS` i 4 flagi puli. Do
+   `.env.staging-flags.local` obok głównego pliku env idzie tylko ta lista. Inne
+   różnice trafiają do raportu, bez sekretów: filtr nazw działa już na serwerze.
+   Przełączniki integracji i poczty są w compose na sztywno, więc flaga z produkcji
+   ich nie włączy.
+2. Zrzuca bazę do `~/.local/share/nexus-staging-nightly/<RRRRMMDD>/` i odtwarza ją
+   z `sanitize.sql` do nowej `nexus_staging_nightly_<RRRRMMDD>`. Kontener produkcji
+   ustala przy każdym biegu, a gdy wdrożenie podmieni go w trakcie, ponawia raz.
+   Zrzut jest przerywany o 02:15 UTC, przed backupem produkcji.
+3. Buduje kod z `origin/main`, przełącza `STAGING_DATABASE_NAME`, odtwarza backend
+   i front. Sprawdza `/api/health` na nowej bazie. Gdy jest niezdrowy, cofa plik env
+   i flagi.
+4. Wyrównuje Qdrant (`--target candidates --resume`, `--target jobs --only-missing`)
+   i uruchamia strażnika. Powyżej 5 000 różnic nie liczy, tylko pyta w raporcie,
+   bo to zwykle zmiana tekstu albo modelu.
+5. Porządki: zostają 2 ostatnie dobre kopie nocne i ich zrzuty, bo zawierają dane
+   osobowe. Usuwa wyłącznie nazwy z tego wzorca, nigdy kopii aktywnej, i bez
+   `FORCE`, więc baza z połączeniem w `pg_stat_activity` zostaje.
+
+Każdy błąd przed przełączeniem zostawia staging na poprzedniej kopii. Start poza
+oknem 22:00–01:00 UTC jest pomijany, bo rutyna po zamkniętej aplikacji rusza przy
+następnym otwarciu, a przełączenie w dzień przerwałoby pracę sesji. Wynik:
+`~/.claude/nexus-rutyny/raporty/<dzień>/staging-kopia.ok` i `.md`, wyjście procesów
+w `~/.nexus-staging/logs/`.
+
+**Co się dzieje z sesjami na głównym stagingu w chwili przełączenia:**
+
+- **Testowe karty i inne zapisy na głównym stagingu znikają razem ze starą kopią.**
+  Główny staging nie jest miejscem na dane, które mają przetrwać noc. Rzeczy
+  potrzebne dłużej: własna baza `nexus_branch_*`. Po zapisy z poprzedniej nocy
+  można sięgnąć do poprzedniej kopii, dopóki jej porządki nie usuną.
+- Backend i API stoją kilka minut (start z migracjami), a skrypt z `docker exec`
+  w głównym backendzie kończy się błędem. Bieg, który ma trwać przez noc, zaczynaj
+  po 01:30 albo na własnym backendzie.
+- Token z logowania działa dalej, bo `SECRET_KEY` się nie zmienia.
+- Backend gałęzi już uruchomiony zostaje na starej kopii, bo adres bazy ma zapisany
+  przy starcie. Połączenie chroni tę kopię przed porządkami. Po restarcie backend
+  gałęzi wstaje na nowej kopii.
+- `nexus_sales`, `nexus_branch_*` i `nexus_staging_2026*` skrypt pomija. Stare kopie
+  `nexus_staging_2026*` usuwa się ręcznie.
+- Pliki nie są częścią kopii: uploady i lokalny S3 zostają z pełnego odtworzenia,
+  więc CV dodane później są w bazie, a ich plików lokalnie nie ma.
 
 ## Kopia bez klucza age i późniejsze przenoszenie zmian
 

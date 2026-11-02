@@ -1,5 +1,5 @@
 # Rutyny nocne — Dyżurny, Strażnik Nowości, Tester, Domykacz, Poranny raport, Odśmiecacz
-<!-- indeks: zadania Claude'a na laptopie 01:00–07:30, PR-y rutyn same po zielonym CI, odczyt produkcji przez SSH, backup poza rutynami, `scripts/staging/refresh_code.sh` -->
+<!-- indeks: zadania Claude'a na laptopie 00:00–07:30, PR-y rutyn same po zielonym CI, odczyt produkcji przez SSH, backup poza rutynami, `scripts/staging/refresh_code.sh` -->
 
 Decyzja Artura z 02.11.2026. Automaty, które już mieliśmy, tylko zgłaszały
 problemy: nocny E2E czerwienił się 5 nocy, a raporty kolejki leżały otwarte
@@ -8,6 +8,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 
 | Godzina (Warszawa) | Rutyna | Co robi |
 |---|---|---|
+| 00:00 | Nocna kopia stagingu | `scripts/staging/nightly_sync.py`: flagi z produkcji, nowa kopia bazy, Qdrant, strażnik rankingu (`staging-na-laptopie.md`) |
 | 01:00 | Odświeżenie stagingu | `scripts/staging/refresh_code.sh`: kod z `origin/main`, baza bez zmian |
 | 02:00 | Dyżurny | Alarmy na GitHubie i wiszące PR-y |
 | 02:30 | Strażnik Nowości | PR-y ze zmianą ekranu a `novelties.json`, także tytuły `fix` |
