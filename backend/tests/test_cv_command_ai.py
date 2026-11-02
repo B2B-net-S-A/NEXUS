@@ -1380,3 +1380,169 @@ def test_prompt_lets_the_model_write_from_the_material_and_ask() -> None:
     text = CV_EDITOR_COMMAND.system_prompt + CV_EDITOR_COMMAND.template
     assert "{material}" in CV_EDITOR_COMMAND.template
     assert '"question"' in text
+
+
+# ── „Dopasuj pod rekrutację” (02.11.2026) ───────────────────────────────────
+
+TAILOR_SOURCES = (
+    "Projektowałem usługi w Javie i pracowałem z bankowością korporacyjną od 2020 roku.\n"
+    "Potwierdzone z kandydatem: Gradle\n"
+    "Potwierdzone z kandydatem: OWASP Mobile — .\n"
+    "Potwierdzone z kandydatem: MFA — wdrażał logowanie MFA w aplikacji mobilnej banku\n"
+    "tak robił (potwierdza pytanie: Jakie testy stosuje Pan przy refaktoryzacji?)"
+)
+
+
+def tailor(*operations: dict, conversation: str = "") -> dict:
+    raw = json.dumps({"operations": list(operations)})
+    return cmd.verify_tailor(raw, LINES, (), TAILOR_SOURCES, conversation)
+
+
+def rewrite(**extra: object) -> dict:
+    return {
+        "type": "replace",
+        "line": 2,
+        "text": "Ponad 7 lat doświadczenia w Javie, w tym 3 lata w bankowości korporacyjnej.",
+        "why": "Pod wymaganie",
+        **extra,
+    }
+
+
+def test_tailor_keeps_a_change_with_a_quote_from_the_sources() -> None:
+    quote = "pracowałem z bankowością korporacyjną od 2020 roku"
+    result = tailor(rewrite(cytat=quote))
+    (operation,) = result["operations"]
+    assert operation["quote"] == quote
+    assert operation["source"] == "oryginal"
+    assert operation["id"] == 0
+
+
+def test_tailor_labels_a_quote_from_the_conversation() -> None:
+    quote = "pracowałem z bankowością korporacyjną od 2020 roku"
+    (operation,) = tailor(rewrite(cytat=quote), conversation=quote)["operations"]
+    assert operation["source"] == "rozmowa"
+
+
+@pytest.mark.parametrize(
+    "quote",
+    [
+        None,
+        "",
+        "Java",  # za krótkie, stoi w każdym CV
+        "tego zdania nie ma w żadnym źródle",
+        "Potwierdzone z kandydatem: Gradle",
+        "Potwierdzone z kandydatem: OWASP Mobile",
+        "tak robił (potwierdza pytanie: Jakie testy stosuje Pan przy refaktoryzacji?)",
+    ],
+)
+def test_tailor_drops_a_change_without_real_evidence(quote: str | None) -> None:
+    result = tailor(rewrite(cytat=quote))
+    assert result["operations"] == []
+    assert result["dropped"][0]["reason"] == "no_quote"
+
+
+def test_tailor_accepts_a_confirmation_with_words() -> None:
+    quote = "wdrażał logowanie MFA w aplikacji mobilnej banku"
+    assert tailor(rewrite(cytat=quote))["operations"][0]["quote"] == quote
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Brak potwierdzonego doświadczenia w sektorze healthcare.",
+        "No experience with healthcare projects.",
+    ],
+)
+def test_tailor_never_writes_about_a_gap_into_the_cv(text: str) -> None:
+    result = tailor(
+        rewrite(text=text, cytat="pracowałem z bankowością korporacyjną od 2020 roku")
+    )
+    assert result["operations"] == []
+    assert result["dropped"][0]["reason"] == "about_a_gap"
+
+
+def test_tailor_only_proposes_rewrites_and_additions() -> None:
+    result = tailor(
+        {
+            "type": "remove",
+            "lines": [2],
+            "why": "x",
+            "cytat": "pracowałem z bankowością korporacyjną od 2020 roku",
+        }
+    )
+    assert result["operations"] == []
+    assert result["dropped"][0]["reason"] == "bad_type"
+
+
+def test_tailor_drops_a_new_fact_instead_of_asking() -> None:
+    result = tailor(
+        rewrite(
+            text="Ponad 7 lat doświadczenia w Javie i Terraformie, 40 serwerów.",
+            cytat="pracowałem z bankowością korporacyjną od 2020 roku",
+        )
+    )
+    assert result["operations"] == []
+
+
+def test_tailor_rejects_a_malformed_answer_like_the_plan_does() -> None:
+    with pytest.raises(ValueError):
+        cmd.verify_tailor("to nie jest JSON", LINES, (), TAILOR_SOURCES)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"cytat": "oczekuje 150 zł/h na B2B przy Javie"},
+        {"cytat": "Wysłany 150/100-110 Java i bankowość"},
+        {
+            "cytat": "pracowałem z bankowością korporacyjną od 2020 roku",
+            "why": "Oczekuje 150 zł/h",
+        },
+    ],
+)
+def test_tailor_never_shows_money_in_the_quote_or_the_reason(extra: dict) -> None:
+    raw = json.dumps({"operations": [rewrite(**extra)]})
+    sources = TAILOR_SOURCES + (
+        "\noczekuje 150 zł/h na B2B przy Javie\nWysłany 150/100-110 Java i bankowość"
+    )
+    result = cmd.verify_tailor(raw, LINES, (), sources)
+    assert result["operations"] == []
+    assert result["dropped"][0]["reason"] == "amount"
+
+
+def test_tailor_bare_confirmation_does_not_open_the_fact_check() -> None:
+    sources = TAILOR_SOURCES + "\nPotwierdzone z kandydatem: Kafka"
+    with_kafka = rewrite(
+        text="Ponad 7 lat doświadczenia w Javie i Kafka, w tym 3 lata w bankowości.",
+        cytat="pracowałem z bankowością korporacyjną od 2020 roku",
+    )
+    raw = json.dumps({"operations": [with_kafka]})
+    assert cmd.verify_tailor(raw, LINES, (), sources)["operations"] == []
+
+
+def test_tailor_quote_about_another_company_does_not_go_into_this_role() -> None:
+    lines = [
+        line(0, "role", "Admin 2020 – 2024", section=EXP, role=0),
+        line(1, "employer", "Firma Alfa · IT", section=EXP, role=0),
+        line(2, "bullet", "Utrzymanie serwerów.", section=EXP, role=0),
+        line(3, "role", "Dev 2018 – 2020", section=EXP, role=1),
+        line(4, "employer", "Firma Beta · IT", section=EXP, role=1),
+        line(5, "bullet", "Tworzenie usług.", section=EXP, role=1),
+    ]
+    quote = "Utrzymanie serwerów i kopii zapasowych w Firma Beta"
+    raw = json.dumps(
+        {
+            "operations": [
+                {
+                    "type": "replace",
+                    "line": 2,
+                    "text": "Utrzymanie serwerów i kopii zapasowych.",
+                    "why": "x",
+                    "cytat": quote,
+                }
+            ]
+        }
+    )
+    result = cmd.verify_tailor(raw, lines, (), quote)
+    assert result["operations"] == []
+    assert result["dropped"][0]["reason"] == "other_role"
