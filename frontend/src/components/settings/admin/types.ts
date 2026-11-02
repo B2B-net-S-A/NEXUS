@@ -10,7 +10,7 @@ export interface AdminUser {
   is_active: boolean;
   /** Imienne uprawnienie do usuwania klientów z profilu (0307). */
   can_delete_clients?: boolean;
-  /** Imienne prawo do maila „Podsumowanie Rady” (0630). */
+  /** Imienne prawo do maila „Podsumowanie Rady” (0631). */
   receives_board_report?: boolean;
   /** Uprawnienia nadane tej osobie, których nie dają jej role (plakietka „+N”). */
   extra_permissions?: string[];
