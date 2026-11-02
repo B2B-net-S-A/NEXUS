@@ -78,7 +78,7 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
-    # Imienne prawo do maila „Podsumowanie Rady” (0629).
+    # Imienne prawo do maila „Podsumowanie Rady” (0630).
     receives_board_report: bool = False
     # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
     # (plakietka „+N uprawnienie” na liście kont).
@@ -117,7 +117,7 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
-    # Imienne prawo do maila „Podsumowanie Rady” (0629).
+    # Imienne prawo do maila „Podsumowanie Rady” (0630).
     receives_board_report: Optional[bool] = None
     # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
     # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto

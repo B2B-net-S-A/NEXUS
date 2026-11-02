@@ -5223,7 +5223,7 @@ END $$""",
     # bez FK: wpis ma przeżyć usunięcie obiektu i konta.
     """ALTER TABLE users
         ADD COLUMN IF NOT EXISTS can_delete_clients BOOLEAN NOT NULL DEFAULT false""",
-    # 0629: imienne prawo do maila „Podsumowanie Rady”; model `User` je deklaruje.
+    # 0630: imienne prawo do maila „Podsumowanie Rady”; model `User` je deklaruje.
     """ALTER TABLE users
         ADD COLUMN IF NOT EXISTS receives_board_report BOOLEAN NOT NULL DEFAULT false""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
