@@ -228,12 +228,14 @@ export async function capturePage(cfg) {
 }
 
 export function captureConfig(url) {
-  const kind = detectPage(url).kind;
+  const { kind, source } = detectPage(url);
+  const recruiterList = kind === PAGE_KINDS.SEARCH_RESULTS && source !== "search";
   return {
     ...CAPTURE,
+    ...(recruiterList ? CAPTURE.listScroll : {}),
     foreign: FOREIGN_REGIONS,
     recruiterProfile: kind === PAGE_KINDS.RECRUITER_PROFILE,
-    scroll: kind === PAGE_KINDS.PROFILE || kind === PAGE_KINDS.RECRUITER_PROFILE,
+    scroll: kind === PAGE_KINDS.PROFILE || kind === PAGE_KINDS.RECRUITER_PROFILE || recruiterList,
     headingSelectors: kind === PAGE_KINDS.PROFILE ? ["section h1", "h2", "h1"] : kind === PAGE_KINDS.RECRUITER_PROFILE ? [...CAPTURE.recruiterNames, "h1, h2"] : ["h1, h2"],
   };
 }

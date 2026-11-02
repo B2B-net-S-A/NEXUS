@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/rate-benchmarks": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "PATCH /api/rate-benchmarks/{benchmark_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/rate-benchmarks/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

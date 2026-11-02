@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/compass/roster": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/compass/contractors": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/compass/roster": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -65,12 +65,13 @@ _PATH_PARAM = re.compile(r"\{([^}:]+)(:[^}]+)?\}")
 
 @dataclass(frozen=True)
 class Persona:
-    """Konto wzorcowe: rola główna, role dodatkowe i uprawnienia nadane osobie."""
+    """Konto wzorcowe: rola główna, role dodatkowe, uprawnienia nadane i odebrane."""
 
     key: str
     role: UserRole
     extra_roles: tuple[UserRole, ...] = ()
     grants: tuple[str, ...] = ()
+    revokes: tuple[str, ...] = ()
 
 
 PERSONAS: tuple[Persona, ...] = (
@@ -134,6 +135,9 @@ PERSONAS: tuple[Persona, ...] = (
     Persona("recruiter+cases", UserRole.recruiter, grants=("cases",)),
     # 0490: „Rada nadzorcza” — tylko odczyt Insights (test_board_role_access.py).
     Persona("board", UserRole.board),
+    # Decyzja właściciela 02.11.2026: uprawnienie odebrane jednej osobie.
+    # Na końcu listy — litery wzorca idą w kolejności person.
+    Persona("finance-finance_module", UserRole.finance, revokes=("finance_module",)),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma
@@ -207,8 +211,14 @@ def build_user(persona: Persona, *, user_id: int) -> User:
         section_override_rows=[],
         action_role_rows=_action_rows(),
         action_override_rows=[
-            SimpleNamespace(user_id=user_id, action=key, access="manage")
-            for key in persona.grants
+            *(
+                SimpleNamespace(user_id=user_id, action=key, access="manage")
+                for key in persona.grants
+            ),
+            *(
+                SimpleNamespace(user_id=user_id, action=key, access="none")
+                for key in persona.revokes
+            ),
         ],
     )
     user.effective_section_access = serialize_section_access(access.sections)

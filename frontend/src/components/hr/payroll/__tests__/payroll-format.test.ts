@@ -266,6 +266,19 @@ describe("reguły premii — formularz", () => {
     });
   });
 
+  it("zachowuje klientów reguły dodatkowej premii przy zapisie", () => {
+    const form = formFromRules({
+      ...rules,
+      extra_dl: [{ dl_user_id: 4, recipient_user_id: 5, client_ids: [11], client_names: ["Firma"] }],
+    });
+    const result = rulesPayload(form);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.payload.extra_dl).toEqual([
+      { dl_user_id: 4, recipient_user_id: 5, client_ids: [11] },
+    ]);
+  });
+
   it("odrzuca odwrócone progi i zepsute liczby", () => {
     const form = formFromRules(rules);
     expect(rulesPayload({ ...form, boundLow: "60" }).ok).toBe(false);

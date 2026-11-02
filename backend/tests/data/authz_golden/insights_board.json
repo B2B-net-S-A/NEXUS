@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDP",
-  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDP",
-  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDP",
-  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDP"
+  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDPD",
+  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDPD",
+  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDPD",
+  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDPD"
  }
 }

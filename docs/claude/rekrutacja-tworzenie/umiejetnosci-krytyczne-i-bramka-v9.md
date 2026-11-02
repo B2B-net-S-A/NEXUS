@@ -218,3 +218,22 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     płatności robiła), i angielskiego rdzenia zamiast liczby mnogiej: „payment*”, nie
     „payments”. Walidacja słów przepuszcza oba bez zmian w kodzie; wiersze sprzed v12
     poprawia DL w Profilu Championa.
+
+## Ocena „musi mieć” a bramka (02.11.2026)
+
+Bramka ukrywa tylko po krytycznych, ale ocena („musi mieć X/Y”, warstwa umiejętności)
+czyta wszystkie wiersze. Analiza 198 wysłanych osób: gdy silnik mówił „brak”, model
+czytający CV znajdował to w 31% przypadków.
+
+- **Każdy wiersz „musi mieć” liczy swoje warianty** (`critical_skills.must_evidence_options`).
+  Wymaganie spoza słownika szuka samego siebie („Agile”, „Change management”).
+- **Bramka tego nie czyta:** w `dealbreaker_inputs_for_job` etykiety z `must` mają
+  wyłącznie swoje słowa. Podpowiedź z historii dalej nie dostaje słów wiersza.
+- **Chipy zamiast zdań** (`scoring_service.job_skill_requirements`): kolumna
+  `must_skills` z wymaganiem od `PROSE_REQUIREMENT_WORDS` słów i Champion z `stack.must`
+  = liczą się chipy. Nie dotyczy `requirements_reviewed` ani zapisanego kontraktu.
+- **Pomiar przed i po** na 198 wysłanych i próbce puli: fałszywe braki z 30,9% do
+  24,9%, fałszywe „jest” bez zmian (19,3% i 19,7%), bramka ukrywa tyle samo (15
+  wysłanych, 283 z puli), top 20 wysłanych z 32,4% do 33,1%. To poprawa odczytu,
+  nie kolejności.
+

@@ -26,6 +26,10 @@ przeszedł staging. Plan z etapami: `docs/staging-laptop-plan.md`.
   sync kończy się samymi `NoSuchBucket` bez skopiowanego pliku.
   Klucz prywatny age bierze z pęku kluczy macOS (`nexus-backup-age`).
 - `scripts/staging/env.staging.example` — wzór `.env.staging.local`.
+- `scripts/staging/refresh_code.sh` — backend i front z `origin/main` na tej samej
+  bazie (co noc, `rutyny-nocne.md`). Kod wyjścia 3 = kopia ma rewizję, której main
+  już nie zna: `/api/health` mówi wtedy „healthy”, a schemat jest stary, więc
+  potrzebna jest nowa kopia i `STAGING_DATABASE_NAME`.
 
 ## Kopia bez klucza age i późniejsze przenoszenie zmian
 

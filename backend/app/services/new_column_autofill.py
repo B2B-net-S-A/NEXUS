@@ -51,6 +51,8 @@ Reguły, które łatwo cofnąć „przy okazji”:
   wymagania, „Stawka od”, dostępność. Z niej raport odróżnia błąd
   wyszukiwania od braku danych. Propozycji nie zamyka (``added`` stawia
   człowiek, 07.10.2026) — lista propozycji i tak pomija osoby w rekrutacji.
+* Znamy tę osobę (decyzja Artura z 02.11.2026): kolejność dobierania to wynik
+  plus punkty ``known_queue_points``; w ``entry_meta.score`` zostaje sam wynik.
 * Wpis „Praca w tle” (``job_automation``) po każdym dopełnieniu.
 """
 
@@ -266,7 +268,24 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
         )
         if len(picks) >= limit:
             break
-    return list(picks.values())
+    return await _with_known_points(db, job_id, list(picks.values()))
+
+
+async def _with_known_points(db, job_id: int, picks: list[Pick]) -> list[Pick]:
+    """Kolejność: wynik + „znamy tę osobę” (02.11.2026). Procent bez zmian."""
+    from app.services.known_queue_points import facts_for
+
+    client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
+    facts = await facts_for(
+        db,
+        job_id=job_id,
+        client_id=client_id,
+        candidate_ids=[p.candidate_id for p in picks],
+        now=datetime.now(timezone.utc),
+    )
+    known = {cid: fact.points for cid, fact in facts.items()}
+    # Sortowanie stabilne: remis zostaje w kolejności wyniku.
+    return sorted(picks, key=lambda p: -(p.score + known.get(p.candidate_id, 0)))
 
 
 def budget_tier(candidate, budget_hourly: Optional[float]) -> Optional[int]:

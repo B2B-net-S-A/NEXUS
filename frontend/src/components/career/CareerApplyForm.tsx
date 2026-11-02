@@ -499,7 +499,6 @@ export function CareerApplyForm({
             min={1}
             max={10000}
             step="any"
-            placeholder="170"
             className="kr-input"
             disabled={busy}
             defaultValue={v.expected_rate_hourly}

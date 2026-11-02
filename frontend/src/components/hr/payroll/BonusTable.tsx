@@ -74,6 +74,7 @@ export function BonusTable({
                   <span className={CALM_SUBLINE}>
                     {row.category_label}
                     {row.eligible_on ? ` · termin ${formatIsoDatePl(row.eligible_on)}` : ""}
+                    {row.from_sheet ? " · z arkusza" : ""}
                     {row.edited ? " · kwota poprawiona" : ""}
                     {row.contract_ended_early ? (
                       <span className="text-warning">
@@ -115,7 +116,7 @@ export function BonusTable({
                       tone={BONUS_STATUS_TONE[row.status]}
                       note={
                         row.status === "cancelled" && row.cancel_reason !== "manual"
-                          ? (cancelReasonLabel(row.cancel_reason) ?? undefined)
+                          ? (cancelReasonLabel(row.cancel_reason, undefined, row.cancel_ended_on) ?? undefined)
                           : undefined
                       }
                     >

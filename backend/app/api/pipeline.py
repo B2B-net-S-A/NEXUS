@@ -3724,8 +3724,19 @@ async def build_kanban_view(
     board_now = datetime.now(timezone.utc)
     # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
     # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
-    from app.services import autofill_decisions
+    from app.services import autofill_decisions, known_queue_points
 
+    known_queue_facts = await known_queue_points.facts_for(
+        db,
+        job_id=job_id,
+        client_id=job.client_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+        now=board_now,
+    )
     autofill_recruiter_since = (
         (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
         if any(
@@ -4145,6 +4156,9 @@ async def build_kanban_view(
                 if v4.entry_source == candidate_claim.ENTRY_SYSTEM
                 else None
             )
+            known_fact = known_queue_facts.get(e.candidate_id)
+            if payload["entry_autofill"] is not None and known_fact is not None:
+                payload["entry_autofill"]["known"] = known_fact.as_dict()
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id

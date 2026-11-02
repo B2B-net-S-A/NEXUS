@@ -17,6 +17,7 @@ describe("contract timeline labels", () => {
     expect(contractActivityLabel("terminated")).toBe("Zakończono współpracę");
     expect(contractActivityLabel("updated")).toBe("Zaktualizowano dane kontraktu");
     expect(contractActivityLabel("end_date_cleared")).toMatch(/bezterminowa/);
+    expect(contractActivityLabel("termination_data_cleared")).toMatch(/cofniętego/);
     // „Powiąż z kontraktem” w rejestrze umów zostawia wpis na kontrakcie.
     expect(contractActivityLabel("generated_contract_linked")).toBe(
       "Powiązano podpisaną umowę B2B z kontraktem",

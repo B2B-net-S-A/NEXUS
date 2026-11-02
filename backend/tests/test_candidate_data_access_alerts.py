@@ -108,6 +108,34 @@ def test_account_age_decides_new_account() -> None:
     assert not alerts.is_new_account(unknown, NOW)
 
 
+@pytest.mark.asyncio
+async def test_alarm_does_not_reach_the_person_it_is_about(monkeypatch) -> None:
+    """Podejrzany admin albo HoR nie dostaje uprzedzenia o własnym alarmie."""
+    subject = _usage(OLD, candidates_last_hour=alerts.HOUR_CANDIDATES + 1)
+    notified: list[list[int]] = []
+
+    async def collect(_db, _now):
+        return [subject]
+
+    async def recipients(_db):
+        return [subject.user_id, 8, 9]
+
+    async def notify(_db, ids, **_kwargs):
+        notified.append(ids)
+        return len(ids)
+
+    class _Db:
+        async def commit(self) -> None:
+            return None
+
+    monkeypatch.setattr(alerts, "collect", collect)
+    monkeypatch.setattr(alerts, "_recipients", recipients)
+    monkeypatch.setattr(alerts, "_notify", notify)
+
+    assert await alerts.scan_once(_Db(), NOW) == 2
+    assert notified == [[8, 9]]
+
+
 def test_alert_text_says_nothing_was_blocked_and_how_to_react() -> None:
     usage = _usage(
         NEW, candidates_last_hour=25, candidates_today=55, disk_files_today=13

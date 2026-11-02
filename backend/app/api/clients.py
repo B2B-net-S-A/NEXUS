@@ -120,8 +120,8 @@ def _duration_months(start: date, end: Optional[date]) -> Optional[int]:
 def _archive_boundary(contract: Contract, today: date) -> date:
     """Dzień zakończenia kontraktu w archiwum: `end_date` → `terminated_at` → dziś.
 
-    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
-    przywrócenie (`reopen_contract` go nie czyści), więc umowa zakończona
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia (powrót
+    bezterminowy czyści go dopiero od 02.11.2026), więc umowa zakończona
     ponownie niosła datę PIERWSZEGO zakończenia — stawka, czas trwania i
     przychód liczyły się na nią, choć kolumna „End date" obok pokazuje
     `end_date`. „Zakończ współpracę" zawsze ustawia `end_date <= terminated_at`,

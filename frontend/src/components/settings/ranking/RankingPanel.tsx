@@ -10,6 +10,7 @@ import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import {
   scoringWeightsApi,
   type RankingMeasurement,
+  type RankingKnownPoints,
   type RankingPanelState,
   type RankingPanelWeights,
 } from "@/lib/api";
@@ -119,6 +120,12 @@ export function RankingPanel({ insightsWrite, isAdmin, pollMeasurement = true }:
     onSuccess: store,
     onError: onError("Nie udało się uruchomić pomiaru."),
   });
+  const saveKnownPoints = useMutation({
+    mutationFn: async (next: Omit<RankingKnownPoints, "max">) =>
+      (await scoringWeightsApi.saveKnownPoints(next)).data,
+    onSuccess: store,
+    onError: onError("Nie udało się zapisać punktów."),
+  });
   const discard = useMutation({
     mutationFn: async () => {
       await scoringWeightsApi.discardDraft();
@@ -177,6 +184,7 @@ export function RankingPanel({ insightsWrite, isAdmin, pollMeasurement = true }:
               actionError={actionError}
               onDiscard={() => discard.mutate()}
               onCheck={() => check.mutate(local)}
+              onSaveKnownPoints={(next) => saveKnownPoints.mutate(next)}
             />
           )}
           {tab === "historia" && (

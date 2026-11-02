@@ -110,6 +110,7 @@ export const SEEDABLE_BASICS = [
   "onsite_days_per_week",
   "candidate_location_pref",
   "deadline",
+  "deadline_time",
 ] as const;
 
 export type SeedableBasicsKey = (typeof SEEDABLE_BASICS)[number];
@@ -126,6 +127,7 @@ export const SEEDABLE_BASICS_LABEL: Record<SeedableBasicsKey, string> = {
   onsite_days_per_week: "Dni stacjonarne / tydzień",
   candidate_location_pref: "Lokalizacja biura",
   deadline: "Deadline na kandydatów",
+  deadline_time: "Godzina deadline'u",
 };
 
 function isEmptyBasicsValue(value: unknown): boolean {
@@ -193,6 +195,15 @@ export function seedBasicsFromJob(
   ) {
     seeded.deadline = values.deadline;
   }
+  // Godzina należy do daty: tylko gdy pole pokazuje ten sam dzień co rekrutacja.
+  if (
+    isEmptyBasicsValue(basics.deadline_time) &&
+    typeof values.deadline_time === "string" &&
+    values.deadline_time !== "" &&
+    (seeded.deadline ?? basics.deadline) === values.deadline
+  ) {
+    seeded.deadline_time = values.deadline_time;
+  }
 
   if (Object.keys(seeded).length === 0) {
     return { profile, seededBasics: null };
@@ -233,7 +244,14 @@ function stripSeededBasicsKeys(
 ): ChampionBasics {
   if (!seededBasics) return basics;
   const next: ChampionBasics = { ...basics };
+  // Data i godzina jadą razem. Godzina z seedu przy zmienionej dacie: bez niej
+  // serwer uznałby, że nowy termin nie ma godziny, a pole ją pokazuje. Data
+  // z seedu przy zmienionej godzinie: serwer odnosi godzinę do wysłanego dnia.
+  const dateSent = !("deadline" in seededBasics) || basics.deadline !== seededBasics.deadline;
+  const timeEdited = (basics.deadline_time ?? "") !== (seededBasics.deadline_time ?? "");
   for (const key of Object.keys(seededBasics) as (keyof ChampionBasics)[]) {
+    if (key === "deadline_time" && dateSent) continue;
+    if (key === "deadline" && timeEdited) continue;
     if (next[key] === seededBasics[key]) {
       delete next[key];
     }

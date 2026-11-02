@@ -10,8 +10,9 @@ Wartości domyślne to reguły Compassa (``lib/types/bonus.ts:242-253``,
   powyżej 40 i poniżej 50 → 1500, od 50 → 2000; marża ujemna = bez premii,
 * **dodatkowa premia DL** — w Compassie reguła zaszyta w kodzie razem
   z adresami e-mail dwóch osób. Tu to USTAWIENIE: lista par
-  ``{dl_user_id → recipient_user_id}``, domyślnie pusta (repo jest publiczne,
-  w kodzie nie ma nikogo).
+  ``{dl_user_id → recipient_user_id}`` z opcjonalną listą klientów
+  (``client_ids``, decyzja Artura 02.11.2026), domyślnie pusta (repo jest
+  publiczne, w kodzie nie ma nikogo).
 
 Funkcje liczące są czyste (bez bazy), żeby testy granic nie potrzebowały
 Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
@@ -72,6 +73,11 @@ class BonusRulesError(ValueError):
 class ExtraDlRule:
     dl_user_id: int
     recipient_user_id: int
+    #: Pusta lista = każdy klient; inaczej reguła działa tylko u tych klientów.
+    client_ids: tuple[int, ...] = ()
+
+    def covers(self, client_id: Optional[int]) -> bool:
+        return not self.client_ids or client_id in self.client_ids
 
 
 @dataclass(frozen=True)
@@ -295,11 +301,50 @@ def automation_since_change_error(
     return None
 
 
-def extra_dl_recipient(dl_user_id: int, rules: BonusRules) -> Optional[int]:
+def extra_dl_recipient(
+    dl_user_id: int, rules: BonusRules, *, client_id: Optional[int] = None
+) -> Optional[int]:
+    """Odbiorca dodatkowej premii; reguła z listą klientów działa tylko u nich."""
+
     for rule in rules.extra_dl:
-        if rule.dl_user_id == dl_user_id:
+        if rule.dl_user_id == dl_user_id and rule.covers(client_id):
             return rule.recipient_user_id
     return None
+
+
+def rule_amount(snapshot: Mapping[str, Any], role: str) -> Optional[Decimal]:
+    """Kwota z reguły według migawki kontraktu; ``None`` = migawka bez marży.
+
+    Liczy z wartości zapisanych w migawce, więc porównanie z kwotą z arkusza nie
+    zmienia się po późniejszej zmianie progów w ustawieniach.
+    """
+
+    raw = snapshot.get("margin_per_hour")
+    if raw is None:
+        return None
+    try:
+        margin = Decimal(str(raw))
+        hours = Decimal(str(snapshot.get("monthly_hours") or HOURS_PER_MONTH))
+        if role != "recruiter":
+            percent = Decimal(
+                str(snapshot.get("dl_percent") or DEFAULT_RULES.dl_percent)
+            )
+            dl_hours = Decimal(str(snapshot.get("dl_hours") or hours))
+            return money(margin * dl_hours * percent / Decimal(100))
+        if margin < 0:
+            return None
+        if snapshot.get("individual_percent") is not None:
+            percent = Decimal(str(snapshot["individual_percent"]))
+            return money(margin * hours * percent / Decimal(100))
+        bounds = snapshot.get("recruiter_tier_bounds")
+        amounts = snapshot.get("recruiter_tier_amounts")
+        if not bounds or not amounts:
+            return recruiter_bonus(margin)
+        low, high = Decimal(str(bounds[0])), Decimal(str(bounds[1]))
+        index = 0 if margin <= low else 1 if margin < high else 2
+        return money(Decimal(str(amounts[index])))
+    except (InvalidOperation, ValueError, IndexError, TypeError):
+        return None
 
 
 # ── Ustawienia ────────────────────────────────────────────────────────────────
@@ -395,7 +440,19 @@ def parse_rules(raw: object) -> BonusRules:
                 "Dodatkowa premia DL: jeden Delivery Lead może mieć jedną regułę."
             )
         seen.add(dl_id)
-        extra.append(ExtraDlRule(dl_user_id=dl_id, recipient_user_id=recipient))
+        raw_clients = item.get("client_ids") or ()
+        if not isinstance(raw_clients, (list, tuple)):
+            raise BonusRulesError("Dodatkowa premia DL: niepoprawna lista klientów.")
+        clients = tuple(
+            dict.fromkeys(
+                _int(value, "Klient", low=1, high=2**31 - 1) for value in raw_clients
+            )
+        )
+        extra.append(
+            ExtraDlRule(
+                dl_user_id=dl_id, recipient_user_id=recipient, client_ids=clients
+            )
+        )
 
     dl_hours: list[DlHoursRule] = []
     seen_hours: set[int] = set()
@@ -477,7 +534,11 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
         "eligible_business_days": rules.eligible_business_days,
         "currency": rules.currency,
         "extra_dl": [
-            {"dl_user_id": r.dl_user_id, "recipient_user_id": r.recipient_user_id}
+            {
+                "dl_user_id": r.dl_user_id,
+                "recipient_user_id": r.recipient_user_id,
+                "client_ids": list(r.client_ids),
+            }
             for r in rules.extra_dl
         ],
         "dl_hours": [{"user_id": r.user_id, "hours": r.hours} for r in rules.dl_hours],
@@ -567,6 +628,7 @@ __all__ = [
     "payout_period",
     "recruiter_bonus",
     "recruiter_tier",
+    "rule_amount",
     "rules_payload",
     "save_rules",
 ]

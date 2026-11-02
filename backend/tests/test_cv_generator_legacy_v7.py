@@ -10,6 +10,7 @@ for the rest of the suite, so every test here deletes both variables first.
 
 import hashlib
 import json
+import re
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -188,7 +189,8 @@ def test_one_model_call_reads_the_raw_cv_with_the_v7_prompt(defaults):
 def test_frozen_v7_prompt_keeps_the_baseline_instructions():
     prompt = legacy_prompt("pl", False, "tailored")
     assert prompt.startswith("Jesteś ekspertem w analizie CV.")
-    assert "NIE zaniżaj" in prompt
+    assert "Ponad N lat" in prompt
+    assert "do ~30 słów" in prompt
     assert "<source_facts>" not in prompt
     assert legacy_prompt("en", False, "polished").startswith(
         "You are an expert in CV analysis."
@@ -218,11 +220,12 @@ def test_missing_industry_stays_empty_instead_of_a_guessed_it(defaults):
     assert result.render_payload["experience"][0]["industry"] == ""
 
 
-def test_career_headline_uses_the_baseline_rounding(defaults):
-    # 01.2015–07.2019 = 55 months: the baseline rounds to 5, the rebuilt
-    # pipeline floors to 4.
+def test_career_headline_floors_and_says_over(defaults):
+    # 01.2015–07.2019 = 55 months: decyzja z 02.11.2026 — bez zaokrąglania w górę.
     result = _run()
-    assert result.render_payload["why_points"][0].startswith("5 lat doświadczenia")
+    assert result.render_payload["why_points"][0].startswith(
+        "Ponad 4 lata doświadczenia"
+    )
 
 
 def test_overlong_bullets_are_shortened_not_rejected(defaults):
@@ -531,7 +534,7 @@ def test_company_bound_figure_is_recomputed_from_that_companys_roles():
     }
     _fix_scoped_years(data, "pl")
     # Only Zeta's 68 months count (→ 6), never Beta's.
-    assert data["why_points"] == ["6 lat w Test Company Zeta przy testach API"]
+    assert data["why_points"] == ["Ponad 5 lat w Test Company Zeta przy testach API"]
 
 
 def test_scoped_fix_never_adds_years_from_another_role():
@@ -559,10 +562,6 @@ def test_scoped_fix_never_adds_years_from_another_role():
 
 
 def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults):
-    from app.services.cv_generator_b2b.legacy_v7._helpers import (
-        _total_experience_years,
-    )
-
     role = {
         "dates": "01.2019 – obecnie",
         "company": "Test Company Alfa",
@@ -574,9 +573,9 @@ def test_ongoing_role_figure_lands_in_document_without_coverage_warning(defaults
         why_points=["6 lat jako Backend Developer"], experience=[role]
     )
     result = _run()
-    expected = _total_experience_years([role])
     point = result.render_payload["why_points"][0]
-    assert point.startswith(f"{expected} ")
+    # Daty liczy kod: nigdy „6 lat” modelu przy roli od 01.2019.
+    assert re.match(r"(Ponad )?[7-9] lat ", point), point
     assert point.endswith("jako Backend Developer")
     assert not any(
         w.startswith("BRAK POKRYCIA") and "why_points" in w for w in result.warnings
@@ -633,7 +632,8 @@ def test_year_only_start_does_not_count_both_boundary_years_in_full(monkeypatch,
 
     monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
     # Źródło: „5 lat doświadczenia”, rola 2021–2026. Do rundy 10 styczeń
-    # 2021 – wrzesień 2026 = 69 miesięcy → 6 lat w nagłówku CV.
+    # 2021 – wrzesień 2026 = 69 miesięcy → 6 lat w nagłówku CV. Rok bez miesiąca
+    # liczy się od lipca: 63 miesiące, więc „Ponad 5” (zasada z 02.11.2026).
     assert _helpers._total_experience_years([{"dates": dates}]) == 5
 
     data = {
@@ -648,7 +648,8 @@ def test_year_only_start_does_not_count_both_boundary_years_in_full(monkeypatch,
         "why_points": ["6 lat doświadczenia jako QA Manual Tester"],
     }
     _helpers._fix_experience_years(data, "pl")
-    assert data["why_points"] == ["5 lat doświadczenia jako QA Manual Tester"]
+    expected = "5 lat" if dates == "2021 - 2026" else "Ponad 5 lat"
+    assert data["why_points"] == [f"{expected} doświadczenia jako QA Manual Tester"]
 
 
 def test_year_only_adjacent_roles_sum_to_the_calendar_difference(monkeypatch):
@@ -844,8 +845,8 @@ def test_role_headline_never_takes_years_from_another_role(monkeypatch):
     monkeypatch.setattr(_helpers, "local_now", lambda: datetime(2026, 9, 26, 12, 0))
     data = _tenure_data("3 lata doświadczenia jako Data Engineer")
     _helpers._fix_experience_years(data, "pl")
-    # Rola Data Engineer od 01.2023 = 45 miesięcy → 4 lata; nigdy 13.
-    assert data["why_points"] == ["4 lata doświadczenia jako Data Engineer"]
+    # Rola Data Engineer od 01.2023 = 45 miesięcy → „Ponad 3”; nigdy 13.
+    assert data["why_points"] == ["Ponad 3 lata doświadczenia jako Data Engineer"]
 
 
 def test_decimal_career_headline_is_replaced_whole(monkeypatch):
@@ -858,7 +859,7 @@ def test_decimal_career_headline_is_replaced_whole(monkeypatch):
     data = _tenure_data("4.5 years of experience")
     data["experience"] = data["experience"][:1]
     _helpers._fix_experience_years(data, "en")
-    assert data["why_points"] == ["4 years of experience"]
+    assert data["why_points"] == ["Over 3 years of experience"]
 
 
 def _guard_data():

@@ -318,8 +318,13 @@ def conversation_texts(
             continue
         response = str(answer.get("response") or "").strip()
         if response and not must_text_evidence.is_negative_answer(response):
+            # Pytanie liczy się tylko przy „tak”: do 02.11.2026 w 73 z 319 par
+            # tabela mówiła „jest” po słowie, które padło tylko w pytaniu.
             question = str(answer.get("question_text") or "").strip()
-            out.append(f"{question}\n{response}" if question else response)
+            confirmed = must_text_evidence.answer_confirms_question(response)
+            out.append(
+                f"{question}\n{response}" if question and confirmed else response
+            )
     for key in ("recommendation", "motivation"):
         raw = str((card.get(key) or {}).get("raw") or "").strip()
         if raw:

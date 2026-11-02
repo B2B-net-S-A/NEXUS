@@ -11,20 +11,32 @@ import { permissionLabel } from "@/lib/permissions";
 
 import { SalesMailboxStatus } from "./SalesMailboxStatus";
 
-export type SalesSection = "summary" | "opportunities" | "companies" | "contacts" | "leads" | "tasks";
+export type SalesSection =
+  | "summary"
+  | "opportunities"
+  | "offers"
+  | "companies"
+  | "contacts"
+  | "meetings"
+  | "leads"
+  | "tasks";
 
 const SECTIONS: { value: SalesSection; label: string; href: string }[] = [
   { value: "summary", label: "Podsumowanie", href: "/sales/summary" },
   { value: "opportunities", label: "Szanse", href: "/sales" },
+  { value: "offers", label: "Oferty", href: "/sales/offers" },
   { value: "companies", label: "Firmy", href: "/sales/companies" },
   { value: "contacts", label: "Kontakty", href: "/sales/contacts" },
+  { value: "meetings", label: "Spotkania", href: "/sales/meetings" },
   { value: "leads", label: "Leady", href: "/sales/leads" },
   { value: "tasks", label: "Zadania", href: "/sales/tasks" },
 ];
 
 export function activeSection(pathname: string): SalesSection {
   if (pathname.startsWith("/sales/summary")) return "summary";
+  if (pathname.startsWith("/sales/offers")) return "offers";
   if (pathname.startsWith("/sales/contacts")) return "contacts";
+  if (pathname.startsWith("/sales/meetings")) return "meetings";
   if (pathname.startsWith("/sales/companies")) return "companies";
   if (pathname.startsWith("/sales/tasks")) return "tasks";
   if (pathname.startsWith("/sales/leads")) return "leads";
@@ -61,15 +73,17 @@ export function SalesShell({ title, description, actions, hideNav, children }: S
       <div className="space-y-4">
         <PageHeader title={title} description={description} density="compact" actions={actions} />
         {!hideNav && (
-          <TabbedNav
-            ariaLabel="Sprzedaż"
-            tabs={SECTIONS.map(({ value, label }) => ({ value, label }))}
-            value={activeSection(pathname)}
-            onValueChange={(value) => {
-              const target = SECTIONS.find((section) => section.value === value);
-              if (target) router.push(target.href);
-            }}
-          />
+          <div data-tour="sales.tabs">
+            <TabbedNav
+              ariaLabel="Sprzedaż"
+              tabs={SECTIONS.map(({ value, label }) => ({ value, label }))}
+              value={activeSection(pathname)}
+              onValueChange={(value) => {
+                const target = SECTIONS.find((section) => section.value === value);
+                if (target) router.push(target.href);
+              }}
+            />
+          </div>
         )}
         {!hideNav && <SalesMailboxStatus />}
         {children}

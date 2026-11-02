@@ -171,3 +171,9 @@ sekcja niżej), nie w profilu rekrutacji. Schemat `app/schemas/champion.py`
   `skill_column_conflict`, `unresolved_value`, `ineligible_must`, ...) zostają.
   `response_context()["job_values"]` niesie też `role_name` (= `job.title`) i
   `deadline` (ISO) — `fingerprint()` obejmuje `deadline`.
+- **Godzina „Deadline na kandydatów” (02.11.2026, zgłoszenie Delivery Leada):**
+  `basics.deadline_time` (`GG:MM`, Europe/Warsaw) idzie do `jobs.deadline_time`
+  przy pełnej edycji rekrutacji. Godzina należy do daty: nowa data bez godziny
+  zabiera starą, a sama godzina zmienia rekrutację tylko wtedy, gdy profil
+  pokazuje ten sam dzień co `jobs.deadline`. Dlatego w `championSavePayload`
+  data i godzina z seedu jadą razem, gdy zmieniła się choć jedna z nich.

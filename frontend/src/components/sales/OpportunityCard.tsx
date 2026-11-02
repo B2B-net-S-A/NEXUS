@@ -194,7 +194,12 @@ export function OpportunityCard({ opportunityId }: OpportunityCardProps) {
         )}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="min-w-0 space-y-4">
-            <SalesMotionPanel motion={data.atlas_motion} />
+            <SalesMotionPanel
+              opportunityId={data.id}
+              motion={data.atlas_motion}
+              mapEnabled={data.decision_map_enabled}
+              canEdit={canEdit}
+            />
             <WhoWeKnowPanel companyId={data.company.id} companyName={data.company.name} />
             <ActivityTimeline opportunityId={data.id} withCompanyMail />
           </div>

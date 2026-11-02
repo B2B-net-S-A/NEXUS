@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "GET /api/skills": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/skills/autocomplete": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

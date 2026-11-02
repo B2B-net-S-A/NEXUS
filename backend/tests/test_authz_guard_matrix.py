@@ -42,6 +42,7 @@ _PROBES = frozenset(
         "POST /api/contracts",
         "GET /api/admin/section-permissions",
         "GET /api/auth/me",
+        "POST /api/finance/order-changes/checks",
     }
 )
 _SLICE = slice_from_env(os.environ.get("AUTHZ_MATRIX_SLICE"))
@@ -115,6 +116,11 @@ def test_matrix_tells_the_roles_apart(matrix) -> None:
         )
         == "P"
     )
+
+    # Uprawnienie odebrane jednej osobie zamyka trasę mimo roli (02.11.2026).
+    finance_module = "POST /api/finance/order-changes/checks"
+    assert _letter(matrix, finance_module, "finance") == "P"
+    assert _letter(matrix, finance_module, "finance-finance_module") == "D"
 
     permissions_panel = "GET /api/admin/section-permissions"
     assert _letter(matrix, permissions_panel, "admin") == "P"
