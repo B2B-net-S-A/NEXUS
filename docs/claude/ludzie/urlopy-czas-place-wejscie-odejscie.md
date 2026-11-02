@@ -509,6 +509,29 @@ z odnośnikiem `hr_documents.leave_request_id`.
   i nie daje ostrzeżenia `bonus_contract_ended_early`.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
+- **Automat po arkuszu** (zgłoszenia Płac i decyzje Artura 02.11.2026):
+  - Kontrakt sprzed `automation_since` nie dostaje nowych wierszy, także gdy import
+    założył pierwszy: automat uzgadnia to, co jest. Nocny przebieg 02.11 dopisał
+    tak 15 pozycji (13 614,40 zł), w tym premie wstrzymane kwotą 0 i nieaktywne konta.
+  - Wiersz z arkusza nie znika przez koniec kontraktu: oznaczenie „Kontrakt
+    zakończony przed terminem”. Propozycja automatu jest anulowana jak dotąd,
+    z datą końca w migawce (`ended_on`, powód na ekranie i w „Moim czasie”).
+  - Aktywny kontrakt kończy się tylko `end_date` (`placement_bonuses.contract_end`):
+    `terminated_at` przy statusie aktywnym to ślad po przywróceniu, nie koniec.
+  - Ta sama osoba nie dostaje premii DL i dodatkowej premii DL za jeden placement;
+    w imporcie odbiorca reguły dostaje rolę `dl_extra`. Wiersz z kwotą 0 zostaje
+    jako odmowa (`settlement_import`), także bez wcześniejszej propozycji.
+  - Reguła dodatkowej premii ma opcjonalne `client_ids`: pusta lista = każdy klient.
+    Wiersz z arkusza spoza listy dostaje oznaczenie „Poza zakresem reguły”.
+  - Znaczniki `edited_*` z importu chronią arkusz przed automatem i nie są zmianą:
+    ekran mówi wtedy „z arkusza”, a „kwota poprawiona” i „osoba zmieniona” zostają dla
+    zmian po imporcie (`amount_edited_after_import`, `recipient_edited_after_import`).
+    Kwota inna niż z reguły i niż podwójna z reguły daje oznaczenie `amount_rule`
+    i przycisk „Ustaw kwotę z reguły”. Uwaga z arkusza (`settlement_note`) jest
+    w migawce, którą widzą tylko Płace.
+  - DL z rolą rekrutera, który domyka po rekruterze z wyłączonym kontem, dostaje
+    tylko premię DL: osobę zweryfikowała u tego klienta osoba, która odeszła
+    (`PlacementContext.closed_after_departure`). Wyjątek od decyzji z 25.10.2026.
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
@@ -583,6 +606,18 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odpowiedzi `GET /api/hr/time/team/{rok}/{miesiąc}` (kalendarz firmy × 8 h, ta
   sama co w „Moim miesiącu”). Lista zwinięta do 5 wierszy (najpierw brak
   raportu, potem do akceptacji, szkice, zaakceptowane) z „Pokaż wszystkie (N)”.
+  Nad tabelą chipy statusu z liczbami (decyzja Artura 02.11.2026, po prośbie HoR):
+  wybrany status pokazuje wszystkich, bez zwijania. Zastąpiły pasek podsumowania,
+  który po strzałce miesiąca dalej pokazywał miesiąc z adresu.
+- **Cofnięcie nieobecności z podglądu raportu** (decyzja Artura 02.11.2026): osoba
+  od pierwszego dnia sama terminu nie anuluje, a droga przez „Zdecydowane” była
+  niewidoczna z chipu „Raporty godzin”. W podglądzie przy pierwszym dniu terminu
+  w miesiącu stoją „Cofnij …” i „Zmień daty”: te same okna i trasy co w historii
+  (`CancelLeaveDialog`, `EditLeaveDialog`), te same reguły (`canEditRow`, D5).
+  Termin bierzemy z `useLeaveHistory` po osobie, bez nowego API. Zapytanie idzie
+  tylko przy `can_decide` i `me.leave_approver`, więc same „Raporty godzin” i
+  zastępca nieobecnego przełożonego przycisku nie mają. Cofnięcie zostawia dni
+  puste: godzin nie wpisuje samo, bo potwierdza je osoba albo akceptujący.
 
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 

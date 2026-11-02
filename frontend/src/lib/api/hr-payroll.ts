@@ -47,6 +47,8 @@ export interface BonusFlag {
   code: string;
   label: string;
   detail: string;
+  /** `amount_rule`: kwota z reguły do porównania z kwotą z arkusza. */
+  rule_amount?: string;
 }
 
 /** Etapy placementu dla osoby: podpis, kontrakt, zamówienie, start. */
@@ -97,6 +99,10 @@ export interface BonusRow {
   cancel_reason: string | null;
   /** Kwota propozycji automatu poprawiona ręcznie. */
   edited: boolean;
+  /** Wiersz z arkusza Delivery: kwota i osoba przyszły z pliku, nie z reguły. */
+  from_sheet?: boolean;
+  /** Anulowana przez automat: dzień końca kontraktu. */
+  cancel_ended_on?: string | null;
   /** Widok miesiąca: przyznana premia z placementu, a kontrakt skończył się przed terminem. */
   contract_ended_early?: boolean;
   /** Osoba zmieniona ręcznie przez Płace (automat jej nie nadpisuje). */
@@ -250,6 +256,9 @@ export interface PersonPayroll {
 export interface ExtraDlRule {
   dl_user_id: number;
   recipient_user_id: number;
+  /** Pusta lista = każdy klient. */
+  client_ids?: number[];
+  client_names?: string[];
   dl_name?: string | null;
   recipient_name?: string | null;
 }
@@ -276,6 +285,8 @@ export interface BonusRules {
   eligible_business_days: number;
   currency: Currency;
   extra_dl: ExtraDlRule[];
+  /** Klienci z przypisanym Delivery Leadem, do zakresu dodatkowej premii. */
+  client_options?: { id: number; name: string }[];
   dl_hours?: DlHoursRule[];
   individual_recruiters?: IndividualRecruiterRule[];
   automation_since: string | null;

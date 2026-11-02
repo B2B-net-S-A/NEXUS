@@ -95,6 +95,21 @@ def test_role_of_row(note, recipient, dl, rec, is_dl, is_rec, expected) -> None:
     )
 
 
+def test_extra_recipient_gets_extra_role_not_main_dl() -> None:
+    assert (
+        settlement_import.resolve_role(
+            "",
+            recipient_id=9,
+            automat_dl=2,
+            automat_recruiter=3,
+            automat_extra=9,
+            is_dl=True,
+            is_recruiter=False,
+        )
+        == "dl_extra"
+    )
+
+
 @pytest.mark.parametrize(
     ("start", "eligible", "expected"),
     [

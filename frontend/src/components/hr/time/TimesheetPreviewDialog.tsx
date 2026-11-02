@@ -5,7 +5,12 @@ import { useState } from "react";
 import { AppModal } from "@/components/ds/AppModal";
 import { InlineStats } from "@/components/ds/InlineStats";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
+import { CancelLeaveDialog } from "@/components/hr/leave/CancelLeaveDialog";
+import { EditLeaveDialog } from "@/components/hr/leave/EditLeaveDialog";
+import { canEditRow, formatRange, leaveToast } from "@/components/hr/leave/leave-format";
+import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
+import { useLeaveHistory, type LeaveRequestRow } from "@/lib/api/hr-leave";
 import {
   useDeleteTeamEntry,
   useSaveTeamEntry,
@@ -20,7 +25,7 @@ import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { EntryDialog } from "./EntryDialog";
 import { MonthGrid } from "./MonthGrid";
-import { formatHours } from "./time-format";
+import { afterLeaveCancelNote, formatHours, isFirstLeaveDay, leaveTermForDay } from "./time-format";
 
 export interface TimesheetPreviewDialogProps {
   userId: number;
@@ -34,6 +39,10 @@ export interface TimesheetPreviewDialogProps {
   allowOvertime: boolean;
   /** Przyciski decyzji w stopce (akceptuj / zwróć) — podaje sekcja. */
   actions?: React.ReactNode;
+  /** Kadry albo admin: mogą cofnąć także zgłoszenie z B2B i zlecenia (D5). */
+  viewerIsHr?: boolean;
+  /** Patrzący ma kolejkę nieobecności (`me.leave_approver`). */
+  leaveAccess?: boolean;
 }
 
 interface EditorState {
@@ -51,11 +60,18 @@ export function TimesheetPreviewDialog({
   canEdit,
   allowOvertime,
   actions,
+  viewerIsHr = false,
+  leaveAccess = false,
 }: TimesheetPreviewDialogProps) {
   const month = useTeamMemberMonth(open ? userId : null, period.year, period.month);
   const save = useSaveTeamEntry(userId, period.year, period.month);
   const remove = useDeleteTeamEntry();
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const { showToast } = useToast();
+  const canFixLeave = open && canEdit && leaveAccess;
+  const history = useLeaveHistory({ status: null, user_id: userId }, canFixLeave);
+  const [cancelling, setCancelling] = useState<LeaveRequestRow | null>(null);
+  const [changing, setChanging] = useState<LeaveRequestRow | null>(null);
   const view = month.data;
   const status = view?.timesheet?.status ?? "draft";
   const editable =
@@ -66,6 +82,23 @@ export function TimesheetPreviewDialog({
     error: month.error,
     isSuccess: month.isSuccess,
   });
+
+  // Termin wpisany przez pomyłkę: cofnięcie i zmiana dat bez wychodzenia z raportu.
+  const leaveAction = (day: MonthDay) => {
+    const term = leaveTermForDay(history.data?.items ?? [], day.date);
+    if (!view || !term || !canEditRow(term, viewerIsHr)) return null;
+    if (!isFirstLeaveDay(view.days, term, day.date)) return null;
+    return (
+      <span className="flex flex-wrap items-center gap-1">
+        <Button variant="quiet" size="sm" onClick={() => setCancelling(term)}>
+          Cofnij {formatRange(term.start_date, term.end_date)}
+        </Button>
+        <Button variant="quiet" size="sm" onClick={() => setChanging(term)}>
+          Zmień daty
+        </Button>
+      </span>
+    );
+  };
 
   return (
     <AppModal
@@ -115,6 +148,7 @@ export function TimesheetPreviewDialog({
             today={warsawToday()}
             editable={editable}
             onEntryClick={(day, entry) => setEditor({ day, entry })}
+            leaveAction={canFixLeave ? leaveAction : undefined}
           />
         </div>
       )}
@@ -131,6 +165,22 @@ export function TimesheetPreviewDialog({
           onDelete={(id) => remove.mutateAsync(id)}
         />
       ) : null}
+      <CancelLeaveDialog
+        request={cancelling}
+        today={warsawToday()}
+        note={afterLeaveCancelNote(status, view?.timesheet?.payroll_locked === true)}
+        onClose={(saved) => {
+          setCancelling(null);
+          if (saved) showToast(...leaveToast("Nieobecność cofnięta", saved));
+        }}
+      />
+      <EditLeaveDialog
+        request={changing}
+        onClose={(saved) => {
+          setChanging(null);
+          if (saved) showToast(...leaveToast("Termin zmieniony", saved));
+        }}
+      />
     </AppModal>
   );
 }

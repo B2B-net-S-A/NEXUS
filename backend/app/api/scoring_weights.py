@@ -29,7 +29,7 @@ from app.api.deps import HeadOfRecruitmentPlus, require_roles
 from app.core.database import get_db
 from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
-from app.services import ranking_lab
+from app.services import known_queue_points, ranking_lab
 from app.services import ranking_publish as lab
 from app.services import ranking_weights as panel
 from app.services.match_score_cache import mark_stale_for_profile
@@ -245,6 +245,28 @@ async def put_panel_draft(
     if error:
         raise HTTPException(status_code=422, detail=error)
     await panel.save_draft(db, draft, actor_id=current_user.id)
+    await db.commit()
+    return await _state(db, current_user)
+
+
+class KnownPointsIn(BaseModel):
+    client: int
+    note_recent: int
+    note_older: int
+
+
+@router.put("/panel/known-points")
+async def put_panel_known_points(
+    payload: KnownPointsIn,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+):
+    """Punkty kolejki w „Nowych”: działają od razu, procent bez zmian."""
+    points = known_queue_points.KnownPoints(**payload.model_dump())
+    error = known_queue_points.validation_error(points)
+    if error:
+        raise HTTPException(status_code=422, detail=error)
+    await known_queue_points.save_points(db, points, actor_id=current_user.id)
     await db.commit()
     return await _state(db, current_user)
 

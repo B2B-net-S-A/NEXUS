@@ -505,3 +505,19 @@ async def test_context_shows_the_recruiters_handoff_remark_on_top(
             await db.execute(delete(Note).where(Note.candidate_id == cid))
             await db.commit()
         await _cleanup(world, [rec_id, admin_id])
+
+
+def test_question_is_not_evidence_from_the_conversation() -> None:
+    # 02.11.2026: w 73 z 319 par tabela mówiła „jest”, bo słowo padło w pytaniu.
+    sheet = {
+        "answers": [
+            {"question_text": "Czy znasz Kubernetes?", "response": "Pracowałem z Dockerem."}
+        ]
+    }
+    texts = svc.conversation_texts(sheet, {})
+    assert texts == ["Pracowałem z Dockerem."]
+
+
+def test_short_yes_keeps_the_question_in_the_conversation() -> None:
+    sheet = {"answers": [{"question_text": "Czy znasz Kubernetes?", "response": "tak"}]}
+    assert svc.conversation_texts(sheet, {}) == ["Czy znasz Kubernetes?\ntak"]

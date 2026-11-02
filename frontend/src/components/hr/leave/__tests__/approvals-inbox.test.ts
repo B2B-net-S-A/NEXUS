@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import type { PendingLeaveRow } from "@/lib/api/hr-leave";
-import type { TeamQueueItem } from "@/lib/api/hr-time";
 
 import {
   agoLabel,
@@ -9,8 +8,6 @@ import {
   inboxItems,
   termDays,
   termRows,
-  timesheetSummary,
-  timesheetSummaryText,
 } from "../approvals-inbox";
 
 function row(extra: Partial<PendingLeaveRow> = {}): PendingLeaveRow {
@@ -108,36 +105,5 @@ describe("mini-kalendarz „Zespół w tym terminie”", () => {
     expect(termRows(row({ status: "approved", department_absent: [] }), days)[0].cells[2]).toBe(
       "absent",
     );
-  });
-});
-
-describe("podsumowanie timesheetów", () => {
-  const item = (status: TeamQueueItem["status"]): TeamQueueItem => ({
-    user_id: 1,
-    name: "Osoba",
-    job_title: null,
-    timesheet: null,
-    status,
-    hours: 0,
-    overtime_hours: 0,
-    absence_days: 0,
-    can_decide: true,
-  });
-
-  it("liczby w stałej kolejności, bez pustych statusów", () => {
-    const slices = timesheetSummary([
-      item("submitted"),
-      item("draft"),
-      item("draft"),
-      item("missing"),
-      item("draft"),
-    ]);
-    expect(slices.map((slice) => [slice.status, slice.count])).toEqual([
-      ["draft", 3],
-      ["missing", 1],
-      ["submitted", 1],
-    ]);
-    expect(timesheetSummaryText(slices)).toBe("3 szkic · 1 nie założony · 1 do akceptacji");
-    expect(timesheetSummary([])).toEqual([]);
   });
 });
