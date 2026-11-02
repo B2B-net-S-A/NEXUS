@@ -636,5 +636,18 @@
     "where": "Rekrutacja → QC CV → Potwierdzone z kandydatem",
     "href": "/jobs",
     "dot_anchor": "cv-qc.confirm"
+  },
+  {
+    "id": "dopasuj-pod-rekrutacje",
+    "title": "Dopasuj CV pod rekrutację w edytorze",
+    "why": "Zamiast przerabiać CV w czacie kliknij „Dopasuj pod rekrutację”. Dostaniesz propozycje zmian z cytatem z oryginału albo rozmowy, wybierzesz potrzebne i jednym kliknięciem cofniesz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2892,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw",
+    "href": "/jobs",
+    "dot_anchor": "cv-editor.tailor"
   }
 ]

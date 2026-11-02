@@ -98,6 +98,7 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
             size="sm"
             variant="outline"
             className="w-full"
+            data-tour="cv-editor.tailor"
             disabled={disabled}
             onClick={() => {
               onExpand();
