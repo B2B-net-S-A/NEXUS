@@ -1290,6 +1290,16 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
 
+# Dzienne wejścia na linki aplikacyjne (0640): JEDNO źródło z migracją
+# (`app/services/invite_link_visits_schema.py`).
+try:
+    from app.services import invite_link_visits_schema as _invite_link_visits_schema
+
+    _INVITE_LINK_VISITS_DDL = list(_invite_link_visits_schema.TABLE_DDL)
+except Exception as _invite_link_visits_schema_err:  # noqa: BLE001
+    print(f"invite link visits schema unavailable: {_invite_link_visits_schema_err!r}")
+    _INVITE_LINK_VISITS_DDL = []
+
 # Dziennik zdarzeń z maili CPro (0635) — JEDNO źródło z migracją
 # (`app/services/cpro_mail_schema.py`).
 try:
@@ -6972,6 +6982,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
+    # 0640: dzienne wejścia na linki (po `candidate_invite_links`).
+    *_INVITE_LINK_VISITS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
