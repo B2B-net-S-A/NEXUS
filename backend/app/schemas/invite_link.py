@@ -98,7 +98,7 @@ class CareerLinkResultCounts(BaseModel):
     """Lejek linku w oknie (etap 4 linków, 19.10.2026). ``visits`` = od początku."""
 
     visits: int = 0
-    # W wybranym okresie, z dziennych wejść (0636); ``None`` = od początku.
+    # W wybranym okresie, z dziennych wejść (0637); ``None`` = od początku.
     visits_in_period: Optional[int] = None
     applications: int = 0
     new_candidates: int = 0
