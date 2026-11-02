@@ -46,7 +46,7 @@ READER_TWIN = "recruiter+delivery_view"
 # Metoda zapisu, ale bez zmiany danych: wyszukiwanie, podgląd i render
 # szablonu, wolne terminy w kalendarzu, ocena technologii, ściąga do rozmowy
 # i podpowiedzi wymagań liczone na żądanie (``request_semantics`` uznaje dwie
-# ostatnie za odczyt). Do 0635 część tej listy zwalniał wzorzec Viewera, który
+# ostatnie za odczyt). Do 0637 część tej listy zwalniał wzorzec Viewera, który
 # miał wtedy sekcje do odczytu: własny przebieg wyszukiwania, liczenie metryki
 # pulpitu i teksty rekrutacji w pamięci podręcznej.
 READ_LIKE_WRITES = frozenset(

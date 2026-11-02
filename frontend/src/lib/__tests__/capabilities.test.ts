@@ -273,7 +273,7 @@ const EXPECTED: Record<
   },
   // Radar dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08 —
   // poszła po zrzucie 403 od Head of Recruitment). Backend lustrzanie na
-  // CurrentUser, middleware bez wpisu. Viewer odpada na sekcji Sourcing (0635).
+  // CurrentUser, middleware bez wpisu. Viewer odpada na sekcji Sourcing (0637).
   "nav.talent_radar": {
     admin: true,
     head_of_recruitment: true,
@@ -620,7 +620,7 @@ describe("hasCapability — przypadki brzegowe", () => {
   });
 
   it("rola `user` (wycofywany viewer) nie ma żadnej capability", () => {
-    // Od 0635 nie ma żadnej sekcji, więc odpadł też radar. Pętla domyka
+    // Od 0637 nie ma żadnej sekcji, więc odpadł też radar. Pętla domyka
     // cały katalog — nowa capability przyznana viewerowi przypadkiem robi
     // czerwono.
     for (const capability of ALL_CAPABILITIES) {
@@ -1519,7 +1519,7 @@ describe("kontrakt backend ↔ rejestr capability", () => {
  */
 // Praktykant, „Pracownik” (0456) i „Rada nadzorcza” (0490) mają własną, wąską
 // powłokę — ich pozycje menu nie wynikają z capability ani sekcji produktu.
-// Wycofywany viewer `user` (0635) bez sekcji widzi tylko Pomoc i Ustawienia,
+// Wycofywany viewer `user` (0637) bez sekcji widzi tylko Pomoc i Ustawienia,
 // więc też robiłby „bramkowaną” z każdej pozycji.
 const SIDEBAR_ROLES = ALL_ROLES.filter(
   (role) =>
