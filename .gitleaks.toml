@@ -138,6 +138,10 @@ regexes = [
   # go już z kawałków, ale wartość zostaje w historii gałęzi, a skan PR-a
   # obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
   '''^00000000-0000-4000-8000-000000000000$''',
+  # Fikcyjny identyfikator rekrutacji w teście nagłówka licznika użycia (PR #2896).
+  # Test składa go już z kawałków, ale wartość zostaje w historii gałęzi, a skan
+  # PR-a obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
+  '''^9f3c1a2b-0000-4000-8000-000000000000$''',
 ]
 
 [[rules]]
