@@ -244,6 +244,13 @@ czytający CV znajdował to w 31% przypadków.
   Wymaganie spoza słownika szuka samego siebie („Agile”, „Change management”).
 - **Bramka tego nie czyta:** w `dealbreaker_inputs_for_job` etykiety z `must` mają
   wyłącznie swoje słowa. Podpowiedź z historii dalej nie dostaje słów wiersza.
+- **Zamrożone żądanie niesie te słowa poza odciskiem**
+  (`request_matching_context`, `job_data["must_evidence_options"]`, dopisane po
+  policzeniu odcisku). Profil w żądaniu nie ma `stack.rows`, więc bez tego ocena na
+  karcie i pełny przegląd liczyły samą etykietę, inaczej niż ekran Championa. Inny
+  wariant słowa nie jest zmianą wymagań: odcisk zostaje, gotowy przegląd nie dostaje
+  409 i pokazuje stare wyniki do następnego przeliczenia. Słowa krytycznych z wyboru DL
+  dalej są w odcisku (`critical_effective["options"]`), bo zmieniają, kogo bramka ukrywa.
 - **Chipy zamiast zdań** (`scoring_service.job_skill_requirements`): kolumna
   `must_skills` z wymaganiem od `PROSE_REQUIREMENT_WORDS` słów i Champion z `stack.must`
   = liczą się chipy. Nie dotyczy `requirements_reviewed` ani zapisanego kontraktu.

@@ -348,7 +348,8 @@ def without_search_rows(search: Any) -> Any:
 
 # Pola sekcji `stack`, które nie są wymaganiami roli: wybór krytycznych
 # (30.09.2026) i wiersze wymagań (02.10.2026 — ich treść niosą `must` i `nice`,
-# a warianty słów czyta wyłącznie „Szukaj ręcznie”).
+# a warianty słów czytają „Szukaj ręcznie” i ocena; do oceny żądanie niesie je
+# poza odciskiem, `request_matching_context`).
 STACK_NON_REQUIREMENT_KEYS = ("critical", "rows")
 
 
