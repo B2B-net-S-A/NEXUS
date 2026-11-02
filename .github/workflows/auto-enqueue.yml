@@ -90,8 +90,10 @@ jobs:
           lane="$RUNNER_TEMP/queue_migration_lane.py"
           if gh api "repos/$REPO/contents/.github/scripts/queue_migration_lane.py?ref=main" \
                 -H "Accept: application/vnd.github.raw" > "$lane" 2>/dev/null; then
-            python3 "$lane" admit --repo "$REPO" --pr "$PR"
-            rc=$?
+            # Krok biegnie pod `bash -e`: bez `|| rc=$?` kod 10 kończył job na
+            # czerwono (02.11.2026), a błąd pasa nie wpuszczał PR-a.
+            rc=0
+            python3 "$lane" admit --repo "$REPO" --pr "$PR" || rc=$?
             if [ "$rc" -eq 10 ]; then
               echo "PR #$PR czeka w pasie migracji — auto-merge zostaje wyłączony."
               exit 0

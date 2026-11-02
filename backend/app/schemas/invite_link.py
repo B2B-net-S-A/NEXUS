@@ -124,6 +124,33 @@ class CareerLinkResults(BaseModel):
     links: list[CareerLinkResultRow] = Field(default_factory=list)
 
 
+class CareerLinkPerson(BaseModel):
+    """Jedno zgłoszenie z linku osoby (makieta A, 02.11.2026)."""
+
+    candidate_id: int
+    full_name: str
+    applied_at: datetime
+    was_duplicate: bool = False
+    kind: Literal["job", "recruiter"]
+    slug: Optional[str] = None
+    job_id: Optional[int] = None
+    job_title: Optional[str] = None
+    current_stage: Optional[str] = None
+    current_job_id: Optional[int] = None
+    current_job_title: Optional[str] = None
+    screening_status: Optional[str] = None
+    screening_outcome: Optional[str] = None
+    in_my_people: bool = False
+
+
+class CareerLinkPeople(BaseModel):
+    # ``None`` = od początku.
+    days: Optional[int] = None
+    total: int = 0
+    truncated: bool = False
+    people: list[CareerLinkPerson] = Field(default_factory=list)
+
+
 class CareerLinkUpdate(BaseModel):
     slug: str = Field(..., min_length=1, max_length=64)
     # 0489: pole pominięte = bez zmiany, pusty napis = usuń. Limit 280 znaków

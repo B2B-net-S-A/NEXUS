@@ -65,7 +65,11 @@ DEFAULT_MODEL = model_for(AIFeatureKey.scoring)
 MAX_CV_CHARS = int(os.environ.get("MATCH_SCORING_MAX_CV_CHARS", "6000"))
 MAX_REQ_CHARS = 3000
 MAX_CHAMPION_CHARS = 2000
-MAX_TOKENS = 1500
+# Mieści najdłuższą prozę, którą przepuszczają limity niżej (ok. 6400 znaków JSON-a
+# przy najgęstszych z produkcji 1,82 znaku na token). Przy 1500 co dziewiąta pierwsza
+# odpowiedź szła do kosza i wracała dopiero z drugiej próby; płacimy za tokeny
+# wygenerowane, nie za limit, więc wyższy pułap nie podnosi kosztu zwykłych odpowiedzi.
+MAX_TOKENS = 3600
 
 # Output caps so a runaway model can't bloat the row / the tab.
 _MAX_SUMMARY_CHARS = 1200

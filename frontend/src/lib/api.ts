@@ -4,7 +4,12 @@ import { reviewBeforeFinalize, type CvReviewState } from "./cv-approval-request"
 import axios, { AxiosError } from "axios";
 import { messageFromApiResponse } from "./api-error";
 import type { ConsentUploadResult } from "./consent-check";
-import { apiSupportsCorrelation, probeTelemetryCapability } from "./telemetry-capability";
+import {
+  apiSupportsCorrelation,
+  apiWantsUsageScreen,
+  probeTelemetryCapability,
+} from "./telemetry-capability";
+import { usageScreen } from "./usage-screen";
 
 import { FILE_UPLOAD_TIMEOUT_MS, isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "./http-timeouts";
 import { clearSessionArtifacts, getAccessToken } from "./session";
@@ -166,6 +171,12 @@ api.interceptors.request.use((config) => {
     const isAuthEndpoint = (config.url ?? "").startsWith("/api/auth/");
     if (impersonateId && !isAuthEndpoint) {
       config.headers["X-Impersonate-User-Id"] = impersonateId;
+    }
+    // Licznik użycia obszarów liczy ekran, na którym osoba jest, bo pulpit sam
+    // odpytuje wiele obszarów. Karta w tle się nie liczy: to odpytywanie, nie praca.
+    if (apiWantsUsageScreen() && document.visibilityState === "visible") {
+      const screen = usageScreen(window.location.pathname);
+      if (screen) config.headers["X-Nexus-Screen"] = screen;
     }
   }
   return config;

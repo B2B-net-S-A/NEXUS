@@ -212,14 +212,18 @@ export function QcOverrideDialog({
         </RadioGroup>
         <div className="space-y-1">
           <label htmlFor={noteId} className="text-xs font-medium text-muted-foreground">
-            {reason === "other" ? "Szczegóły (wymagane)" : "Szczegóły (nie musisz nic wpisywać)"}
+            {reason === "other"
+              ? "Szczegóły (wymagane)"
+              : reason === "confirmed_in_call"
+                ? "Co dokładnie powiedział kandydat? (wymagane)"
+                : "Szczegóły (nie musisz nic wpisywać)"}
           </label>
           <Textarea
             id={noteId}
             rows={2}
             value={note}
             maxLength={QC_OVERRIDE_NOTE_MAX}
-            invalid={touched && reason === "other" && !note.trim()}
+            invalid={touched && (reason === "other" || reason === "confirmed_in_call") && !!error}
             onChange={(event) => setNote(event.target.value)}
           />
         </div>
@@ -227,7 +231,7 @@ export function QcOverrideDialog({
           // D3 (17.10.2026): notatki pary czytają QC, generator CV i AI — rekruter ma wiedzieć, że powstaną.
           <p className="text-xs text-muted-foreground">
             Przy rzeczach, których nie ma w oryginale ani w notatkach, zapiszemy w notatkach kandydata „Potwierdzone z
-            kandydatem” (z opisem powyżej). Czytają je QC i generator CV — kolejne CV tej osoby nie będzie już tego
+            kandydatem” z tym zdaniem, a zobaczy je też Delivery Lead. Czytają je QC i generator CV — kolejne CV tej osoby nie będzie już tego
             zgłaszać.
           </p>
         ) : null}

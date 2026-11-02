@@ -54,6 +54,7 @@ import {
   taskTitle,
   type IssueTarget,
   type QcTask,
+  QC_CONFIRM_TEXT_MIN,
 } from "@/lib/cv-qc";
 import { cn } from "@/lib/utils";
 
@@ -354,35 +355,57 @@ const CONFIRM_TEXT_MAX = 1000;
 
 function ConfirmInline({ term, qc, onClose }: { term: string; qc: ActionContext; onClose: () => void }) {
   const [text, setText] = useState("");
+  const [role, setRole] = useState("");
   const fieldId = useId();
+  const roleId = useId();
+  const said = text.trim();
+  const roles = qc.confirmRoles ?? [];
   return (
     <form
       className="space-y-1 rounded-md border border-border bg-card px-2 py-1.5 text-xs"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        const said = text.trim();
-        qc.confirm(said ? { term, text: said } : { term }, onClose);
+        qc.confirm(role ? { term, text: said, role } : { term, text: said }, onClose);
       }}
     >
       <label htmlFor={fieldId} className="block font-medium">
-        Co powiedział kandydat? (opcjonalnie)
+        Co dokładnie powiedział kandydat? (wymagane)
       </label>
-      <div className="flex items-start gap-1">
-        <textarea
-          id={fieldId}
-          rows={1}
-          maxLength={CONFIRM_TEXT_MAX}
-          className="min-h-8 w-0 flex-1 resize-y rounded-md border border-input bg-background px-2 py-1 text-sm"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <Button type="submit" size="sm" className={SMALL} disabled={qc.confirming}>
-          {qc.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-          Zapisz w notatkach
-        </Button>
-      </div>
+      <textarea
+        id={fieldId}
+        rows={2}
+        maxLength={CONFIRM_TEXT_MAX}
+        className="min-h-8 w-full resize-y rounded-md border border-input bg-background px-2 py-1 text-sm"
+        placeholder="Jego słowami: co robił, gdzie i jak długo."
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {roles.length > 0 ? (
+        <div>
+          <label htmlFor={roleId} className="block font-medium">
+            W której roli?
+          </label>
+          <select
+            id={roleId}
+            className="mt-0.5 h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+          >
+            <option value="">Nie w konkretnej roli (tylko umiejętności)</option>
+            {roles.map((company) => (
+              <option key={company} value={company}>
+                {company}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <Button type="submit" size="sm" className={SMALL} disabled={qc.confirming || said.length < QC_CONFIRM_TEXT_MIN}>
+        {qc.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+        Zapisz w notatkach
+      </Button>
       <p className="text-muted-foreground">
-        Zapisze się notatka „Potwierdzone z kandydatem: {term}” — QC przyjmie ją jako źródło.{" "}
+        Zapisze się notatka „Potwierdzone z kandydatem: {term}” z tym zdaniem. QC przyjmie ją jako źródło, a zobaczy ją Delivery Lead.{" "}
         <button type="button" className="font-medium text-foreground hover:underline" onClick={onClose}>
           Anuluj
         </button>

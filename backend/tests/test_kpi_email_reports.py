@@ -227,13 +227,14 @@ def _with_policy(role: UserRole, *permissions: str, insights: str = "read") -> U
     return user
 
 
-def test_board_report_goes_only_to_the_board_and_admins() -> None:
-    """Zbiorczy przychód i marża firmy: tylko Rada i admin (decyzja Artura 02.11.2026).
+def test_board_report_goes_only_to_the_board_and_named_people() -> None:
+    """Zbiorczy przychód i marża firmy: Rada i imienne nadanie (Artur 02.11.2026).
 
-    Finanse pracują na pojedynczych kontraktach, więc ani rola Finanse, ani
-    uprawnienie „Moduł Finanse” nadane osobie nie otwierają tego maila.
+    Sama rola admin ani uprawnienie „Moduł Finanse” tego maila nie otwierają.
     """
     board = _with_policy(UserRole.board)
+    named = _with_policy(UserRole.admin, "finance_module", insights="write")
+    named.receives_board_report = True
     admin = _with_policy(UserRole.admin, "finance_module", insights="write")
     finance = _with_policy(UserRole.finance, "finance_module")
     hor = _with_policy(UserRole.head_of_recruitment, insights="write")
@@ -241,10 +242,9 @@ def test_board_report_goes_only_to_the_board_and_admins() -> None:
         UserRole.head_of_recruitment, "finance_module", insights="write"
     )
 
-    assert reports._board_readers([board, admin, finance, hor, hor_with_grant]) == [
-        board,
-        admin,
-    ]
+    assert reports._board_readers(
+        [board, named, admin, finance, hor, hor_with_grant]
+    ) == [board, named]
 
 
 # ── Runda 7 (R7-N5-2): otwarty bezpiecznik nie gubi raportu ─────────────────

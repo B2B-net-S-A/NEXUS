@@ -7,8 +7,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.services.client_invoicing import clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
     BillingLine,
@@ -407,3 +411,149 @@ def test_credit_without_number_is_only_a_hint_and_unrelated_is_skipped():
         _credit("1230.00", "FS 11/7/2026", currency="EUR"), invoices
     )
     assert foreign.reason == "currency_differs"
+
+
+def _sales_xml(buyer: str) -> bytes:
+    path = (
+        Path(__file__).parent
+        / "data/ksef/sales/9876543210-20261103-A1180C0FFEE1-5C.xml"
+    )
+    return (
+        path.read_text(encoding="utf-8")
+        .replace("<NIP>1111111111</NIP>", buyer)
+        .encode("utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("buyer", "expected"),
+    [
+        ("<KodUE>FI</KodUE><NrVatUE>12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>fi</KodUE><NrVatUE>FI12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>DE</KodUE><NrVatUE>123 456 789</NrVatUE>", "DE123456789"),
+        ("<NIP>1111111111</NIP>", None),
+        ("<BrakID>1</BrakID>", None),
+    ],
+)
+def test_buyer_foreign_id_from_invoice(buyer, expected):
+    assert fa_sales.parse_sales_invoice(_sales_xml(buyer)).buyer_foreign_id == expected
+
+
+def test_registry_resolves_foreign_id_and_rejects_unknown():
+    registry = clients.NipRegistry(by_nip={"FI12345678": 7})
+    assert registry.resolve("FI12345678") == (7, None)
+    assert registry.resolve("FI00000000") == (None, "unknown_buyer")
+
+
+def _hourly_row(*people):
+    return BillingRow(
+        client_id=1,
+        kind="periodic",
+        group_id=5,
+        order_id=None,
+        order_number="PO-1",
+        currency="PLN",
+        lines=tuple(
+            BillingLine(
+                order_id=order_id,
+                consultant=name,
+                basis="hours",
+                quantity=Decimal("168"),
+                unit_price=Decimal(price),
+                net=Decimal("168") * Decimal(price),
+                currency="PLN",
+            )
+            for order_id, name, price in people
+        ),
+    )
+
+
+def _decide_person(
+    *people, item_name="ABCD:2026-111111, Jan Przykładowy, usługa", price="150.00"
+):
+    return decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=[item_name],
+        rows=[_hourly_row(*people)],
+        refs=[],
+        items=[{"name": item_name, "unit_price": price}],
+    )
+
+
+def test_person_and_unit_price_bind_when_hours_differ():
+    decision = _decide_person(
+        (10, "Jan Przykładowy", "150"), (11, "Ewa Testowa", "150")
+    )
+    assert decision.method == "person"
+    assert decision.targets == (Target(order_id=10),)
+
+
+def test_person_name_order_and_case_do_not_matter():
+    decision = _decide_person(
+        (10, "Jan Przykładowy", "150"), item_name="USŁUGA, PRZYKŁADOWY JAN"
+    )
+    assert decision.targets == (Target(order_id=10),)
+
+
+@pytest.mark.parametrize(
+    ("people", "item_name", "price"),
+    [
+        # Inna cena: to może być inna umowa albo błąd, decydują Finanse.
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowy", "151.00"),
+        # Sam fragment nazwiska nie wskazuje osoby.
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowski", "150.00"),
+        (((10, "Jan Przykładowy", "150"),), "Przykładowy", "150.00"),
+        # Dwie osoby o tym samym nazwisku albo dwa zamówienia jednej osoby.
+        (
+            ((10, "Jan Przykładowy", "150"), (11, "Jan Przykładowy", "150")),
+            "Jan Przykładowy",
+            "150.00",
+        ),
+        # Faktura na dwie osoby naraz.
+        (
+            ((10, "Jan Przykładowy", "150"), (11, "Ewa Testowa", "150")),
+            "Jan Przykładowy, Ewa Testowa",
+            "150.00",
+        ),
+        # Pozycja bez ceny netto (P_9A).
+        (((10, "Jan Przykładowy", "150"),), "Jan Przykładowy", None),
+        # Pula bez osoby i jednowyrazowa nazwa nie wiążą.
+        (((None, "Jan Przykładowy", "150"),), "Jan Przykładowy", "150.00"),
+        (((10, "Jan", "150"),), "Jan Kowalski", "150.00"),
+    ],
+)
+def test_person_rule_refuses_when_not_certain(people, item_name, price):
+    decision = _decide_person(*people, item_name=item_name, price=price)
+    assert decision.matched is False
+    assert decision.reason == "amount_differs"
+
+
+def test_before_correction_item_does_not_point_at_a_person():
+    decision = decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=["Jan Przykładowy"],
+        rows=[_hourly_row((10, "Jan Przykładowy", "150"))],
+        refs=[],
+        items=[
+            {
+                "name": "Jan Przykładowy",
+                "unit_price": "150.00",
+                "before_correction": True,
+            }
+        ],
+    )
+    assert decision.matched is False
+
+
+def test_person_rule_does_not_override_order_number():
+    decision = decide(
+        net=Decimal("24150.00"),
+        currency="PLN",
+        texts=["PO-1, Jan Przykładowy"],
+        rows=[_hourly_row((10, "Jan Przykładowy", "150"))],
+        refs=[OrderRef(client_id=1, group_id=5, order_id=None, number="PO-1")],
+        items=[{"name": "PO-1, Jan Przykładowy", "unit_price": "150.00"}],
+    )
+    assert decision.method == "order_number"

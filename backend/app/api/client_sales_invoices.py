@@ -48,6 +48,7 @@ from app.core.scheduling import business_today
 from app.models.client import Client
 from app.models.client_sales_invoice import ClientSalesInvoice
 from app.models.user import User
+from app.services import critical_events
 from app.services.access_scope import (
     DL_CLIENT_OUT_OF_SCOPE_DETAIL,
     is_delivery_lead_governed,
@@ -78,6 +79,11 @@ finance_router = APIRouter(dependencies=FINANCE_SECTION_DEPENDENCIES)
 
 ExportFormat = Literal["csv", "xlsx"]
 EARLIEST_PAYMENT = date(2020, 1, 1)
+BUYER_NUMBER_REFUSED = {
+    "same": "Klient ma już ten numer.",
+    "differs": "Klient ma już inny numer. Popraw go w profilu klienta, jeśli jest błędny.",
+    "taken": "Ten numer ma już inny klient.",
+}
 
 
 # ── Wspólne ──────────────────────────────────────────────────────────────────
@@ -271,6 +277,12 @@ class SalesInvoiceAssignIn(BaseModel):
     targets: list[TargetIn] = Field(..., min_length=1, max_length=20)
     year: int = Field(..., ge=2020, le=2100)
     month: int = Field(..., ge=1, le=12)
+    # Numer nabywcy z faktury do klienta, gdy klient nie ma żadnego.
+    save_buyer_number: bool = False
+
+
+class BuyerNumberIn(BaseModel):
+    client_id: int = Field(..., gt=0)
 
 
 class ReasonIn(BaseModel):
@@ -317,11 +329,21 @@ async def finance_invoices(
     payload = await views.month_view(
         db, year=period[0], month=period[1], client_ids=None, today=business_today()
     )
+    summary = payload["summary"]
+    # Suma netto miesiąca to praktycznie przychód firmy (decyzja Artura
+    # 02.11.2026); klient i faktura zostają.
+    if not has_permission(current_user, ProductAction.company_results):
+        summary = {
+            **summary,
+            "expected": [],
+            "invoiced_net": [],
+            "totals_hidden": True,
+        }
     return {
         "period": payload["period"],
         "module_enabled": enabled,
         "invoices": payload["invoices"],
-        "summary": payload["summary"],
+        "summary": summary,
     }
 
 
@@ -503,7 +525,34 @@ async def finance_invoice_options(
         "options": await views.assignment_options(
             db, client_id=target_client, year=period[0], month=period[1]
         ),
+        "buyer_number": await views.buyer_number_view(db, invoice, target_client),
     }
+
+
+async def _save_buyer_number(
+    db: AsyncSession,
+    invoice: ClientSalesInvoice,
+    user: User,
+    *,
+    client_id: Optional[int] = None,
+) -> dict[str, Any]:
+    saved = await matching.save_buyer_number(db, invoice, client_id=client_id)
+    if saved["saved"]:
+        await critical_events.record_executed(
+            db,
+            actor=user,
+            event_type="client.registry_number_added",
+            entity_type="client",
+            entity_id=saved["client_id"],
+            client_id=saved["client_id"],
+            reason=f"Numer {saved['number']} z faktury {invoice.invoice_number}.",
+            details={
+                "invoice_id": invoice.id,
+                "retried": saved["retried"],
+                "matched": saved["matched"],
+            },
+        )
+    return saved
 
 
 @finance_router.post("/{invoice_id}/assign")
@@ -526,7 +575,33 @@ async def finance_invoice_assign(
             period=(body.year, body.month),
             actor_id=current_user.id,
         )
-    return await _detail(db, invoice_id)
+    if not body.save_buyer_number:
+        return await _detail(db, invoice_id)
+    saved = await _save_buyer_number(db, invoice, current_user)
+    return {**await _detail(db, invoice_id), "buyer_number": saved}
+
+
+@finance_router.post("/{invoice_id}/buyer-number")
+async def finance_invoice_buyer_number(
+    invoice_id: int,
+    body: BuyerNumberIn,
+    current_user: FinanceModuleUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Numer nabywcy do klienta bez przypisania: klient nie ma zamówień w tym miesiącu."""
+
+    await _module_open(db, current_user)
+    invoice = await _invoice_or_404(db, invoice_id)
+    await _client_or_404(db, invoice.client_id or body.client_id)
+    saved = await _save_buyer_number(
+        db, invoice, current_user, client_id=body.client_id
+    )
+    if not saved["saved"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            BUYER_NUMBER_REFUSED.get(saved["state"], "Tego numeru nie można dopisać."),
+        )
+    return {**await _detail(db, invoice_id), "buyer_number": saved}
 
 
 @finance_router.post("/{invoice_id}/ignore")

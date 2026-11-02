@@ -971,7 +971,8 @@ describe("CvQcDialog — QC CV", () => {
 
   describe("„Potwierdzone z kandydatem” — treść spoza oryginału", () => {
     const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
-    const FIELD = "Co powiedział kandydat? (opcjonalnie)";
+    const FIELD = "Co dokładnie powiedział kandydat? (wymagane)";
+    const SAID = "Używał Dockera w projekcie migracji";
 
     it("zapisuje to, co powiedział kandydat, i podmienia wynik QC", async () => {
       post.mockResolvedValue({ data: passed() });
@@ -1004,8 +1005,13 @@ describe("CvQcDialog — QC CV", () => {
       expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
     });
 
-    it("opis jest opcjonalny, a przycisk działa też przy CV, którego nie da się edytować", async () => {
-      serve(result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }));
+    it("bez słów kandydata nie da się zapisać; przycisk działa też przy CV, którego nie da się edytować", async () => {
+      serve(
+        result({
+          cv: { ...result().cv!, source: "document", editable: false, stage_id: null },
+          confirm_roles: ["Firma Testowa", "Inna Firma"],
+        }),
+      );
       post.mockResolvedValue({ data: passed() });
       renderDialog();
       const { card } = await taskCard(DOCKER);
@@ -1013,8 +1019,21 @@ describe("CvQcDialog — QC CV", () => {
       const open = within(card).getByRole("button", { name: "Potwierdzone z kandydatem" });
       expect(open).toBeEnabled();
       await userEvent.click(open);
-      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
-      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, { term: "Docker" }));
+      const save = within(card).getByRole("button", { name: "Zapisz potwierdzenie" });
+      expect(save).toBeDisabled();
+      await userEvent.type(within(card).getByLabelText(FIELD), "krótko");
+      expect(save).toBeDisabled();
+      await userEvent.type(within(card).getByLabelText(FIELD), " o tym, co robił z Dockerem");
+      expect(save).toBeEnabled();
+      await userEvent.selectOptions(within(card).getByLabelText("W której roli?"), "Inna Firma");
+      await userEvent.click(save);
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, {
+          term: "Docker",
+          text: "krótko o tym, co robił z Dockerem",
+          role: "Inna Firma",
+        }),
+      );
     });
 
     it("odmowa serwera (422) pokazuje jego komunikat i zostawia formularz z treścią", async () => {
@@ -1027,11 +1046,11 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const { card } = await taskCard(DOCKER);
       await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
-      await userEvent.type(within(card).getByLabelText(FIELD), "Zna z kursu");
+      await userEvent.type(within(card).getByLabelText(FIELD), SAID);
       await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
       await waitFor(() => expect(showError).toHaveBeenCalledWith("QC nie zgłasza już tej pozycji — odśwież okno."));
       expect(showSuccess).not.toHaveBeenCalled();
-      expect(within(card).getByLabelText(FIELD)).toHaveValue("Zna z kursu");
+      expect(within(card).getByLabelText(FIELD)).toHaveValue(SAID);
     });
 
     it("awaria bez komunikatu serwera → zdanie zastępcze", async () => {
@@ -1039,6 +1058,7 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const { card } = await taskCard(DOCKER);
       await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      await userEvent.type(within(card).getByLabelText(FIELD), SAID);
       await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
       await waitFor(() =>
         expect(showError).toHaveBeenCalledWith("Nie udało się zapisać potwierdzenia. Spróbuj ponownie."),

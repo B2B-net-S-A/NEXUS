@@ -7,6 +7,16 @@ export const PAGE_KINDS = Object.freeze({
   UNSUPPORTED: "unsupported",
 });
 
+/** Projekt Recruitera z adresu („hire/555”); poza projektem wspólny kontekst pracy. */
+export function workContext(url) {
+  try {
+    const m = new URL(url).pathname.match(/^\/talent\/hire\/([^/]+)/);
+    return m ? `hire/${m[1]}` : "global";
+  } catch {
+    return "global";
+  }
+}
+
 /**
  * @param {string | undefined} url
  * @returns {{kind: string, source?: string, key?: string}}

@@ -573,10 +573,16 @@ export type QcOverrideReason = "client_short_cv" | "confirmed_in_call" | "requir
 export const QC_OVERRIDE_NOTE_MAX = 900;
 
 /** Zdanie błędu formularza obejścia albo `null`, gdy można wysłać. */
+/** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
+export const QC_CONFIRM_TEXT_MIN = 15;
+
 export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
   if (!reason) return "Wybierz powód.";
   const clean = note.trim();
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
+  if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
+    return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
+  }
   if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
   return null;
 }

@@ -366,6 +366,10 @@ async def get_authenticated_user(
         if impersonate_raw
         else user
     )
+    # Licznik użycia (`services/access_usage`) liczy osobę przy ekranie: bez
+    # tokenów integracji i bez admina w „Podglądzie jako”, bo to nie jej wejście.
+    if not is_client_token and not impersonate_raw:
+        request.state.access_usage_user_id = user.id
     # Authoritative request-local snapshot. No process cache: policy edits are
     # immediately consistent across multiple API workers/pods.
     await resolve_effective_access(db, [effective_user])

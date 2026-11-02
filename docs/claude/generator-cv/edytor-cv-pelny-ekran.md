@@ -1246,3 +1246,29 @@ pustą listę.
   („Co dokładnie robił przy … i w której firmie?”). Pusty plan bez odrzuceń
   pokazuje to pytanie zamiast „nie znalazł zmian”; pytanie z kwotą albo puste
   — zwykły komunikat. Pole `question` nie wychodzi z trasy.
+
+## „Dopasuj pod rekrutację” (02.11.2026)
+
+Rekruterzy przerabiali CV z generatora w czacie poza NEXUSEM (87 z 319 CV od 12.10),
+a asystent miał 56 użyć. Przycisk stoi nad linią asystenta i jako pierwsza
+podpowiedź. Decyzja Artura z makiet (raport
+https://claude.ai/artifact/8GYHqERnTEipVcEVBwdPym, prywatny).
+
+- **Preset `tailor` w `cv-ai/command`:** ta sama trasa, model z rejestru i te same
+  kontrole planu (`_Plan.accept`), a do tego `verify_tailor`. Operacje tylko
+  `replace` i `add`. Model dostaje oryginał i rozmowę, nie samą rozmowę.
+- **Cytat jest warunkiem.** Pole `cytat` musi stać w źródłach (`_quote_key`), mieć co
+  najmniej 3 słowa i nie pochodzić z pustego „Potwierdzone z kandydatem: X”; pytań
+  rekrutera w źródłach nie ma. Bez cytatu propozycja odpada, nie ma pytania „Tak,
+  dopisz”. Odpada też tekst o brakach kandydata (`_ABOUT_A_GAP`): prototyp pisał do CV
+  klienta „brak potwierdzonego doświadczenia”.
+- **Źródłem są oryginał i rozmowa tej rekrutacji bez stawek**, nigdy pełne notatki
+  osoby (`_sources` ma notatki z innych rekrutacji i wpisy „150/100-110” zakryte przed
+  rekruterem). Kwota albo para stawek w cytacie lub w powodzie = propozycja odpada.
+  Cytat nazywający inną firmę niż rola docelowa też odpada (`_other_role_quote`).
+- **Wyjątek od zasady „AI zmienia od razu”:** propozycje czekają na wybór
+  (`AssistantMessage.proposals`), bo ta akcja przepisuje wiele punktów naraz. „Zastosuj
+  zaznaczone” nakłada wybrane jedną zmianą z „Cofnij”. Propozycja z nowymi słowami
+  (`new_words`) nie jest zaznaczona z góry.
+- **Poza zakresem:** wskazanie roli przy propozycji z makiety. Fakt bez znanej roli
+  obsługuje krok „Z rozmowy do opisu roli” przed generacją i potwierdzenie w QC.

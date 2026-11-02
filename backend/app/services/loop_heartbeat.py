@@ -41,6 +41,7 @@ EXEMPT: dict[str, str] = {
     "jarvis_retention": "retencja rozmów Jarvisa; opóźnienie o godziny nieszkodliwe",
     "academy_intake": "nabór akademii co 10 min; ekran ma przycisk „Pobierz zgłoszenia”",
     "queue_retention": "retencja kolejek i dziennika automatów; opóźnienie o godziny nieszkodliwe",
+    "access_usage": "licznik do przeglądu dostępów; opóźniony zapis czeka w pamięci, retencja o godziny nieszkodliwa",
     "match_history_ttl": "sprzątanie historii; opóźnienie nieszkodliwe",
     "slack_sla_alerts": "osobna kontrola stopped_webhook_alarms",
     "ai_spend_alerts": "osobna kontrola checks.ai_features",

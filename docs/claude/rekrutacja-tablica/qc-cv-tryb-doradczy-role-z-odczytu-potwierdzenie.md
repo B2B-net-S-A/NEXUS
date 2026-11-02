@@ -117,6 +117,22 @@ kandydatów w QC nie miało opisów ról w historii profilu.
   „potwierdzałby” je wszystkie. Notatka jest o kandydacie: liczy się też
   w innych rekrutacjach i w wyszukiwaniu. Okno pokazuje potwierdzenia
   (`QcResponse.confirmations`), żeby Delivery Lead widział, kto co potwierdził.
+- **Potwierdzenie ma treść, rola jest opcjonalna (decyzja Artura 02.11.2026).**
+  Od 12.10 powstały 153 wpisy, z czego 101 bez treści, a Delivery Lead nie miał
+  czego sprawdzić. `…/qc/confirm` wymaga słów kandydata (`CONFIRM_TEXT_MIN`, odmowa
+  ze zdaniem dla człowieka, nie ze schematu) i przyjmuje `role`: firmę z historii
+  osoby (`confirm_roles`, inna = 422). Notatka to „Potwierdzone z kandydatem: X
+  (Firma) — słowa”; nazwa firmy pozwala generatorowi opisać fakt w tej roli.
+  Obejście „Kandydat potwierdził…” bez zdania zostaje obejściem, ale nie zapisuje
+  potwierdzenia, a okno wymaga zdania. Stare wpisy bez treści dalej liczą się
+  jako źródło w QC: to osobna decyzja, bo zmieniłaby wyniki zapisanych par.
+- **Krok „Z rozmowy do opisu roli” przed generacją (02.11.2026).**
+  `GET/POST …/qc/role-facts`: wymagania „must” z odpowiedzi kandydata
+  (`answers_text`, bez pytań i zdań przeczących), których nie ma w oryginale ani
+  w potwierdzeniach. Wskazanie roli zapisuje taką samą notatkę z cytatem jako
+  treścią (`via: before_generation`). Krok jest opcjonalny, nie blokuje „Generuj”,
+  a przy błędzie odczytu go nie ma. Powód: sam prompt nie podnosi liczby wymagań
+  w opisach ról.
 - **Zmiana reguł liczenia = podbij `cv_qc.QC_VERSION`.** Plakietka na Tablicy
   czyta zapisany przebieg; `cv_qc.recompute_outdated` (zadanie startowe
   `tasks/cv_qc_recompute.py`) przelicza nieudane przebiegi starszej wersji

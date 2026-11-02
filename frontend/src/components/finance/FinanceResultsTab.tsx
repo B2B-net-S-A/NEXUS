@@ -7,7 +7,9 @@ import { Search } from "lucide-react";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { useToast } from "@/components/Toast";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { hasPermission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { useAuthStore } from "@/store/auth";
 import {
   financeApi,
   type FinanceEditableField,
@@ -22,6 +24,10 @@ import {
 } from "@/components/finance/FinanceResultsTable";
 
 export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
+  const seesTotals = hasPermission(
+    useAuthStore((state) => state.user),
+    "company_results",
+  );
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -89,6 +95,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
     }
   }
 
+  // Kafle sum to wynik całej firmy: „Wyniki firmy” (decyzja Artura 02.11.2026).
   const totals = resultsQuery.data?.totals;
   // Kafel „Marża" to suma kolumny „Marża PLN" z arkusza, a nie przychód −
   // koszt. Gdy te liczby się rozjeżdżają, mówimy to wprost — trzy kafle na
@@ -147,7 +154,14 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
       ) : (
         <>
           <div className="order-1 space-y-1.5">
-            <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div
+              className={cn(
+                "grid gap-2.5",
+                seesTotals && "sm:grid-cols-2 lg:grid-cols-4",
+              )}
+            >
+              {seesTotals && (
+                <>
               <Kpi
                 label="KOSZT"
                 value={formatMoney(totals?.cost ?? null)}
@@ -169,6 +183,8 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
                     : "Suma „Marża PLN” z arkusza"
                 }
               />
+                </>
+              )}
               <Kpi
                 label="DO UZUPEŁNIENIA"
                 tone={needsCompletion ? "warning" : "default"}
@@ -264,6 +280,7 @@ export function FinanceResultsTab({ canWrite = true }: { canWrite?: boolean }) {
               </div>
             ) : (
               <FinanceResultsTable
+                marginSortable={seesTotals}
                 rows={resultsQuery.data?.rows ?? []}
                 sort={sort}
                 direction={direction}

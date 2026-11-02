@@ -442,6 +442,7 @@ export function CvQcBody({
           showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
       }),
     confirming: confirm.isPending,
+    confirmRoles: data?.confirm_roles ?? [],
     requestAiFixes: () => {
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });

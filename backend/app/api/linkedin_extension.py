@@ -41,6 +41,8 @@ from app.models.candidate import Candidate
 from app.models.linkedin_extension import LinkedinExtensionConnection
 from app.models.user import User, UserRole
 from app.schemas.linkedin_extension import (
+    ActiveJobRequest,
+    ActiveJobResponse,
     AddCandidateRequest,
     AddCandidateResponse,
     AssignJobsRequest,
@@ -52,10 +54,10 @@ from app.schemas.linkedin_extension import (
     DraftRequest,
     DraftResponse,
     IdResponse,
+    LookupRequest,
     LookupResponse,
     NoteRequest,
     ProfilePdfResponse,
-    ProfileRead,
     RefreshRequest,
     RefreshResponse,
     ConnectRequest,
@@ -291,16 +293,31 @@ async def _candidate_or_404(db: AsyncSession, candidate_id: int) -> Candidate:
 
 @router.post("/lookup", response_model=LookupResponse)
 async def extension_lookup(
-    profile: ProfileRead,
+    data: LookupRequest,
     principal: ExtensionReader,
     db: AsyncSession = Depends(get_db),
 ) -> LookupResponse:
     """Co NEXUS wie o osobie z otwartej strony (makiety 1–3). Liczy 1 odczyt."""
     await _count_read(db, principal)
-    result = await lookup_service.lookup(db, principal.user, profile)
+    result = await lookup_service.lookup(
+        db, principal.user, data, active_job_id=data.active_job_id
+    )
     usage = usage_out(principal.connection)
     await db.commit()
     return LookupResponse(**result.as_dict(), usage=usage)
+
+
+@router.post("/active-job", response_model=ActiveJobResponse)
+async def extension_active_job(
+    data: ActiveJobRequest,
+    principal: ExtensionReader,  # noqa: ARG001 — bramka odczytu
+    db: AsyncSession = Depends(get_db),
+) -> ActiveJobResponse:
+    """Zmiana wyboru na pasku przy już odczytanym profilu (profil w ciele, jak
+    ``/draft-message``). Strona LinkedIna nie jest czytana, więc bez licznika."""
+    active_job = await lookup_service.active_job_out(db, data.profile, data.job_id)
+    await db.commit()
+    return ActiveJobResponse(active_job=active_job)
 
 
 @router.post("/lookup-batch", response_model=BatchResponse)

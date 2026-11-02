@@ -51,7 +51,7 @@ Starsza wersja w panelu → baner „Jest nowa wersja” z linkiem do `<frontend
 wtedy NEXUS szuka po imieniu, nazwisku i firmie.
 
 ### `POST /api/extension/lookup` (liczy 1 odczyt strony)
-Wejście: `ProfileRead`. Wyjście:
+Wejście: `ProfileRead` plus opcjonalne `active_job_id` (rekrutacja z paska „Pracuję nad”). Wyjście:
 ```json
 {"status": "found | not_found | ambiguous",
  "matched_by": "linkedin | name_company | null",
@@ -66,9 +66,18 @@ Wejście: `ProfileRead`. Wyjście:
  "contractor": {"client_name": "Nordea", "end_date": "2027-03-31", "delivery_lead_name": "Michał"},
  "job_change": {"page_company": "Allegro", "nexus_company": "Sabre"},
  "matches": [{"job_id": 763073, "title": "…", "client_name": "Nordea", "recruiter_name": "Katarzyna", "score": 81}],
+ "active_job": {"job_id": 763073, "title": "…", "client_name": "Nordea", "recruiter_name": "Katarzyna", "score": 42},
  "usage": {"reads_today": 35, "reads_limit": 150}}
 ```
 Pola obiektowe mogą być `null`, listy puste. `rate` jest `null`, gdy rola nie widzi stawek.
+`matches` ma próg 50%, `active_job` podaje procent zawsze. `active_job.score` jest `null`, gdy
+nie udało się go policzyć (awaria dopasowania nie psuje odpowiedzi). `active_job` jest `null`,
+gdy nie pytano o rekrutację albo jest zamknięta lub nie istnieje; to nie jest błąd.
+
+### `POST /api/extension/active-job` (nie liczy odczytu)
+Wejście: `{"job_id": 763073, "profile": ProfileRead}`. Wyjście: `{"active_job": {…} | null}`, pola jak w `/lookup`.
+Panel woła to po zmianie wyboru na pasku przy już odczytanym profilu: strona LinkedIna
+nie jest czytana ponownie, więc odczyt się nie zużywa.
 
 ### `POST /api/extension/lookup-batch` (liczy 1 odczyt strony)
 Wejście: `{"people": [{"full_name": "…", "public_url": "…|null", "headline": "…", "current_company": "…"}]}` (do 50 osób).

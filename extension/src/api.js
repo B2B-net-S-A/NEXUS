@@ -141,7 +141,10 @@ export function createApi({ getConnection, fetchImpl = (...a) => fetch(...a), on
 
   return {
     me: () => request("GET", "/me"),
-    lookup: async (profile) => validateLookup(await request("POST", "/lookup", { json: profile })),
+    lookup: async (profile, activeJobId = null) =>
+      validateLookup(await request("POST", "/lookup", { json: activeJobId ? { ...profile, active_job_id: activeJobId } : profile })),
+    // Zmiana wyboru na pasku: profil już odczytany, więc bez licznika odczytów.
+    activeJob: (jobId, profile) => request("POST", "/active-job", { json: { job_id: jobId, profile } }),
     // Bez `job_id` i bez procentów — % dla 50 osób z samego nagłówka to 50 wywołań embeddingów.
     lookupBatch: async (people) => {
       const data = await request("POST", "/lookup-batch", { json: { people } });

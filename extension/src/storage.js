@@ -4,6 +4,28 @@ import { DEFAULT_SERVER, SERVERS } from "./config.js";
 
 const KEY_CONNECTION = "connection";
 const KEY_SERVER = "server";
+const KEY_ACTIVE_JOBS = "activeJobs";
+
+const ACTIVE_JOBS_LIMIT = 50;
+
+/**
+ * Rekrutacja, nad którą osoba pracuje w danym kontekście (projekt Recruitera
+ * albo „global”). Osobno na serwer, bo id ze stagingu nic nie znaczy na produkcji.
+ */
+export async function getActiveJob(serverId, context) {
+  const items = await chrome.storage.local.get(KEY_ACTIVE_JOBS);
+  return items[KEY_ACTIVE_JOBS]?.[serverId]?.[context] || null;
+}
+
+export async function setActiveJob(serverId, context, job) {
+  const items = await chrome.storage.local.get(KEY_ACTIVE_JOBS);
+  const all = items[KEY_ACTIVE_JOBS] || {};
+  // Klucze w kolejności zapisu: przy nadmiarze odpadają najdawniej wybrane projekty.
+  const { [context]: _previous, ...others } = all[serverId] || {};
+  const entries = Object.entries(others).slice(-(ACTIVE_JOBS_LIMIT - 1));
+  if (job) entries.push([context, job]);
+  await chrome.storage.local.set({ [KEY_ACTIVE_JOBS]: { ...all, [serverId]: Object.fromEntries(entries) } });
+}
 
 /** @returns {Promise<{key: string, apiBase: string, frontUrl: string, connectedAt: string} | null>} */
 export async function getConnection() {
