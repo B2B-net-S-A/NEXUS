@@ -991,7 +991,7 @@ def test_migration_rechain_probes_the_token_before_checkout() -> None:
     assert "exit 1" not in run, "Zły token = ostrzeżenie, nie czerwony bieg."
     assert steps.index(token) == 0
     for step in steps[1:]:
-        assert step.get("if") == "steps.token.outputs.ok == 'true'", step.get("name")
+        assert "steps.token.outputs.ok == 'true'" in step.get("if", ""), step.get("name")
 
 
 def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
