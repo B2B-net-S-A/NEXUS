@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { amountLabel, dueTone, formatDay } from "./board-model";
+import { CardDocuments } from "./CardDocuments";
 import { ACTION_LABELS } from "./CardTile";
 import { ReasonDialog } from "./ReasonDialog";
 import type { CardCommands } from "./use-card-commands";
@@ -131,6 +132,7 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                 ) : null}
                 {amount ? <Badge variant="neutral">Razem {amount}</Badge> : null}
               </div>
+              {card.source_kind === "document" ? <CardDocuments cardId={card.id} /> : null}
               {card.priority ? (
                 <p className="text-sm text-muted-foreground">
                   Ostatnio rozmawiał(a): {card.priority.name ?? "inna osoba"}

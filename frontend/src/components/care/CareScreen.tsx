@@ -4,7 +4,10 @@ import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Megaphone } from "lucide-react";
 
+import { PortalFaqTab } from "@/components/back-office/PortalFaqTab";
+import { QualityTab } from "@/components/back-office/QualityTab";
 import { QueueBoard } from "@/components/back-office/QueueBoard";
+import { TalksTab } from "@/components/back-office/TalksTab";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
@@ -32,7 +35,15 @@ import { ConsultantsPanel, type ConsultantsFilter } from "./ConsultantsPanel";
 import { ConversationDialog } from "./ConversationDialog";
 import { CareTeamPanel } from "./team/CareTeamPanel";
 
-export type CareTab = "todo" | "consultants" | "clients" | "team" | "announcements";
+export type CareTab =
+  | "todo"
+  | "consultants"
+  | "clients"
+  | "team"
+  | "announcements"
+  | "talks"
+  | "quality"
+  | "faq";
 
 export interface CareRoute {
   tab: CareTab;
@@ -77,6 +88,12 @@ export function careRouteFrom(
       return { tab: "team" };
     case "announcements":
       return { tab: "announcements" };
+    case "talks":
+      return { tab: "talks" };
+    case "quality":
+      return { tab: "quality" };
+    case "faq":
+      return { tab: "faq" };
     case "review": {
       const target = findSettingsItem(canSeeSkills ? "skills" : "skills-review");
       return { tab: "todo", redirect: target ? settingsItemHref(target) : "/settings" };
@@ -146,7 +163,14 @@ function CareTabs({ config }: { config: HrConfig }) {
   const backOffice = config.open_modules.back_office;
   const kanbanLink = Boolean(searchParams?.get("card") || searchParams?.get("filter"));
   const teamOpen = canSeeTeam(config);
-  const tab: CareTab = !careRole || (route.tab === "team" && !teamOpen) ? "todo" : route.tab;
+  // Zakładki portalu konsultanta stoją za modułem `back_office`; serwer ma własne bramki.
+  const portalTab = route.tab === "talks" || route.tab === "quality" || route.tab === "faq";
+  const tab: CareTab =
+    portalTab && backOffice
+      ? route.tab
+      : portalTab || !careRole || (route.tab === "team" && !teamOpen)
+        ? "todo"
+        : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
@@ -223,6 +247,13 @@ function CareTabs({ config }: { config: HrConfig }) {
             count: clientsCount.isSuccess ? clientsCount.data.rows.length : undefined,
           },
           ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
+        ]
+      : []),
+    ...(backOffice
+      ? [
+          { value: "talks", label: "Rozmowy" },
+          { value: "quality", label: "Jakość" },
+          { value: "faq", label: "FAQ portalu" },
         ]
       : []),
   ];
@@ -314,6 +345,9 @@ function CareTabs({ config }: { config: HrConfig }) {
           {tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
           {tab === "team" ? <CareTeamPanel /> : null}
           {tab === "announcements" ? <AnnouncementsTab /> : null}
+          {tab === "talks" ? <TalksTab /> : null}
+          {tab === "quality" ? <QualityTab /> : null}
+          {tab === "faq" ? <PortalFaqTab /> : null}
         </div>
       </TabbedNav>
       <ConsultantCardPanel contractId={contractId} onClose={() => openContract(null)} />
