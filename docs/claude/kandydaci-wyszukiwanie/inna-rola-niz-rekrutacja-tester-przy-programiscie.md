@@ -67,3 +67,28 @@ GitLab CI, OpenShift, Argo CD, Docker, Kubernetes…). Decyzja Artura 29.10.2026
   przeglądzie, 232 z nich przechodziły dotąd wyjątkiem 80% (najczęściej
   tester → programista 102, analityk → programista 38). Karty już wstawione
   do „Nowych” zostają.
+
+## Dopisek 02.11.2026 — pula dobiera dalej po odrzuceniu innej roli
+
+`refresh_autofill_pool` brał 150 najlepszych wierszy i dopiero z nich odrzucał
+inną rolę, więc tam, gdzie czołówkę zajmowała inna rola, pula wychodziła mała
+przy ok. 65 tys. ocenionych osób: „Python Developer” (115928) 13 osób, „Ferryt
+Developer” (240915) 67, „UX Researcher” (749972) 75, UX Designer (115932) 99.
+Silnik trzymający „Nowych” na 20 nie miał z czego dobierać. Reguła z 29.10
+zostaje: inna rola nie wchodzi, ale jej miejsce zajmują kolejni, paczkami
+(`_POOL_PAGE` = 500), aż będzie `AUTOFILL_POOL_SIZE` albo skończy się
+`AUTOFILL_POOL_SCAN_LIMIT` (5000 przeglądanych wierszy).
+
+- **Staging (kopia z 02.11.2026):** wszystkie cztery mają 150 osób; ostatnia
+  osoba stała na miejscu 754 / 401 / 320 / 231 przeglądu, odczyt do 0,7 s.
+  Wynik ostatniej osoby względem dawnej: 65,6 wobec 68,0; 59,6 wobec 60,8;
+  67,4 wobec 68,3; 65,9 wobec 66,5.
+- **Rozpoznanie roli:** tytuły czterech rekrutacji są rozpoznane dobrze, a odsiew
+  jest prawdziwy: w 115928 wśród 754 przejrzanych 604 to inna rola, z tego 591
+  testerów (m.in. „Test Automation Engineer”, „Software Developer in Test”).
+  Złe oznaczenia to tytuły mieszane nazywające też rolę rekrutacji, np. „UX
+  Designer / Business Analyst” — pojedyncze sztuki na rekrutację.
+- **Migawka „Wysłani”** (`sent_vs_system`) czyta pulę bez zmian. Osoby, które
+  były poniżej dawnego ucięcia, dostają teraz miejsce w puli zamiast „Poniżej
+  puli 150”. Pule odświeżają się z przeglądami (48 na noc), więc przez pierwsze
+  noce po wdrożeniu migawki mieszają obie głębokości.
