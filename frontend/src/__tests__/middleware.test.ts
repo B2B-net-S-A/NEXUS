@@ -635,7 +635,7 @@ describe("zawężenia ról nadal obowiązują", () => {
     ]) {
       expect(destination("/contracts/b2b-generator", token)).toBe("pass")
     }
-    // 0631: wycofywany Viewer nie ma już sekcji Sourcing.
+    // 0632: wycofywany Viewer nie ma już sekcji Sourcing.
     expect(destination("/contracts/b2b-generator", validViewer)).toBe("/403")
   })
 

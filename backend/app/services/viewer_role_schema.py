@@ -1,4 +1,4 @@
-"""Wycofywany Viewer (``user``) bez sekcji — JEDNO źródło SQL migracji 0631
+"""Wycofywany Viewer (``user``) bez sekcji — JEDNO źródło SQL migracji 0632
 i ``entrypoint.sh`` (przez ``hr_schema_bundle``).
 
 Audyt najmniejszych dostępów 02.11.2026: rola bez nowych kont przechodziła
@@ -11,7 +11,7 @@ wdrożeniu, a późniejsza decyzja admina w panelu ma zostać.
 
 from __future__ import annotations
 
-MARKER = "0631_viewer_role_no_sections"
+MARKER = "0632_viewer_role_no_sections"
 
 ZERO_SECTIONS = (
     "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = "

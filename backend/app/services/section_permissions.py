@@ -108,7 +108,7 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
         pipeline=SectionAccess.write,
         insights=SectionAccess.read,
     ),
-    # 0631: wycofywany Viewer nie ma żadnej sekcji — przechodził imienne Insights,
+    # 0632: wycofywany Viewer nie ma żadnej sekcji — przechodził imienne Insights,
     # a na produkcji nie ma już kont tej roli (``viewer_role_schema``).
     UserRole.user: _policy(),
     # 0374: praktykant nie ma żadnej sekcji — jego ekran stoi poza sekcjami

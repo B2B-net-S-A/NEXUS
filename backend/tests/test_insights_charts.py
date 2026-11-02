@@ -232,7 +232,7 @@ async def test_both_charts_are_reachable_for_every_logged_in_role(
 
     `finance` i `recruiter` to dwa końce spektrum uprawnień — gdyby guard rolowy
     wrócił tu cichym refaktorem, najpierw odbiłby się któryś z nich. Wycofywany
-    Viewer od 0631 nie ma sekcji Insights.
+    Viewer od 0632 nie ma sekcji Insights.
     """
     for role in (
         UserRole.admin,

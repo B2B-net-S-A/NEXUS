@@ -1,4 +1,4 @@
-"""Wycofywany Viewer (``user``) nie ma żadnej sekcji (0631, audyt 02.11.2026).
+"""Wycofywany Viewer (``user``) nie ma żadnej sekcji (0632, audyt 02.11.2026).
 
 Rola bez nowych kont przechodziła bramki sekcji jak do odczytu, także imienne
 Insights. Na kopii produkcji z 02.11.2026 nie ma ani jednego konta tej roli,
@@ -71,7 +71,7 @@ def test_entrypoint_takes_the_one_time_statement_from_the_bundle() -> None:
 
 
 def test_migration_runs_the_same_statement() -> None:
-    source = (BACKEND / "alembic/versions/0631_viewer_role_no_sections.py").read_text(
+    source = (BACKEND / "alembic/versions/0632_viewer_role_no_sections.py").read_text(
         encoding="utf-8"
     )
     assert "viewer_role_schema" in source
