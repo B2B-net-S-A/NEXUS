@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

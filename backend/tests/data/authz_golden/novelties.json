@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/novelties/{novelty_id}/events": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/novelties/start/gate": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/novelties/{novelty_id}/events": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "PUT /api/novelties/start/gate": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

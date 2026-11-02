@@ -25,20 +25,21 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -1208,7 +1208,7 @@ export const adminApi = {
   /** Uprawnienia ról: dziewięć przełączników + liczba osób z każdą rolą. */
   getSectionPermissions: () =>
     api.get<AdminPermissionsSnapshot>("/api/admin/section-permissions"),
-  /** Dodatkowe uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
+  /** Uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
   getUserPermissions: (userId: number) =>
     api.get<AdminUserPermissionsResponse>(
       `/api/admin/section-permissions/users/${userId}`,

@@ -508,19 +508,7 @@ async def test_signature_and_generator_are_set_independently_for_a_person(
     assert user["effective_permissions"]["delivery"] == "none"
     assert user["effective_permissions"]["finance"] == "none"
 
-    # Uprawnienia osoby tylko dodają: nadanie zdejmuje się przez „inherit”.
-    revoke = await app_client.put(
-        target_url,
-        headers=app_auth_headers,
-        json={
-            "revision": response.json()["revision"],
-            "action_changes": [
-                {"action": "b2b_signature_confirmation", "access": "none"},
-            ],
-        },
-    )
-    assert revoke.status_code == 422, revoke.text
-    assert revoke.json()["detail"]["code"] == "additive_only"
+    # Nadanie zdejmuje się przez „inherit”.
     lifted = await app_client.put(
         target_url,
         headers=app_auth_headers,
@@ -535,7 +523,7 @@ async def test_signature_and_generator_are_set_independently_for_a_person(
     assert lifted.json()["changed"] is True
 
 
-async def test_person_permissions_only_add_and_derived_sections_cannot_be_set(
+async def test_person_refuses_levels_derived_sections_and_grants_to_ungrantable(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],
     permission_target: Account,
@@ -549,14 +537,6 @@ async def test_person_permissions_only_add_and_derived_sections_cannot_be_set(
         return await app_client.put(
             url, headers=app_auth_headers, json={"revision": revision, **body}
         )
-
-    for key in catalog.KEYS:
-        refused = await _put(
-            target_url, action_changes=[{"action": key, "access": "none"}]
-        )
-        assert refused.status_code == 422, refused.text
-        assert refused.json()["detail"]["code"] == "additive_only"
-        assert "tylko dodają" in refused.json()["detail"]["message"]
 
     level = await _put(
         target_url, action_changes=[{"action": "clients_edit", "access": "generate"}]
@@ -608,12 +588,286 @@ async def test_person_permissions_only_add_and_derived_sections_cannot_be_set(
     assert (await _snapshot(app_client, app_auth_headers))["revision"] == revision
 
 
-async def test_legacy_restrictions_are_listed_and_can_only_be_lifted(
+async def _last_user_event(target_id: int) -> CriticalEvent:
+    async with AsyncSessionLocal() as db:
+        event = await db.scalar(
+            select(CriticalEvent)
+            .where(
+                CriticalEvent.event_type == "rbac.user_permissions",
+                CriticalEvent.entity_id == target_id,
+            )
+            .order_by(CriticalEvent.id.desc())
+        )
+    assert event is not None
+    return event
+
+
+async def test_revoking_finance_module_from_one_person_closes_the_route(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],
     make_account: Callable[[UserRole], Awaitable[Account]],
 ) -> None:
-    """Stare wyjątki odbierające: ekran ich nie tworzy, ale pozwala zdjąć."""
+    """Decyzja właściciela 02.11.2026: admin przycina jedną osobę bez nowej roli."""
+
+    account = await make_account(UserRole.finance)
+    colleague = await make_account(UserRole.finance)
+    target_id = int(account["id"])
+    target_url = f"{PANEL}/users/{target_id}"
+    # Trasa z ``FinanceModuleUser``: puste ciało przechodzi bramkę i odpada na
+    # walidacji, więc 403 znaczy odmowę bramki, a nie pozostałej logiki.
+    finance_route = "/api/finance/order-changes/checks"
+
+    headers = await _login(app_client, account)
+    colleague_headers = await _login(app_client, colleague)
+    allowed = await app_client.post(finance_route, headers=headers, json={})
+    assert allowed.status_code == 422, allowed.text
+
+    revision = (await _snapshot(app_client, app_auth_headers))["revision"]
+    revoke = await app_client.put(
+        target_url,
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [{"action": "finance_module", "access": "none"}],
+        },
+    )
+    assert revoke.status_code == 200, revoke.text
+    assert revoke.json() == {
+        "revision": revision + 1,
+        "changed": True,
+        "invalidated_users": 1,
+    }
+
+    # Odebranie wylogowuje tę jedną osobę; druga z tą samą rolą pracuje dalej.
+    stale = await app_client.post(finance_route, headers=headers, json={})
+    assert stale.status_code == 401, stale.text
+    untouched = await app_client.post(finance_route, headers=colleague_headers, json={})
+    assert untouched.status_code == 422, untouched.text
+
+    headers = await _login(app_client, account)
+    denied = await app_client.post(finance_route, headers=headers, json={})
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"]["code"] == "permission_denied"
+    assert denied.json()["detail"]["permission"] == "finance_module"
+    me = await app_client.get("/api/auth/me", headers=headers)
+    assert me.json()["effective_action_access"]["finance_module"] == "none"
+    assert me.json()["effective_section_access"]["finance"] == "none"
+
+    person = (await app_client.get(target_url, headers=app_auth_headers)).json()["user"]
+    assert "finance_module" in person["role_permissions"]
+    assert person["restrictions"] == ["finance_module"]
+    assert "finance_module" not in person["effective"]
+    # Reszta roli zostaje, także to, czego wymagał odebrany moduł.
+    assert "amounts_view" in person["effective"]
+
+    event = await _last_user_event(target_id)
+    assert event.reason == "Odebrano: „Moduł Finanse”."
+    assert event.details["changes"] == {
+        "finance_module": {"from": "inherit", "to": "none"}
+    }
+    async with AsyncSessionLocal() as db:
+        audit = await db.scalar(
+            select(RbacPermissionAudit)
+            .where(
+                RbacPermissionAudit.target_kind == "user",
+                RbacPermissionAudit.target_key == str(target_id),
+            )
+            .order_by(RbacPermissionAudit.id.desc())
+        )
+    assert audit is not None
+    assert audit.after == {"action:finance_module": "none"}
+
+    # Zdjęcie przez „inherit” przywraca to, co daje rola.
+    lifted = await app_client.put(
+        target_url,
+        headers=app_auth_headers,
+        json={
+            "revision": revision + 1,
+            "action_changes": [{"action": "finance_module", "access": "inherit"}],
+        },
+    )
+    assert lifted.status_code == 200, lifted.text
+    person = (await app_client.get(target_url, headers=app_auth_headers)).json()["user"]
+    assert person["restrictions"] == []
+    assert "finance_module" in person["effective"]
+    headers = await _login(app_client, account)
+    restored = await app_client.post(finance_route, headers=headers, json={})
+    assert restored.status_code == 422, restored.text
+    event = await _last_user_event(target_id)
+    assert event.reason == "Usunięto ograniczenie: „Moduł Finanse”."
+
+
+async def test_revoking_what_a_kept_permission_requires_is_refused(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    make_account: Callable[[UserRole], Awaitable[Account]],
+) -> None:
+    """Inaczej zależności przywróciłyby je po cichu, a Historia zdarzeń skłamie."""
+
+    account = await make_account(UserRole.finance)
+    target_id = int(account["id"])
+    target_url = f"{PANEL}/users/{target_id}"
+    revision = (await _snapshot(app_client, app_auth_headers))["revision"]
+
+    async def _put(*changes: tuple[str, str]):
+        return await app_client.put(
+            target_url,
+            headers=app_auth_headers,
+            json={
+                "revision": revision,
+                "action_changes": [
+                    {"action": action, "access": access} for action, access in changes
+                ],
+            },
+        )
+
+    refused = await _put(("amounts_view", "none"))
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"] == {
+        "code": "permission_required_by_kept",
+        "message": (
+            "Nie można odebrać „Stawki i kwoty: podgląd”: wymaga go "
+            "„Stawki i kwoty: zmiana”, „Moduł Finanse”, a ta osoba to zachowuje. "
+            "Odbierz najpierw tamto albo wszystko naraz."
+        ),
+    }
+    # Zależność przez dwa kroki: „zmiana kwot” ⇒ podgląd kwot ⇒ podgląd Delivery.
+    refused = await _put(
+        ("delivery_view", "none"),
+        ("contracts_orders_edit", "none"),
+        ("amounts_view", "none"),
+        ("finance_module", "none"),
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "permission_required_by_kept"
+    assert "„Stawki i kwoty: zmiana”" in refused.json()["detail"]["message"]
+
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(UserActionOverride).where(UserActionOverride.user_id == target_id)
+        )
+        assert rows.all() == []
+    assert (await _snapshot(app_client, app_auth_headers))["revision"] == revision
+
+    # Razem z tym, co go wymaga, przechodzi.
+    together = await _put(
+        ("amounts_view", "none"),
+        ("amounts_edit", "none"),
+        ("finance_module", "none"),
+    )
+    assert together.status_code == 200, together.text
+    person = (await app_client.get(target_url, headers=app_auth_headers)).json()["user"]
+    assert not {"amounts_view", "amounts_edit", "finance_module"} & set(
+        person["effective"]
+    )
+    assert "contracts_orders_edit" in person["effective"]
+    revision = together.json()["revision"]
+
+    # Przywrócenie tego, co wymaga odebranego, też oddałoby je po cichu.
+    refused = await _put(("amounts_edit", "inherit"))
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "permission_required_by_kept"
+    assert "„Stawki i kwoty: podgląd”" in refused.json()["detail"]["message"]
+    both = await _put(("amounts_edit", "inherit"), ("amounts_view", "inherit"))
+    assert both.status_code == 200, both.text
+    revision = both.json()["revision"]
+
+    # Nadanie w tym samym żądaniu liczy się jako zachowane.
+    recruiter = await make_account(UserRole.recruiter)
+    refused = await app_client.put(
+        f"{PANEL}/users/{recruiter['id']}",
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [
+                {"action": "clients_edit", "access": "manage"},
+                {"action": "delivery_view", "access": "none"},
+            ],
+        },
+    )
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["detail"]["code"] == "permission_required_by_kept"
+
+
+async def test_old_inconsistent_restriction_does_not_block_other_changes(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    make_account: Callable[[UserRole], Awaitable[Account]],
+) -> None:
+    """Wiersz sprzed decyzji, który i tak nie działa, nie zamyka osoby na zmiany."""
+
+    account = await make_account(UserRole.finance)
+    target_id = int(account["id"])
+    async with AsyncSessionLocal() as db:
+        db.add(
+            UserActionOverride(user_id=target_id, action="amounts_view", access="none")
+        )
+        await db.commit()
+    revision = (await _snapshot(app_client, app_auth_headers))["revision"]
+
+    other = await app_client.put(
+        f"{PANEL}/users/{target_id}",
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [{"action": "clients_edit", "access": "manage"}],
+        },
+    )
+    assert other.status_code == 200, other.text
+
+
+async def test_admin_stays_immutable_and_ungrantable_account_can_lose_but_not_gain(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    make_account: Callable[[UserRole], Awaitable[Account]],
+) -> None:
+    admin = await make_account(UserRole.admin)
+    viewer = await make_account(UserRole.user)
+    revision = (await _snapshot(app_client, app_auth_headers))["revision"]
+
+    for access in ("none", "inherit", "manage"):
+        refused = await app_client.put(
+            f"{PANEL}/users/{admin['id']}",
+            headers=app_auth_headers,
+            json={
+                "revision": revision,
+                "action_changes": [{"action": "finance_module", "access": access}],
+            },
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"]["code"] == "immutable_admin_access"
+    admin_me = await app_client.get(
+        "/api/auth/me", headers=await _login(app_client, admin)
+    )
+    assert admin_me.json()["effective_action_access"]["finance_module"] == "manage"
+
+    gain = await app_client.put(
+        f"{PANEL}/users/{viewer['id']}",
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [{"action": "delivery_view", "access": "manage"}],
+        },
+    )
+    assert gain.status_code == 422, gain.text
+    assert gain.json()["detail"]["code"] == "role_not_grantable"
+    lose = await app_client.put(
+        f"{PANEL}/users/{viewer['id']}",
+        headers=app_auth_headers,
+        json={
+            "revision": revision,
+            "action_changes": [{"action": "delivery_view", "access": "none"}],
+        },
+    )
+    assert lose.status_code == 200, lose.text
+
+
+async def test_restrictions_are_listed_and_lifted_by_inherit(
+    app_client: AsyncClient,
+    app_auth_headers: dict[str, str],
+    make_account: Callable[[UserRole], Awaitable[Account]],
+) -> None:
+    """Wiersze ``none`` sprzed 02.11.2026 działają jak odebranie z ekranu."""
 
     account = await make_account(UserRole.delivery_lead)
     target_id = int(account["id"])

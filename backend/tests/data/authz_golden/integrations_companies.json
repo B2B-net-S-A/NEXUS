@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "POST /api/integrations/companies/people": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/companies/people": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

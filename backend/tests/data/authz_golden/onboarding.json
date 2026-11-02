@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -25,21 +25,22 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/b2b-generator/esign/mine": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/b2b-generator/esign/settings": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/b2b-generator/esign/{request_id}/withdraw": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/b2b-generator/generated/{generated_id}/esign/send": "PPPBPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/b2b-generator/esign/mine": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/b2b-generator/esign/settings": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/b2b-generator/esign/{request_id}/withdraw": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/b2b-generator/generated/{generated_id}/esign/send": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -124,12 +124,19 @@ function refusal(status: number, detail: Record<string, unknown>) {
   } as AxiosResponse);
 }
 
+/** Pozycja „Nadane” w wierszu „Klienci: dodawanie i edycja”. */
+function clientsEditGranted(group: HTMLElement) {
+  return within(
+    within(group).getByRole("radiogroup", { name: "Klienci: dodawanie i edycja" }),
+  ).getByRole("radio", { name: "Nadane" });
+}
+
 async function openEditFor(name: string) {
   const user = userEvent.setup();
   renderTab();
   const row = await screen.findByRole("row", { name: new RegExp(name) });
   await user.click(within(row).getByRole("button", { name: "Edytuj" }));
-  const group = await screen.findByRole("group", { name: "Dodatkowe uprawnienia" });
+  const group = await screen.findByRole("group", { name: "Uprawnienia tej osoby" });
   await waitFor(() =>
     expect(within(group).queryByRole("status")).not.toBeInTheDocument(),
   );
@@ -214,7 +221,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     const { user, group } = await openEditFor("Celina Wzorcowa");
 
     await user.click(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+      clientsEditGranted(group),
     );
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -270,7 +277,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     const { user, group } = await openEditFor("Celina Wzorcowa");
 
     await user.click(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+      clientsEditGranted(group),
     );
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -281,7 +288,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     expect(adminApi.updateUser).toHaveBeenCalledTimes(1);
     // To nie jest „nowsza wersja zasad” — zaznaczenie zostaje do ponowienia.
     expect(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+      clientsEditGranted(group),
     ).toBeChecked();
     expect(screen.getByRole("alert")).not.toHaveTextContent("zmienił zasady");
   });
@@ -300,7 +307,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     } as never);
 
     await user.click(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+      clientsEditGranted(group),
     );
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -310,7 +317,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     await waitFor(() => expect(adminApi.getUserPermissions).toHaveBeenCalledTimes(2));
     await waitFor(() =>
       expect(
-        within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+        clientsEditGranted(group),
       ).not.toBeChecked(),
     );
     expect(screen.getByRole("heading", { name: "Edytuj użytkownika" })).toBeInTheDocument();
@@ -323,7 +330,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     const { user, group } = await openEditFor("Celina Wzorcowa");
 
     await user.click(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
+      clientsEditGranted(group),
     );
     await user.click(screen.getByRole("button", { name: "Zapisz" }));
 
@@ -341,7 +348,7 @@ describe("AdminUsersTab — Osoby i role", () => {
 
     await user.click(screen.getByRole("button", { name: "Dodaj użytkownika" }));
     expect(
-      screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+      screen.queryByRole("group", { name: "Uprawnienia tej osoby" }),
     ).not.toBeInTheDocument();
     await user.type(screen.getByPlaceholderText("Jan Kowalski"), "Gaja Nowa");
     await user.click(screen.getByRole("button", { name: "Zapisz" }));

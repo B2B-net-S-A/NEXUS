@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/leads/{lead_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/leads": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/leads/{lead_id}/convert": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
