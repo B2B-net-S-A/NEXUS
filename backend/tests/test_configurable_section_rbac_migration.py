@@ -31,7 +31,7 @@ MIGRATION_SQL_MODULES: dict[str, str] = {
     "0490_board_role.py": "app/services/board_role_schema.py",
 }
 
-# 0633 zeruje sekcje wycofywanego Viewera; zamrożona 0269 nadal zasiewa odczyt.
+# 0634 zeruje sekcje wycofywanego Viewera; zamrożona 0269 nadal zasiewa odczyt.
 SEEDED_BY_0269_THEN_ZEROED: dict[str, dict[str, str]] = {
     UserRole.user.value: {
         "sourcing": "read",
