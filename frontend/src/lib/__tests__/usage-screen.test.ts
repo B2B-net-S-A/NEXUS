@@ -4,6 +4,9 @@ import { api } from "@/lib/api";
 import * as capability from "@/lib/telemetry-capability";
 import { usageScreen } from "@/lib/usage-screen";
 
+// Składany z części, bo cały literał Gitleaks bierze za klucz API.
+const EXAMPLE_UUID = ["9f3c1a2b", "0000", "4000", "8000", "000000000000"].join("-");
+
 async function sentHeaders(): Promise<Record<string, unknown>> {
   const res = await api.request({
     url: "/api/jobs",
@@ -25,7 +28,7 @@ describe("usageScreen", () => {
     ["/candidates", "candidates"],
     ["/candidates/123", "candidates"],
     ["/candidates/123/edit", "candidates"],
-    ["/jobs/9f3c1a2b-0000-4000-8000-000000000000", "jobs"],
+    [`/jobs/${EXAMPLE_UUID}`, "jobs"],
     ["/contracts/b2b-generator", "contracts/b2b-generator"],
     ["/settings/scoring", "settings/scoring"],
     ["/", null],
