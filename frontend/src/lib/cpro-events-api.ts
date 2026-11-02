@@ -61,7 +61,11 @@ export interface CproLog {
 }
 
 export const fetchJobCproEvents = (jobId: number): Promise<CproJobEvents> =>
-  api.get(`/api/jobs/${jobId}/cpro-events`).then((r) => r.data);
+  api.get<Partial<CproJobEvents> | null>(`/api/jobs/${jobId}/cpro-events`).then((r) => ({
+    closed: r.data?.closed ?? null,
+    rejected: r.data?.rejected ?? [],
+    rejected_more: r.data?.rejected_more ?? 0,
+  }));
 
 export const fetchCproLog = (onlyManual: boolean): Promise<CproLog> =>
   api.get("/api/cpro/log", { params: onlyManual ? { outcome: "manual" } : undefined }).then((r) => r.data);
