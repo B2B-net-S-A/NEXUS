@@ -1,4 +1,4 @@
 {
-  "sha256": "188d41d60086459708d5d4cf48f3f73f6f149d65aa501bbf140c9cb3b95e9377",
+  "sha256": "2d0920416146f07036d43c7989a57ddff96664dc5dc121572069a8d4746a7e45",
   "source": "backend/app/api/client_md_imports.py"
 }
