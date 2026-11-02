@@ -433,6 +433,39 @@ async def test_estimate_builds_texts_but_never_calls_voyage_or_qdrant(
     assert f"{chars} chars total" in caplog.text
 
 
+@pytest.mark.asyncio
+async def test_estimate_with_resume_returns_how_many_points_are_current(
+    active_v1, monkeypatch
+):
+    """Strażnik stagingu liczy z tego osoby z nieaktualnym wektorem."""
+    scripted = [[(1,), (2,)], [_cand(1), _cand(2)]]
+    monkeypatch.setattr(reembed, "AsyncSessionLocal", lambda: _Session(scripted, []))
+    text = ct.build_candidate_text_v3(_cand(1), include_notes=True)
+    monkeypatch.setattr(
+        reembed,
+        "_qdrant_point_hashes",
+        AsyncMock(
+            return_value={
+                1: (reembed._text_hash(text), reembed._voyage_model()),
+                2: ("inna-tresc", reembed._voyage_model()),
+            }
+        ),
+    )
+
+    result = await reembed._reembed_candidates(
+        commit=False,
+        batch=10,
+        limit=None,
+        log_every=1000,
+        collection="nexus_candidates_v3",
+        text_schema="v3",
+        resume=True,
+        estimate=True,
+    )
+
+    assert result == (2, 1, 0)
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
