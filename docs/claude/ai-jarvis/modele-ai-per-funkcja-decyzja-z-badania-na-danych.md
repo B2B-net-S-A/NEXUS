@@ -106,3 +106,25 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
   trójka = dostawca z własną stawką za odczyt cache), przy nowym dostawcy —
   gałąź w `llm_providers.build_request/parse_response` i etykieta w
   `HEALTH_LABEL`.
+
+## Audyt Sonnet 5.5 i Haiku 5.5 (02.11.2026)
+
+Bieg na danych produkcyjnych w `/root/nexus-model-eval`, wyniki w `results-nov/`,
+decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
+
+- **Sonnet 5.5 odrzuca `thinking: disabled` kodem 400.** Wołający zostają przy
+  `disabled`, a `claude_client._sdk_request_kwargs` tłumaczy to na `between_tools`
+  dla każdego modelu w łańcuchu osobno, bo `between_tools` przyjmuje tylko Sonnet 5.5.
+  Pomiar objął tylko ten tryb; adaptive nie był mierzony.
+- **Nowszy nie znaczy lepszy per funkcja.** Sonnet 5.5 przegrywa z Sonnetem 5 przy
+  profilach Championa (recall MUST 72% wobec 97%) i uzasadnieniach (wskazane braki
+  18% wobec 51%), więc tam modelem zapasowym jest Haiku 5.5 (89% i 43%).
+- **Model zapasowy działa tylko, gdy wołający go przekaże.** Wpis w rejestrze nic nie
+  zmieni bez `fallback_models=` w wywołaniu; do 02.11 nie przekazywały go parser CV,
+  uzasadnienia, kafelki CV i lint reguł. Daty doświadczenia idą przez parser, więc
+  mają jego łańcuch i nie mają osobnego wpisu.
+- **Cache:** w parserze 81% kosztu to wyjście, więc cache instrukcji daje tylko
+  kilkanaście USD miesięcznie. Znacznik stoi przed CV (`cv_parser._user_content`).
+  Generator ma TTL 1 godzina, bo 96% wywołań dzieli mniej niż godzina, a 5 minut
+  tylko 44%. Jarvis zostaje przy 5 minutach: narzędzia z 5-minutowym znacznikiem
+  stoją przed systemem, a dłuższy TTL musi poprzedzać krótszy, inaczej API zwraca 400.

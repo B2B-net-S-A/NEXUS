@@ -150,8 +150,8 @@ def test_the_reviewer_is_a_different_model_than_the_generator(review_on, monkeyp
         assert call["model_override"] == "gpt-6-luna"
         assert call["model_override"] != model_for(AIFeatureKey.cv_generator)
         # Przeciążenie u OpenAI nie może zdejmować funkcji, ale fallback musi
-        # iść na Sonneta, a nie na fallback generatora (Opus).
-        assert list(call["fallback_models"]) == ["claude-sonnet-5"]
+        # iść na Haiku (audyt 02.11.2026), a nie na fallback generatora (Opus).
+        assert list(call["fallback_models"]) == ["claude-haiku-5-5"]
 
 
 def test_the_model_override_is_honoured(review_on, monkeypatch):

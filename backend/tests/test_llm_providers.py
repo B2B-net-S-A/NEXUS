@@ -534,6 +534,36 @@ def test_metering_event_carries_the_provider_and_its_own_prices():
     assert event["price_version"]
 
 
+def test_new_claude_generations_have_their_own_prices():
+    """Bez wpisu Haiku 5.5 nie miałby ceny, a panel kosztów pokazałby zero."""
+    from decimal import Decimal
+    from types import SimpleNamespace
+
+    from app.services.ai_metering import response_event
+
+    def priced(model):
+        message = SimpleNamespace(
+            id=f"msg-{model}",
+            model=model,
+            stop_reason="end_turn",
+            usage=SimpleNamespace(
+                input_tokens=1000,
+                output_tokens=100,
+                cache_read_input_tokens=1000,
+                cache_creation_input_tokens=1000,
+                cache_creation=SimpleNamespace(ephemeral_1h_input_tokens=0),
+            ),
+        )
+        return response_event("op", message, model=model, latency_ms=1)[
+            "estimated_cost_usd"
+        ]
+
+    # (0.10 × (1000 + 100 + 1250) + 0.50 × 100) / 1e6
+    assert priced("claude-haiku-5-5") == Decimal("0.00028500")
+    # (2 × (1000 + 100 + 1250) + 10 × 100) / 1e6
+    assert priced("claude-sonnet-5-5") == Decimal("0.00570000")
+
+
 def test_openai_cache_write_is_its_own_bucket_priced_at_125_percent():
     """GPT-5.6+ zgłasza zapis do cache w `prompt_tokens_details` i liczy go
     1,25× wejścia (kształt zmierzony na gpt-6-luna 22.09.2026). Do tej daty

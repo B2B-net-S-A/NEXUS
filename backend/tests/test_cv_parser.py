@@ -578,3 +578,78 @@ async def test_parse_cv_bills_the_requesting_user(monkeypatch):
     await cvp.parse_cv("cv text", db=object(), user_id=42)
 
     assert seen["user_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_anthropic_call_caches_the_instructions_but_not_the_cv(monkeypatch):
+    """Instrukcje są stałe, a CV inne przy każdym wywołaniu. Znacznik musi stać
+    między nimi, bo znacznik za CV płaci za zapis, którego nikt nie odczyta."""
+    from app.services import claude_client
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("TREŚĆ CV {nawias}") is not None
+
+    head, tail = seen["messages"][0]["content"]
+    assert head["cache_control"] == {"type": "ephemeral"}
+    assert "TREŚĆ CV" not in head["text"]
+    assert "cache_control" not in tail
+    assert head["text"] + tail["text"] == CV_ENRICHMENT.template.replace(
+        "{cv_text}", "TREŚĆ CV {nawias}"
+    ).replace("{{", "{").replace("}}", "}")
+
+
+@pytest.mark.asyncio
+async def test_model_outside_anthropic_reads_the_same_whole_prompt(monkeypatch):
+    from app.services import claude_client, llm_providers
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    monkeypatch.setattr(llm_providers, "api_key_configured", lambda model: True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv", model="gpt-6-luna") is not None
+
+    assert llm_providers._flatten_text(
+        seen["messages"][0]["content"], what="test"
+    ) == CV_ENRICHMENT.render(cv_text="cv")
+
+
+@pytest.mark.asyncio
+async def test_parser_uses_the_fallback_declared_in_the_registry(monkeypatch):
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_models, claude_client
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv") is not None
+
+    assert seen["fallback_models"] == [
+        m
+        for m in ai_models.model_chain_for(AIFeatureKey.cv_parser)
+        if m != seen["model"]
+    ]
+    assert seen["fallback_models"]
