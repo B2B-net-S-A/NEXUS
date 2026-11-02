@@ -254,6 +254,114 @@ export function ReportProposals({
   );
 }
 
+const SEGMENT_BAR: Record<string, string> = {
+  system: "bg-success",
+  proposal: "bg-success/75",
+  reassign: "bg-success/50",
+  outside_base: "bg-muted-foreground",
+  top20: "bg-warning/70",
+  r21_40: "bg-warning",
+  r41_150: "bg-destructive/60",
+  below_pool: "bg-destructive",
+  hidden_gate: "bg-primary",
+  cut_rules: "bg-primary/60",
+  no_pool: "bg-foreground/60",
+  no_snapshot: "bg-muted",
+};
+
+function SentVsSystemSection({ data }: { data: AutofillQualitySummary["sent_vs_system"] }) {
+  return (
+    <section
+      aria-label="Wysłani do klienta a propozycje systemu"
+      data-testid="sent-vs-system"
+      data-tour="insights.sent-vs-system"
+      className="space-y-3 rounded-lg border border-border bg-card p-4"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold">Wysłani do klienta: czy system ich pokazał?</h2>
+        <p className="text-xs text-muted-foreground">
+          {countPl(data.total, "osoba", "osoby", "osób")} w {countPl(data.jobs, "rekrutacji", "rekrutacjach", "rekrutacjach")}
+        </p>
+      </div>
+      {data.total === 0 ? (
+        <p className="text-sm text-muted-foreground">W tym okresie nikt nie został wysłany do klienta.</p>
+      ) : (
+        <>
+          {data.measured > 0 ? (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <p className="text-xs text-muted-foreground">
+                <span className="block text-xl font-bold tabular-nums text-foreground">{pct(data.shown_pct)}</span>
+                system pokazał sam
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <span className="block text-xl font-bold tabular-nums text-foreground">{pct(data.outside_base_pct)}</span>
+                spoza bazy, system nie mógł ich znać
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <span className="block text-xl font-bold tabular-nums text-foreground">{pct(data.missed_pct)}</span>
+                znał, ale nie pokazał
+              </p>
+            </div>
+          ) : null}
+          <div className="flex h-5 overflow-hidden rounded" role="img" aria-label="Podział wysłanych osób">
+            {data.segments.map((segment) => (
+              <div
+                key={segment.key}
+                title={`${segment.label}: ${segment.count}`}
+                className={cn(SEGMENT_BAR[segment.key] ?? "bg-muted")}
+                style={{ width: `${(100 * segment.count) / data.total}%` }}
+              />
+            ))}
+          </div>
+          <ul className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+            {data.segments.map((segment) => (
+              <li key={segment.key} className="flex items-center gap-1">
+                <span aria-hidden="true" className={cn("h-2.5 w-2.5 rounded-sm", SEGMENT_BAR[segment.key] ?? "bg-muted")} />
+                {segment.label} <b className="tabular-nums">{segment.count}</b>
+              </li>
+            ))}
+          </ul>
+          {data.no_snapshot > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              „Sprzed pomiaru” to osoby dodane, zanim system zaczął zapisywać swoją kolejność. Procenty ich nie liczą.
+            </p>
+          ) : null}
+          {data.worst_jobs.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="text-left text-muted-foreground">
+                  <tr>
+                    <th className="py-1 pr-3 font-medium">Rekrutacja, w której system minął najwięcej</th>
+                    <th className="px-3 py-1 text-right font-medium">Wysłani</th>
+                    <th className="px-3 py-1 text-right font-medium">Minięci</th>
+                    <th className="py-1 pl-3 font-medium">Dlaczego</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.worst_jobs.map((job) => (
+                    <tr key={job.job_id} className="border-t border-border">
+                      <td className="py-1.5 pr-3">
+                        <Link href={`/jobs/${job.job_id}`} className="font-medium text-primary hover:underline">
+                          {job.job_title}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{job.sent}</td>
+                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{job.missed}</td>
+                      <td className="py-1.5 pl-3">
+                        {job.reasons.map((r) => `${r.label}: ${r.count}`).join(" · ")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function AutofillQualityView() {
   const searchParams = useSearchParams();
   const [days, setDays] = useState<Days>("7");
@@ -298,6 +406,7 @@ export function AutofillQualityView() {
       ) : summary.isSuccess ? (
         <>
           <SummaryTiles data={summary.data} />
+          <SentVsSystemSection data={summary.data.sent_vs_system} />
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)]">
             <BucketBars data={summary.data} />
             <WorstJobs data={summary.data} />

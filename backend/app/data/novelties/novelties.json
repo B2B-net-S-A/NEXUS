@@ -622,5 +622,17 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "board.new-queue"
+  },
+  {
+    "id": "wyslani-a-system",
+    "title": "Jakość podpowiedzi: czy system pokazał osoby wysłane do klienta",
+    "why": "Widzisz, ile osób wysłanych do klienta system pokazał sam, ile było spoza bazy, a ile znał i minął, oraz w których rekrutacjach mija najwięcej.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["head_of_recruitment", "admin"]},
+    "where": "Insights → Jakość podpowiedzi systemu",
+    "href": "/insights/autofill",
+    "section": "insights",
+    "dot_anchor": "insights.sent-vs-system"
   }
 ]

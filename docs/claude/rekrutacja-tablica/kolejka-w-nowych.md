@@ -47,3 +47,21 @@ za umiejętności nic nie dokładały.
   (`PUT /api/scoring-weights/panel/known-points`, `app_settings.queue_known_points`).
   Działają od razu, bez szkicu i pomiaru panelu, bo nie zmieniają „Dop.” ani progu.
   Pomiar w tekście suwaka dotyczy wartości +6, +8, +2.
+
+## Wysłani do klienta a system
+
+Sekcja w „Insights → Jakość podpowiedzi systemu” (`services/sent_vs_system.py`,
+pole `sent_vs_system` w `GET /api/autofill-quality/summary`). Pierwszy pomiar
+z 23.10–02.11: ze 201 osób system pokazał 41%, 17% było spoza bazy, 42% znał i minął.
+
+- **Liczymy z migawki przy dodaniu**, `entry_meta.system_view` (`snapshot_for_add`
+  w `add_candidates_to_job`, dodanie przez człowieka). Nie przeliczaj tego przy
+  wysyłce: pula jest co noc nadpisywana, a CV i wektor zmieniają się po rozmowie.
+- **Migawka nie ma pola `kind`**, więc czytniki plakietek jej nie widzą. Awaria
+  zostawia dodanie bez migawki (savepoint), nigdy nie blokuje osoby.
+- Kategorie: `outside_base` (dopisana do bazy do 7 dni przed dodaniem), `top20`,
+  `r21_40`, `r41_150`, `below_pool`, `hidden_gate`, `cut_rules`, `no_pool`. Źródła
+  `system`, `proposal`, `reassign` liczą się jako pokazane, bez patrzenia na migawkę.
+- Karty otwarte przed `MEASURED_SINCE` (03.11.2026) i osoby bez migawki to „Sprzed
+  pomiaru”, także od systemu: są na pasku, ale procenty ich nie liczą. Inaczej do
+  mianownika wchodziłyby dawne karty od systemu, a dawne ręczne nie.
