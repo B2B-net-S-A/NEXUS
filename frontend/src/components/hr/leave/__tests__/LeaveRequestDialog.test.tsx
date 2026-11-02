@@ -170,6 +170,22 @@ beforeEach(() => {
   mocks.cproSender = false;
 });
 
+describe("LeaveRequestDialog — kopia poczty do zastępcy", () => {
+  it("mówi, że maile zostają w skrzynce, a zastępca dostaje kopię tylko spoza firmy", async () => {
+    const user = userEvent.setup();
+    const dialog = open("self");
+
+    await user.selectOptions(within(dialog).getByLabelText("Zastępca"), "5");
+
+    const consent = within(dialog).getByRole("checkbox");
+    expect(consent).not.toBeChecked();
+    const label = consent.closest("label");
+    expect(label).toHaveTextContent("kopię poczty od osób spoza firmy");
+    expect(label).toHaveTextContent("Wszystkie maile nadal trafiają do Twojej skrzynki");
+    expect(dialog).not.toHaveTextContent(/przekierow/i);
+  });
+});
+
 describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
   it("własny wniosek: rodzaj, pół dnia, zastępca, notatka, zgoda na przekierowanie i OOF", async () => {
     const user = userEvent.setup();

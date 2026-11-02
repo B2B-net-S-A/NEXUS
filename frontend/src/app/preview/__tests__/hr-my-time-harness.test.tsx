@@ -94,7 +94,7 @@ describe("/preview/hr-my-time", () => {
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Ewa Makietowa")).toBeInTheDocument();
-    expect(within(table).getByText("przekierowanie poczty")).toBeInTheDocument();
+    expect(within(table).getByText("kopia poczty do zastępcy")).toBeInTheDocument();
     expect(within(table).getAllByText("Zgłoszone").length).toBeGreaterThan(0);
     expect(within(table).getByText(/kolizja · Marta Fikcyjna/)).toBeInTheDocument();
     expect(within(table).queryByText("Urlop wypoczynkowy")).toBeNull();
