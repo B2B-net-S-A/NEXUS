@@ -40,6 +40,7 @@
   "POST /api/scoring-weights/panel/history/{change_id}/restore": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "POST /api/scoring-weights/panel/measurements": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
   "POST /api/scoring-weights/panel/publish": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "PUT /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
+  "PUT /api/scoring-weights/panel/known-points": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

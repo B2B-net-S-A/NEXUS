@@ -106,6 +106,27 @@ describe("Płace — premie", () => {
     expect(screen.getByText(/kontrakt skończył się przed terminem/)).toBeInTheDocument();
   });
 
+  it("wiersz z arkusza mówi, skąd jest, a nie że ktoś go poprawił", () => {
+    render(<BonusTable rows={[proposal({ from_sheet: true, edited: false })]} />);
+    expect(screen.getByText(/z arkusza/)).toBeInTheDocument();
+    expect(screen.queryByText(/kwota poprawiona/)).not.toBeInTheDocument();
+  });
+
+  it("anulowanie przez koniec kontraktu podaje datę końca", () => {
+    render(
+      <BonusTable
+        rows={[
+          proposal({
+            status: "cancelled",
+            cancel_reason: "contract_ended",
+            cancel_ended_on: "2026-08-31",
+          }),
+        ]}
+      />,
+    );
+    expect(screen.getByText(/kontrakt zakończony 31\.08\.2026/)).toBeInTheDocument();
+  });
+
   it("dzieli premie na decyzje, przyznane i liczbę anulowanych", () => {
     const parts = splitBonuses([
       proposal(),

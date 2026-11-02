@@ -4948,6 +4948,8 @@ export const scoringWeightsApi = {
   panel: () => api.get<RankingPanelState>("/api/scoring-weights/panel"),
   saveDraft: (payload: RankingPanelWeights) =>
     api.put<RankingPanelState>("/api/scoring-weights/panel/draft", payload),
+  saveKnownPoints: (payload: Omit<RankingKnownPoints, "max">) =>
+    api.put<RankingPanelState>("/api/scoring-weights/panel/known-points", payload),
   discardDraft: () => api.delete("/api/scoring-weights/panel/draft"),
   measurement: () =>
     api.get<{ measurement: RankingMeasurement | null }>(
@@ -5042,7 +5044,16 @@ export interface RankingChange {
   } | null;
 }
 
+/** Punkty kolejki w „Nowych”: „znamy tę osobę” (`known_queue_points`). */
+export interface RankingKnownPoints {
+  client: number;
+  note_recent: number;
+  note_older: number;
+  max: number;
+}
+
 export interface RankingPanelState {
+  known_points: RankingKnownPoints;
   published: {
     weights: RankingPanelWeights;
     shares: Record<RankingLayer, number>;

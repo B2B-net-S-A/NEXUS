@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { newColumnSection, orderNewColumn, waitsInSystemQueue } from "@/lib/new-column-queue";
+import {
+  daysAgoText,
+  knownFactLabels,
+  newColumnSection,
+  orderNewColumn,
+  waitsInSystemQueue,
+} from "@/lib/new-column-queue";
 
 const system = (id: number, score: number, extra: object = {}) => ({
   id,
@@ -47,6 +53,40 @@ describe("orderNewColumn", () => {
     const { items, total } = orderNewColumn([{ id: 9, candidate_id: 90, entry_source: "system", entry_autofill: null }, system(1, 70)]);
     expect(items.map((i) => i.id)).toEqual([9, 1]);
     expect(total).toBe(1);
+  });
+});
+
+describe("znamy tę osobę", () => {
+  const known = (points: number) => ({
+    points,
+    client_points: points,
+    note_points: 0,
+    verified_at_client: 1,
+    last_note_days: null,
+  });
+
+  it("punkty podnoszą kartę ponad osobę z wyższym wynikiem", () => {
+    const familiar = system(2, 72, { entry_autofill: { score: 72, decided: false, cautions: [], known: known(6) } });
+    const { items, ranks } = orderNewColumn([system(1, 75), familiar]);
+    expect(items.map((i) => i.id)).toEqual([2, 1]);
+    expect(ranks.get(2)).toBe(1);
+  });
+
+  it("punkty nie przebijają brakującej krytycznej", () => {
+    const familiar = system(2, 90, { entry_autofill: { score: 90, decided: false, cautions: [], known: known(15) } });
+    const { items } = orderNewColumn([familiar, system(1, 60)], new Map([[20, ["java"]]]));
+    expect(items.map((i) => i.id)).toEqual([1, 2]);
+  });
+
+  it("opisuje powody krótko i pomija te bez punktów", () => {
+    expect(
+      knownFactLabels({ points: 14, client_points: 6, note_points: 8, verified_at_client: 7, last_note_days: 2 }),
+    ).toEqual(["U klienta · 7×", "Notatka 2 dni temu"]);
+    expect(
+      knownFactLabels({ points: 8, client_points: 0, note_points: 8, verified_at_client: 0, last_note_days: 1 }),
+    ).toEqual(["Notatka wczoraj"]);
+    expect(knownFactLabels(null)).toEqual([]);
+    expect(daysAgoText(0)).toBe("dziś");
   });
 });
 
