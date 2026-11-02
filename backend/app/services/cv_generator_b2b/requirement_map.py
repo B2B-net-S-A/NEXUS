@@ -47,7 +47,7 @@ from app.services.cv_generator_b2b.public_view import (
 )
 from app.services.prompt_fencing import json_for_prompt
 from app.services.llm_prompts import CV_REQUIREMENT_MAP
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
@@ -458,6 +458,7 @@ async def generate_map_result(
     message = await run_in_threadpool(
         call_claude,
         model=DEFAULT_MODEL,
+        fallback_models=list(fallbacks_for(AIFeatureKey.cv_requirement_map)),
         max_tokens=MAX_TOKENS,
         # Claude 5: adaptive thinking liczy się do max_tokens i ucina JSON.
         thinking={"type": "disabled"},

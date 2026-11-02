@@ -86,6 +86,13 @@ u dostawcy nie zdejmuje funkcji. Brak klucza dostawcy to 401 NIEPONAWIALNE
 — nie kaskaduje na Claude, żeby błąd konfiguracji był widoczny (także
 w ``/api/health``: ``checks.openai`` / ``checks.deepseek``).
 
+Modele zapasowe po audycie z 02.11.2026 (bieg na danych produkcyjnych, decyzja
+Artura): Haiku 5.5 tam, gdzie wypadł co najmniej tak dobrze jak Sonnet 5.5, czyli
+przy profilach Championa (recall MUST 89% wobec 72%) i uzasadnieniach (wskazane
+braki 43% wobec 18%), Sonnet 5.5 przy parserze, zamówieniach, kafelkach CV
+i ogłoszeniach. Luna zostaje z Sonnetem 5, poza recenzentem CV, który schodzi
+na Haiku 5.5. Tabela wyżej mówi o modelach głównych.
+
 Rozwiązanie różnicy pustego env-a: Coolify wstrzykuje puste stringi
 (``CV_B2B_MAX_RETRIES=""`` — patrz ``claude_client.env_number``), więc pusty
 override jest traktowany jak brak, a nie jak model o nazwie ``""``.
@@ -101,6 +108,8 @@ from app.models.ai_feature import AIFeatureKey
 from app.services.llm_providers import ANTHROPIC, api_key_for, provider_of
 
 SONNET_5 = "claude-sonnet-5"
+SONNET_55 = "claude-sonnet-5-5"
+HAIKU_55 = "claude-haiku-5-5"
 GPT_LUNA = "gpt-6-luna"
 DEEPSEEK_PRO = "deepseek-v4-pro"
 
@@ -140,18 +149,21 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.scoring: ModelChoice(
         default=SONNET_5,
         env_vars=("MATCH_SCORING_MODEL",),
+        fallbacks=(HAIKU_55,),
         rationale="F1. Uzasadnienie dopasowania (LLM); sam ranking jest deterministyczny. "
         "Badanie 16.09: pokrycie brakujących wymagań 0.53 vs 0.32 (Haiku), 0.19 (Luna).",
     ),
     AIFeatureKey.job_description_generator: ModelChoice(
         default=SONNET_5,
         env_vars=("JOB_WRITER_MODEL",),
+        fallbacks=(SONNET_55,),
         rationale="F6. Generator ogłoszeń; jedyny model z językiem OK w 100% (badanie 16.09).",
     ),
     AIFeatureKey.cv_parser: ModelChoice(
         default=SONNET_5,
         env_vars=("CV_PARSER_MODEL",),
         settings_attr="CLAUDE_MODEL_CV",
+        fallbacks=(SONNET_55,),
         rationale="F9. Parser CV; honoruje legacy CLAUDE_MODEL_CV, CV_PARSER_MODEL rozdziela "
         "go od reszty. Badanie 16.09: najmniej wymyślonych faktów (0.063).",
     ),
@@ -178,6 +190,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         # env_vars (os.environ) wygrywa i zwykle to wystarcza; settings_attr
         # łapie wariant z pliku .env, który pydantic czyta, a os.environ nie widzi.
         settings_attr="ORDER_PARSER_MODEL",
+        fallbacks=(SONNET_55,),
         rationale="F7. Odczyt PDF zamówień: Sonnet 5 (decyzja Artura 25.09.2026, drugi powrót "
         "z Luny). Zespół zgłosił, że GPT-6 Luna ciągle oznacza odczyt jako niepewny — bramka "
         "poczty wysyła każdy taki odczyt do kolejki zamiast zapisu automatycznego. Ten sam "
@@ -187,6 +200,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.cv_requirement_map: ModelChoice(
         default=SONNET_5,
         env_vars=("CV_REQUIREMENT_MAP_MODEL",),
+        fallbacks=(SONNET_55,),
         rationale="F3. Mapa wymagań: zgodność 0.944, najmniej zgubionych dowodów.",
     ),
     AIFeatureKey.cv_interactive_chat: ModelChoice(
@@ -228,6 +242,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.champion_profile_parse: ModelChoice(
         default=SONNET_5,
         env_vars=("CHAMPION_PROFILE_PARSE_MODEL",),
+        fallbacks=(HAIKU_55,),
         rationale="F2. Odczyt profili Championa: Sonnet 5 recall 0.955 przy 0.05 wymyślonych; "
         "Haiku bez stacku wymyślał 82% pozycji (badanie 16.09).",
     ),
@@ -251,6 +266,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=SONNET_5,
         env_vars=("CV_RULE_LINT_MODEL",),
         settings_attr="CLAUDE_MODEL_CV_BULK",
+        fallbacks=(HAIKU_55,),
         rationale="F14. Lint reguł CV; honoruje CLAUDE_MODEL_CV_BULK, CV_RULE_LINT_MODEL "
         "rozdziela od backfillu.",
     ),
@@ -264,7 +280,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.cv_factual_verification: ModelChoice(
         default=GPT_LUNA,
         env_vars=("CV_FACTUAL_VERIFICATION_MODEL",),
-        fallbacks=(SONNET_5,),
+        fallbacks=(HAIKU_55,),
         rationale="F18 (decyzja 18.09.2026, POZA badaniem 16.09). Recenzent gotowego CV "
         "MUSI być innym modelem niż generator (F4 = Sonnet 5): badanie zmierzyło, że sędzia "
         "LLM faworyzuje własne wyjście (~+30 pkt), więc kontrola własnej pracy jest "
@@ -277,7 +293,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         # WYŁĄCZNIE Anthropic: pętla agenta wysyła `tools`, a
         # `llm_providers._UNSUPPORTED_KWARGS` odrzuca je dla GPT/DeepSeek
         # nieponawialnym ValueError — fallback na innego dostawcę zabiłby łańcuch.
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F19 (decyzja 21.09.2026, POZA badaniem 16.09). Jarvis wymaga tool-use, "
         "który w NEXUSIE obsługuje tylko dostawca Anthropic; Sonnet 5 jak reszta funkcji "
         "rozumujących, Haiku jako tańszy fallback przy przeciążeniu.",
@@ -285,7 +301,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.job_public_description: ModelChoice(
         default=SONNET_5,
         env_vars=("JOB_PUBLIC_DESCRIPTION_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F20 (decyzja 21.09.2026, POZA badaniem 16.09). Publiczny opis rekrutacji "
         "na stronę kariery to ta sama robota co F6 (generator ogłoszeń), a tam Sonnet 5 był "
         "jedynym modelem z językiem OK w 100%. Tekst i tak przechodzi deterministyczną "
@@ -340,7 +356,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.plain_knowledge_research: ModelChoice(
         default=SONNET_5,
         env_vars=("PLAIN_KNOWLEDGE_RESEARCH_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F26 (decyzja Artura 29.09.2026, POZA badaniem 16.09). Research "
         "„Champion po ludzku” używa narzędzia web_search, które działa tylko u "
         "Anthropic (jak F19). Do wyszukiwarki idzie sama nazwa technologii, roli "
@@ -376,7 +392,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.cv_selection_edit: ModelChoice(
         default=SONNET_5,
         env_vars=("CV_SELECTION_EDIT_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F30 (decyzja 12.10.2026, POZA badaniem 16.09). Redakcja fragmentu CV, "
         "które pisał generator (F4, Sonnet 5) i które czyta klient — jak F20: proza "
         "z deterministyczną kontrolą (nowy fakt bez cytatu ze źródła odrzuca kod) "
@@ -386,7 +402,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.cv_editor_command: ModelChoice(
         default=SONNET_5,
         env_vars=("CV_EDITOR_COMMAND_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F31 (decyzja 12.10.2026, POZA badaniem 16.09). Plan zmian dla całego CV "
         "z polecenia rekrutera — ten sam autor co F30, bo redaguje ten sam tekst. Model "
         "zwraca listę operacji na wierszach, kod sprawdza każdą (nowy fakt, układ szablonu), "
@@ -395,7 +411,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.expense_document_read: ModelChoice(
         default=SONNET_5,
         env_vars=("EXPENSE_DOCUMENT_READ_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F33 (decyzja 20.10.2026, POZA badaniem 16.09). Odczyt kwoty, waluty, "
         "NIP-u i nazwy sprzedawcy z faktury albo paragonu do zgody (Zgody, etap 3). "
         "Paragon bywa zdjęciem, więc model musi czytać obraz — Sonnet 5 jak odczyt PDF "
@@ -414,7 +430,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.interview_slots_from_mail: ModelChoice(
         default=SONNET_5,
         env_vars=("INTERVIEW_SLOTS_FROM_MAIL_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F32 (20.10.2026, POZA badaniem 16.09). Terminy rozmowy z maila klienta: "
         "daty względne („w czwartek”, „jutro”) liczone od daty maila, każdy termin z cytatem. "
         "Sonnet, bo pomyłka w dacie przesuwa rozmowę u klienta; wywołanie krótkie i rzadkie. "
@@ -432,7 +448,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.autofill_quality_report: ModelChoice(
         default=SONNET_5,
         env_vars=("AUTOFILL_QUALITY_REPORT_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F35 (23.10.2026, POZA badaniem 16.09). Raport poniedziałkowy silnika "
         "„Nowi na 20”: 3–5 propozycji poprawek z liczb policzonych przez kod i opisów "
         "odrzuceń. Raz w tygodniu, krótko — Sonnet, bo to wnioskowanie z danych. "
@@ -450,7 +466,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.requirement_word_hints: ModelChoice(
         default=SONNET_5,
         env_vars=("REQUIREMENT_WORD_HINTS_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F41 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Przycisk przy wierszu "
         "„musi mieć”, którego nie ma nikt z wysłanych: model czyta do 6 CV i podaje słowa, "
         "kod zostawia tylko te, które silnik znajduje. Pomiar 02.11 na Sonnecie 5, 257 odczytów: "
@@ -459,7 +475,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.consent_screenshot_check: ModelChoice(
         default=SONNET_5,
         env_vars=("CONSENT_SCREENSHOT_CHECK_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F37 (decyzja Artura 27.10.2026, POZA badaniem 16.09). Zrzut zgody RODO "
         "pod CV dla PKO BP: model przepisuje z obrazu nadawcę, adresatów, datę, numer ZOB "
         "i nazwisko z treści zgody — jak odczyt paragonu (F33). Werdykt wydaje kod, "
@@ -470,7 +486,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.linkedin_message_draft: ModelChoice(
         default=SONNET_5,
         env_vars=("LINKEDIN_MESSAGE_DRAFT_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F38 (decyzja Artura 28.10.2026, POZA badaniem 16.09). Wtyczka LinkedIn: "
         "krótki szkic InMaila, zaproszenia (≤ 300 znaków) albo wiadomości po polsku pod "
         "rekrutację, z profilu otwartego na LinkedInie. Krótki tekst w tonie rekrutera — "

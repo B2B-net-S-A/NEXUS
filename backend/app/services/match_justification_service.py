@@ -51,7 +51,7 @@ from app.services.ai_quota import ai_feature
 from app.services.contract_availability import ATTRIBUTE as CONTRACT_FREE_ATTRIBUTE
 from app.services.llm_prompts import MATCH_JUSTIFICATION
 from app.services.match_score_cache import get_cached_or_compute
-from app.services.ai_models import model_for
+from app.services.ai_models import fallbacks_for, model_for
 from app.services.scoring_service import (
     ScoreBreakdown,
     job_skill_requirements,
@@ -120,6 +120,9 @@ async def _call_claude_json(
             message = await run_in_threadpool(
                 call_claude,
                 model=model,
+                fallback_models=[
+                    m for m in fallbacks_for(AIFeatureKey.scoring) if m != model
+                ],
                 max_tokens=max_tokens,
                 thinking={"type": "disabled"},
                 system=system_prompt,

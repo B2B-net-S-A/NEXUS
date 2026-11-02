@@ -224,7 +224,6 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.mindy_chat,
         AIFeatureKey.notes_extraction,
         AIFeatureKey.candidate_summary,
-        AIFeatureKey.cv_factual_verification,
         AIFeatureKey.champion_draft,
         AIFeatureKey.cv_backfill,
         AIFeatureKey.cv_name_backfill,
@@ -286,3 +285,44 @@ def test_retrieval_defaults_f16_voyage_3_and_f17_reranker_off():
 
     assert Settings.model_fields["VOYAGE_MODEL"].default == "voyage-3"
     assert Settings.model_fields["RERANKER_ENABLED"].default is False
+
+
+# Modele zapasowe po audycie z 02.11.2026: wybrane na danych produkcyjnych,
+# nie „najnowszy z brzegu”, stąd Haiku 5.5 przy profilach Championa
+# (recall MUST 89% wobec 72% Sonneta 5.5).
+FALLBACKS_2026_11_02 = {
+    AIFeatureKey.cv_parser: "claude-sonnet-5-5",
+    AIFeatureKey.order_parser: "claude-sonnet-5-5",
+    AIFeatureKey.cv_requirement_map: "claude-sonnet-5-5",
+    AIFeatureKey.job_description_generator: "claude-sonnet-5-5",
+    AIFeatureKey.cv_factual_verification: "claude-haiku-5-5",
+    AIFeatureKey.champion_profile_parse: "claude-haiku-5-5",
+    AIFeatureKey.scoring: "claude-haiku-5-5",
+    AIFeatureKey.cv_rule_lint: "claude-haiku-5-5",
+    AIFeatureKey.jarvis: "claude-haiku-5-5",
+    AIFeatureKey.job_public_description: "claude-haiku-5-5",
+    AIFeatureKey.plain_knowledge_research: "claude-haiku-5-5",
+    AIFeatureKey.cv_selection_edit: "claude-haiku-5-5",
+    AIFeatureKey.cv_editor_command: "claude-haiku-5-5",
+    AIFeatureKey.expense_document_read: "claude-haiku-5-5",
+    AIFeatureKey.interview_slots_from_mail: "claude-haiku-5-5",
+    AIFeatureKey.autofill_quality_report: "claude-haiku-5-5",
+    AIFeatureKey.requirement_word_hints: "claude-haiku-5-5",
+    AIFeatureKey.consent_screenshot_check: "claude-haiku-5-5",
+    AIFeatureKey.linkedin_message_draft: "claude-haiku-5-5",
+}
+
+
+@pytest.mark.parametrize(
+    "feature,expected",
+    FALLBACKS_2026_11_02.items(),
+    ids=[f.value for f in FALLBACKS_2026_11_02],
+)
+def test_fallbacks_match_the_2026_11_02_audit(monkeypatch, feature, expected):
+    _clear_model_overrides(monkeypatch)
+    assert ai_models.model_chain_for(feature)[-1] == expected
+
+
+def test_no_fallback_points_at_the_retired_haiku_generation():
+    for choice in ai_models._REGISTRY.values():
+        assert not any(m.startswith("claude-haiku-4") for m in choice.fallbacks)
