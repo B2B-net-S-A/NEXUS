@@ -45,6 +45,9 @@ from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
 from app.services import auto_full_review as afr
 from app.services import candidate_search_store as store
+from app.services import request_matching_context, scoring_service
+from app.services.request_matching_context import build_request_context
+from app.services.scoring_service import resolve_active_profile
 from app.tasks import candidate_search_retention as retention
 
 
@@ -1578,9 +1581,16 @@ async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
         ] == "n" * 64
 
 
+async def _current_fingerprint(db, job_id: int) -> str:
+    job = await db.get(Job, job_id)
+    profile = await resolve_active_profile(db, user_id=None, client_id=job.client_id)
+    return build_request_context(job, profile).fingerprint
+
+
 async def _auto_run_at(
     world: dict, owner_id: int, created_at: datetime, versions: dict
 ) -> None:
+    """Przegląd sprzed `created_at` z dzisiejszym odciskiem: request bez zmian."""
     async with AsyncSessionLocal() as db:
         db.add(
             CandidateSearchRun(
@@ -1589,7 +1599,7 @@ async def _auto_run_at(
                 client_id=world["client_id"],
                 job_id=world["job_id"],
                 state="complete",
-                request_fingerprint=uuid.uuid4().hex * 2,
+                request_fingerprint=await _current_fingerprint(db, world["job_id"]),
                 request_context={},
                 version_trace={"origin": "auto", **versions},
                 population_size=0,
@@ -1634,6 +1644,104 @@ async def test_review_without_version_stamp_is_not_treated_as_stale():
     async with AsyncSessionLocal() as db:
         due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
     assert due.index(older["job_id"]) < due.index(unstamped["job_id"])
+
+
+async def test_request_changed_without_event_goes_first():
+    """Pomiar 02.11.2026: 8 ze 187 rekrutacji miało inny odcisk niż ostatni
+    przegląd i żadnego zdarzenia. Zapis pola spoza list zdarzeń (w 676343 kontakt
+    `hiring_manager_contact_id`) nie dawał pierwszeństwa, więc rekrutacja czekała
+    do 4 nocy na miejsce w limicie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    # Niezmieniona czeka dłużej, więc bez sprawdzenia odcisku byłaby pierwsza.
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_request_changed_after_retention_of_the_run_goes_first():
+    """Retencja kasuje przegląd po 2 dniach, odcisk zostaje we wpisie „Praca
+    w tle”. Tak było ze wszystkimi 8 rekrutacjami z pomiaru."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type=afr.ACTIVITY_ENTITY,
+                entity_id=changed["job_id"],
+                action="auto_full_review_finished",
+                details={
+                    "run_created_at": yesterday.isoformat(),
+                    "fingerprint": await _current_fingerprint(db, changed["job_id"]),
+                },
+            )
+        )
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_dictionary_edit_without_touching_the_job_goes_first():
+    """Nowy alias zmienia etykiety wymagań bez zapisu w rekrutacji: tak 28.10
+    wpis SailPoint zmienił krytyczne 789171, a pula zgadzała się potem z pełnym
+    przeglądem w 20% top 20. Żadne zdarzenie rekrutacji tego nie złapie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.must_skills = [{"name": f"Skrot{tag}", "level": None}]
+        job.champion_profile = {
+            "stack": {"must": [{"name": f"Skrot{tag}"}], "critical": [f"Skrot{tag}"]}
+        }
+        await db.commit()
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    aliases = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({**aliases, f"skrot{tag}": f"pelna nazwa {tag}"})
+    try:
+        async with AsyncSessionLocal() as db:
+            due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    finally:
+        scoring_service.set_alias_map(aliases)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_broken_request_context_does_not_stop_the_queue(monkeypatch):
+    """Rekrutacja, której kontekstu nie da się policzyć, nie blokuje nocy:
+    `start_for_job` zapisze jej awarię, a kolejka idzie dalej."""
+    owner_id, _ = await _user()
+    broken = await _job(owner_id=owner_id, event=False)
+    other = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(broken, owner_id, yesterday, {})
+    await _auto_run_at(other, owner_id, yesterday, {})
+
+    def _boom(job, profile):
+        if job.id == broken["job_id"]:
+            raise ValueError("zepsuty request")
+        return build_request_context(job, profile)
+
+    monkeypatch.setattr(request_matching_context, "build_request_context", _boom)
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert broken["job_id"] in due and other["job_id"] in due
 
 
 # ── Inna rola niż rekrutacja (27.10.2026) ──────────────────────────────────
