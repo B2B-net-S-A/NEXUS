@@ -193,7 +193,7 @@ class AIFeatureKey(str, enum.Enum):
     # 0628 (02.11.2026): podsumowanie transkryptu Teams spotkania handlowca.
     sales_meeting_summary = "sales_meeting_summary"
     case_triage = "case_triage"
-    # Portal konsultanta (0638): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
+    # Portal konsultanta (0643): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
     portal_meeting_summary = "portal_meeting_summary"
 
 

@@ -1,6 +1,6 @@
-"""Portal konsultanta (decyzje Artura 02.11.2026): SQL migracji ``0638_consultant_portal`` i lustra entrypointu.
+"""Portal konsultanta (decyzje Artura 02.11.2026): SQL migracji ``0643_consultant_portal`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0638_consultant_portal.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0643_consultant_portal.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt modułu
 jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

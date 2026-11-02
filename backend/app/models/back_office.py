@@ -1,4 +1,4 @@
-"""Back office na sprawach — modele kart, historii i zespołów (0637).
+"""Back office na sprawach — modele kart, historii i zespołów (0642).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/back_office_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).

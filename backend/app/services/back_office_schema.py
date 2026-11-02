@@ -1,6 +1,6 @@
-"""Back office na sprawach (decyzje Artura 02.11.2026): SQL migracji ``0637_back_office`` i lustra entrypointu.
+"""Back office na sprawach (decyzje Artura 02.11.2026): SQL migracji ``0642_back_office`` i lustra entrypointu.
 
-JEDNO źródło instrukcji dla ``alembic/versions/0637_back_office.py``
+JEDNO źródło instrukcji dla ``alembic/versions/0642_back_office.py``
 i ``entrypoint.sh`` (przez ``app/services/hr_schema_bundle.py``). Kontrakt
 modułu jak w pozostałych ``*_schema.py``; każda instrukcja idempotentna.
 

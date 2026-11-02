@@ -1,7 +1,7 @@
 """Portal konsultanta: linki, sesje, kody SMS, FAQ, rozmowy, oceny, dokumenty.
 
-Revision ID: 0638_consultant_portal
-Revises: 0637_back_office
+Revision ID: 0643_consultant_portal
+Revises: 0642_back_office
 
 SQL i powody: ``app/services/consultant_portal_schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import consultant_portal_schema as schema
 
-revision = "0638_consultant_portal"
-down_revision = "0637_back_office"
+revision = "0643_consultant_portal"
+down_revision = "0642_back_office"
 branch_labels = None
 depends_on = None
 

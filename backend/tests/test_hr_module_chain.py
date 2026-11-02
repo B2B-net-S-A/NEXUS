@@ -99,14 +99,14 @@ CHAIN = (
     ),
     # Kolejka spraw back office'u (02.11.2026).
     (
-        "0637_back_office",
-        "0636_cv_generator_feedback",  # down_revision — przepina rechain_migration.py
+        "0642_back_office",
+        "0641_career_link_channels",  # down_revision — przepina rechain_migration.py
         "back_office_schema",
     ),
     # Portal konsultanta (02.11.2026).
     (
-        "0638_consultant_portal",
-        "0637_back_office",  # down_revision — przepina rechain_migration.py
+        "0643_consultant_portal",
+        "0642_back_office",  # down_revision — przepina rechain_migration.py
         "consultant_portal_schema",
     ),
 )

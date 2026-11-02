@@ -1,4 +1,4 @@
-"""Portal konsultanta — modele (0638).
+"""Portal konsultanta — modele (0643).
 
 CHECK-i i indeksy muszą być identyczne z ``app/services/consultant_portal_schema.py``
 (strażnik dryfu schematu porównuje model z bazą po migracji).

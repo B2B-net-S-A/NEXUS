@@ -1,6 +1,6 @@
 """Back office na sprawach: karty, historia kart i skład zespołów.
 
-Revision ID: 0637_back_office
+Revision ID: 0642_back_office
 Revises: 0636_cv_generator_feedback
 
 SQL i powody: ``app/services/back_office_schema.py`` (to samo źródło czyta
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import back_office_schema as schema
 
-revision = "0637_back_office"
-down_revision = "0636_cv_generator_feedback"
+revision = "0642_back_office"
+down_revision = "0641_career_link_channels"
 branch_labels = None
 depends_on = None
 
