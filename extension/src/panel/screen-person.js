@@ -4,12 +4,15 @@
 import { ERROR_KINDS } from "../api.js";
 import {
   CONTACT_CHANNELS,
+  OFF_LIMITS_SKIP,
+  activeJobRow,
   contractorText,
   formatDate,
   formatMonthYear,
   inNexusSinceLabel,
   jobIdsForHow,
   offLimitsText,
+  openProcessIn,
   ownerText,
   processPill,
   rodoLabel,
@@ -19,10 +22,33 @@ import { apiErrorText } from "./errors.js";
 import { jobPicker } from "./job-picker.js";
 import { renderMessage } from "./screen-message.js";
 import { offLimitsQuestion } from "./off-limits.js";
-import { button, externalLink, frame, h, pill, section, segmented, spinnerLabel } from "./ui.js";
+import { button, externalLink, focusUnlessInWorkbar, frame, h, pill, section, segmented, spinnerLabel } from "./ui.js";
 
 export function initialPersonState() {
   return { tab: "person", form: null, job: null, how: null, askHow: null, busy: false, error: null, notice: null, message: null };
+}
+
+/** Osoba względem rekrutacji z paska „Pracuję nad”. */
+function activeJobFrame(ctx, ps, lookup) {
+  const active = ctx.state.activeJob;
+  if (!active) return null;
+  const process = lookup.processes.find((p) => p.job_id === active.id);
+  if (process) {
+    // Zamknięty proces (odrzucona, wycofana): NEXUS drugi raz jej nie doda, więc bez przycisku.
+    return process.closed
+      ? frame("warning", h("p", {}, `W tej rekrutacji: ${process.close_label || process.stage_label}`))
+      : frame("success", h("p", {}, `W tej rekrutacji: ${process.stage_label}`));
+  }
+  const score = activeJobRow(lookup, active)?.score;
+  return frame(
+    "info",
+    h("p", {}, `Jeszcze nie w rekrutacji „${active.title}”${score != null ? ` · dopasowanie ${score}%` : ""}.`),
+    button("Dodaj do tej rekrutacji", () => {
+      ps.job = active;
+      ps.form = null;
+      openForm(ctx, ps, "job");
+    }, { variant: lookup.off_limits || lookup.contractor ? "secondary" : "primary" }),
+  );
 }
 
 function processesSection(lookup) {
@@ -116,12 +142,17 @@ function jobForm(ctx, ps, lookup) {
         ps.error = "Wybierz rekrutację.";
         return;
       }
-      const res = await ctx.api.addToJobs(candidateId, jobIdsForHow(ps.how, [ps.job.id]), needHow ? ps.how : null);
+      const job = ps.job;
+      // „Nie, to my”: nic do zapisania, a NEXUS nie przyjmuje pustej listy rekrutacji.
+      const res = ps.how === OFF_LIMITS_SKIP ? {} : await ctx.api.addToJobs(candidateId, jobIdsForHow(ps.how, [job.id]), needHow ? ps.how : null);
       const skipped = res.skipped || [];
-      if ((res.assigned_job_ids || []).includes(ps.job.id)) ps.notice = `Dodano do rekrutacji „${ps.job.title}”.`;
-      else if (skipped.length) ps.error = `Nie dodano: ${skipped.map((s) => s.reason).join("; ")}`;
+      if ((res.assigned_job_ids || []).includes(job.id)) {
+        ps.notice = `Dodano do rekrutacji „${job.title}”.`;
+        ctx.addLocalProcess(job);
+      } else if (skipped.length) ps.error = `Nie dodano: ${skipped.map((s) => s.reason).join("; ")}`;
       else ps.notice = "Zapisano — osoba jest w bazie, bez nowej rekrutacji.";
       ps.form = null;
+      ps.job = null;
       ps.askHow = null;
       ps.how = null;
       ctx.onWrite();
@@ -170,7 +201,7 @@ function noteForm(ctx, ps, lookup) {
       ps.notice = "Notatka zapisana w NEXUSIE.";
       ctx.onWrite();
     });
-  if (!ps.busy) queueMicrotask(() => text.focus());
+  if (!ps.busy) queueMicrotask(() => focusUnlessInWorkbar(text));
   return h(
     "div",
     { class: "form card" },
@@ -181,7 +212,8 @@ function noteForm(ctx, ps, lookup) {
 }
 
 function contactForm(ctx, ps, lookup) {
-  const st = (ps.contact ||= { channel: "inmail", jobId: null, remind: false, days: 3, note: "" });
+  const activeProcess = openProcessIn(lookup, ctx.state.activeJob);
+  const st = (ps.contact ||= { channel: "inmail", jobId: activeProcess?.job_id ?? null, remind: false, days: 3, note: "" });
   const note = h("textarea", {
     class: "input textarea",
     rows: "3",
@@ -296,9 +328,11 @@ export function renderPerson(ctx) {
     return h("div", { class: "screen" }, head, tabs, renderMessage(ctx));
   }
 
+  // Off-limits i kontraktor nad przyciskiem „Dodaj do tej rekrutacji”: najpierw ostrzeżenie.
   const frames = [
     lookup.contractor ? frame("warning", h("p", {}, contractorText(lookup.contractor))) : null,
     lookup.off_limits ? frame("error", h("p", {}, offLimitsText(lookup.off_limits))) : null,
+    activeJobFrame(ctx, ps, lookup),
     lookup.owner && !lookup.owner.is_me ? frame("warning", h("p", {}, ownerText(lookup.owner))) : null,
     lookup.job_change && !ps.jobChangeDone
       ? frame(
@@ -323,7 +357,11 @@ export function renderPerson(ctx) {
     h(
       "div",
       { class: "row row--even" },
-      button("+ Rekrutacja", () => openForm(ctx, ps, "job"), { variant: ps.form === "job" ? "primary" : "secondary" }),
+      button("+ Rekrutacja", () => {
+        const active = state.activeJob;
+        if (!ps.job && active && !lookup.processes.some((p) => p.job_id === active.id)) ps.job = active;
+        openForm(ctx, ps, "job");
+      }, { variant: ps.form === "job" ? "primary" : "secondary" }),
       button("Notatka", () => openForm(ctx, ps, "note"), { variant: ps.form === "note" ? "primary" : "secondary" }),
       button("Kontakt", () => openForm(ctx, ps, "contact"), { variant: ps.form === "contact" ? "primary" : "secondary" }),
     ),

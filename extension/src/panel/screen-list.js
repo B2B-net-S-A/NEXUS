@@ -4,7 +4,6 @@
 import { ERROR_KINDS } from "../api.js";
 import { BATCH_STATUS, batchCounters, defaultSelected, isSelectable, profileFromListPerson } from "../view/logic.js";
 import { apiErrorText } from "./errors.js";
-import { jobPicker } from "./job-picker.js";
 import { button, frame, h, pill, spinnerLabel } from "./ui.js";
 
 const TITLES = {
@@ -14,7 +13,7 @@ const TITLES = {
 };
 
 export function initialListState() {
-  return { job: null, people: null, items: null, selected: new Set(), results: {}, busy: false, adding: false, error: null, skipped: 0, truncated: false };
+  return { people: null, items: null, selected: new Set(), results: {}, busy: false, adding: false, error: null, skipped: 0, truncated: false };
 }
 
 function rowResult(r) {
@@ -26,7 +25,7 @@ async function addSelected(ctx, ls) {
   ls.adding = true;
   ls.error = null;
   ctx.render();
-  const jobId = ls.job?.id ?? null;
+  const jobId = ctx.state.activeJob?.id ?? null;
   // Po kolei, nie równolegle — to zapis do bazy, nie wyścig.
   for (const index of [...ls.selected].sort((a, b) => a - b)) {
     const person = ls.people[index];
@@ -112,15 +111,9 @@ export function renderList(ctx) {
   const ls = state.list;
   const title = TITLES[state.page.source] || "Lista osób";
 
-  const picker = jobPicker({
-    api: ctx.api,
-    value: ls.job,
-    noneLabel: "bez rekrutacji (tylko baza)",
-    onChange: (job) => {
-      ls.job = job;
-      ctx.render();
-    },
-  });
+  // Rekrutację wybiera się na pasku „Pracuję nad”, tu tylko mówimy, dokąd trafią osoby.
+  const job = state.activeJob;
+  const target = h("p", { class: "hint" }, job ? `Dodane osoby trafią do rekrutacji „${job.title}”.` : "Bez rekrutacji na pasku dodane osoby trafią tylko do bazy.");
 
   const checkLabel = ls.items ? "Sprawdź ponownie" : "Sprawdź tę stronę";
   const check = button(ls.busy ? spinnerLabel("Sprawdzam…") : checkLabel, () => ctx.checkList(), {
@@ -129,7 +122,7 @@ export function renderList(ctx) {
     extraClass: "btn--block",
   });
 
-  const parts = [h("h2", { class: "screen__title" }, title), h("div", { class: "picker-inline" }, picker)];
+  const parts = [h("h2", { class: "screen__title" }, title), target];
 
   if (ls.error) parts.push(frame("error", h("p", {}, ls.error)));
 

@@ -9,6 +9,7 @@ import {
   contractorText,
   firstName,
   formatTenure,
+  jobsForAdd,
   offLimitsButtonLabel,
   scoreTone,
   tenureMonths,
@@ -17,17 +18,17 @@ import {
 import { apiErrorText } from "./errors.js";
 import { jobPicker } from "./job-picker.js";
 import { offLimitsQuestion } from "./off-limits.js";
-import { button, externalLink, frame, h, linkButton, missing, pill, section, spinnerLabel } from "./ui.js";
+import { button, externalLink, focusUnlessInWorkbar, frame, h, linkButton, missing, pill, section, spinnerLabel } from "./ui.js";
 
 const EDITABLE = ["full_name", "current_title", "current_company", "location", "headline"];
 
 /** Stan ekranu dodawania dla świeżego odczytu. */
-export function initialAddState(read) {
+export function initialAddState(read, activeJob = null) {
   return {
     profile: { ...read.profile },
     editing: false,
     focusField: null,
-    selected: new Set(),
+    selected: new Set(activeJob ? [activeJob.id] : []), // z paska „Pracuję nad”
     extraJobs: [],
     pdfFile: null,
     how: null,
@@ -73,7 +74,7 @@ function readSection(ctx, add) {
     }));
     queueMicrotask(() => {
       const target = body.querySelector(`[data-field="${add.focusField || "full_name"}"]`);
-      target?.focus();
+      focusUnlessInWorkbar(target);
     });
     return section("Odczytane z tej strony", body);
   }
@@ -132,7 +133,7 @@ function matchRow(add, job, ctx) {
 }
 
 function matchesSection(ctx, add, lookup) {
-  const jobs = [...lookup.matches, ...add.extraJobs];
+  const jobs = jobsForAdd(lookup, add.extraJobs, ctx.state.activeJob);
   const picker = jobPicker({
     api: ctx.api,
     value: null,
@@ -154,8 +155,8 @@ function matchesSection(ctx, add, lookup) {
   );
 }
 
-function jobTitle(lookup, add, id) {
-  return [...lookup.matches, ...add.extraJobs].find((j) => j.job_id === id)?.title || `rekrutacja #${id}`;
+function jobTitle(ctx, lookup, add, id) {
+  return jobsForAdd(lookup, add.extraJobs, ctx.state.activeJob).find((j) => j.job_id === id)?.title || `rekrutacja #${id}`;
 }
 
 async function submit(ctx, add, lookup, { baseOnly }) {
@@ -206,7 +207,7 @@ async function submit(ctx, add, lookup, { baseOnly }) {
 
 function resultView(ctx, add, lookup) {
   const r = add.result;
-  const assigned = (r.assigned_job_ids || []).map((id) => jobTitle(lookup, add, id));
+  const assigned = (r.assigned_job_ids || []).map((id) => jobTitle(ctx, lookup, add, id));
   return h(
     "div",
     { class: "stack" },
@@ -216,7 +217,7 @@ function resultView(ctx, add, lookup) {
       assigned.length ? h("p", {}, `Rekrutacje: ${assigned.join(", ")}`) : h("p", {}, "Bez rekrutacji — osoba jest w bazie."),
     ),
     (r.skipped || []).length
-      ? frame("warning", h("p", { class: "frame__title" }, "Nie dodano do części rekrutacji"), h("ul", {}, r.skipped.map((s) => h("li", {}, `${jobTitle(lookup, add, s.job_id)}: ${s.reason}`))))
+      ? frame("warning", h("p", { class: "frame__title" }, "Nie dodano do części rekrutacji"), h("ul", {}, r.skipped.map((s) => h("li", {}, `${jobTitle(ctx, lookup, add, s.job_id)}: ${s.reason}`))))
       : null,
     r.pdf ? (r.pdf.ok ? frame("success", h("p", {}, "PDF profilu dołączony.")) : frame("error", h("p", {}, `PDF nie został dołączony: ${r.pdf.message}`))) : null,
     h(
