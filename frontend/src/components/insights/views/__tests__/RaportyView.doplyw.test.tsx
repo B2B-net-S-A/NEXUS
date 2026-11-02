@@ -16,6 +16,9 @@ vi.mock("@/components/insights/sections/InsightsIntegrations", () => ({
 vi.mock("@/components/insights/sections/InsightsInviteLinks", () => ({
   InsightsInviteLinks: () => <div>linki</div>,
 }));
+vi.mock("@/components/insights/sections/InsightsLinkPeople", () => ({
+  InsightsLinkPeople: () => <div>kto co przyniósł</div>,
+}));
 vi.mock("@/components/insights/PeriodPicker", () => ({ PeriodPicker: () => null }));
 vi.mock("@/components/insights/useInsightsPeriod", () => ({
   useInsightsPeriod: (fallback: unknown) => ({ period: fallback, setPeriod: vi.fn() }),
@@ -44,8 +47,16 @@ describe("RaportyView — Źródła, portale i linki", () => {
     expect(screen.getByText(/Źródła kandydatów nie są dostępne dla tej roli/)).toBeInTheDocument();
   });
 
-  it("rekruter widzi lejek źródeł", () => {
+  it("Head of Recruitment dostaje tabelę na osobę zamiast kanałów", () => {
+    renderAs("head_of_recruitment");
+    expect(screen.getByText("kto co przyniósł")).toBeInTheDocument();
+    expect(screen.queryByText("linki")).not.toBeInTheDocument();
+  });
+
+  it("rekruter widzi lejek źródeł i kanały, bez cudzych wyników", () => {
     renderAs("recruiter");
     expect(screen.getByText("lejek źródeł")).toBeInTheDocument();
+    expect(screen.getByText("linki")).toBeInTheDocument();
+    expect(screen.queryByText("kto co przyniósł")).not.toBeInTheDocument();
   });
 });

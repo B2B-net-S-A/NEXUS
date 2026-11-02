@@ -33,7 +33,7 @@ _EVIDENCE_SQL = text(
     SELECT e.candidate_id
     FROM candidate_source_events e
     WHERE e.job_id = :job_id AND e.candidate_id = ANY(:ids)
-      AND e.channel = 'posting'
+      AND e.channel IN ('posting', 'career_link_job')
     UNION
     SELECT n.candidate_id
     FROM notes n

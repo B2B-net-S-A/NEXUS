@@ -32,11 +32,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.analytics.periods import ANALYTICS_TIMEZONE, PeriodError, resolve_period
-from app.api.deps import CurrentUser
+from app.api.deps import CurrentUser, LinkResultsManager
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set, cache_single_flight
 from app.core.database import get_db
-from app.core.scheduling import business_today, local_day_start_utc, local_now
+from app.core.scheduling import (
+    business_date,
+    business_today,
+    local_day_start_utc,
+    local_now,
+)
 from app.models.user import UserRole
 from app.services import competition_history
 from app.services.funnel_coverage import STAGES_WITHOUT_TRAFFIT_COVERAGE
@@ -47,6 +52,7 @@ from app.services.insights_person_scope import (
     OUTSIDE_SCOPE_LABEL,
     outside_scope_user_ids,
 )
+from app.services.insights_link_people import compute_link_people
 from app.services.insights_invite_links import (
     compute_invite_link_channels,
     count_invite_link_candidates,
@@ -958,6 +964,32 @@ async def insights_competence_matrix(
     Dostęp jak reszta /insights (D7).
     """
     return await compute_competence_matrix(db)
+
+
+@router.get("/link-people")
+async def insights_link_people(
+    current_user: LinkResultsManager,
+    db: AsyncSession = Depends(get_db),
+    period: str = Query("month", pattern="^(day|week|month|quarter|year|custom)$"),
+    offset: int = Query(0, description="0 = bieżący okres, -1 = poprzedni zamknięty"),
+    anchor: date | None = Query(None, description="dowolny dzień wewnątrz okresu"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+):
+    """Kto co przyniósł z linków, na osobę (makieta D, decyzja Artura 02.11.2026).
+
+    Dane imienne bez D7: tylko admin, Head of Recruitment i Delivery Lead. Rekruter
+    widzi swoje wyniki w oknie „Udostępnij”.
+    """
+    resolved = _resolve(period, offset, anchor, date_from, date_to)
+    result = await compute_link_people(
+        db,
+        since=resolved.start,
+        until=resolved.end,
+        since_day=business_date(resolved.start),
+        until_day=business_date(resolved.end),
+    )
+    return {"period": resolved.as_payload(), **result}
 
 
 @router.get("/invite-links")

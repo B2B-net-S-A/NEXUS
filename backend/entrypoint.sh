@@ -343,6 +343,9 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    # 0641: linki we własnych kanałach źródeł, osobno od portali.
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -1289,6 +1292,16 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
+
+# Kanały linków w źródłach (0641): przepięcie starych zdarzeń — JEDNO źródło
+# z migracją (`app/services/career_link_channels_schema.py`).
+try:
+    from app.services import career_link_channels_schema as _career_link_channels_schema
+
+    _CAREER_LINK_CHANNELS_BACKFILL = list(_career_link_channels_schema.BACKFILL_DDL)
+except Exception as _career_link_channels_schema_err:  # noqa: BLE001
+    print(f"career link channels schema unavailable: {_career_link_channels_schema_err!r}")
+    _CAREER_LINK_CHANNELS_BACKFILL = []
 
 # Dzienne wejścia na linki aplikacyjne (0640): JEDNO źródło z migracją
 # (`app/services/invite_link_visits_schema.py`).
@@ -7786,6 +7799,8 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
+    # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
+    *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

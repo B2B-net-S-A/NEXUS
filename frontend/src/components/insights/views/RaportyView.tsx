@@ -20,7 +20,7 @@ import {
 } from "@/lib/insights-reports";
 import { holdsCapabilityGrant } from "@/lib/capabilities";
 import { hasSectionAccess } from "@/lib/section-access";
-import { useAuthStore } from "@/store/auth";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { PeriodPicker } from "@/components/insights/PeriodPicker";
 import { useInsightsPeriod } from "@/components/insights/useInsightsPeriod";
 import { CompetenceMatrix } from "@/components/insights/sections/CompetenceMatrix";
@@ -35,6 +35,7 @@ import { InsightsHallOfFame } from "@/components/insights/sections/InsightsHallO
 import { InsightsIntegrations } from "@/components/insights/sections/InsightsIntegrations";
 import { InsightsInviteLinks } from "@/components/insights/sections/InsightsInviteLinks";
 import { InsightsPlacementAnalysis } from "@/components/insights/sections/InsightsPlacementAnalysis";
+import { InsightsLinkPeople } from "@/components/insights/sections/InsightsLinkPeople";
 import { InsightsTeamActivity } from "@/components/insights/sections/InsightsTeamActivity";
 import { InsightsTeamPerformance } from "@/components/insights/sections/InsightsTeamPerformance";
 import { InsightsTimeToHire } from "@/components/insights/sections/InsightsTimeToHire";
@@ -226,7 +227,11 @@ function ReportBody({
               Źródła kandydatów nie są dostępne dla tej roli.
             </p>
           )}
-          <InviteLinksWithPeriod />
+          {hasRole(user, "admin", "head_of_recruitment", "delivery_lead") ? (
+            <LinkPeopleWithPeriod />
+          ) : (
+            <InviteLinksWithPeriod />
+          )}
         </div>
       );
     case "portfele-dl":
@@ -258,6 +263,22 @@ function ReportBody({
 }
 
 const INVITE_LINKS_DEFAULT: InsightsPeriodParams = { period: "month", offset: -1 };
+
+const LINK_PEOPLE_DEFAULT: InsightsPeriodParams = { period: "month", offset: 0 };
+
+/** Kto co przyniósł z linków, z własnym okresem; zastępuje kanały dla ról z wglądem w cudze wyniki. */
+function LinkPeopleWithPeriod() {
+  const { period, setPeriod } = useInsightsPeriod(LINK_PEOPLE_DEFAULT);
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-base font-semibold text-foreground">Linki aplikacyjne</h3>
+        <PeriodPicker value={period} onChange={setPeriod} defaultValue={LINK_PEOPLE_DEFAULT} />
+      </div>
+      <InsightsLinkPeople period={period} />
+    </section>
+  );
+}
 
 /** Linki aplikacyjne mają własny okres — pozostałe części raportu liczą 7/30/90 dni. */
 function InviteLinksWithPeriod() {

@@ -7440,7 +7440,9 @@ export type SourceChannel =
   | "email"
   | "posting"
   | "referral"
-  | "import_csv";
+  | "import_csv"
+  | "career_link_general"
+  | "career_link_job";
 
 export interface CandidateSourceEventDto {
   id: number;

@@ -35,6 +35,7 @@
   "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/link-people": "PDPPDDDDPPPPDDDDDDDDDDDDDDD",
   "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
