@@ -726,7 +726,7 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
     const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
     setup({ api });
     fireEvent.click(await screen.findByRole("button", { name: "Kandydat to ma" }));
-    const field = screen.getByLabelText("Co powiedział kandydat? (opcjonalnie)");
+    const field = screen.getByLabelText("Co dokładnie powiedział kandydat? (wymagane)");
     fireEvent.change(field, { target: { value: " AWS w projekcie migracji " } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz w notatkach" }));
     await waitFor(() => expect(api.confirm).toHaveBeenCalledWith(STAGE, { term: "AWS", text: "AWS w projekcie migracji" }));

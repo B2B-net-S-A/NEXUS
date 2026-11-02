@@ -28,7 +28,7 @@ export type InvoiceCheck = "ok" | "accepted" | "difference" | "unknown" | "unmat
 /** `budget` — faktura zamówienia kosztowego porównana z resztą jego budżetu. */
 export type CheckBasis = "amount" | "budget";
 export type MatchStatus = "unmatched" | "matched" | "ignored";
-export type MatchMethod = "order_number" | "amount" | "correction" | "manual";
+export type MatchMethod = "order_number" | "amount" | "person" | "correction" | "manual";
 export type PaymentStatus = "paid" | "partial" | "unpaid" | "overpaid" | "none";
 export type ExportFormat = "csv" | "xlsx";
 
@@ -98,6 +98,7 @@ export interface SalesInvoice {
   client_name: string | null;
   buyer_name: string | null;
   buyer_nip: string | null;
+  buyer_foreign_id: string | null;
   corrections: {
     id: number;
     invoice_number: string;
@@ -140,6 +141,8 @@ export interface InvoicingSummary {
   unmatched_invoices: number;
   expected: MoneyTotal[];
   invoiced_net: MoneyTotal[];
+  /** Konto bez „Wyników firmy”: suma miesiąca całej firmy nie przychodzi. */
+  totals_hidden?: boolean;
   overdue?: number;
 }
 
@@ -209,6 +212,28 @@ export interface AssignmentOption {
   kind: BillingKind;
   expected_net: string | null;
   currency: string;
+}
+
+export type BuyerNumberState = "add" | "same" | "differs" | "taken" | "none";
+
+/** Numer nabywcy z faktury względem klienta wybranego w „Przypisz”. */
+export interface BuyerNumberCheck {
+  state: BuyerNumberState;
+  number: string | null;
+  kind: "nip" | "vat_ue";
+  client_name: string | null;
+  existing: string | null;
+  owner_name: string | null;
+  other_waiting: number;
+}
+
+export interface BuyerNumberSaved {
+  state: BuyerNumberState;
+  number: string | null;
+  client_id: number | null;
+  saved: boolean;
+  retried: number;
+  matched: number;
 }
 
 export interface CreditImportResult {
@@ -350,7 +375,12 @@ export function useAssignmentOptions(
     queryKey: invoicingKeys.options(invoiceId, clientId, period),
     queryFn: async () =>
       (
-        await api.get<{ client_id: number | null; period?: string; options: AssignmentOption[] }>(
+        await api.get<{
+          client_id: number | null;
+          period?: string;
+          options: AssignmentOption[];
+          buyer_number?: BuyerNumberCheck;
+        }>(
           `${FINANCE}/${invoiceId}/options`,
           { params: { client_id: clientId ?? undefined, year, month } },
         )
@@ -396,13 +426,32 @@ export function useAssignSalesInvoice() {
       targets: { group_id?: number; order_id?: number }[];
       year: number;
       month: number;
+      saveBuyerNumber?: boolean;
     }) =>
       (
-        await api.post<SalesInvoice>(`${FINANCE}/${payload.invoiceId}/assign`, {
-          targets: payload.targets,
-          year: payload.year,
-          month: payload.month,
-        })
+        await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
+          `${FINANCE}/${payload.invoiceId}/assign`,
+          {
+            targets: payload.targets,
+            year: payload.year,
+            month: payload.month,
+            save_buyer_number: payload.saveBuyerNumber ?? false,
+          },
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useSaveBuyerNumber() {
+  const invalidate = useInvalidate();
+  return useMutation({
+    mutationFn: async (payload: { invoiceId: number; clientId: number }) =>
+      (
+        await api.post<SalesInvoice & { buyer_number?: BuyerNumberSaved }>(
+          `${FINANCE}/${payload.invoiceId}/buyer-number`,
+          { client_id: payload.clientId },
+        )
       ).data,
     onSuccess: invalidate,
   });

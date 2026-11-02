@@ -214,8 +214,47 @@ export function rodoLabel(rodo) {
   return { valid: "zgoda ważna", expired: "zgoda wygasła", none: "brak zgody" }[rodo.status] || "brak danych";
 }
 
-/** Rekrutacja domyślna dla wiadomości: otwarty proces, potem najlepsze dopasowanie. */
-export function defaultJobId(lookup) {
+/** Otwarty proces osoby w rekrutacji z paska (null, gdy nie ma). */
+export function openProcessIn(lookup, job) {
+  return (lookup?.processes || []).find((p) => p.job_id === job?.id && !p.closed) || null;
+}
+
+/** Wiersz rekrutacji z paska. Procent z odpowiedzi NEXUSA, gdy dotyczy tej właśnie rekrutacji. */
+export function activeJobRow(lookup, job) {
+  if (!job) return null;
+  if (lookup?.active_job?.job_id === job.id) return lookup.active_job;
+  const match = (lookup?.matches || []).find((m) => m.job_id === job.id);
+  return { job_id: job.id, title: job.title, client_name: job.client_name, recruiter_name: job.recruiter_name, score: match?.score ?? null };
+}
+
+/** Lista ekranu dodawania: rekrutacja z paska pierwsza, bez powtórzeń. */
+export function jobsForAdd(lookup, extraJobs, job) {
+  const seen = new Set();
+  return [activeJobRow(lookup, job), ...(lookup?.matches || []), ...(extraJobs || [])].filter((j) => {
+    if (!j || seen.has(j.job_id)) return false;
+    seen.add(j.job_id);
+    return true;
+  });
+}
+
+/** Zmiana wyboru na pasku bez ponownego odczytu: ekran zachowuje to, co rekruter już wpisał. */
+export function applyActiveJobChange(state, previous, next) {
+  const { add, person: ps } = state;
+  if (add && !add.result) {
+    if (previous) add.selected.delete(previous.id);
+    if (next) add.selected.add(next.id);
+  }
+  if (!ps) return;
+  if (previous && ps.job?.id === previous.id) ps.job = next;
+  const open = openProcessIn(state.lookup, next);
+  if (ps.contact && open) ps.contact.jobId = open.job_id;
+  if (ps.message && !ps.message.text && !ps.message.busy) ps.message = null;
+}
+
+/** Rekrutacja domyślna dla wiadomości: ta z paska, gdy osoba w niej jest, potem otwarty proces i najlepsze dopasowanie. */
+export function defaultJobId(lookup, activeJob = null) {
+  const inActive = openProcessIn(lookup, activeJob);
+  if (inActive) return inActive.job_id;
   const open = (lookup?.processes || []).find((p) => !p.closed);
   if (open) return open.job_id;
   const best = [...(lookup?.matches || [])].sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
@@ -334,6 +373,16 @@ export function withLocalContact(lookup, { channel, note, userName, at = new Dat
   if (!lookup) return lookup;
   const entry = { at, user_name: userName || null, channel_label: TIMELINE_CHANNEL_LABELS[channel] || "kontakt", note: note || null };
   return { ...lookup, contacts: [entry, ...(lookup.contacts || [])].slice(0, 4) };
+}
+
+/**
+ * Rekrutacja dodana z panelu → od razu na karcie osoby, bez ponownego odczytu
+ * strony. Etykieta jak `STAGE_LABELS[new]` w NEXUSIE.
+ */
+export function withLocalProcess(lookup, job) {
+  if (!lookup) return lookup;
+  const entry = { job_id: job.id, job_title: job.title, client_name: job.client_name ?? null, stage_label: "Nowi / Analiza CV", recruiter_name: job.recruiter_name ?? null, closed: false, close_label: null };
+  return { ...lookup, processes: [entry, ...(lookup.processes || [])] };
 }
 
 export const FIELD_LABELS = Object.freeze({

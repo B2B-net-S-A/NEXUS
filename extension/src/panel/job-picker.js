@@ -17,10 +17,11 @@ function jobSubtitle(job) {
  *   onChange: (job: object | null) => void,
  *   label?: string,
  *   noneLabel?: string | null,   // null = nie da się wybrać „bez rekrutacji”
+ *   clearLabel?: string,          // pozycja czyszcząca wybór, gdy inna niż `noneLabel`
  *   presets?: Array<object>,      // np. rekrutacje osoby — na górze listy
  * }} options
  */
-export function jobPicker({ api, value, onChange, label = "Do:", noneLabel = "wybierz rekrutację", presets = [] }) {
+export function jobPicker({ api, value, onChange, label = "Do:", noneLabel = "wybierz rekrutację", clearLabel, presets = [] }) {
   let selected = value || null;
   let open = false;
   let timer = null;
@@ -49,6 +50,7 @@ export function jobPicker({ api, value, onChange, label = "Do:", noneLabel = "wy
     selected = job;
     paintValue();
     setOpen(false);
+    toggle.focus(); // ukryta lista zabrałaby fokus na całą stronę
     onChange(job);
   }
 
@@ -68,7 +70,7 @@ export function jobPicker({ api, value, onChange, label = "Do:", noneLabel = "wy
   function paintList(items) {
     list.replaceChildren();
     if (noneLabel !== null) {
-      list.append(h("li", {}, h("button", { type: "button", class: "picker__option picker__option--none", onClick: () => choose(null) }, `— ${noneLabel || "bez rekrutacji"}`)));
+      list.append(h("li", {}, h("button", { type: "button", class: "picker__option picker__option--none", onClick: () => choose(null) }, `— ${clearLabel || noneLabel || "bez rekrutacji"}`)));
     }
     const seen = new Set();
     for (const job of [...presets, ...items]) {

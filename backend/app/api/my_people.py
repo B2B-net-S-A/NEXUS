@@ -58,6 +58,7 @@ class MyPeopleRow(BaseModel):
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    from_link: bool = False
 
 
 class MyPeopleResponse(BaseModel):

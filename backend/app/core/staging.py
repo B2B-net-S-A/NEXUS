@@ -54,6 +54,7 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
         "candidate_search_retention",
         "jarvis_retention",
         "queue_retention",
+        "access_usage",
         "match_history_ttl",
         "runtime_metrics",
         "keyword_corpus_backfill",

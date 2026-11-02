@@ -27,6 +27,7 @@ export function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
     client_name: "Bank Testowy S.A.",
     buyer_name: "Bank Testowy S.A.",
     buyer_nip: "1111111111",
+    buyer_foreign_id: null,
     corrections: [],
     match_status: "matched",
     match_method: "order_number",

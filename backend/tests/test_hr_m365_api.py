@@ -162,3 +162,96 @@ async def test_other_accounts_are_refused(app_client) -> None:
         )
         assert refused.status_code == 403
     assert (await app_client.get(f"{BASE}/status")).status_code == 401
+
+
+async def _forbidden_mailbox(db, name: str = "Jan Przykładowy") -> User:
+    user = await make_user(db, name=name)
+    await executor.save_mailbox_state(db, user.id, last_error="forbidden (403)")
+    await db.commit()
+    return user
+
+
+@pytest.mark.asyncio
+async def test_scope_exempt_marks_mailbox_and_leaves_trail(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        admin = await make_user(db, role="admin", profile=False)
+        person = await _forbidden_mailbox(db)
+
+    url = f"{BASE}/mailboxes/{person.id}/scope-exempt"
+    marked = await app_client.post(url, json={"exempt": True}, headers=_headers(admin))
+    assert marked.status_code == 200
+    assert marked.json() == {"user_id": person.id, "scope_exempt": True}
+
+    status = await app_client.get(f"{BASE}/status", headers=_headers(admin))
+    row = next(
+        item for item in status.json()["mailbox_errors"] if item["user_id"] == person.id
+    )
+    # Osoba zostaje na liście, zmienia się tylko dopisek.
+    assert row["last_error"] == "forbidden (403)"
+    assert row["scope_exempt"] is True
+
+    back = await app_client.post(url, json={"exempt": False}, headers=_headers(admin))
+    assert back.status_code == 200
+
+    status = await app_client.get(f"{BASE}/status", headers=_headers(admin))
+    row = next(
+        item for item in status.json()["mailbox_errors"] if item["user_id"] == person.id
+    )
+    assert row["scope_exempt"] is False
+
+    async with AsyncSessionLocal() as db:
+        trail = list(
+            (
+                await db.scalars(
+                    select(HrAuditEvent)
+                    .where(HrAuditEvent.subject_user_id == person.id)
+                    .order_by(HrAuditEvent.id)
+                )
+            ).all()
+        )
+    assert [event.action for event in trail] == [
+        "m365_scope_exempt_set",
+        "m365_scope_exempt_cleared",
+    ]
+    assert trail[0].actor_user_id == admin.id
+
+
+@pytest.mark.asyncio
+async def test_scope_exempt_refuses_what_is_not_a_403(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        admin = await make_user(db, role="admin", profile=False)
+        throttled = await make_user(db)
+        await executor.save_mailbox_state(
+            db, throttled.id, last_error="throttled (429)"
+        )
+        no_state = await make_user(db)
+        await db.commit()
+
+    other_error = await app_client.post(
+        f"{BASE}/mailboxes/{throttled.id}/scope-exempt",
+        json={"exempt": True},
+        headers=_headers(admin),
+    )
+    assert other_error.status_code == 409
+    missing = await app_client.post(
+        f"{BASE}/mailboxes/{no_state.id}/scope-exempt",
+        json={"exempt": True},
+        headers=_headers(admin),
+    )
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_scope_exempt_needs_kadry(app_client) -> None:
+    async with AsyncSessionLocal() as db:
+        recruiter = await make_user(db, profile=False)
+        kadry = await _people_admin(db)
+        person = await _forbidden_mailbox(db)
+
+    url = f"{BASE}/mailboxes/{person.id}/scope-exempt"
+    refused = await app_client.post(
+        url, json={"exempt": True}, headers=_headers(recruiter)
+    )
+    assert refused.status_code == 403
+    allowed = await app_client.post(url, json={"exempt": True}, headers=_headers(kadry))
+    assert allowed.status_code == 200

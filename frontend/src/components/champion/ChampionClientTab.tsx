@@ -79,7 +79,7 @@ export function ChampionClientTab({
             <p className="text-[13px] text-muted-foreground">Rekrutacja nie ma klienta.</p>
           )}
         </BriefSection>
-        <BriefSection title="Pytania klienta z wcześniejszych rozmów" testId="client-tab-questions">
+        <BriefSection title="Pytania klienta" testId="client-tab-questions">
           <ChampionClientQuestionsPanel
             jobId={jobId}
             screeningQuestions={questions.map((q) => q.question)}

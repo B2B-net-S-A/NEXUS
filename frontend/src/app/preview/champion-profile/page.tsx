@@ -312,8 +312,8 @@ export default function ChampionProfilePreviewPage() {
       qc.setQueryData(["job-meeting-notes", jobId], EMPTY_LIST);
       qc.setQueryData(["champion-suggestions", jobId], EMPTY_LIST);
       qc.setQueryData(["notes-attached", jobId], EMPTY_LIST);
-      // Pipeline v4: panel „Pytania klienta z rozmów" (pula z debriefów).
-      qc.setQueryData(clientQuestionPoolQueryKey("job", jobId, 50), EMPTY_LIST);
+      // Pipeline v4: panel „Pytania klienta z rozmów" (pytania tej rekrutacji).
+      qc.setQueryData(clientQuestionPoolQueryKey("job", jobId, 200), EMPTY_LIST);
       // Panel podobnych ról ma przełącznik „ten klient / wszyscy klienci", a
       // `crossClient` wchodzi w klucz — zasianie jednego wariantu zostawia drugi
       // niezasiany, więc pierwsze kliknięcie strzeliłoby do API.

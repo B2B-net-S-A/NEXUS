@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { RankingKnownPoints, RankingPanelState, RankingPanelWeights } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -112,6 +112,7 @@ export function WeightsTab({
           ))}
 
           <KnownPointsBlock
+            key={knownPointsKey(state.known_points)}
             saved={state.known_points}
             canEdit={canEdit}
             busy={busy}
@@ -222,8 +223,14 @@ interface SliderProps {
   onChange: (value: number) => void;
 }
 
+function knownPointsKey({ client, note_recent, note_older, max }: RankingKnownPoints): string {
+  return `${client}/${note_recent}/${note_older}/${max}`;
+}
+
 /** „Znamy tę osobę” (02.11.2026): działa od razu, bez szkicu i pomiaru panelu,
- *  bo zmienia tylko kolejkę w „Nowych”, a nie „Dop.” ani próg. */
+ *  bo zmienia tylko kolejkę w „Nowych”, a nie „Dop.” ani próg. Nowe zapisane
+ *  wartości wchodzą przez `key`, nie przez efekt: `setPoints(saved)` w efekcie
+ *  montowania, opóźniony na obciążonym wątku, kasował już wykonany ruch suwaka. */
 function KnownPointsBlock({
   saved,
   canEdit,
@@ -236,7 +243,6 @@ function KnownPointsBlock({
   onSave: (next: Omit<RankingKnownPoints, "max">) => void;
 }) {
   const [points, setPoints] = useState(saved);
-  useEffect(() => setPoints(saved), [saved]);
   const changed =
     points.client !== saved.client ||
     points.note_recent !== saved.note_recent ||

@@ -5,7 +5,9 @@ import { ApiError, ERROR_KINDS } from "../src/api.js";
 import {
   OFF_LIMITS_HOW,
   SCREENS,
+  activeJobRow,
   addButtonLabel,
+  applyActiveJobChange,
   batchCounters,
   chooseScreen,
   companySinceLabel,
@@ -17,6 +19,8 @@ import {
   inNexusSinceLabel,
   isSelectable,
   jobIdsForHow,
+  jobsForAdd,
+  openProcessIn,
   ownerText,
   pluralYears,
   processPill,
@@ -27,6 +31,7 @@ import {
   todayLabel,
   usageLabel,
   updateNotice,
+  withLocalProcess,
 } from "../src/view/logic.js";
 
 const NOW = new Date("2026-10-28T10:00:00Z");
@@ -183,4 +188,61 @@ test("updateNotice: wtyczka z update_url (sklep, .crx z Intune) aktualizuje się
   assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, "https://nexus.b2bnetwork.pl/wtyczka/update.xml"), null);
   assert.equal(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, "https://clients2.google.com/service/update2/crx"), null);
   assert.ok(updateNotice({ latest_version: "1.0.4" }, "1.0.3", conn, undefined), "ZIP (bez update_url) dalej dostaje baner");
+});
+
+// ── Pasek „Pracuję nad” ─────────────────────────────────────────────────────
+
+const JOB_A = { id: 11, title: "Java Developer", client_name: "Klient Testowy", recruiter_name: "Katarzyna" };
+const JOB_B = { id: 12, title: "Kotlin Developer", client_name: "Inny Klient", recruiter_name: "Igor" };
+
+test("activeJobRow: procent tylko z odpowiedzi o tę rekrutację, inaczej zapamiętany tytuł bez procentu", () => {
+  assert.equal(activeJobRow({ active_job: { job_id: 11, title: "Java Developer", score: 42 } }, null), null);
+  assert.equal(activeJobRow({ active_job: { job_id: 11, title: "Java Developer", score: 42 } }, JOB_A).score, 42);
+  const stale = activeJobRow({ active_job: { job_id: 12, title: "Kotlin Developer", score: 90 }, matches: [] }, JOB_A);
+  assert.deepEqual([stale.job_id, stale.title, stale.score], [11, "Java Developer", null]);
+  assert.equal(activeJobRow({ matches: [{ job_id: 11, title: "Java Developer", score: 70 }] }, JOB_A).score, 70);
+});
+
+test("jobsForAdd: rekrutacja z paska pierwsza i bez powtórzeń, także gdy jest w dopasowaniach", () => {
+  const lookup = { matches: [{ job_id: 12, title: "Kotlin Developer", score: 81 }, { job_id: 11, title: "Java Developer", score: 55 }], active_job: { job_id: 11, title: "Java Developer", score: 55 } };
+  assert.deepEqual(jobsForAdd(lookup, [{ job_id: 12, title: "Kotlin Developer", score: null }, { job_id: 13, title: "Go", score: null }], JOB_A).map((j) => j.job_id), [11, 12, 13]);
+  assert.deepEqual(jobsForAdd(lookup, [], null).map((j) => j.job_id), [12, 11]);
+});
+
+test("defaultJobId i openProcessIn: wybrana rekrutacja tylko przy otwartym procesie", () => {
+  const lookup = { processes: [{ job_id: 1, closed: false }, { job_id: 11, closed: true }], matches: [] };
+  assert.equal(defaultJobId(lookup, JOB_A), 1, "zamknięty proces nie wskazuje wybranej rekrutacji");
+  assert.equal(openProcessIn(lookup, JOB_A), null);
+  const open = { processes: [{ job_id: 1, closed: false }, { job_id: 11, closed: false }], matches: [] };
+  assert.equal(defaultJobId(open, JOB_A), 11);
+  assert.equal(defaultJobId(open, JOB_B), 1, "osoby nie ma w wybranej, zostaje jej proces");
+  assert.equal(defaultJobId(open), 1);
+});
+
+test("applyActiveJobChange: zamienia zaznaczenie, zostawia ręczne wybory i wpisany tekst", () => {
+  const state = {
+    lookup: { processes: [{ job_id: 12, closed: false }] },
+    add: { selected: new Set([11, 99]), result: null },
+    person: { job: JOB_A, contact: { jobId: 5, note: "Oddzwoni" }, message: { text: "Mój tekst", busy: false } },
+  };
+  applyActiveJobChange(state, JOB_A, JOB_B);
+  assert.deepEqual([...state.add.selected].sort(), [12, 99]);
+  assert.equal(state.person.job, JOB_B);
+  assert.equal(state.person.contact.jobId, 12);
+  assert.equal(state.person.contact.note, "Oddzwoni");
+  assert.equal(state.person.message.text, "Mój tekst");
+});
+
+test("applyActiveJobChange: pusty szkic wraca do domyślnej, po dodaniu osoby zaznaczenie stoi", () => {
+  const state = { lookup: { processes: [] }, add: { selected: new Set([11]), result: { created: true } }, person: { job: null, contact: { jobId: 5 }, message: { text: "", busy: false } } };
+  applyActiveJobChange(state, JOB_A, null);
+  assert.deepEqual([...state.add.selected], [11]);
+  assert.equal(state.person.contact.jobId, 5, "osoby nie ma w nowej rekrutacji");
+  assert.equal(state.person.message, null);
+});
+
+test("withLocalProcess: proces od razu na karcie, bez ponownego odczytu", () => {
+  const lookup = withLocalProcess({ processes: [{ job_id: 1 }] }, JOB_A);
+  assert.deepEqual([lookup.processes[0].job_id, lookup.processes[0].closed, lookup.processes[1].job_id], [11, false, 1]);
+  assert.equal(withLocalProcess(null, JOB_A), null);
 });

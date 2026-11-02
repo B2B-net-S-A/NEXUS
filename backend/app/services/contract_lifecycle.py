@@ -779,6 +779,7 @@ async def sync_contract_to_live_order(
     order_end: Optional[date],
     actor_id: Optional[int],
     today: Optional[date] = None,
+    revoked_termination_date: Optional[date] = None,
 ) -> bool:
     """Dopasuj kontrakt do zamówienia, które WŁAŚNIE TRWA. Zwraca True przy zmianie.
 
@@ -804,6 +805,10 @@ async def sync_contract_to_live_order(
     okres zamówienia (VeloBank: 4 z 11 osób na tym samym zamówieniu, w tym
     kontraktor czekający na przedłużenie). Cron pomija ``end_date IS NULL``,
     więc bezterminowa umowa nie jest demotowana „tej samej nocy".
+
+    ``revoked_termination_date`` podaje WYŁĄCZNIE decyzja człowieka: data
+    zakończenia, którą właśnie odwołał („współpraca trwa dalej” w sprawie
+    o pulę MD). Sam fakt, że zamówienie trwa, nigdy jej nie odwołuje.
     """
     # Serialize against terminal-state writers before reading any lifecycle
     # field. A caller may hold an identity-map object loaded before a concurrent
@@ -876,13 +881,23 @@ async def sync_contract_to_live_order(
     # ``ending``, a nocny reconcile wołał tu i zerował datę — wypowiedziana
     # umowa wracała jako bezterminowa (bez offboardingu, dalej w MRR). Umowa
     # już ZAKOŃCZONA (data < dziś) nadal może wrócić NOWYM zamówieniem.
+    #
+    # Reguła chroni plan przed automatem, nie przed decyzją o tym planie:
+    # odwołana data nie jest już planem. Bez tego „współpraca trwa dalej” w dniu
+    # zakończenia zostawiała „Kończący się”, a następnej nocy cron kończył umowę
+    # i domykał przywróconą linię, bez nowej sprawy o pulę. Inna data (ktoś
+    # przeplanował zakończenie po założeniu sprawy) nadal wygrywa.
     # Import lokalny: ``b2b_contract_end_date`` stoi niżej w grafie importów.
     from app.services.b2b_contract_end_date import (
         has_early_termination_amendment,
         is_b2b,
     )
 
-    if contract.end_date is not None and contract.end_date >= today_:
+    if (
+        contract.end_date is not None
+        and contract.end_date >= today_
+        and contract.end_date != revoked_termination_date
+    ):
         manually_terminated = (
             locked_terminated_at is not None or locked_termination_reason is not None
         )

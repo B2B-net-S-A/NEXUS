@@ -167,6 +167,8 @@ class QcResponse(BaseModel):
     advisory: bool = False
     can_override: bool = False
     confirmations: list[QcConfirmation] = []
+    # Firmy z ról osoby do pola „W której roli?” przy potwierdzeniu.
+    confirm_roles: list[str] = []
     run_id: Optional[int] = None
     computed_at: datetime
     cv: Optional[QcCv] = None
@@ -257,10 +259,32 @@ class QcTransformResponse(BaseModel):
 
 
 class QcConfirmRequest(BaseModel):
-    """„Potwierdzone z kandydatem”: pozycja z listy QC i opcjonalny opis."""
+    """„Potwierdzone z kandydatem”: pozycja z listy QC, słowa kandydata i rola.
+
+    Minimum liczy serwisowa reguła (`check_confirmation_text`), żeby odmowa
+    miała zdanie dla człowieka, nie 422 ze schematu.
+    """
 
     term: str = Field(min_length=1, max_length=120)
     text: Optional[str] = Field(default=None, max_length=1000)
+    role: Optional[str] = Field(default=None, max_length=200)
+
+
+class QcRoleFact(BaseModel):
+    term: str
+    quote: str
+
+
+class QcRoleFactsResponse(BaseModel):
+    facts: list[QcRoleFact] = []
+    roles: list[str] = []
+
+
+class QcRoleFactRequest(BaseModel):
+    """Fakt z rozmowy i rola, której dotyczy — przed generacją CV."""
+
+    term: str = Field(min_length=1, max_length=200)
+    role: str = Field(min_length=1, max_length=200)
 
 
 class QcDismissRequest(BaseModel):
@@ -545,6 +569,50 @@ async def override_stage_qc(
     return await _response(db, request, current_user, result)
 
 
+@router.get("/stages/{stage_id}/qc/role-facts", response_model=QcRoleFactsResponse)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def stage_role_facts(
+    request: Request,
+    stage_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcRoleFactsResponse:
+    """Wymagania z rozmowy, których nie ma w oryginale — krok przed generacją."""
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    return QcRoleFactsResponse(**await cv_qc.role_facts(db, stage))
+
+
+@router.post("/stages/{stage_id}/qc/role-facts", response_model=QcRoleFactsResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def save_stage_role_fact(
+    request: Request,
+    stage_id: int,
+    payload: QcRoleFactRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcRoleFactsResponse:
+    """Zapisz fakt z rozmowy z rolą jako notatkę pary i zwróć resztę listy."""
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.save_role_fact(
+            db,
+            stage,
+            term=payload.term,
+            role=payload.role,
+            user_id=current_user.id,
+        )
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_ROLE_FACT_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return QcRoleFactsResponse(**result)
+
+
 @router.post("/stages/{stage_id}/qc/confirm", response_model=QcResponse)
 @limiter.limit("30/minute", key_func=user_or_ip_key)
 async def confirm_stage_qc_item(
@@ -571,6 +639,7 @@ async def confirm_stage_qc_item(
             term=payload.term,
             text=payload.text,
             user_id=current_user.id,
+            role=payload.role,
         )
     except cv_qc.ApplyError as exc:
         raise HTTPException(

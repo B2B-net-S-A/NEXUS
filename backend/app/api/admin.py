@@ -78,6 +78,8 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: bool = False
     # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
     # (plakietka „+N uprawnienie” na liście kont).
     extra_permissions: list[str] = []
@@ -115,6 +117,8 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: Optional[bool] = None
     # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
     # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto
     # odtworzone w Entra; admin świadomie pozwala przypiąć nową tożsamość.
@@ -219,6 +223,7 @@ async def list_users(
             roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            receives_board_report=bool(u.receives_board_report),
             setup_pending_since=u.setup_pending_since,
             extra_permissions=list(
                 granted_beyond_roles(
@@ -337,6 +342,7 @@ async def update_user(
     original_name = user.name
     original_allowed_sections = list(user.allowed_sections or [])
     original_can_delete_clients = bool(user.can_delete_clients)
+    original_receives_board_report = bool(user.receives_board_report)
 
     if data.name is not None:
         user.name = data.name
@@ -405,6 +411,8 @@ async def update_user(
         user.is_active = data.is_active
     if data.can_delete_clients is not None:
         user.can_delete_clients = data.can_delete_clients
+    if data.receives_board_report is not None:
+        user.receives_board_report = data.receives_board_report
     if data.clear_microsoft_identity and user.azure_oid:
         previous_oid = user.azure_oid
         user.azure_oid = None
@@ -553,6 +561,29 @@ async def update_user(
             details={
                 "from": original_can_delete_clients,
                 "to": data.can_delete_clients,
+            },
+        )
+    if (
+        data.receives_board_report is not None
+        and data.receives_board_report != original_receives_board_report
+    ):
+        # Kto dostaje przychód i marżę firmy mailem, jest częścią Historii zdarzeń.
+        await record_executed(
+            db,
+            actor=_admin,
+            event_type="user.board_report_permission",
+            entity_type="user",
+            entity_id=user.id,
+            entity_label=f"{user.name} ({user.email})",
+            reason_code="granted" if data.receives_board_report else "revoked",
+            reason=(
+                "Nadano mail „Podsumowanie Rady”."
+                if data.receives_board_report
+                else "Odebrano mail „Podsumowanie Rady”."
+            ),
+            details={
+                "from": original_receives_board_report,
+                "to": data.receives_board_report,
             },
         )
 

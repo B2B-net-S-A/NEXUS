@@ -11,8 +11,8 @@ F25; nic nie zapisuje) → przegląd arkusza przez człowieka → `--apply plan.
 
 - **Archiwum nigdy nie jest „najnowszymi N pytaniami klienta”.** Listy
   „ostatnie 15/20” (prep-kit `client_debrief`, `prep_review`, Luna na
-  `/jobs/new` `debrief_questions`, `GET /interview-cycle/client-questions`,
-  historia klienta) czytają WYŁĄCZNIE `client_debrief` — surowy import dałby
+  `/jobs/new` `debrief_questions`, `GET /interview-cycle/client-questions`
+  po kliencie, historia klienta) czytają WYŁĄCZNIE `client_debrief` — surowy import dałby
   każdemu prepowi Nordei ocenę „słaby” (ocena bierze 20 najnowszych pytań
   klienta bez filtra roli). Nowy czytelnik typu „najnowsze N” = filtr po
   `client_debrief`, nigdy po samym kliencie.
@@ -35,5 +35,7 @@ F25; nic nie zapisuje) → przegląd arkusza przez człowieka → `--apply plan.
   CV u 937 kandydatów, zmiana u 379); wymagania ofert — 0 zmian. Jedna reguła
   dla wymagań z prozy, surowego CV i prep-kitu — nie dokładaj filtra obok.
 - Pytanie z archiwum zadane znowu w debriefie przechodzi na `client_debrief`
-  (`_save_client_questions`). Panel Championa ma zwiniętą sekcję „Z archiwum
-  rozmów (podobne role)” (`GET /api/interview-cycle/client-questions/archive`).
+  (`_save_client_questions`). Panel Championa ma w zakładce „Wszystkie pytania
+  klienta” zwiniętą sekcję „Z archiwum rozmów (podobne role)”
+  (`GET /api/interview-cycle/client-questions/archive`). Lista pod rekrutacją:
+  `pytania-pod-rekrutacja-tylko-zadane-na-rozmowie.md`.

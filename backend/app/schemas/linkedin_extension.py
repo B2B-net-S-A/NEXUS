@@ -79,6 +79,12 @@ class ProfileRead(BaseModel):
     about: Optional[str] = Field(default=None, max_length=5000)
 
 
+class LookupRequest(ProfileRead):
+    """``/lookup``: profil plus rekrutacja z paska „Pracuję nad” (płasko, jak dotąd)."""
+
+    active_job_id: Optional[int] = Field(default=None, ge=1, le=2_147_483_647)
+
+
 class CandidateBrief(BaseModel):
     id: int
     name: str
@@ -154,6 +160,25 @@ class JobMatchOut(BaseModel):
     score: int
 
 
+class ActiveJobOut(BaseModel):
+    """Otwarta rekrutacja z paska; ``score`` None, gdy nie udało się go policzyć."""
+
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    recruiter_name: Optional[str] = None
+    score: Optional[int] = None
+
+
+class ActiveJobRequest(BaseModel):
+    job_id: int = Field(ge=1, le=2_147_483_647)
+    profile: ProfileRead
+
+
+class ActiveJobResponse(BaseModel):
+    active_job: Optional[ActiveJobOut] = None
+
+
 class LookupResponse(BaseModel):
     status: Literal["found", "not_found", "ambiguous"]
     matched_by: Optional[Literal["linkedin", "name_company"]] = None
@@ -168,6 +193,8 @@ class LookupResponse(BaseModel):
     contractor: Optional[ContractorOut] = None
     job_change: Optional[JobChangeOut] = None
     matches: list[JobMatchOut] = Field(default_factory=list)
+    # None = nie pytano o rekrutację albo jest zamknięta / nie istnieje.
+    active_job: Optional[ActiveJobOut] = None
     usage: UsageOut
 
 

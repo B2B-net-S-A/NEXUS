@@ -647,6 +647,68 @@ async def test_link_results_count_applications_and_the_funnel(api):
     ] == 2
 
 
+async def test_link_people_list_who_applied_and_where_they_are(api):
+    """Makieta A: lista osób z obu rodzajów linków, ze stanem i „Moimi ludźmi”."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    slug = f"osoby-{uuid.uuid4().hex[:8]}"
+    assert (
+        await api.put("/api/me/career-link", headers=headers, json={"slug": slug})
+    ).status_code == 200
+
+    job_email = f"lista-job-{uuid.uuid4().hex[:8]}@example.com"
+    general_email = f"lista-og-{uuid.uuid4().hex[:8]}@example.com"
+    for form in (_form(link["slug"], job_email), _form(slug, general_email)):
+        resp = await api.post("/api/public/career/apply", data=form, files=_cv())
+        assert resp.status_code == 201, resp.text
+
+    body = (await api.get("/api/me/career-link/people", headers=headers)).json()
+    assert body["days"] is None and body["total"] == 2 and not body["truncated"]
+    by_kind = {row["kind"]: row for row in body["people"]}
+
+    job_row = by_kind["job"]
+    assert job_row["job_id"] == job_id and job_row["slug"] == link["slug"]
+    assert job_row["current_stage"] == "new" and job_row["current_job_id"] == job_id
+    # Link do rekrutacji nie przypina: lista „Z procesów” dopiero po CV wysłanym.
+    assert job_row["in_my_people"] is False
+
+    general_row = by_kind["recruiter"]
+    assert general_row["job_id"] is None and general_row["current_stage"] is None
+    assert general_row["in_my_people"] is True
+
+    # Lejek i lista czytają to samo źródło.
+    results = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert results["totals"]["applications"] == body["total"]
+
+    # Ślad na liście „Moi ludzie”: osoba z linku ogólnego ma plakietkę.
+    listed = (await api.get("/api/my-people", headers=headers)).json()["rows"]
+    row = next(r for r in listed if r["candidate_id"] == general_row["candidate_id"])
+    assert row["from_link"] is True
+
+
+async def test_link_people_show_only_own_links(api):
+    """Odmowa wglądu: cudze zgłoszenia nie wracają w tej liście."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"cudzy-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+
+    _, other_email, other_password = await _seed_user("career-inny")
+    other_headers = await _login(api, other_email, other_password)
+    body = (await api.get("/api/me/career-link/people", headers=other_headers)).json()
+    assert body["total"] == 0 and body["people"] == []
+
+
 async def test_link_results_hide_dead_links_without_applications(api):
     _, headers, job_id = await _owner_with_job(api)
     link = await _create_job_link(api, headers, job_id)

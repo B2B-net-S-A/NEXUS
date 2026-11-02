@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useEditorState, type Editor } from "@tiptap/react";
-import { Check, Loader2, SendHorizontal, Sparkles, Undo2 } from "lucide-react";
+import { Check, FileText, Loader2, MessageSquareQuote, SendHorizontal, Sparkles, Undo2, Wand2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { CV_PANEL_ATTR, Marked } from "@/components/v2/cv-editor/Marked";
@@ -28,6 +28,9 @@ import { CV_COMMAND_PRESETS } from "@/lib/api/cvEditorCommand";
 import { CV_COMMAND_MAX } from "@/lib/cv-editor-command";
 import { useTextareaAutogrow } from "@/lib/use-textarea-autogrow";
 import { cn } from "@/lib/utils";
+
+/** Treść polecenia trzyma serwer (`cv_command_ai.PRESETS`). */
+const TAILOR_REQUEST = { preset: "tailor", label: "Dopasuj pod rekrutację" } as const;
 
 export interface CvEditorAssistantProps {
   controller: CvAssistantController;
@@ -88,7 +91,23 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
         ? "Wróć do rozmowy z asystentem"
         : "Napisz, co zmienić w CV…";
     return (
-      <section aria-label="Asystent CV" className="flex-none border-t border-border p-2" {...{ [CV_PANEL_ATTR]: "" }}>
+      <section aria-label="Asystent CV" className="flex-none space-y-1.5 border-t border-border p-2" {...{ [CV_PANEL_ATTR]: "" }}>
+        {controller.messages.length === 0 && !controller.locked ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-full"
+            data-tour="cv-editor.tailor"
+            disabled={disabled}
+            onClick={() => {
+              onExpand();
+              controller.send(TAILOR_REQUEST);
+            }}
+          >
+            <Wand2 aria-hidden className="h-3.5 w-3.5" /> {TAILOR_REQUEST.label}
+          </Button>
+        ) : null}
         <button
           type="button"
           onClick={onExpand}
@@ -140,6 +159,15 @@ export function CvEditorAssistant({ controller, editor, expanded, onExpand }: Cv
       </div>
       <div className="space-y-1.5 border-t border-border p-2">
         <div className="flex flex-wrap gap-1" role="group" aria-label="Podpowiedzi">
+          <Button
+            type="button"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            disabled={disabled}
+            onClick={() => controller.send(TAILOR_REQUEST)}
+          >
+            <Wand2 aria-hidden className="h-3 w-3" /> {TAILOR_REQUEST.label}
+          </Button>
           {chips.map((item) => (
             <Button
               key={item.preset}
@@ -255,6 +283,9 @@ function MessageView({
         <p className="text-[11px] text-muted-foreground">Sprawdź nowe słowa: {message.words.join(", ")}</p>
       ) : null}
       {question ? <QuestionView messageId={message.id} question={question} controller={controller} /> : null}
+      {message.proposals && message.proposals.state !== "done" ? (
+        <ProposalsView messageId={message.id} proposals={message.proposals} controller={controller} />
+      ) : null}
       {undo ? (
         undo.state === "done" ? (
           <p className="text-[11px] text-muted-foreground">Cofnięte.</p>
@@ -272,6 +303,82 @@ function MessageView({
           </Button>
         )
       ) : null}
+    </div>
+  );
+}
+
+function ProposalsView({
+  messageId,
+  proposals,
+  controller,
+}: {
+  messageId: number;
+  proposals: NonNullable<AssistantMessage["proposals"]>;
+  controller: CvAssistantController;
+}) {
+  const busy = proposals.state === "busy";
+  const before = (lines: number[]) =>
+    lines
+      .map((id) => proposals.lines.find((line) => line.id === id)?.text ?? "")
+      .filter(Boolean)
+      .join(" ");
+  return (
+    <div className="space-y-1.5" data-testid="cv-tailor-proposals">
+      <ul className="space-y-1.5">
+        {proposals.operations.map((operation) => {
+          const old = operation.type === "add" ? "" : before(operation.lines);
+          return (
+            <li key={operation.id} className="space-y-1 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+              <label className="flex cursor-pointer items-start gap-1.5 font-medium">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 shrink-0"
+                  checked={proposals.selected.includes(operation.id)}
+                  disabled={busy}
+                  onChange={() => controller.toggleProposal(messageId, operation.id)}
+                />
+                <span>{operation.why.trim() || "Propozycja"}</span>
+              </label>
+              {old ? (
+                <p className="text-muted-foreground line-through decoration-destructive/60 [overflow-wrap:anywhere]">
+                  <Marked text={old} />
+                </p>
+              ) : null}
+              {operation.text ? (
+                <p className="[overflow-wrap:anywhere]">
+                  <Marked text={operation.text} />
+                </p>
+              ) : null}
+              {operation.quote ? (
+                <p className="flex gap-1 border-l-2 border-border pl-1.5 text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+                  {operation.source === "rozmowa" ? (
+                    <MessageSquareQuote aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
+                  ) : (
+                    <FileText aria-hidden className="mt-0.5 h-3 w-3 shrink-0" />
+                  )}
+                  <span>
+                    <span className="font-medium">{operation.source === "rozmowa" ? "Rozmowa: " : "Oryginał: "}</span>
+                    „{operation.quote}”
+                  </span>
+                </p>
+              ) : null}
+              {operation.new_words.length > 0 ? (
+                <p className="text-[11px] text-warning-muted-foreground">Sprawdź nowe słowa: {operation.new_words.join(", ")}</p>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+      <Button
+        type="button"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        disabled={busy || controller.busy || proposals.selected.length === 0}
+        loading={busy}
+        onClick={() => void controller.applyProposals(messageId)}
+      >
+        <Check aria-hidden className="h-3.5 w-3.5" /> Zastosuj zaznaczone ({proposals.selected.length})
+      </Button>
     </div>
   );
 }

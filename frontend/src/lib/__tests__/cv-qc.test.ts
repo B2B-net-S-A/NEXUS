@@ -604,3 +604,15 @@ describe("taskPendingItem (D4, 17.10.2026)", () => {
     ]);
   });
 });
+
+describe("qcOverrideError: „Kandydat potwierdził” wymaga słów kandydata (02.11.2026)", () => {
+  it("krótki albo pusty opis to błąd, a zdanie przechodzi", () => {
+    expect(qcOverrideError("confirmed_in_call", "")).toContain("co dokładnie powiedział");
+    expect(qcOverrideError("confirmed_in_call", "potwierdził")).toContain("co najmniej 15");
+    expect(qcOverrideError("confirmed_in_call", "Używał Dockera w migracji")).toBeNull();
+  });
+
+  it("inne powody dalej nie wymagają opisu", () => {
+    expect(qcOverrideError("requirement_not_applicable", "")).toBeNull();
+  });
+});

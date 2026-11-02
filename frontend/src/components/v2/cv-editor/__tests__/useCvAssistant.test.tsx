@@ -369,3 +369,114 @@ describe("useCvAssistant — „Napisz od nowa” (PR 5)", () => {
     await waitFor(() => expect(commandApi.plan).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("useCvAssistant — „Dopasuj pod rekrutację” (02.11.2026)", () => {
+  const op = (value: Partial<CvCommandResponse["operations"][number]>) => ({
+    id: 0,
+    type: "replace" as const,
+    lines: [6],
+    text: "Planowanie sprintów w **Scrum**.",
+    why: "Wymaganie w opisie roli",
+    loses: [],
+    new_words: [],
+    quote: "planowałem sprinty w Scrum",
+    source: "rozmowa" as const,
+    ...value,
+  });
+
+  function hookFor(editor: Editor, plan: CvCommandResponse, ensureDraft = async () => true) {
+    const commandApi = { plan: vi.fn(async () => plan), confirmFact: vi.fn(async () => undefined) };
+    return {
+      commandApi,
+      hook: renderHook(() => useCvAssistant({ editor, stageId: 7, disabled: false, ensureDraft, api: commandApi })),
+    };
+  }
+
+  async function ask(hook: ReturnType<typeof hookFor>["hook"]) {
+    act(() => hook.result.current.send({ preset: "tailor", label: "Dopasuj pod rekrutację" }));
+    await waitFor(() => expect(hook.result.current.messages.at(-1)?.role).toBe("assistant"));
+    await waitFor(() => expect(hook.result.current.busy).toBe(false));
+    return hook.result.current.messages.at(-1)!;
+  }
+
+  it("propozycje czekają na wybór: nic nie zmienia się przed „Zastosuj”", async () => {
+    const editor = open();
+    const before = editor.getHTML();
+    const { hook, commandApi } = hookFor(editor, {
+      status: "ok",
+      operations: [op({})],
+      dropped: [],
+      message: null,
+    });
+    const reply = await ask(hook);
+    expect((commandApi.plan.mock.calls as unknown[][])[0][1]).toMatchObject({ preset: "tailor" });
+    expect(reply.proposals?.operations).toHaveLength(1);
+    expect(reply.proposals?.state).toBe("open");
+    expect(editor.getHTML()).toBe(before);
+  });
+
+  it("nakłada tylko zaznaczone, jedną zmianą z „Cofnij”", async () => {
+    const editor = open();
+    const { hook } = hookFor(editor, {
+      status: "ok",
+      operations: [
+        op({ id: 0 }),
+        op({ id: 1, lines: [5], text: "Rozwój usług w **Java 21**.", why: "Inna" }),
+      ],
+      dropped: [],
+      message: null,
+    });
+    const reply = await ask(hook);
+    act(() => hook.result.current.toggleProposal(reply.id, 1));
+    await act(async () => {
+      await hook.result.current.applyProposals(reply.id);
+    });
+    const after = hook.result.current.messages.find((message) => message.id === reply.id)!;
+    expect(after.proposals?.state).toBe("done");
+    expect(after.undo?.state).toBe("ready");
+    expect(editor.getHTML()).toContain("Planowanie sprintów w <strong>Scrum</strong>.");
+    expect(editor.getHTML()).not.toContain("Java 21");
+    act(() => hook.result.current.undo(reply.id));
+    expect(editor.getHTML()).not.toContain("Planowanie sprintów w");
+  });
+
+  it("nowe słowa do przeczytania: propozycja nie jest zaznaczona z góry", async () => {
+    const editor = open();
+    const { hook } = hookFor(editor, {
+      status: "ok",
+      operations: [op({ new_words: ["Scrum"] })],
+      dropped: [],
+      message: null,
+    });
+    const reply = await ask(hook);
+    expect(reply.proposals?.selected).toEqual([]);
+    await act(async () => {
+      await hook.result.current.applyProposals(reply.id);
+    });
+    expect(editor.getHTML()).not.toContain("Scrum");
+  });
+
+  it("brak propozycji to zdanie, nie pusta lista", async () => {
+    const editor = open();
+    const { hook } = hookFor(editor, { status: "ok", operations: [], dropped: [], message: null });
+    const reply = await ask(hook);
+    expect(reply.proposals).toBeUndefined();
+    expect(reply.text).toContain("Nie mam propozycji");
+  });
+
+  it("szkic nie powstał: propozycje zostają do ponowienia", async () => {
+    const editor = open();
+    const { hook } = hookFor(
+      editor,
+      { status: "ok", operations: [op({})], dropped: [], message: null },
+      async () => false,
+    );
+    const reply = await ask(hook);
+    await act(async () => {
+      await hook.result.current.applyProposals(reply.id);
+    });
+    const after = hook.result.current.messages.find((message) => message.id === reply.id)!;
+    expect(after.proposals?.state).toBe("open");
+    expect(hook.result.current.messages.at(-1)?.text).toContain("Nie udało się założyć nowej wersji CV");
+  });
+});

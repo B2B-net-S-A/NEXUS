@@ -252,7 +252,8 @@ CATALOG = (
         module="System",
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu; "
         "DL albo rekruter jest poza grupą, w której aplikacja zakłada prepy w Teams "
-        "(najwyżej raz dziennie).",
+        "(najwyżej raz dziennie); osoba ma skrzynkę poza zakresem aplikacji Kadr "
+        "(po uzgadnianiu o 7:00).",
         recipient_rule="Aktywni administratorzy.",
     ),
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
@@ -339,7 +340,7 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” albo admin, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
+        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” oraz osoby z imiennym nadaniem w „Osoby i role”, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
     ),
     # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
     # `services/board_placement_alerts.py`, wysyła pętla raportów.
@@ -609,6 +610,7 @@ def _type_kinds() -> dict[str, str]:
         "b2b_signature_requested": "signature_request",
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
+        "hr_m365_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
         "new_person_signed_in": "new_person",
         "client_job_opened": CLIENT_JOB_KIND,

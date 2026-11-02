@@ -16,7 +16,10 @@ wrzuca. Gdy aktywnego nie ma (scalił się, wypadł, ma czerwone checki),
 najstarszy czekający dostaje swoją kolej: etykieta zdjęta, auto-merge
 włączony. Kolejność migracji między sobą nie ma znaczenia —
 ``migration-rechain.yml`` po każdym scaleniu przepina czekających na nową
-głowę maina.
+głowę maina. Kolej dostaje tylko PR już przepięty (numer migracji wyższy niż
+na mainie): zielony nieprzepięty wszedłby do kolejki od razu z dwiema głowami,
+a przepięcia nie dałoby się już wypchnąć (GH006). 02.11.2026 tak wypadały
+#2889 i #2897.
 
 Komendy:
 
@@ -35,12 +38,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
 from typing import Callable
 
 VERSIONS_PREFIX = "backend/alembic/versions/"
+MIGRATION_NUMBER_RE = re.compile(r"^(\d+)_")
 WAIT_LABEL = "czeka-na-migracje"
 HOLD_LABEL = "wstrzymaj"
 MARKER = "<!-- migration-lane -->"
@@ -74,6 +79,7 @@ class Pr:
     armed: bool
     waiting: bool
     healthy: bool
+    fresh: bool = True
 
 
 @dataclass(frozen=True)
@@ -85,8 +91,16 @@ class Plan:
     unlabel: int | None = None
 
 
-def parse_prs(nodes: list[dict]) -> list[Pr]:
-    """PR-y z plikiem migracji; drafty, ``wstrzymaj`` i forki nie biorą udziału."""
+def migration_numbers(names: list[str]) -> list[int]:
+    matches = (MIGRATION_NUMBER_RE.match(name) for name in names)
+    return [int(m.group(1)) for m in matches if m]
+
+
+def parse_prs(nodes: list[dict], main_top: int | None = None) -> list[Pr]:
+    """PR-y z plikiem migracji; drafty, ``wstrzymaj`` i forki nie biorą udziału.
+
+    ``main_top`` = najwyższy numer migracji na mainie; ``None`` = nieznany.
+    """
     prs = []
     for node in nodes:
         if node.get("isDraft") or node.get("isCrossRepository"):
@@ -100,6 +114,8 @@ def parse_prs(nodes: list[dict]) -> list[Pr]:
         commits = (node.get("commits") or {}).get("nodes") or [{}]
         rollup = (commits[-1].get("commit") or {}).get("statusCheckRollup") or {}
         entry = node.get("mergeQueueEntry")
+        names = [p.rsplit("/", 1)[-1] for p in paths if p.startswith(VERSIONS_PREFIX)]
+        own = migration_numbers(names)
         prs.append(
             Pr(
                 number=int(node["number"]),
@@ -109,6 +125,7 @@ def parse_prs(nodes: list[dict]) -> list[Pr]:
                 waiting=WAIT_LABEL in labels,
                 healthy=rollup.get("state") not in UNHEALTHY_CHECKS
                 and node.get("mergeable") != "CONFLICTING",
+                fresh=main_top is None or not own or max(own) > main_top,
             )
         )
     return sorted(prs, key=lambda p: p.number)
@@ -119,8 +136,8 @@ def plan_lane(prs: list[Pr]) -> Plan:
 
     Aktywny = pierwszy PR z migracją w kolejce; bez takiego — najstarszy
     uzbrojony ze zdrowymi checkami. Uzbrojony z czerwonymi checkami nie blokuje
-    pasa: do kolejki i tak nie wejdzie, a gdy wejdzie po poprawce, kolejne
-    ``enforce`` zostawi tylko jednego.
+    pasa, ale przy zajętym pasie też traci auto-merge: po zazielenieniu GitHub
+    wrzuciłby go do kolejki sam (#2916, 02.11.2026).
     """
     queued = sorted(
         (p for p in prs if p.queue_position is not None),
@@ -128,19 +145,23 @@ def plan_lane(prs: list[Pr]) -> Plan:
     )
     ready = [p for p in prs if p.queue_position is None and p.armed and p.healthy]
     if queued:
-        active, dequeue, park = queued[0], queued[1:], queued[1:] + ready
+        active, dequeue = queued[0], queued[1:]
     elif ready:
-        active, dequeue, park = ready[0], [], ready[1:]
+        active, dequeue = ready[0], []
     else:
         waiting = sorted(
-            (p for p in prs if p.waiting), key=lambda p: (not p.healthy, p.number)
+            (p for p in prs if p.waiting and p.fresh),
+            key=lambda p: (not p.healthy, p.number),
         )
         promote = waiting[0].number if waiting else None
         return Plan(active=None, promote=promote)
+    armed = [
+        p for p in prs if p.queue_position is None and p.armed and p is not active
+    ]
     return Plan(
         active=active.number,
         dequeue=tuple(p.number for p in dequeue),
-        park=tuple(p.number for p in park),
+        park=tuple(p.number for p in [*dequeue, *armed]),
         unlabel=active.number if active.waiting else None,
     )
 
@@ -185,8 +206,24 @@ def gh(*args: str, stdin: str | None = None) -> str:
     return result.stdout
 
 
+def main_top_migration(repo: str, run: Gh = gh) -> int | None:
+    """Odczyt z API, nie z checkoutu: bieg może mieć maina sprzed scalenia.
+
+    Błąd = ``None``, czyli kolej jak przed tą kontrolą; „Jedna głowa Alembica”
+    i tak zatrzyma dwie głowy w kolejce.
+    """
+    path = f"repos/{repo}/contents/{VERSIONS_PREFIX.rstrip('/')}?ref=main"
+    try:
+        raw = run("api", path, "--jq", ".[].name")
+    except RuntimeError as exc:
+        print(f"::warning::Lista migracji maina niedostępna: {exc}")
+        return None
+    return max(migration_numbers(raw.split()), default=None)
+
+
 def fetch_prs(repo: str, run: Gh = gh) -> list[Pr]:
     owner, name = repo.split("/", 1)
+    main_top = main_top_migration(repo, run)
     nodes: list[dict] = []
     cursor = None
     while True:
@@ -197,7 +234,7 @@ def fetch_prs(repo: str, run: Gh = gh) -> list[Pr]:
         page = json.loads(run(*args))["data"]["repository"]["pullRequests"]
         nodes += page["nodes"]
         if not page["pageInfo"]["hasNextPage"]:
-            return parse_prs(nodes)
+            return parse_prs(nodes, main_top)
         cursor = page["pageInfo"]["endCursor"]
 
 

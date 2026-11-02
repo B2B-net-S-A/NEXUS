@@ -101,6 +101,14 @@ PROPOSED_TEXT_MAX = 600
 SOURCE_QUOTE_MAX = 300
 EVIDENCE_MAX = 240
 CONFIRM_TEXT_MAX = 1000
+# Potwierdzenie ma mówić, co kandydat powiedział: 101 ze 153 wpisów od 12.10.2026
+# było samym kliknięciem i Delivery Lead nie miał czego sprawdzić.
+CONFIRM_TEXT_MIN = 15
+ROLE_COMPANY_MAX = 80
+_COMPANY_LIST = re.compile(r"\b\d+\.\s+\S+.*\b\d+\.\s+\S")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+_RATE_PAIR = re.compile(r"\b\d{2,4}\s*/\s*\d{2,4}\b")
+_DENIAL = re.compile(r"\b(?:nie|bez|brak|nigdy|not|no|never|without)\b", re.IGNORECASE)
 CONFIRMATIONS_MAX = 20
 DESCRIPTIVE_MIN_WORDS = 6
 HEADER_BLOCKS = 6
@@ -2821,6 +2829,7 @@ async def run_qc(
         ),
         "advisory": advisory_mode(),
         "confirmations": await _confirmations(db, src.candidate.id),
+        "confirm_roles": confirm_roles(src),
         "run_id": run_id,
         "computed_at": computed_at,
         "cv": _cv_payload(src),
@@ -2982,7 +2991,11 @@ async def record_override(
             reason=reason,
             blocking_failed=blocking_failed,
         )
-    if reason_code == CONFIRMED_IN_CALL:
+    # Obejście bez słów kandydata zostaje obejściem, ale nie robi z niczego faktu.
+    if (
+        reason_code == CONFIRMED_IN_CALL
+        and len(" ".join((note or "").split())) >= CONFIRM_TEXT_MIN
+    ):
         for literal in confirmable_terms(checks):
             _add_confirmation(
                 db, src, stage, literal, note, user_id=user_id, via="override"
@@ -3039,8 +3052,12 @@ async def confirm_with_candidate(
     term: str,
     text: Optional[str],
     user_id: int,
+    role: Optional[str] = None,
 ) -> dict:
     """„Potwierdzone z kandydatem”: zapisz potwierdzenie i policz QC od nowa.
+
+    Treść jest obowiązkowa (decyzja Artura 02.11.2026), rola opcjonalna: nazwa
+    firmy pozwala generatorowi użyć faktu w opisie tej roli.
 
     QC uznaje notatki za źródło obok oryginalnego CV („nic spoza oryginału
     i notatek”), więc potwierdzenie jest notatką pary — z autorem i datą,
@@ -3049,7 +3066,9 @@ async def confirm_with_candidate(
     a notatka czytana jako źródło „potwierdzałaby” je wszystkie.
     """
 
+    check_confirmation_text(text)
     src, checks, _ = await evaluate(db, stage)
+    role = checked_role(src, role)
     wanted = _norm(term)
     item = next(
         (
@@ -3064,9 +3083,137 @@ async def confirm_with_candidate(
     if item is None:
         raise ApplyError("QC nie zgłasza już tej pozycji — odśwież okno.")
     literal = str(item.get("term") or item.get("requirement") or "").strip()
-    _add_confirmation(db, src, stage, literal, text, user_id=user_id)
+    _add_confirmation(db, src, stage, literal, text, user_id=user_id, role=role)
     await db.flush()
     return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+def check_confirmation_text(text: Optional[str]) -> None:
+    """Słowa kandydata: bez nich potwierdzenie niczego nie dowodzi."""
+    if len(" ".join((text or "").split())) < CONFIRM_TEXT_MIN:
+        raise ApplyError(
+            "Wpisz, co dokładnie powiedział kandydat (co najmniej "
+            f"{CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead."
+        )
+
+
+def confirm_roles(src: dz.ReviewSources) -> list[str]:
+    """Firmy z ról kandydata, do wskazania przy fakcie z rozmowy."""
+    entries = dz.role_entries(src.candidate, src.original.get("text") or "")
+    seen: dict[str, str] = {}
+    for entry in entries:
+        company = " ".join(str(entry.get("company") or "").split())
+        # Odczyt CV bywa listą firm w jednym polu („1. Marcel 2. Capco 3. …”).
+        if (
+            company
+            and len(company) <= ROLE_COMPANY_MAX
+            and not _COMPANY_LIST.search(company)
+        ):
+            seen.setdefault(company.casefold(), company)
+    return list(seen.values())
+
+
+def _sentence_denies(answer: str, term: str) -> bool:
+    """Zdanie z wymaganiem przeczy mu: „Samego Customer 360 nie, podobne: …”.
+
+    `drop_negative_sentences` usuwa zdania z typowym przeczeniem, a takie luźne
+    odpowiedzi przepuszcza. Lista faktów woli pominąć wątpliwe zdanie niż
+    podsunąć rekruterowi coś, czego kandydat nie powiedział.
+    """
+    wanted = term.casefold()
+    for sentence in _SENTENCE_END.split(answer):
+        if wanted in sentence.casefold() and _DENIAL.search(sentence):
+            return True
+    return False
+
+
+def checked_role(src: dz.ReviewSources, role: Optional[str]) -> Optional[str]:
+    """Rola z listy osoby albo ``None``; firmy spoza historii nie zapisujemy."""
+    wanted = " ".join((role or "").split())
+    if not wanted:
+        return None
+    for company in confirm_roles(src):
+        if company.casefold() == wanted.casefold():
+            return company
+    raise ApplyError("Tej firmy nie ma w historii kandydata — odśwież okno.")
+
+
+def _answer_quote(answers: str, term: Optional[str]) -> Optional[str]:
+    """Cytat z jednej odpowiedzi; bez przeczenia i bez pieniędzy.
+
+    Cytat trafia do notatki widocznej w profilu i w innych rekrutacjach, więc nie
+    może przejść przez granicę odpowiedzi ani nieść kwoty czy pary „150/120”,
+    która z notatki Delivery Leada zrobiłaby wpis o stawce do klienta.
+    """
+    if not term:
+        return None
+    from app.services.client_rate_notes import parse_dl_pair
+    from app.services.cv_command_ai import has_amount
+
+    wanted = term.casefold()
+    for line in answers.splitlines():
+        if wanted not in line.casefold() or _sentence_denies(line, term):
+            continue
+        quote = _snippet(line, term)
+        if quote and not (
+            has_amount(line) or parse_dl_pair(line) or _RATE_PAIR.search(line)
+        ):
+            return quote
+    return None
+
+
+async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
+    """Wymagania, o których kandydat mówił w rozmowie, a oryginał milczy.
+
+    Generator przenosi fakt z rozmowy do roli tylko, gdy zna firmę, a sam prompt
+    nie podnosi liczby wymagań w opisach ról (pomiar 02.11.2026). Rekruter wskazuje
+    więc rolę przed generacją. Źródłem jest odpowiedź kandydata bez pytań i zdań
+    przeczących (`answers_text`), nigdy treść pytania.
+    """
+    src = await _load_sources(stage=stage, db=db)
+    original = src.original.get("text") or ""
+    answers = answers_text(stage, src.job) or ""
+    # Tylko to, co potwierdzono: cytat w notatce wymienia też inne wymagania.
+    known = {
+        _norm(row["text"].split(" — ", 1)[0])
+        for row in await _confirmations(db, src.candidate.id)
+    }
+    facts: list[dict] = []
+    for req in src.must:
+        if not answers or dz.found_in(original, req, mode="support"):
+            continue
+        if not dz.found_in(answers, req, mode="support"):
+            continue
+        label = _norm(req.label)
+        if any(label in text for text in known):
+            continue
+        quote = _answer_quote(answers, match_in(answers, req))
+        if quote:
+            facts.append({"term": req.label, "quote": quote})
+    return {"facts": facts, "roles": confirm_roles(src)}
+
+
+async def save_role_fact(
+    db: AsyncSession, stage: CandidateStage, *, term: str, role: str, user_id: int
+) -> dict:
+    """Zapisz fakt z rozmowy z rolą: tę samą notatkę co „Potwierdzone z kandydatem”."""
+    current = await role_facts(db, stage)
+    fact = next((f for f in current["facts"] if _norm(f["term"]) == _norm(term)), None)
+    if fact is None:
+        raise ApplyError("Tego faktu nie ma już na liście — odśwież okno.")
+    src = await _load_sources(stage=stage, db=db)
+    _add_confirmation(
+        db,
+        src,
+        stage,
+        fact["term"],
+        fact["quote"],
+        user_id=user_id,
+        via="before_generation",
+        role=checked_role(src, role),
+    )
+    await db.flush()
+    return await role_facts(db, stage)
 
 
 # Powód obejścia, który zapisuje potwierdzenia (D3, 17.10.2026).
@@ -3157,8 +3304,13 @@ def _add_confirmation(
     *,
     user_id: int,
     via: Optional[str] = None,
+    role: Optional[str] = None,
 ) -> None:
-    """Notatka pary „Potwierdzone z kandydatem: X — opis” + Activity."""
+    """Notatka pary „Potwierdzone z kandydatem: X (Firma) — opis” + Activity.
+
+    Nazwa firmy w treści to wskazanie dla generatora i propozycji QC, które
+    przenoszą fakt z rozmowy do roli tylko wtedy, gdy źródło nazywa firmę.
+    """
     from app.models.activity import Activity
     from app.models.note import Note, NoteType
     from app.services import note_kinds
@@ -3168,6 +3320,7 @@ def _add_confirmation(
         Note(
             # Bez kropki po nazwie: „Java 17.” czytałoby się jak inna wersja.
             content=f"Potwierdzone z kandydatem: {literal}"
+            + (f" ({role})" if role else "")
             + (f" — {said}" if said else ""),
             note_type=NoteType.general,
             candidate_id=src.candidate.id,
@@ -3183,6 +3336,8 @@ def _add_confirmation(
     }
     if via:
         details["via"] = via
+    if role:
+        details["role"] = role[:200]
     db.add(
         Activity(
             entity_type="candidate_stage",

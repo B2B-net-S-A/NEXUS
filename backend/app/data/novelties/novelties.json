@@ -636,6 +636,32 @@
     "dot_anchor": "sales.decision-map.add"
   },
   {
+    "id": "potwierdzenie-ze-slowami-kandydata",
+    "title": "Potwierdzenie ze słowami kandydata",
+    "why": "„Potwierdzone z kandydatem” wymaga teraz zdania: co kandydat powiedział. Możesz wskazać rolę, a generator opisze ten fakt przy tej firmie. Delivery Lead zobaczy to zdanie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2891,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → QC CV → Potwierdzone z kandydatem",
+    "href": "/jobs",
+    "dot_anchor": "cv-qc.confirm"
+  },
+  {
+    "id": "dopasuj-pod-rekrutacje",
+    "title": "Dopasuj CV pod rekrutację w edytorze",
+    "why": "Zamiast przerabiać CV w czacie kliknij „Dopasuj pod rekrutację”. Dostaniesz propozycje zmian z cytatem z oryginału albo rozmowy, wybierzesz potrzebne i jednym kliknięciem cofniesz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2892,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → CV do klienta → Otwórz i popraw",
+    "href": "/jobs",
+    "dot_anchor": "cv-editor.tailor"
+  },
+  {
     "id": "nowi-kolejka-zadzwon-najpierw",
     "title": "Nowi: „Zadzwoń najpierw” na górze kolejki od systemu",
     "why": "Najlepsze osoby od systemu stały dotąd na dole kolumny. Teraz pod osobami dodanymi przez zespół widzisz kolejkę od najwyższego wyniku, a pierwszych pięć ma numer.",
@@ -658,5 +684,17 @@
     "href": "/insights/autofill",
     "section": "insights",
     "dot_anchor": "insights.sent-vs-system"
+  },
+  {
+    "id": "linki-kto-sie-zglosil",
+    "title": "Linki: kto się zgłosił i gdzie jest teraz",
+    "why": "Twoje linki dawały dotąd same liczby. Teraz widzisz nazwiska osób ze zgłoszeń, a zakładka „Z linków” w „Moich ludziach” zbiera też osoby z linków do rekrutacji, które jeszcze nie mają wysłanego CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Moi ludzie → Z linków",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "my-people.from-links"
   }
 ]

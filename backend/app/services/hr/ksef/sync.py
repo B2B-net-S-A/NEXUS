@@ -443,7 +443,11 @@ def _defer(run: _Run, ksef_number: str, acquired: Optional[str], reason: str) ->
         ksef_number,
         {"ksef_number": ksef_number, "acquired_at": acquired, "attempts": 0},
     )
-    entry["attempts"] = int(entry.get("attempts") or 0) + 1
+    # Czekanie na budżet przebiegu to nie nieudana próba: zaległość większa niż
+    # budżet (pierwszy przebieg sprzedaży: 1500+ faktur, 20 pobrań na godzinę)
+    # wygasłaby po dobie, a znacznik jest już za tymi fakturami.
+    if reason != "budget":
+        entry["attempts"] = int(entry.get("attempts") or 0) + 1
     entry["reason"] = reason
     run.counts["deferred"] += 1
 

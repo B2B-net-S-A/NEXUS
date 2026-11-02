@@ -256,6 +256,42 @@ describe("Dokumenty — umowy z podglądem Delivery (D7)", () => {
   });
 });
 
+describe("Dokumenty — zakończenie na karcie bieżącej umowy", () => {
+  it("umowa przywrócona, znów bezterminowa: bez „Koniec zamówienia” z pierwszego zakończenia", async () => {
+    setUser({ role: "talent_community_manager" });
+    byCandidate.mockResolvedValue({
+      data: {
+        items: [{ ...ACTIVE_CONTRACT, end_date: null, terminated_at: "2026-08-31" }],
+      },
+    });
+    renderTab();
+
+    expect(await screen.findByText("Zarządzaj kontraktem →")).toBeInTheDocument();
+    expect(screen.queryByText(/Koniec zamówienia/)).toBeNull();
+  });
+
+  it("zaplanowane zakończenie: koniec zamówienia to data końca, nie pierwsze zakończenie", async () => {
+    setUser({ role: "talent_community_manager" });
+    byCandidate.mockResolvedValue({
+      data: {
+        items: [
+          {
+            ...ACTIVE_CONTRACT,
+            status: "ending",
+            end_date: "2026-12-31",
+            terminated_at: "2026-08-31",
+          },
+        ],
+      },
+    });
+    renderTab();
+
+    expect(await screen.findByText(/Koniec zamówienia/)).toHaveTextContent(
+      "Koniec zamówienia: 31.12.2026",
+    );
+  });
+});
+
 describe("Dokumenty — układ", () => {
   it("kolejność: Umowy → Pliki → Dane do umowy (JDG) na dole", async () => {
     setUser({ role: "recruiter" });

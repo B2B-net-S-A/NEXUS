@@ -269,6 +269,8 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
 
 # Od tylu dodatkowych miesięcy nagłówek mówi „Ponad N lat” zamiast „N lat”.
 OVER_YEARS_FROM_MONTHS = 3
+# Krócej staż nie zastępuje liczby modelu, ale uwagę zgłasza QC (`years_header`).
+MIN_TENURE_MONTHS = 6
 
 
 def _tenure_text(months: int, language: str, *, at_start: bool) -> str:
@@ -277,9 +279,10 @@ def _tenure_text(months: int, language: str, *, at_start: bool) -> str:
     Do 02.11.2026 połowa roku szła w górę i rekruterzy poprawiali w plikach
     „18 lat” na „Ponad 17 lat” (19 z 67 CV zmieniało tę liczbę).
     """
-    whole = months // 12
+    # Od pół roku do roku liczy się jak dotąd: rok, nie „0 lat”.
+    whole = max(months // 12, 1)
     text = _years_text(whole, language)
-    if months % 12 < OVER_YEARS_FROM_MONTHS:
+    if months < 12 or months % 12 < OVER_YEARS_FROM_MONTHS:
         return text
     if language == "en":
         return f"{'Over' if at_start else 'over'} {text}"
@@ -382,7 +385,7 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
     ]
     total = _total_experience_months(experience)
-    if not total or total < 12:
+    if not total or total < MIN_TENURE_MONTHS:
         return
 
     points = candidate_data.get("why_points") or []
@@ -525,7 +528,7 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
             if figure is None:
                 return match.group(0)
             months = _scoped_months(match.string[match.end() :], roles, companies)
-            if not months or months < 12:
+            if not months or months < MIN_TENURE_MONTHS:
                 return match.group(0)
             if figure != int(figure) and _fraction_matches(figure, months):
                 return match.group(0)  # „4,5 roku w Acme” zgodne z datami

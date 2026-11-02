@@ -107,3 +107,101 @@ async def test_whole_company_scope_needs_the_permission() -> None:
 
     with pytest.raises(engine.MetricAccessDenied):
         await engine._finance_client_boundary(_account(UserRole.finance, FM), db=None)
+
+
+def test_placements_sheet_can_drop_the_margin_columns() -> None:
+    from app.services import contract_placements_export as placements
+
+    row = list(range(len(placements.PLACEMENT_EXPORT_COLUMNS)))
+    columns, rows = placements.without_margin_columns([row])
+
+    assert "Marża" not in columns and "Marża mies." not in columns
+    assert "Stawka przychodowa" in columns
+    assert len(rows[0]) == len(columns) == len(row) - 2
+
+
+def test_list_row_loses_margin_but_keeps_rates() -> None:
+    from types import SimpleNamespace
+
+    from app.api.contracts import _hide_company_margin
+
+    member = SimpleNamespace(margin=10, rate_client=100)
+    item = SimpleNamespace(
+        margin=10, monthly_margin=1680, rate_client=100, group_members=[member]
+    )
+
+    _hide_company_margin(item)
+
+    assert item.margin is None and item.monthly_margin is None
+    assert member.margin is None
+    assert item.rate_client == 100 and member.rate_client == 100
+
+
+@pytest.mark.asyncio
+async def test_whole_company_export_needs_the_permission() -> None:
+    from app.api.contracts import export_contracts
+
+    with pytest.raises(HTTPException) as denied:
+        await export_contracts(
+            current_user=_account(UserRole.finance, FM),
+            db=None,
+            format="xlsx",
+            q=None,
+            status=None,
+            client_id=None,
+            candidate_id=None,
+            contract_type=None,
+            start_from=None,
+            start_to=None,
+            end_from=None,
+            end_to=None,
+            period_from=None,
+            period_to=None,
+            subcategory=None,
+            rate_client_min=None,
+            rate_client_max=None,
+            margin_min=None,
+            expiring_in_days=None,
+            order_end_from=None,
+            order_end_to=None,
+            agreement_not_terminated=False,
+            limit=10,
+        )
+    assert denied.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_month_sum_of_invoices_is_hidden_without_the_permission(
+    monkeypatch,
+) -> None:
+    from app.api import client_sales_invoices as invoices
+
+    async def month_view(_db, **_kwargs):
+        return {
+            "period": "2026-10",
+            "invoices": [{"id": 1}],
+            "summary": {
+                "rows": 3,
+                "expected": [{"amount": "100", "currency": "PLN"}],
+                "invoiced_net": [{"amount": "90", "currency": "PLN"}],
+            },
+        }
+
+    async def module_open(_db, _user):
+        return True
+
+    monkeypatch.setattr(invoices.views, "month_view", month_view)
+    monkeypatch.setattr(invoices, "_module_open", module_open)
+
+    finance = await invoices.finance_invoices(
+        _account(UserRole.finance, FM), db=None, year=2026, month=10
+    )
+    assert finance["summary"]["expected"] == []
+    assert finance["summary"]["invoiced_net"] == []
+    assert finance["summary"]["totals_hidden"] is True
+    assert finance["invoices"] == [{"id": 1}]
+
+    holder = await invoices.finance_invoices(
+        _account(UserRole.finance, FM, CR), db=None, year=2026, month=10
+    )
+    assert holder["summary"]["expected"] == [{"amount": "100", "currency": "PLN"}]

@@ -12,8 +12,8 @@ Trasy:
 * ``POST /api/interview-cycle/slots/{id}/cancel``
 * ``PUT  /api/interview-cycle/events/{event_id}/debrief`` — debrief po
   telefonie do kandydata (jak poszło, pytania klienta, czy przyjmie ofertę).
-* ``GET  /api/interview-cycle/client-questions`` — pytania, które klient
-  zadawał poprzednim kandydatom (z debriefów).
+* ``GET  /api/interview-cycle/client-questions`` — pytania zadane na rozmowach
+  w tej rekrutacji albo (``scope=client``) wszystkie pytania jej klienta.
 * ``POST /api/interview-cycle/client-interviews`` — termin rozmowy podany
   przy przesunięciu karty na „Rozmowa z klientem” (20.10.2026).
 * ``PUT  /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief`` — pytania
@@ -26,7 +26,6 @@ wydarzeniu związanym z rekrutacją.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from datetime import date, datetime, time, timezone
@@ -76,6 +75,11 @@ from app.services import (
     interview_slots,
 )
 from app.services.candidate_claim import is_integration_request
+from app.services.client_questions_asked import (
+    client_questions_with_jobs,
+    question_hash as _question_hash,
+    questions_asked_in_job,
+)
 from app.services.interview_cycle import load_overview
 from app.services.interview_slot_requests import (
     SlotsAlreadyOpen,
@@ -387,10 +391,17 @@ class InterviewEventOut(BaseModel):
     started: bool
 
 
+class ClientQuestionJobOut(BaseModel):
+    id: int
+    title: str
+
+
 class ClientQuestionOut(BaseModel):
     id: int
     text: str
     created_at: Optional[datetime] = None
+    # Rekrutacje, w których pytanie padło; pusta przy liście jednej rekrutacji.
+    jobs: list[ClientQuestionJobOut] = []
 
 
 class ArchiveQuestionOut(BaseModel):
@@ -486,11 +497,6 @@ async def _ensure_recruiter(
     if _is_owner(user, req.recruiter_id):
         return
     await ensure_job_membership(db, user, req.job_id)
-
-
-def _question_hash(text: str) -> str:
-    norm = _WHITESPACE_RE.sub(" ", text.strip().lower())
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
 def _outcome_from_impression(value: Optional[int]) -> Optional[DebriefOutcome]:
@@ -1565,16 +1571,18 @@ async def list_client_questions(
     current_user: RecruitmentReadAccess,
     job_id: Optional[int] = Query(None),
     client_id: Optional[int] = Query(None),
-    limit: int = Query(20, ge=1, le=50),
+    scope: Literal["job", "client"] = Query("job"),
+    limit: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientQuestionOut]:
-    """Pytania, które klient zadawał kandydatom (z debriefów).
+    """Pytania, które klient zadawał kandydatom.
 
-    Zwykle po rekrutacji (``job_id``): dostęp do rekrutacji jest tym, co
-    sprawdzamy wszędzie indziej, a klient wynika z niej. ``client_id`` służy
-    ekranowi nowej rekrutacji (jeszcze bez ``job_id``) — wtedy wołający musi
-    móc czytać choć jedną rekrutację tego klienta; admin/HoR/DL/Finanse czytają
-    je organizacyjnie.
+    ``job_id`` — zadane na rozmowach w tej rekrutacji (zgłoszenie 02.11.2026:
+    lista całego klienta wisiała tak samo pod każdą rekrutacją). ``job_id``
+    + ``scope=client`` — wszystkie pytania jej klienta, z rekrutacją przy
+    pytaniu. ``client_id`` służy ekranowi nowej rekrutacji (jeszcze bez
+    ``job_id``) — wtedy wołający musi móc czytać choć jedną rekrutację tego
+    klienta; admin/HoR/DL/Finanse czytają je organizacyjnie.
     """
     if (job_id is None) == (client_id is None):
         raise HTTPException(
@@ -1586,6 +1594,14 @@ async def list_client_questions(
         client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
         if client_id is None:
             return []
+        if scope == "job":
+            asked = await questions_asked_in_job(
+                db, job_id=job_id, client_id=client_id, limit=limit
+            )
+            return [
+                ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at)
+                for q in asked
+            ]
     else:
         readable = await db.scalar(
             select(
@@ -1606,19 +1622,20 @@ async def list_client_questions(
                 )
             # Klient bez rekrutacji nie ma debriefów — nie ma czego pokazać.
             return []
-    rows = (
-        await db.execute(
-            select(InterviewQuestion)
-            .where(
-                InterviewQuestion.client_id == client_id,
-                InterviewQuestion.source == InterviewQuestionSource.client_debrief,
-            )
-            .order_by(InterviewQuestion.created_at.desc(), InterviewQuestion.id.desc())
-            .limit(limit)
-        )
-    ).scalars()
+    rows = await client_questions_with_jobs(
+        db,
+        client_id=client_id,
+        job_scope=job_read_scope_clause(current_user, Job.id),
+        limit=limit,
+    )
     return [
-        ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at) for q in rows
+        ClientQuestionOut(
+            id=row.question.id,
+            text=row.question.text,
+            created_at=row.question.created_at,
+            jobs=[ClientQuestionJobOut(id=j.id, title=j.title) for j in row.jobs],
+        )
+        for row in rows
     ]
 
 
