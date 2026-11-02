@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -235,6 +236,88 @@ async def test_unknown_buyer_matches_once_the_client_has_the_nip(env):
     stored = await fx.invoice(fx.KSEF_UNKNOWN)
     assert stored.client_id == env.seed.other_client_id
     assert (stored.match_status, stored.match_method) == ("matched", "amount")
+
+
+async def test_waiting_for_download_budget_does_not_expire_the_queue(env, monkeypatch):
+    """Zaległość większa niż budżet: faktura czeka, aż przyjdzie jej kolej.
+
+    Na produkcji pierwszy przebieg widzi ponad 1500 faktur przy 20 pobraniach
+    na godzinę. Czekanie nie jest nieudaną próbą — liczone jako próba wygaszało
+    kolejkę po dobie, a znacznik był już za tymi fakturami.
+    """
+
+    monkeypatch.setattr(sync, "MAX_DOWNLOADS", 1)
+    monkeypatch.setattr(sync, "MAX_PENDING_ATTEMPTS", 2)
+    for _ in range(6):
+        await env.run()
+        env.clock.advance(hours=1)
+    state = await _state()
+    assert state["problems"] == []
+    assert state["pending"][f"test:{fx.COMPANY_NIP}"] == []
+    async with AsyncSessionLocal() as db:
+        count = await db.scalar(
+            select(func.count())
+            .select_from(ClientSalesInvoice)
+            .where(ClientSalesInvoice.ksef_number.like(f"{fx.COMPANY_NIP}-%"))
+        )
+    assert count == 5
+
+
+async def test_real_failures_still_expire_the_queue(env, monkeypatch):
+    monkeypatch.setattr(sync, "MAX_PENDING_ATTEMPTS", 2)
+    env.fake.not_ready.add(fx.KSEF_UNKNOWN)
+    for _ in range(3):
+        await env.run()
+        env.clock.advance(hours=1)
+    state = await _state()
+    assert [p["reason"] for p in state["problems"]] == ["pending_expired"]
+    assert state["pending"][f"test:{fx.COMPANY_NIP}"] == []
+
+
+async def test_eu_vat_buyer_goes_to_client_with_that_id(env):
+    """Nabywca z VAT UE zamiast NIP-u (na produkcji 48% faktur sprzedażowych)."""
+
+    xml = env.fake.xml[fx.KSEF_UNKNOWN].decode("utf-8")
+    env.fake.xml[fx.KSEF_UNKNOWN] = xml.replace(
+        f"<NIP>{fx.UNKNOWN_NIP}</NIP>", "<KodUE>FI</KodUE><NrVatUE>12345678</NrVatUE>"
+    ).encode("utf-8")
+    async with AsyncSessionLocal() as db:
+        client = await db.get(Client, env.seed.other_client_id)
+        client.nip = fx.EU_CLIENT_ID
+        await db.commit()
+    await env.run()
+    stored = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert stored.buyer_nip is None
+    assert stored.buyer_foreign_id == "FI12345678"
+    assert stored.client_id == env.seed.other_client_id
+
+
+async def test_person_and_rate_link_invoice_with_real_hours(env):
+    """Faktura z rzeczywistymi godzinami: osoba i stawka wiążą, kwota nie musi być równa."""
+
+    xml = env.fake.xml[fx.KSEF_UNKNOWN].decode("utf-8")
+    body = re.sub(
+        r"<P_7>.*?</P_7>", "<P_7>ABCD:2026-111111, Ewa Przykładowa, usługa</P_7>", xml
+    )
+    body = re.sub(r"<P_9A>.*?</P_9A>", "<P_9A>1000.00</P_9A>", body)
+    env.fake.xml[fx.KSEF_UNKNOWN] = body.encode("utf-8")
+    async with AsyncSessionLocal() as db:
+        order_id = await fx.periodic_order(
+            db,
+            env.seed.other_client_id,
+            "PO-OSOBA",
+            rate="1000",
+            unit=RateUnit.hourly,
+            start=date(2026, 1, 1),
+        )
+        client = await db.get(Client, env.seed.other_client_id)
+        client.nip = fx.UNKNOWN_NIP
+        await db.commit()
+    await env.run()
+    stored = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert (stored.match_status, stored.match_method) == ("matched", "person")
+    links = await _links(stored.id)
+    assert [link.order_id for link in links] == [order_id]
 
 
 async def test_simulate_mode_reads_the_sales_folder(env, monkeypatch):

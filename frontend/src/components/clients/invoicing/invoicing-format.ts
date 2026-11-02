@@ -49,6 +49,7 @@ export const CHECK_TONE: Record<InvoiceCheck, StatusDotTone> = {
 export const METHOD_LABELS: Record<string, string> = {
   order_number: "numer zamówienia w fakturze",
   amount: "jednoznaczna kwota",
+  person: "osoba i stawka z faktury",
   correction: "korekta faktury",
   manual: "przypisana ręcznie",
 };

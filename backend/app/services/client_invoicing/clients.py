@@ -1,5 +1,9 @@
 """NIP nabywcy → klient NEXUSA (``clients.nip``) i rodzina klienta po scaleniu.
 
+Klucz to polski NIP (10 cyfr) albo identyfikator obcy z prefiksem kraju
+(„FI12345678”): klient z UE ma go w tym samym polu, a faktura niesie go jako
+``KodUE`` + ``NrVatUE``.
+
 Numer prowadzi do klienta KANONICZNEGO: scalenie duplikatu nie przepisuje
 danych, więc NIP bywa na scalonym wierszu (``merged_into_client_id``). Ten sam
 NIP u dwóch różnych klientów kanonicznych to niejednoznaczność — faktura
@@ -12,6 +16,7 @@ Zamówienia i faktury klienta czytamy razem z jego scalonymi duplikatami
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Optional
@@ -25,6 +30,7 @@ from app.services.order_client_identity import normalize_registry_id
 
 #: Bezpiecznik łańcucha scaleń (API nie pozwala scalić do scalonego).
 _MERGE_CHAIN_LIMIT = 5
+_REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}\d+")
 
 
 @dataclass(frozen=True)
@@ -69,7 +75,7 @@ async def nip_registry(db: AsyncSession) -> NipRegistry:
     targets: dict[str, set[int]] = {}
     for client_id, raw_nip, _merged, _deleted in rows:
         nip = normalize_registry_id(raw_nip or "")
-        if len(nip) != 10 or not nip.isdigit():
+        if not _REGISTRY_KEY.fullmatch(nip):
             continue
         target = canonical(int(client_id))
         if target is None or target in deleted:
