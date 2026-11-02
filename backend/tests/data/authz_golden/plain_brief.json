@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

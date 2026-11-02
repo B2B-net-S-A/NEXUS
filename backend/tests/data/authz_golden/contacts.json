@@ -29,7 +29,7 @@
  ],
  "routes": {
   "DELETE /api/contacts/{contact_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/contacts": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/clients/{client_id}/contacts": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/contacts": "PPPBPBDDBBBPPPPPBPPPDBBBBD",
   "POST /api/contacts": "PDDPDDDDPPPDDDPDDDDDDDDDDD",
   "PUT /api/contacts/{contact_id}": "PPDPPDDDPPPDPPPDDDPDDDDDDD"

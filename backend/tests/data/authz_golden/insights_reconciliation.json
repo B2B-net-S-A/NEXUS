@@ -28,6 +28,6 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/reconciliation/placements": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/reconciliation/placements": "PPPPPPDDPPPPPPPPPPPPDPPPPP"
  }
 }

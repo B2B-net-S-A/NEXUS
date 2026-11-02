@@ -34,7 +34,7 @@
   "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/pipeline/stages": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPD",

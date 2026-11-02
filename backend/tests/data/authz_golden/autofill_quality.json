@@ -28,8 +28,8 @@
   "board"
  ],
  "routes": {
-  "GET /api/autofill-quality/reports": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/autofill-quality/summary": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/autofill-quality/reports": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/autofill-quality/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "POST /api/autofill-quality/reports/{report_id}/proposals/{index}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

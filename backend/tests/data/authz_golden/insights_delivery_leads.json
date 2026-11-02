@@ -28,9 +28,9 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPDDPPPPPPPPPPPPDPPPPP"
  }
 }

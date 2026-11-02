@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/dashboard-metrics/catalog": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "POST /api/dashboard-metrics/evaluate": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPP"
  }
 }

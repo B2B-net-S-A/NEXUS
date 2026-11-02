@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }

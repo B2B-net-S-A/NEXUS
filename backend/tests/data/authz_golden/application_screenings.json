@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/screened-out": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/jobs/{job_id}/screened-out": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
  }
 }

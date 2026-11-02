@@ -30,7 +30,7 @@
  "routes": {
   "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
+  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPDDDDDDD",
   "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDD"

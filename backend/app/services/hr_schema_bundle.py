@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from app.services import admin_cases_schema as admin_cases
 from app.services import board_role_schema as board_role
+from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
@@ -86,6 +87,8 @@ DATA_DDL: tuple[str, ...] = (
     *foundation.DATA_DDL,
     *access.SEED_DDL,
     *board_role.SEED_DDL,
+    # 0629: raz, potem decyzja admina z panelu wygrywa.
+    *viewer_role.DATA_DDL,
     *(stmt for module in MODULES for stmt in module.DATA_DDL),
 )
 

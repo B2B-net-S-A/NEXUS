@@ -30,10 +30,10 @@
  "routes": {
   "DELETE /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/candidates/{candidate_id}/rate-history": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/clients-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/clients-lookup": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "GET /api/embed-diagnostics": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/jobs-lookup": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/jobs-lookup/search": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/jobs-lookup": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/jobs-lookup/search": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "PATCH /api/rate-history/{rate_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/candidates/{candidate_id}/rate-history": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/embed-init": "PDDPDDDDPPPDDDDDDDDDDDDDDD"

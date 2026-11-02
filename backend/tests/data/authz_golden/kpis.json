@@ -28,9 +28,9 @@
   "board"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/goals": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDDP",
   "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDDD",

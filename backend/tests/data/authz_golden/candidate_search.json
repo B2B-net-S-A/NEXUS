@@ -28,9 +28,9 @@
   "board"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/candidate-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

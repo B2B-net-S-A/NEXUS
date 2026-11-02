@@ -204,6 +204,17 @@ describe("ClientContractRegister — filtry (Okres) + eksport", () => {
     main.remove();
   });
 
+  it("Automatyzacje czytają rejestr bez przycisku eksportu", async () => {
+    useAuthStore.setState({ user: { role: "automation" } as never });
+    try {
+      renderRegister();
+      await waitFor(() => expect(listCalls().length).toBeGreaterThan(0));
+      expect(screen.queryByRole("button", { name: /eksportuj do excela/i })).toBeNull();
+    } finally {
+      useAuthStore.setState({ user: null });
+    }
+  });
+
   it("eksport uderza w /register/export z client_id i aktualnymi filtrami", async () => {
     renderRegister();
     await waitFor(() => expect(listCalls().length).toBeGreaterThan(0));

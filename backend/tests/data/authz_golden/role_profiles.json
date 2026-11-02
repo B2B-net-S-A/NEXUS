@@ -28,8 +28,8 @@
   "board"
  ],
  "routes": {
-  "GET /api/role-profiles": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/role-profiles/{role_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
+  "GET /api/role-profiles": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "GET /api/role-profiles/{role_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
   "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
  }
 }

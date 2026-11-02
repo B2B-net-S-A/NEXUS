@@ -13,7 +13,9 @@ potrzebuje aplikacji ani bazy:
   22.10.2026);
 * odczyt — rola czyta to, co rekruter z podglądem Delivery, poza nazwanymi
   wyjątkami w obie strony;
-* pieniądze — moduł Finanse, Generator umów B2B i stawki rynkowe są zamknięte.
+* pieniądze — moduł Finanse, Generator umów B2B i stawki rynkowe są zamknięte;
+* eksport — żaden plik hurtowy nie wychodzi po roli, także z ekranów, które
+  rola czyta (reguła „w żadnym zbiorze zapisu ani eksportu”).
 
 Wzorzec odświeża ``AUTHZ_GOLDEN_WRITE=1 python -m pytest
 tests/test_authz_guard_matrix.py``; ten test mówi, czy po odświeżeniu rola
@@ -23,6 +25,7 @@ nadal dotrzymuje obietnicy.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -43,14 +46,19 @@ READER_TWIN = "recruiter+delivery_view"
 # Metoda zapisu, ale bez zmiany danych: wyszukiwanie, podgląd i render
 # szablonu, wolne terminy w kalendarzu, ocena technologii, ściąga do rozmowy
 # i podpowiedzi wymagań liczone na żądanie (``request_semantics`` uznaje dwie
-# ostatnie za odczyt).
+# ostatnie za odczyt). Do 0629 część tej listy zwalniał wzorzec Viewera, który
+# miał wtedy sekcje do odczytu: własny przebieg wyszukiwania, liczenie metryki
+# pulpitu i teksty rekrutacji w pamięci podręcznej.
 READ_LIKE_WRITES = frozenset(
     {
+        "POST /api/candidate-search/runs",
         "POST /api/candidates/check-duplicates",
         "POST /api/cv-generator/classify-technologies",
+        "POST /api/dashboard-metrics/evaluate",
         "POST /api/email-templates/{template_id}/preview",
         "POST /api/job-intake/critical-suggestion",
         "POST /api/job-intake/requirement-rows",
+        "POST /api/jobs/{job_id}/plain-brief/refresh",
         "POST /api/emails/preview",
         "POST /api/microsoft365/free-busy",
         "POST /api/prep-kit/generate",
@@ -59,6 +67,8 @@ READ_LIKE_WRITES = frozenset(
         "POST /api/search/candidates/diagnostics",
         "POST /api/search/candidates/scores",
         "POST /api/search/semantic",
+        "POST /api/talent-radar/parse-champion",
+        "POST /api/talent-radar/search",
         "POST /api/user-email-templates/{template_id}/render",
     }
 )
@@ -107,6 +117,26 @@ CLOSED_EQUIPMENT_ROUTES = ("GET /api/equipment/contracts/{contract_id}",)
 # Umowy przedwstępne: odczyt, pliki i akcje jak rekruter (decyzja Artura
 # 22.10.2026, audyt F54) — jedyny moduł, w którym rola zapisuje na ekranie.
 PRE_CONTRACT_MODULE = "pre_contracts"
+
+# Trasa eksportu: nazwa mówi „export” albo adres kończy się plikiem hurtowym.
+EXPORT_ROUTE = re.compile(r"export|\.(csv|xlsx|zip)$")
+
+# Eksporty, o których decyduje imienne uprawnienie czytane z bazy (Płace, Kadry,
+# Sprzęt) albo własne dane osoby. Macierz bez bazy pokazuje je jako „B”, a rola
+# tych uprawnień nie ma — litera „P” na takiej trasie nadal jest błędem.
+DB_GATED_EXPORTS = ("GET /api/hr/", "GET /api/equipment/imports/")
+
+# Eksporty ekranów, które rola czyta: ekran zostaje, plik nie (audyt 02.11.2026).
+CLOSED_SCREEN_EXPORTS = (
+    "GET /api/contracts/register/export",
+    "GET /api/clients/directory/export",
+    "GET /api/clients/{client_id}/md-imports/{import_id}/export",
+)
+SCREENS_BEHIND_CLOSED_EXPORTS = (
+    "GET /api/contracts",
+    "GET /api/clients/directory",
+    "GET /api/clients/{client_id}/md-imports/{import_id}",
+)
 
 # Ekrany, dla których rola powstała — muszą się otworzyć.
 REQUIRED_READS = (
@@ -198,6 +228,30 @@ def test_automation_reads_like_a_recruiter_with_delivery_view() -> None:
         and route not in EXTRA_READS
     )
     assert extra == [], f"Rola czyta więcej niż rekruter z podglądem Delivery: {extra}"
+
+
+def test_automation_exports_nothing() -> None:
+    opened = sorted(
+        route
+        for route, verdicts in _matrix().items()
+        if EXPORT_ROUTE.search(route.split(" ", 1)[1])
+        and verdicts[AUTOMATION] in PASSES
+        and not (verdicts[AUTOMATION] == "B" and route.startswith(DB_GATED_EXPORTS))
+    )
+    assert opened == [], (
+        "Rola „Automatyzacje” przechodzi eksport — dodaj trasie "
+        f"``dependencies=NOT_READ_ONLY`` (candidate_access.py): {opened}"
+    )
+
+
+@pytest.mark.parametrize("route", CLOSED_SCREEN_EXPORTS)
+def test_closed_exports_stay_open_for_the_reader_twin(route: str) -> None:
+    assert _matrix()[route][READER_TWIN] in PASSES
+
+
+@pytest.mark.parametrize("route", SCREENS_BEHIND_CLOSED_EXPORTS)
+def test_automation_keeps_the_screens_behind_closed_exports(route: str) -> None:
+    assert _matrix()[route][AUTOMATION] in PASSES
 
 
 @pytest.mark.parametrize("module", CLOSED_MODULES)

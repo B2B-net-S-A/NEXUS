@@ -28,8 +28,8 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/clients/ranking": "PPDDDDDDDDDDDDDDDPDDDDDDDP"
  }
 }

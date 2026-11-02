@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/performance-flags": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDDD"

@@ -28,9 +28,9 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPD"

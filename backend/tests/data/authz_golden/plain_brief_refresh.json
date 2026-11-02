@@ -28,6 +28,6 @@
   "board"
  ],
  "routes": {
-  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

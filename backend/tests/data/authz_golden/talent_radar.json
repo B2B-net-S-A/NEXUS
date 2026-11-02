@@ -29,7 +29,7 @@
  ],
  "routes": {
   "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "POST /api/talent-radar/parse-champion": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
+  "POST /api/talent-radar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
  }
 }

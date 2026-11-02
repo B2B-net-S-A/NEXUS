@@ -28,11 +28,11 @@
   "board"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/current": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/history": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDD"

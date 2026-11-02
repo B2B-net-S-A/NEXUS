@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/scoring-config": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
+  "GET /api/insights/scoring-config": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
   "PATCH /api/insights/scoring-config": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

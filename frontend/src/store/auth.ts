@@ -344,6 +344,14 @@ export function hasRole(
 }
 
 /**
+ * „Automatyzacje” (0446) czytają ekrany, ale nie wynoszą danych plikiem —
+ * lustro ``NOT_READ_ONLY`` na trasach eksportu (candidate_access.py).
+ */
+export function mayExportFiles(user: RoleBearingUser | null | undefined): boolean {
+  return !hasRole(user, "automation")
+}
+
+/**
  * Czy user ma rangę >= minRole (porównanie hierarchiczne).
  * Użyj gdy myślisz w kategoriach "delivery_lead lub wyżej".
  * Multi-role aware — bierze max z primary + secondary.
