@@ -636,6 +636,19 @@
     "dot_anchor": "sales.decision-map.add"
   },
   {
+    "id": "potwierdzenie-ze-slowami-kandydata",
+    "title": "Potwierdzenie ze słowami kandydata",
+    "why": "„Potwierdzone z kandydatem” wymaga teraz zdania: co kandydat powiedział. Możesz wskazać rolę, a generator opisze ten fakt przy tej firmie. Delivery Lead zobaczy to zdanie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "pr": 2891,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment"] },
+    "section": "pipeline",
+    "where": "Rekrutacja → QC CV → Potwierdzone z kandydatem",
+    "href": "/jobs",
+    "dot_anchor": "cv-qc.confirm"
+  },
+  {
     "id": "nowi-kolejka-zadzwon-najpierw",
     "title": "Nowi: „Zadzwoń najpierw” na górze kolejki od systemu",
     "why": "Najlepsze osoby od systemu stały dotąd na dole kolumny. Teraz pod osobami dodanymi przez zespół widzisz kolejkę od najwyższego wyniku, a pierwszych pięć ma numer.",

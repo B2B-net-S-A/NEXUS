@@ -395,6 +395,7 @@ function CvGeneratePanelForm({
           onConfirm={setConfirmed}
           left={left}
           disabled={g.generating}
+          stageId={g.recruitment?.stage_id ?? null}
         />
       ) : null}
       {choices}

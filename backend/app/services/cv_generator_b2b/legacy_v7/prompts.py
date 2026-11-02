@@ -123,7 +123,7 @@ Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTAT
 - Linie zaczynające się od "P:" to PYTANIA rekrutera. Treść pytania NIE jest faktem o kandydacie — technologia wymieniona tylko w pytaniu NIE trafia do CV. Faktem jest wyłącznie odpowiedź ("O:")
 - Odpowiedź przecząca ("nie zna", "nie pracował", "brak doświadczenia", "tylko teoretycznie") oznacza, że danej rzeczy NIE ma w CV — nie wpisuj jej nigdzie, także z dopiskiem "podstawowa znajomość"
 - Technologie i umiejętności potwierdzone twierdzącą odpowiedzią dodaj do SKILLS i możesz je wykorzystać w WHY_POINTS
-- Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Gdy odpowiedź mówi wprost o obecnej pracy ("aktualnie", "obecnie", "w obecnym projekcie"), przypisz fakt do najnowszej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
+- Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Wpis „Potwierdzone z kandydatem: X (Firma) — opis” nazywa firmę, więc opisz X w roli tej firmy. Wpis bez opisu nie jest faktem o roli. Słowa „potwierdzone” nie przenoś do CV: opisz sam fakt. Gdy odpowiedź mówi wprost o obecnej pracy ("aktualnie", "obecnie", "w obecnym projekcie"), przypisz fakt do najnowszej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
 - NIE przepisuj sformułowań rekrutera jako obowiązków — opisz fakt własnymi, rzeczowymi słowami
 - Mieść się w limicie 3-5 punktów why_points, NIE dokładaj punktu ponad limit
 
@@ -485,7 +485,7 @@ If screening notes are provided in the context (marked as "SCREENING NOTES"), us
 - Lines starting with "P:" are the recruiter's QUESTIONS. The text of a question is NOT a fact about the candidate — a technology named only in a question does NOT go into the CV. Only the answer ("O:") is a fact
 - A negative answer ("does not know", "has not worked with", "no experience", "only theoretically") means the item is NOT in the CV — do not write it anywhere, not even as "basic knowledge"
 - Technologies and skills confirmed by an affirmative answer go into SKILLS and may be used in WHY_POINTS
-- Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. When the answer plainly speaks about the current job ("currently", "now", "in my current project"), assign the fact to the newest role. Without such a pointer the fact does not go into any role
+- Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. An entry "Potwierdzone z kandydatem: X (Company) — description" names the company, so describe X in that company's role. An entry without a description is not a fact about a role. Do not carry the word "confirmed" into the CV: describe the fact itself. When the answer plainly speaks about the current job ("currently", "now", "in my current project"), assign the fact to the newest role. Without such a pointer the fact does not go into any role
 - Do NOT copy the recruiter's wording as a responsibility — describe the fact in your own plain words
 - Stay within the 3-5 why_points limit, do NOT add a point beyond the limit
 

@@ -168,6 +168,8 @@ export interface QcResult {
   /** Czy TA osoba może przesunąć kartę mimo uwag QC. */
   can_override?: boolean;
   confirmations?: QcConfirmation[];
+  /** Firmy z ról osoby do pola „W której roli?” przy potwierdzeniu. */
+  confirm_roles?: string[];
   run_id: number | null;
   computed_at: string | null;
   cv: QcCv | null;
@@ -365,7 +367,9 @@ export function useQcOverride(stageId: number | null, onChanged?: () => void) {
 /** Pozycja „spoza oryginału” z listy QC i to, co powiedział kandydat. */
 export interface QcConfirmBody {
   term: string;
-  text?: string;
+  text: string;
+  /** Firma, której dotyczy fakt; bez niej trafia tylko do umiejętności. */
+  role?: string;
 }
 
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
@@ -395,4 +399,37 @@ export function useQcDismiss(stageId: number | null, onChanged?: () => void) {
 /** Przywrócenie pominiętej uwagi — bez ciała, świeży wynik QC w odpowiedzi. */
 export function useQcRestore(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<number>(stageId, (dismissalId) => `dismissals/${dismissalId}/restore`, onChanged, () => undefined);
+}
+
+/** Fakt z rozmowy, którego nie ma w oryginale: krok przed generacją CV. */
+export interface QcRoleFact {
+  term: string;
+  quote: string;
+}
+
+export interface QcRoleFacts {
+  facts: QcRoleFact[];
+  roles: string[];
+}
+
+export const qcRoleFactsQueryKey = (stageId: number) => ["qc-role-facts", stageId] as const;
+
+export function useQcRoleFacts(stageId: number | null) {
+  return useQuery<QcRoleFacts>({
+    queryKey: qcRoleFactsQueryKey(stageId ?? 0),
+    queryFn: ({ signal }) =>
+      api.get<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, { signal }).then((r) => r.data),
+    enabled: stageId != null && stageId > 0,
+  });
+}
+
+export function useSaveQcRoleFact(stageId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation<QcRoleFacts, unknown, { term: string; role: string }>({
+    mutationFn: (body) =>
+      api.post<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, body).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(qcRoleFactsQueryKey(stageId ?? 0), data);
+    },
+  });
 }
