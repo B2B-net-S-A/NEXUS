@@ -41,6 +41,7 @@ import {
   cardCandidate,
   dotNovelties,
   eventForClick,
+  intersectRects,
   markSeenOnce,
   placeBeside,
   readTour,
@@ -48,6 +49,7 @@ import {
   START_PATH,
   writeTour,
   type Novelty,
+  type Rect,
   type TourState,
 } from "@/lib/novelties/logic";
 import { useAuthStore } from "@/store/auth";
@@ -60,35 +62,128 @@ export function startNoveltyTour(noveltyId: string): void {
   window.dispatchEvent(new CustomEvent(NOVELTY_TOUR_START_EVENT));
 }
 
-interface Box {
-  top: number;
-  left: number;
-  width: number;
-  height: number;
+/**
+ * `visible` — element widać; `covered` — leży pod otwartym panelem;
+ * `offscreen` — jest, ale poza widokiem (okno, przewijany kontener).
+ */
+type BoxState = "visible" | "covered" | "offscreen";
+
+interface Box extends Rect {
+  state: BoxState;
+  /** Widać prawie cały element, więc nie ma po co przewijać. */
+  whole: boolean;
 }
 
 const PAD = 6;
 /** Rozmiar karty kroku do wyboru miejsca obok celu (wysokość z zapasem na dwie linie). */
 const STEP_CARD = { width: 340, height: 170 };
+/** Tablica ma ponad 100 kart z tą samą kotwicą, a pomiar idzie co 400 ms. */
+const MAX_MEASURED = 30;
 
-function findAnchor(anchor: string): HTMLElement | null {
-  for (const el of Array.from(
-    document.querySelectorAll<HTMLElement>(anchorSelector(anchor)),
-  )) {
-    const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0) return el;
-  }
-  return null;
+function rectOf(el: Element): Rect {
+  const r = el.getBoundingClientRect();
+  return { top: r.top, left: r.left, width: r.width, height: r.height };
 }
 
-function boxOf(el: HTMLElement): Box {
-  const r = el.getBoundingClientRect();
+function anchorElements(anchor: string): HTMLElement[] {
+  return Array.from(
+    document.querySelectorAll<HTMLElement>(anchorSelector(anchor)),
+  )
+    .filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    })
+    .slice(0, MAX_MEASURED);
+}
+
+/** Część elementu, którą naprawdę widać: okno i przycinający przodkowie. */
+function visiblePart(el: HTMLElement): Rect | null {
+  let part = intersectRects(rectOf(el), {
+    top: 0,
+    left: 0,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
+  for (
+    let node: HTMLElement | null = el;
+    part && node && node !== document.documentElement;
+    node = node.parentElement
+  ) {
+    const style = getComputedStyle(node);
+    if (style.position === "fixed") break;
+    if (
+      node !== el &&
+      (style.overflowX !== "visible" || style.overflowY !== "visible")
+    )
+      part = intersectRects(part, rectOf(node));
+  }
+  return part;
+}
+
+/** Na wszystkich próbkach leży coś innego niż element (nie liczymy warstwy nowości). */
+function coveredByOtherLayer(el: HTMLElement, part: Rect): boolean {
+  if (typeof document.elementsFromPoint !== "function") return false;
+  return [0.5, 0.25, 0.75].every((f) => {
+    const top = document
+      .elementsFromPoint(part.left + part.width * f, part.top + part.height * f)
+      .find((hit) => !hit.closest('[data-testid^="novelty-"]'));
+    return Boolean(top && !el.contains(top) && !top.contains(el));
+  });
+}
+
+function padded(rect: Rect, state: BoxState, whole: boolean): Box {
   return {
-    top: r.top - PAD,
-    left: r.left - PAD,
-    width: r.width + 2 * PAD,
-    height: r.height + 2 * PAD,
+    top: rect.top - PAD,
+    left: rect.left - PAD,
+    width: rect.width + 2 * PAD,
+    height: rect.height + 2 * PAD,
+    state,
+    whole,
   };
+}
+
+/**
+ * Z wielu elementów (karty tablicy, wiersze listy) bierze ten, który widać,
+ * a nie pierwszy z brzegu, bo po przewinięciu pierwszy leży nad oknem. Pudełko
+ * to widoczna część, więc wycięcie nigdy nie stoi nad pustym miejscem.
+ */
+function measureAnchor(anchor: string): Box | null {
+  const elements = anchorElements(anchor);
+  if (elements.length === 0) return null;
+  let partial: Box | null = null;
+  let covered: Box | null = null;
+  for (const el of elements) {
+    const part = visiblePart(el);
+    if (!part) continue;
+    if (coveredByOtherLayer(el, part)) {
+      covered ??= padded(part, "covered", false);
+      continue;
+    }
+    const full = rectOf(el);
+    const whole = part.width * part.height >= 0.9 * full.width * full.height;
+    if (whole) return padded(part, "visible", true);
+    // Same ucięte (wąska kolumna tytułów): ten, którego widać najwięcej.
+    const box = padded(part, "visible", false);
+    if (!partial || box.width * box.height > partial.width * partial.height)
+      partial = box;
+  }
+  return (
+    partial ?? covered ?? padded(rectOf(elements[0]), "offscreen", false)
+  );
+}
+
+/** Przewija do elementu; prędkość zgodna z ustawieniem „mniej ruchu”. */
+function revealAnchor(anchor: string): void {
+  const el = anchorElements(anchor)[0];
+  if (!el) return;
+  const reduce = window.matchMedia?.(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
+  el.scrollIntoView?.({
+    block: "center",
+    inline: "center",
+    behavior: reduce ? "auto" : "smooth",
+  });
 }
 
 function modalOpen(): boolean {
@@ -99,10 +194,21 @@ function modalOpen(): boolean {
   );
 }
 
-/** Pozycje kotwic odświeżane co 400 ms — przewijanie, okna i zmiana ekranu bez obserwatorów. */
-function useAnchorBoxes(anchors: readonly string[]): Map<string, Box> {
+/**
+ * Pozycje kotwic: co 400 ms (okna, zmiana ekranu) oraz przy przewijaniu
+ * i zmianie rozmiaru, żeby wycięcie nie zostawało w tyle za elementem.
+ * `focus` to kotwica bieżącego kroku: raz na krok przewijamy do niej, gdy nie
+ * widać jej całej. Potem osoba może przewijać, gdzie chce.
+ */
+function useAnchorBoxes(
+  anchors: readonly string[],
+  focus: string | null,
+): Map<string, Box> {
   const [boxes, setBoxes] = useState<Map<string, Box>>(new Map());
   const key = anchors.join("|");
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  const revealed = useRef<string | null>(null);
   useEffect(() => {
     if (!key) {
       setBoxes(new Map());
@@ -112,14 +218,43 @@ function useAnchorBoxes(anchors: readonly string[]): Map<string, Box> {
     const tick = () => {
       const next = new Map<string, Box>();
       for (const anchor of list) {
-        const el = findAnchor(anchor);
-        if (el) next.set(anchor, boxOf(el));
+        const box = measureAnchor(anchor);
+        if (box) next.set(anchor, box);
       }
       setBoxes((prev) => (sameBoxes(prev, next) ? prev : next));
+      const current = focusRef.current;
+      const box = current ? next.get(current) : null;
+      // Dopiero gdy nie widać całości: panel doczytuje treść i element spada
+      // poza ekran chwilę po tym, jak się pojawił.
+      if (
+        current &&
+        box &&
+        box.state !== "covered" &&
+        !box.whole &&
+        revealed.current !== current
+      ) {
+        revealed.current = current;
+        revealAnchor(current);
+      }
     };
     tick();
     const id = window.setInterval(tick, 400);
-    return () => window.clearInterval(id);
+    let frame = 0;
+    const onMove = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        tick();
+      });
+    };
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      window.clearInterval(id);
+      if (frame) window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
   }, [key]);
   return boxes;
 }
@@ -133,7 +268,9 @@ function sameBoxes(a: Map<string, Box>, b: Map<string, Box>): boolean {
       o.top !== v.top ||
       o.left !== v.left ||
       o.width !== v.width ||
-      o.height !== v.height
+      o.height !== v.height ||
+      o.state !== v.state ||
+      o.whole !== v.whole
     )
       return false;
   }
@@ -233,14 +370,18 @@ function TourStepCard({
   novelty,
   state,
   box,
+  blocked,
   onAck,
   onStop,
+  onReveal,
 }: {
   novelty: Novelty;
   state: TourState;
   box: Box | null;
+  blocked: BoxState | null;
   onAck: () => void;
   onStop: () => void;
+  onReveal: () => void;
 }) {
   const step = novelty.steps[state.step];
   // Krok bez miejsca na ekranie przez 2 s (pusta tablica, brak rekrutacji,
@@ -285,10 +426,18 @@ function TourStepCard({
       <p className="mt-1 text-xs text-muted-foreground">
         {box
           ? step.hint
-          : `Nie widzę tego miejsca na tym ekranie. Przejdź do: ${novelty.where} — przeklikanie poczeka.`}
+          : blocked === "covered"
+            ? "To miejsce zasłania otwarty panel. Zamknij go, a krok wróci."
+            : blocked === "offscreen"
+              ? "To miejsce jest poza widokiem."
+              : `Nie widzę tego miejsca na tym ekranie. Przejdź do: ${novelty.where} — przeklikanie poczeka.`}
       </p>
       <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-        {step.ack ? (
+        {blocked === "offscreen" ? (
+          <Button size="sm" onClick={onReveal}>
+            Pokaż to miejsce
+          </Button>
+        ) : step.ack ? (
           <Button size="sm" onClick={onAck}>
             Rozumiem
           </Button>
@@ -320,9 +469,18 @@ function Spotlight({ box }: { box: Box }) {
       aria-hidden
       data-testid="novelty-spotlight"
     >
+      {/* Ramka w tym samym `boxShadow` co przyciemnienie: klasa `ring-*` też
+          ustawia `box-shadow`, więc styl inline ją zjadał i ramki nie było. */}
       <div
-        className="absolute rounded-lg ring-2 ring-primary transition-all duration-200 motion-reduce:transition-none"
-        style={{ ...box, boxShadow: "0 0 0 9999px rgb(0 0 0 / 0.45)" }}
+        className="absolute rounded-lg transition-all duration-200 motion-reduce:transition-none"
+        style={{
+          top: box.top,
+          left: box.left,
+          width: box.width,
+          height: box.height,
+          boxShadow:
+            "0 0 0 3px hsl(var(--primary)), 0 0 0 9999px rgb(0 0 0 / 0.45)",
+        }}
       />
     </div>
   );
@@ -475,12 +633,14 @@ export function NoveltyLayer() {
     if (touring && tour) list.push(touring.steps[tour.step]?.anchor ?? "");
     return [...new Set(list.filter(Boolean))];
   }, [dots, touring, tour]);
-  const boxes = useAnchorBoxes(anchors);
+  const stepAnchor =
+    touring && tour ? (touring.steps[tour.step]?.anchor ?? null) : null;
+  const boxes = useAnchorBoxes(anchors, stepAnchor);
 
   // `seen` raz na kartę przeglądarki, gdy kropka pierwszy raz stanie na ekranie.
   useEffect(() => {
     for (const n of dots) {
-      if (boxes.has(n.dot_anchor) && markSeenOnce(n.id))
+      if (boxes.get(n.dot_anchor)?.state === "visible" && markSeenOnce(n.id))
         void sendEvent(n.id, "seen");
     }
   }, [boxes, dots, sendEvent]);
@@ -559,7 +719,8 @@ export function NoveltyLayer() {
     ) : null;
 
   if (touring && tour && touring.steps[tour.step]) {
-    const box = boxes.get(touring.steps[tour.step].anchor) ?? null;
+    const measured = boxes.get(touring.steps[tour.step].anchor) ?? null;
+    const box = measured?.state === "visible" ? measured : null;
     return (
       <>
         {/* Postać „Moi ludzie” z dymkiem w rogu zasłania stopkę panelu
@@ -570,7 +731,9 @@ export function NoveltyLayer() {
           novelty={touring}
           state={tour}
           box={box}
+          blocked={measured && !box ? measured.state : null}
           onStop={stopTour}
+          onReveal={() => revealAnchor(touring.steps[tour.step].anchor)}
           onAck={() => {
             const next = acknowledgeStep(touring, tour);
             if (next === "finished") finishTour(touring);
@@ -608,7 +771,9 @@ export function NoveltyLayer() {
     );
   }
 
-  const visible = new Set(boxes.keys());
+  const visible = new Set(
+    [...boxes].filter(([, b]) => b.state === "visible").map(([a]) => a),
+  );
   const solicited = openCard ? (byId.get(openCard) ?? null) : null;
   let card = solicited && visible.has(solicited.dot_anchor) ? solicited : null;
   if (!card) {
@@ -633,7 +798,7 @@ export function NoveltyLayer() {
     <>
       {dots.map((n) => {
         const box = boxes.get(n.dot_anchor);
-        if (!box) return null;
+        if (box?.state !== "visible") return null;
         return (
           <Dot
             key={n.id}
