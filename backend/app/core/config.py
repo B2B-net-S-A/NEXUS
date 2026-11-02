@@ -2177,6 +2177,13 @@ class Settings(BaseSettings):
     # klienta), a ten jest wczesnym ostrzeżeniem dla klientów z listy wyżej.
     DL_ALERT_MD_BASE_USAGE_PERCENT: float = 80.0
 
+    # ── Licznik użycia obszarów (przegląd najmniejszych dostępów) ───────────
+    # Zbieranie osoba × obszar × dzień. Domyślnie WYŁĄCZONE: to dane o aktywności
+    # pracowników, więc włącza je wyłącznie decyzja Artura (workflow „Coolify set
+    # env”). `docs/claude/uprawnienia/licznik-uzycia-obszarow.md`.
+    ACCESS_USAGE_COUNTER_ENABLED: bool = False
+    ACCESS_USAGE_RETENTION_DAYS: int = 90
+
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):
     # `false` → pętla kończy się przed startem, zapis zamówienia i odczyt
