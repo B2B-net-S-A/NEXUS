@@ -163,6 +163,17 @@ decyduje o słowach i o przebiegu nieobecności.
   jej zaległe operacje jako `skipped: user_exited` bez wywołania Graph
   (`executor.left_company`). Właściciel urlopu bez kartoteki z aktywnym kontem
   nadal jest uzgadniany.
+- **„Skrzynki z błędem” w karcie to tylko skrzynki czytane** (02.11.2026):
+  uzgadnianie zdejmuje `last_error` skrzynek, których nie czytało (licznik
+  `stale_errors_cleared`), bo 11 z 18 pozycji to były osoby po odejściu i konto
+  bez kartoteki, a błąd sam by nie zniknął. Tych błędów się nie odfiltrowuje przy
+  wyświetlaniu.
+- **Nowe konto trzeba dopisać do grupy** `nexus-kadry-skrzynki@b2bnetwork.pl`
+  (`Add-DistributionGroupMember`, Exchange Online). NEXUS tego nie robi: wszystkie
+  konta założone 18–29.10.2026 miały 403. Odczyt skrzynki poza grupą nie blokuje
+  złożenia wniosku, a operacje urlopu po 6 próbach kończą jako `failed`. Po dopisaniu
+  uzgadnianie o 7:00 samo odtwarza autoodpowiedź i regułę trwającego urlopu oraz
+  zamyka reguły po urlopie; nieudane wydarzenie w kalendarzu wymaga „Ponów”.
 - **Uprawnienia rejestracji „NEXUS Kadry”**: APPLICATION `MailboxSettings.ReadWrite`,
   `Calendars.ReadWrite`, `Mail.Send` zawężone RBAC for Applications do skrzynek
   zespołu, plus `User.Read.All` (odczyt profili niżej). `User.Read.All` to
