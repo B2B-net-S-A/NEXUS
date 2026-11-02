@@ -610,5 +610,18 @@
     "where": "Sprzedaż → zakładki",
     "href": "/sales",
     "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "sprzedaz-mapa-decyzyjna-edycja",
+    "title": "Mapę decyzyjną poprawisz w NEXUSIE",
+    "why": "W szansach z lejka Fabryki IT dodasz, poprawisz i usuniesz osobę na mapie decyzyjnej. Telefon, mail, LinkedIn i notatka uzupełnią też puste pola jej kontaktu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
+    "href": "/sales",
+    "dot_anchor": "sales.decision-map.add"
   }
 ]

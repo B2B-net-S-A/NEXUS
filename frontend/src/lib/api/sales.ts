@@ -246,8 +246,30 @@ export interface DecisionMapEntry {
   email?: string | null;
   phone?: string | null;
   linkedin_url?: string | null;
+  /** Skrót treści wpisu: zmienia się przy każdej zmianie osoby. */
+  key: string;
   nexus_contact_id?: number | null;
+  /** Pola, których wpis nie ma, pokazane z kontaktu tej osoby. */
+  from_contact?: DecisionFromContactField[];
 }
+
+export type DecisionFromContactField = "email" | "phone" | "linkedin_url" | "notes";
+
+export type DecisionPersonInput = Partial<
+  Pick<
+    DecisionMapEntry,
+    | "name"
+    | "role_in_company"
+    | "our_role"
+    | "decision_level"
+    | "contact_status"
+    | "last_contact_at"
+    | "notes"
+    | "email"
+    | "phone"
+    | "linkedin_url"
+  >
+>;
 
 export interface ItFactory {
   decision_map?: DecisionMapEntry[];
@@ -263,9 +285,10 @@ export interface ItFactory {
   decision_map_completeness?: number | null;
   process_completeness?: number | null;
   updated_at?: string | null;
+  nexus_updated_at?: string | null;
 }
 
-/** Dane z Atlasa, które NEXUS pokazuje tylko do odczytu (Fabryki IT, produkty). */
+/** Dane z Atlasa na karcie szansy (Fabryki IT, produkty); mapę da się poprawiać. */
 export interface AtlasMotion {
   it_factory: ItFactory | null;
   meddic: Record<string, unknown> | null;
@@ -297,6 +320,7 @@ export interface OpportunityEvent {
 export interface OpportunityDetail extends Opportunity {
   contacts: OpportunityContact[];
   atlas_motion: AtlasMotion | null;
+  decision_map_enabled: boolean;
 }
 
 export type OpportunitySort = "updated" | "value" | "close" | "activity" | "created";
@@ -680,6 +704,51 @@ export function useArchiveOpportunity(id: number) {
         )
       ).data,
     onSuccess: invalidate,
+  });
+}
+
+/**
+ * Karta dostaje nową mapę z odpowiedzi, a reszta Sprzedaży odświeża się w tle:
+ * czekanie na „Kogo znamy” trzymałoby okno otwarte po udanym zapisie.
+ */
+function useDecisionMapCache(opportunityId: number) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateSales();
+  return {
+    onSuccess: (detail: OpportunityDetail) => {
+      queryClient.setQueryData(salesKeys.opportunity(opportunityId), detail);
+      void invalidate();
+    },
+    // Po 409 kolejne otwarcie osoby ma już jej nowy stan i klucz.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: salesKeys.opportunity(opportunityId) });
+    },
+  };
+}
+
+export function useSaveDecisionPerson(opportunityId: number) {
+  const cache = useDecisionMapCache(opportunityId);
+  return useMutation({
+    mutationFn: async (input: { key: string | null; payload: DecisionPersonInput }) => {
+      const url = `/api/sales/opportunities/${opportunityId}/decision-map`;
+      return input.key
+        ? (await api.patch<OpportunityDetail>(`${url}/${input.key}`, input.payload)).data
+        : (await api.post<OpportunityDetail>(url, input.payload)).data;
+    },
+    ...cache,
+  });
+}
+
+export function useRemoveDecisionPerson(opportunityId: number) {
+  const cache = useDecisionMapCache(opportunityId);
+  return useMutation({
+    mutationFn: async (key: string) =>
+      (
+        await api.delete<OpportunityDetail>(
+          `/api/sales/opportunities/${opportunityId}/decision-map/${key}`,
+        )
+      ).data,
+    ...cache,
   });
 }
 
