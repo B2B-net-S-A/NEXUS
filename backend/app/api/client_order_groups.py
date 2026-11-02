@@ -707,13 +707,10 @@ async def _restore_offboarded_line(
     Kontrakt wraca razem z linią. Bez tego konsultant zostaje w zakładce
     „Zakończeni" mimo aktywnej linii, a razem z pigułką milczą MRR, rejestr
     umów i skaner wygasania — ta sama klasa awarii, którą naprawiał
-    ``sync_contract_to_live_order`` przy przedłużeniach zamówień.
+    ``sync_contract_to_live_order`` przy przedłużeniach zamówień. Ta decyzja
+    odwołuje datę zakończenia ze sprawy, także gdy to dzisiejsza data i kontrakt
+    jest jeszcze „Kończący się” (reguła FIN-01 chroni plan przed automatem).
     """
-
-    # Import lokalny — `client_orders` sięga po `client_order_groups` w ciele
-    # swoich funkcji, więc import na poziomie modułu domykałby cykl. To jest
-    # ta sama konwencja, tylko w drugą stronę.
-    from app.api.client_orders import _sync_contract_after_order_extension
 
     if group.status not in (GROUP_STATUS_ACTIVE, GROUP_STATUS_SCHEDULED):
         raise HTTPException(
@@ -787,8 +784,14 @@ async def _restore_offboarded_line(
     contract_reopened = False
     contract = source.contract
     if contract is not None:
-        contract_reopened = await _sync_contract_after_order_extension(
-            db, source, contract, actor_id=actor_id
+        contract_reopened = await sync_contract_to_live_order(
+            db,
+            contract,
+            order_start=source.start_date,
+            order_end=source.end_date,
+            actor_id=actor_id,
+            today=today,
+            revoked_termination_date=case.effective_date,
         )
     return requested_end_date, contract_reopened
 
