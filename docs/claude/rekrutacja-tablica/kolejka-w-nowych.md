@@ -18,9 +18,30 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
 - **Na górze od najmłodszego:** osoby dodane przez zespół i karty od systemu,
   które ktoś wziął („Dzwonię”, „Biorę”, `decided`, aktywna blokada). Tak zostaje
   decyzja z 16.10: osoba dodana ręcznie nie ląduje w środku kolumny.
-- **Pod nimi czekające karty od systemu:** od najwyższego wyniku z migawki
-  `entry_autofill.score`; najpierw bez uwag, potem z ostrzeżeniem (`cautions`),
+- **Pod nimi czekające karty od systemu:** od najwyższej sumy wyniku z migawki
+  `entry_autofill.score` i punktów `entry_autofill.known.points`; najpierw bez uwag, potem z ostrzeżeniem (`cautions`),
   na końcu z brakiem krytycznej (`criticalGapMap`). Remis rozstrzyga numer osoby.
 - **Pierwszych pięć to „Zadzwoń najpierw”** z numerem na karcie
   (`CALL_FIRST_COUNT`). Nagłówki rysują się tylko wtedy, gdy kolejka ma choć
   jedną kartę. Procent na karcie się nie zmienia.
+
+## Znamy tę osobę
+
+Silnik (`services/known_queue_points.py`) dodaje do kolejności +6 za weryfikację
+u tego klienta, +8 za notatkę do 30 dni, +2 za notatkę do 90 dni. Wagi dobrane na
+178 wysłanych z 01–22.10, sprawdzone na 139 wysłanych od 23.10 (bez osób
+dopisanych do bazy do 7 dni przed dodaniem): top 20 z 32% do 41%, top 40 z 50% do
+62%, rekrutacje z trafieniem w top 20 z 51% do 69%. Mocniejsze „musi mieć” i punkty
+za umiejętności nic nie dokładały.
+
+- **Tylko kolejność.** `ranked_picks` sortuje po wyniku z punktami, a
+  `entry_meta.score` i procent na karcie zostają sam wynik. Nie dodawaj punktów do
+  `canonical_fit`.
+- **Osoba odrzucona przez tego klienta nie dostaje żadnych punktów**
+  (`known_people_signal._rejected_by_client`).
+- **Tablica liczy fakty na żywo** (`entry_autofill.known`, dwa zapytania na odczyt
+  Tablicy, tylko gdy są karty od systemu), więc świeża notatka podnosi kartę od razu.
+- **Punkty ustawia Head of Recruitment** w „Ranking kandydatów → Wagi”
+  (`PUT /api/scoring-weights/panel/known-points`, `app_settings.queue_known_points`).
+  Działają od razu, bez szkicu i pomiaru panelu, bo nie zmieniają „Dop.” ani progu.
+  Pomiar w tekście suwaka dotyczy wartości +6, +8, +2.

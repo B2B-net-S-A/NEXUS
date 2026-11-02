@@ -1,12 +1,22 @@
 "use client";
 
-import type { RankingPanelState, RankingPanelWeights } from "@/lib/api";
+import { useEffect, useState } from "react";
+
+import type { RankingKnownPoints, RankingPanelState, RankingPanelWeights } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 import { ShareBar } from "./HowItWorksTab";
 import { LivePreview } from "./LivePreview";
 import { ScoringProfilesAdmin } from "./ScoringProfilesAdmin";
-import { EDITABLE, LAYER_COLORS, LAYER_LABELS, SLIDER_HINTS, formatDate } from "./rankingCopy";
+import {
+  EDITABLE,
+  KNOWN_POINTS_INTRO,
+  KNOWN_POINTS_MEASURE,
+  LAYER_COLORS,
+  LAYER_LABELS,
+  SLIDER_HINTS,
+  formatDate,
+} from "./rankingCopy";
 import { panelShares, sameWeights } from "./rankingMath";
 
 export interface WeightsTabProps {
@@ -19,6 +29,7 @@ export interface WeightsTabProps {
   actionError: string | null;
   onDiscard: () => void;
   onCheck: () => void;
+  onSaveKnownPoints: (next: Omit<RankingKnownPoints, "max">) => void;
 }
 
 export function draftProblem(local: RankingPanelWeights): string | null {
@@ -38,6 +49,7 @@ export function WeightsTab({
   actionError,
   onDiscard,
   onCheck,
+  onSaveKnownPoints,
 }: WeightsTabProps) {
   const published = state.published.weights;
   const changed = !sameWeights(local, published);
@@ -98,6 +110,13 @@ export function WeightsTab({
               onChange={set(layer)}
             />
           ))}
+
+          <KnownPointsBlock
+            saved={state.known_points}
+            canEdit={canEdit}
+            busy={busy}
+            onSave={onSaveKnownPoints}
+          />
 
           <div className="space-y-2 border-t border-border pt-3.5">
             <LockedLayer label="Stawka" colorClass={LAYER_COLORS.salary} badge="plakietka, nie punkty" />
@@ -203,6 +222,58 @@ interface SliderProps {
   onChange: (value: number) => void;
 }
 
+/** „Znamy tę osobę” (02.11.2026): działa od razu, bez szkicu i pomiaru panelu,
+ *  bo zmienia tylko kolejkę w „Nowych”, a nie „Dop.” ani próg. */
+function KnownPointsBlock({
+  saved,
+  canEdit,
+  busy,
+  onSave,
+}: {
+  saved: RankingKnownPoints;
+  canEdit: boolean;
+  busy: boolean;
+  onSave: (next: Omit<RankingKnownPoints, "max">) => void;
+}) {
+  const [points, setPoints] = useState(saved);
+  useEffect(() => setPoints(saved), [saved]);
+  const changed =
+    points.client !== saved.client ||
+    points.note_recent !== saved.note_recent ||
+    points.note_older !== saved.note_older;
+  const slider = (key: "client" | "note_recent" | "note_older", label: string, hint: string) => (
+    <Slider
+      id={`ranking-known-${key}`}
+      label={label}
+      hint={hint}
+      value={points[key]}
+      display={`+${points[key]}`}
+      min={0}
+      max={saved.max}
+      onChange={canEdit ? (value) => setPoints({ ...points, [key]: value }) : () => undefined}
+    />
+  );
+  return (
+    <div data-testid="ranking-known-points" className="flex flex-col gap-3 border-t border-border pt-3.5">
+      <div>
+        <h3 className="text-sm font-semibold text-foreground">Znamy tę osobę</h3>
+        <p className="text-xs text-muted-foreground">{KNOWN_POINTS_INTRO}</p>
+      </div>
+      {slider("client", "Zweryfikowana u tego klienta", "Odrzucona przez tego klienta nie dostaje punktów.")}
+      {slider("note_recent", "Notatka do 30 dni", "Świeża rozmowa: osoba odbiera i wiemy, czego chce.")}
+      {slider("note_older", "Notatka do 90 dni", "Starsza rozmowa liczy się słabiej.")}
+      <p className="rounded-lg bg-primary/10 px-3 py-2 text-xs text-foreground">{KNOWN_POINTS_MEASURE}</p>
+      {canEdit && changed ? (
+        <div>
+          <PresetButton onClick={() => onSave({ client: points.client, note_recent: points.note_recent, note_older: points.note_older })} disabled={busy}>
+            Zapisz punkty
+          </PresetButton>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function Slider({ id, label, hint, value, display, min, max, colorClass, onChange }: SliderProps) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -239,11 +310,20 @@ function LockedLayer({ label, colorClass, badge }: { label: string; colorClass: 
   );
 }
 
-function PresetButton({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function PresetButton({
+  onClick,
+  children,
+  disabled = false,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className="min-h-10 rounded-lg border border-border bg-card px-3 text-sm text-foreground hover:bg-muted"
     >
       {children}

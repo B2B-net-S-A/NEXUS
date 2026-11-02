@@ -35,6 +35,7 @@ import type {
 import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
 import type { OffLimitsBadge } from "@/lib/off-limits";
+import type { KnownFacts } from "@/lib/new-column-queue";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -233,6 +234,8 @@ export interface KanbanItem {
    * miasto) — napis i dymek liczy serwer (`process_entry_meta._caution`).
    */
   cautions?: { key: string; label: string; title: string }[];
+  /** 02.11.2026: „znamy tę osobę” — punkty kolejki (`known_queue_points`). */
+  known?: KnownFacts | null;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
