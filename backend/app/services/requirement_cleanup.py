@@ -37,10 +37,13 @@ REASON_TEXT = {
     "critical_not_searchable": "krytyczne zapisane zdaniem — bramka szuka go w CV dosłownie i ukrywa prawie wszystkich",
     "no_search_words": "brak słów do szukania — propozycje AI się nie pojawią",
     "rare_word": "słowo „musi mieć” ma w bazie mniej niż 20 osób — w CV opisują to inaczej",
+    "no_sent_match": "wymagania „musi mieć”, których nie ma nikt z wysłanych",
 }
 
 # Licznik osób wiersza: (słowa wiersza, słowa „Wyklucz”) → liczba albo ``None``.
 RowCount = Callable[[Sequence[str], Sequence[str]], Optional[int]]
+# Wiersze, których nie ma nikt z wysłanych: rekrutacja → wynik albo ``None``.
+SentGapsLookup = Callable[[Any], Any]
 
 
 @dataclass(frozen=True)
@@ -70,11 +73,20 @@ class CleanupProposal:
         )
         return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
+    def _reason_text(self, code: str) -> str:
+        gap = self.after.get("sent_gap")
+        if code == "no_sent_match" and gap:
+            return (
+                f"wymagania „musi mieć”, których nie ma nikt z {gap[0]['sent']} "
+                f"wysłanych: {len(gap)}"
+            )
+        return REASON_TEXT[code]
+
     def as_dict(self) -> dict:
         return {
             "job_id": self.job_id,
             "reasons": [
-                {"code": code, "text": REASON_TEXT[code]} for code in self.reasons
+                {"code": code, "text": self._reason_text(code)} for code in self.reasons
             ],
             "before": self.before,
             "after": {
@@ -125,14 +137,22 @@ def glued_variants(word: str) -> Optional[list[str]]:
 
 
 def build_proposal(
-    job: Any, row_count: Optional[RowCount] = None
+    job: Any,
+    row_count: Optional[RowCount] = None,
+    sent_gaps: Optional[SentGapsLookup] = None,
 ) -> Optional[CleanupProposal]:
     """Propozycja dla rekrutacji albo ``None``, gdy nie ma czego porządkować.
 
     ``row_count`` podaje liczbę osób wiersza (powód ``rare_word``); domyślnie
     czyta pamięć ``requirement_row_counts`` — bez liczby nie ma powodu.
+    ``sent_gaps`` podaje wiersze bez nikogo z wysłanych (powód ``no_sent_match``);
+    domyślnie czyta pamięć ``requirement_sent_gaps``.
     """
-    from app.services import champion_view, requirement_row_counts
+    from app.services import (
+        champion_view,
+        requirement_row_counts,
+        requirement_sent_gaps,
+    )
     from app.services.champion_intake import profile_hash
     from app.services.champion_requirement_rows import (
         _head,
@@ -147,7 +167,7 @@ def build_proposal(
         split_rows,
     )
     from app.services.skill_normalize import canonical_of, strip_version
-    from app.services.critical_skills import effective_critical
+    from app.services.critical_skills import effective_critical, match_must_labels
     from app.services.must_gate_terms import gate_requirement, requirement_with_options
     from app.services.requirement_phrase import TALK_ITEM_MAX_CHARS, _cap, read_phrase
     from app.services.scoring_service import (
@@ -359,6 +379,32 @@ def build_proposal(
             }
         )
 
+    # Wiersz, którego nie ma nikt z wysłanych (02.11.2026): Delivery Lead widzi to
+    # w oknie propozycji i decyduje. Krytycznych nie ruszamy, jak przy rzadkim
+    # słowie, a rekrutacja nie traci ostatniego słowa do szukania.
+    gaps = (sent_gaps or requirement_sent_gaps.cached)(job)
+    sent_gap: list[dict] = []
+    if gaps is not None and gaps.rows:
+        gap_labels = [row.label for row in gaps.rows] + [
+            word for row in gaps.rows for word in row.words
+        ]
+        untouched = {tuple(item["parts"]) for item in rare if item.get("parts")}
+        matched = [
+            row
+            for row in rows
+            if row.get("level") == "must"
+            and tuple(row["words"]) not in untouched
+            and match_must_labels([row_label(row["words"])], gap_labels)
+        ]
+        if matched and len(matched) == sum(r.get("level") != "nice" for r in rows):
+            matched = matched[1:]
+        for row in matched:
+            text = " / ".join(row["words"])
+            rows = [r for r in rows if r is not row]
+            _to_talk("skills", _cap(text), "must", text)
+            rare_talk.add(_fold(_cap(text)))
+            sent_gap.append({"words": list(row["words"]), "sent": gaps.sent})
+
     # Co nie zmieściło się w wierszach ani na liście do rozmowy, zostaje
     # w opisie wymagań — czyta go rekruter i generator CV; nic nie znika.
     notes: Optional[str] = None
@@ -383,6 +429,8 @@ def build_proposal(
         reasons.append("prose_rows")
     if rare:
         reasons.append("rare_word")
+    if sent_gap:
+        reasons.append("no_sent_match")
     required = [r for r in rows if r.get("level") != "nice"]
     if not required:
         reasons.append("no_search_words")
@@ -422,6 +470,7 @@ def build_proposal(
             "language": new_language or None,
             "overflow": list(overflow),
             "rare": rare,
+            "sent_gap": sent_gap,
             "notes": notes,
             "experience": new_experience,
         },
@@ -537,17 +586,22 @@ async def warm_counts(db: AsyncSession, *, budget: float) -> int:
 
 def _hidden(decision: Optional[tuple[str, str]], proposal: CleanupProposal) -> bool:
     """Decyzja o tym samym profilu chowa propozycję. Wyjątek: „Zatwierdź”
-    sprzed rzadkiego słowa (27.10.2026) nie chowa ``rare_word`` — DL przyjął
-    wtedy inną propozycję; po zatwierdzeniu rzadkiego wiersza ten powód nie
-    wraca, bo wiersz schodzi do rozmowy albo dostaje warianty."""
+    sprzed rzadkiego słowa (27.10.2026) i braku u wysłanych (02.11.2026) nie chowa
+    tych powodów — DL przyjął wtedy inną propozycję; po zatwierdzeniu wiersz schodzi
+    do rozmowy albo dostaje warianty, więc powód nie wraca."""
     if decision is None or decision[0] != proposal.profile_hash:
         return False
-    return decision[1] != "applied" or "rare_word" not in proposal.reasons
+    return decision[1] != "applied" or not {"rare_word", "no_sent_match"} & set(
+        proposal.reasons
+    )
 
 
 async def pending_proposal(db: AsyncSession, job: Any) -> Optional[CleanupProposal]:
     """Propozycja tej rekrutacji, o ile nikt nie zdecydował o tym profilu."""
+    from app.services import requirement_sent_gaps
+
     await prepare_counts(db, [job])
+    await requirement_sent_gaps.prepare(db, [job])
     proposal = build_proposal(job)
     if proposal is None:
         return None
@@ -558,6 +612,7 @@ async def pending_proposal(db: AsyncSession, job: Any) -> Optional[CleanupPropos
 async def load_fixes(db: AsyncSession, user: Any) -> list[dict]:
     """Lista „Wymagania do poprawy” dla pulpitu tej osoby."""
     from app.models.user import UserRole
+    from app.services import requirement_sent_gaps
     from app.services.job_working_title import display_title
 
     sees_all = user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
@@ -565,6 +620,7 @@ async def load_fixes(db: AsyncSession, user: Any) -> list[dict]:
         return []
     jobs = await _open_jobs(db, None if sees_all else user)
     await prepare_counts(db, jobs)
+    await requirement_sent_gaps.prepare(db, jobs)
     proposals = [(job, build_proposal(job)) for job in jobs]
     proposals = [(job, p) for job, p in proposals if p is not None]
     decided = await _decided(db, [job.id for job, _ in proposals])

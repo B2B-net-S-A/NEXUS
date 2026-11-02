@@ -186,6 +186,18 @@ function AfterColumn({ proposal, languageChanged }: { proposal: RequirementPropo
           </ul>
         </Group>
       ) : null}
+      {after.sent_gap && after.sent_gap.length > 0 ? (
+        <Group label="Nie ma nikt z wysłanych">
+          <ul className="space-y-0.5 text-xs text-foreground" data-testid="proposal-sent-gap">
+            {after.sent_gap.map((item, index) => (
+              <li key={`${item.words.join("|")}-${index}`}>
+                „{item.words.join(" lub ")}” — nie ma nikt z {item.sent} wysłanych, rekruter
+                sprawdzi w rozmowie
+              </li>
+            ))}
+          </ul>
+        </Group>
+      ) : null}
       {after.overflow && after.overflow.length > 0 ? (
         <p className="text-xs text-muted-foreground" data-testid="proposal-overflow">
           Nie mieści się w wierszach, trafi do opisu wymagań: {after.overflow.join(", ")}

@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
 import { useWordCounts } from "@/lib/requirement-rows-api";
 import type { PhraseReading } from "@/lib/requirement-rows";
+import type { SentGapWord } from "@/lib/requirement-sent-gaps-api";
 
 const DECISION_TEXT: Partial<Record<PhraseReading["kind"], (text: string) => string>> = {
   prose: (text) =>
@@ -183,6 +184,109 @@ export function RareWordCallout({
             {" "}
             · co najmniej {peopleCountLabel(splitTotal)}
           </span>
+        </Button>
+      ) : null}
+      <Button type="button" size="sm" onClick={onTalk}>
+        Do rozmowy
+      </Button>
+      <Button type="button" size="sm" variant="ghost" onClick={onKeep}>
+        Zostaw
+      </Button>
+    </div>
+  );
+}
+
+/** Co Delivery Lead widzi pod wierszem bez nikogo z wysłanych. */
+export interface SentGapView {
+  sent: number;
+  /** `null` = jeszcze nie pytano modelu. */
+  words: readonly SentGapWord[] | null;
+  canAsk: boolean;
+  asking: boolean;
+  /** Tekst błędu podpowiedzi; ostrzeżenie działa dalej bez słów. */
+  askError: string | null;
+}
+
+/**
+ * Silnik nie znajduje wiersza u nikogo z N wysłanych (02.11.2026). Zdanie mówi
+ * o CV i notatkach, bo to dowód silnika: w co czwartym takim wierszu model czytający
+ * CV znajduje wymaganie u co najmniej połowy osób. O zmianie decyduje Delivery Lead.
+ */
+export function SentGapCallout({
+  word,
+  gap,
+  countEnabled,
+  onAsk,
+  onAddWord,
+  onTalk,
+  onKeep,
+}: {
+  word: string;
+  gap: SentGapView;
+  countEnabled: boolean;
+  onAsk: () => void;
+  onAddWord: (word: string) => void;
+  onTalk: () => void;
+  onKeep: () => void;
+}) {
+  const words = gap.words ?? [];
+  const counts = useWordCounts(
+    words.map((item) => item.word),
+    countEnabled && words.length > 0,
+  );
+  const explain =
+    gap.words == null
+      ? "Ani w CV, ani w notatkach. Opisują to inaczej albo to nie jest „musi mieć”."
+      : words.length > 0
+        ? "W ich CV stoi to innymi słowami:"
+        : "W ich CV nie ma wspólnego słowa. Czy to na pewno „musi mieć”?";
+  return (
+    <div
+      role="note"
+      className="flex flex-wrap items-center gap-2 rounded-md border border-warning/40 bg-warning-muted px-3 py-1.5 text-xs text-warning-muted-foreground"
+      data-testid="requirement-row-sent-gap"
+    >
+      <span className="min-w-0 flex-[1_1_16rem]">
+        <strong className="font-semibold">
+          „{word}” nie ma nikt z {gap.sent} wysłanych.
+        </strong>{" "}
+        {explain}
+        {gap.askError ? (
+          <span className="block" role="alert">
+            {gap.askError}
+          </span>
+        ) : null}
+      </span>
+      {words.map((item) => {
+        const people = counts[item.word];
+        return (
+          <Button
+            key={item.word}
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onAddWord(item.word)}
+            title={`Dopisz „${item.word}” jako wariant tego wiersza`}
+          >
+            + lub {item.word}
+            <span className="tabular-nums text-muted-foreground">
+              {" "}
+              · {item.hits} z {gap.sent}
+              {typeof people === "number" ? ` · ${peopleCountLabel(people)} w bazie` : ""}
+            </span>
+          </Button>
+        );
+      })}
+      {gap.words == null && gap.canAsk ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={onAsk}
+          disabled={gap.asking}
+          data-tour="champion.sent-gap.hints"
+        >
+          {gap.asking ? "Czytam CV…" : "Podpowiedz słowa"}
         </Button>
       ) : null}
       <Button type="button" size="sm" onClick={onTalk}>
