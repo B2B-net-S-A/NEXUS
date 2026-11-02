@@ -224,3 +224,32 @@ nic nie usuwało. Raport i decyzja: `docs/qc-rate-in-cv-proposal.md`.
 Testy: sekcja „Stawka w CV” w `tests/test_cv_qc.py` (`CV_NOT_RATES`,
 `CV_RATES`: uwaga QC i „Usuń stawkę” zgadzają się na każdym przykładzie;
 `test_rate_mentions_is_linear`).
+
+## Pod inną nazwą zamiast „nie ma w oryginale” (`qc-truth-3`, 02.11.2026)
+
+Zgłoszenie rekruterki: QC mówi, że kandydat nie ma technologii, a ma ją w oryginale.
+Pomiar 635 par z plikiem: na 124 uwagi „nie ma w oryginale” 36 ma w oryginale pokrewne
+słowo, 61 to prawdziwe braki, a 27 wyglądało na stary plik. Z tych 27 aż 23 to firmowe
+`B2B_…` wgrane jako główne CV profilu, więc QC miało rację: dowodu nie bierz z profilu,
+tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
+
+- **`similar_in_original`:** rodzina nazw (`_TERM_FAMILIES`: Git przy GitHub, SQL przy
+  MySQL), człon nazwy „A/B” i rdzeń słowa od 5 liter spoza `_SIMILAR_GENERIC`. Wynik nie
+  zmienia zaliczenia, zmienia zdanie uwagi i daje cytat. Java przy JavaScript, C# przy
+  C++ i Go przy Google dalej nic nie znajdują. Przy lukach działa bez rdzeni, bo
+  pierwsza wersja dawała tam 342 trafienia na 1195 prawdziwych luk.
+- **„To ta sama rzecz”:** pominięcie z powodem `other_name` i cytatem z oryginału (serwer
+  sprawdza, że cytat tam stoi). Liczy się do „Jakości QC”, a przy blokadzie Delivery Lead
+  dostaje dzwonek jak przy każdym pominięciu.
+- **Luka z pokrewnym słowem** nie jest „Luką kandydata”: bez `fix: "ask_candidate"`.
+- **Liczba mnoga skrótu** („REST APIs”) także w `mode="support"`, a do słownika doszły
+  pary potwierdzone ręcznie: analiza systemowa, testy regresyjne, UX Research.
+- **Plik oryginału w oknie QC:** nazwa i data (`original_cv.snapshot_at`), a przy nowszym
+  CV kandydata w profilu (`newer_profile_cv`, 44 z 516 par) „Użyj w tej rekrutacji”.
+  Firmowe CV jako główne się nie liczy (`looks_like_client_cv`).
+- **Mniej niż 500 znaków odczytu kopii etapu** (`original_partial`, zwykle skan):
+  „CV nie twierdzi niczego spoza oryginału” idzie do sprawdzenia ręcznego.
+
+Testy: sekcja „Pod inną nazwą” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
+(„W oryginale pod inną nazwą”).
+

@@ -5665,3 +5665,108 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
         assert note.author_id == rec_id
     finally:
         await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
+
+
+# ── Pod inną nazwą zamiast „nie ma w oryginale” (02.11.2026) ─────────────
+
+
+@pytest.mark.parametrize(
+    ("term", "original", "found"),
+    [
+        ("Git", "Narzędzia: GitHub, Jira", "GitHub"),
+        ("SQL", "Bazy: MySQL, Oracle", "MySQL"),
+        ("AML/CTF", "doświadczenie w KYC i AML w banku", "AML"),
+        ("Data Pipelines", "tworzyłem testy i pipeline’y GitHub Actions", "pipeline"),
+        ("Kotlin Multiplatform", "Język: Kotlin, Compose", "Kotlin"),
+    ],
+)
+def test_similar_in_original_finds_related_word(term, original, found):
+    similar = qc.similar_in_original(term, original)
+    assert similar is not None
+    assert similar["term"] == found
+    assert similar["quote"] in " ".join(original.split())
+
+
+@pytest.mark.parametrize(
+    ("term", "original"),
+    [
+        ("Kubernetes", "Docker, Linux"),
+        ("Java", "JavaScript, TypeScript"),
+        ("C#", "C++, Python"),
+        ("Go", "Google Cloud"),
+        ("MS Project", "Senior Project Manager"),
+        ("access control", "cooperation with contractors"),
+        ("product analytics", "Senior Product Designer"),
+        ("event-driven architecture", "Cloud Native, Event, Domain"),
+        ("SQL", "NoSQL, MongoDB"),
+        ("Git", ""),
+    ],
+)
+def test_similar_in_original_stays_quiet_without_evidence(term, original):
+    assert qc.similar_in_original(term, original) is None
+
+
+def test_no_unsupported_item_asks_instead_of_saying_it_is_not_there():
+    html = "<h1>CV</h1><ul><li><p>Budowa Data Pipelines w Python.</p></li></ul>"
+    data = _qc_input(
+        html,
+        must=_reqs("Data Pipelines"),
+        original_text="Tworzyłem pipeline’y w Python.",
+    )
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert item["similar"]["term"] == "pipeline"
+    assert "sprawdź, czy to ta sama rzecz" in item["detail"]
+    assert "nie ma tego w oryginale" not in item["detail"]
+
+
+def test_no_unsupported_without_similar_word_keeps_todays_sentence():
+    html = "<h1>CV</h1><ul><li><p>Praca z Kubernetes.</p></li></ul>"
+    data = _qc_input(html, must=_reqs("Kubernetes"), original_text="Docker i Linux.")
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert "similar" not in item
+    assert "nie ma tego w oryginale" in item["detail"]
+
+
+def test_gap_uses_only_name_families_not_word_stems():
+    html = "<h1>CV</h1><ul><li><p>Praca z Linux.</p></li></ul>"
+    data = _qc_input(
+        html, must=_reqs("Spring Boot"), original_text="Spring Framework, Linux."
+    )
+    info = _by_key(qc.compute_checks(data))["must_in_cv"]["info"][0]
+    assert info["fix"] == "ask_candidate" and "Luka kandydata" in info["detail"]
+
+
+def test_gap_with_related_word_is_not_counted_as_candidate_gap():
+    html = "<h1>CV</h1><ul><li><p>Praca z Linux.</p></li></ul>"
+    data = _qc_input(html, must=_reqs("Git"), original_text="Narzędzia: GitHub, Linux.")
+    info = _by_key(qc.compute_checks(data))["must_in_cv"]["info"][0]
+    assert info["fix"] is None
+    assert "GitHub" in info["detail"]
+
+
+def test_partial_read_of_original_does_not_claim_absence():
+    html = "<h1>CV</h1><ul><li><p>Praca z Kubernetes.</p></li></ul>"
+    data = _qc_input(
+        html, must=_reqs("Kubernetes"), original_text="Skan CV", original_partial=True
+    )
+    check = _by_key(qc.compute_checks(data))["no_unsupported"]
+    assert (
+        check["status"] == "manual" and "odczytano tylko 7 znaków" in check["summary"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("term", "source"),
+    [
+        ("REST APIs", "REST API testing, Swagger"),
+        ("analiza systemowa", "System analysis covering requirements"),
+        ("Testy regresyjne", "Functional Testing, Regression Testing"),
+        ("UX Research", "UX Researcher w Santander"),
+    ],
+)
+def test_confirmed_other_names_count_as_support(term, source):
+    from app.services.dz_review import Requirement, found_in
+
+    assert found_in(
+        source, Requirement(label=term, alternatives=(term,)), mode="support"
+    )
