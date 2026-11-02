@@ -113,6 +113,7 @@ class TestFeatureKeyEnum:
             "linkedin_message_draft",
             # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
             "candidate_ai_assessment",
+            "sales_meeting_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

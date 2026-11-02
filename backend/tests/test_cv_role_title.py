@@ -3,9 +3,11 @@
 Tytuły w kształcie produkcyjnym, z fikcyjnymi klientami i numerami.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
-from app.services.job_working_title import cv_role_title
+from app.services.job_working_title import cv_role_title, cv_role_title_for_job
 
 
 @pytest.mark.parametrize(
@@ -202,3 +204,86 @@ def test_role_is_never_translated_or_emptied():
     assert cv_role_title("(12345)") == "(12345)"
     assert cv_role_title("") == ""
     assert cv_role_title(None) == ""
+
+
+def _job(title, role_name=None, client_reference=None):
+    return SimpleNamespace(
+        title=title,
+        client_reference=client_reference,
+        client_id=None,
+        champion_profile={"basics": {"role_name": role_name}} if role_name else None,
+    )
+
+
+@pytest.mark.parametrize(
+    "title,reference,role_name,expected",
+    [
+        # 02.11.2026: PKO nazywa zapytanie przedmiotem usługi, nie stanowiskiem.
+        # Nagłówek „usługi programistyczne – Imię Nazwisko” zgłosił DL.
+        (
+            "ZOB-3103 usługi programistyczne",
+            "ZOB-3156",
+            "Senior Fullstack Developer (.NET + React)",
+            "Senior Fullstack Developer (.NET + React)",
+        ),
+        (
+            "ZOB-3103 usługi programistyczne - .Net",
+            "ZOB-3103",
+            "Senior .NET Developer",
+            "Senior .NET Developer",
+        ),
+        ("usługa analizy systemowej ZOB-3092", None, "Analityk", "Analityk"),
+        (
+            "Usługi programistycznej – Bazy Danych (ZOB-3109)",
+            "ZOB-3109",
+            "Data Engineer",
+            "Data Engineer",
+        ),
+        (
+            "usług programistycznych - Python (ZOB-2995)",
+            None,
+            "Python Dev",
+            "Python Dev",
+        ),
+        ("Usługa Konsultanta ds. DevOps", None, "DevOps Engineer", "DevOps Engineer"),
+        (
+            "RFX - Zakup usług Analityka IT_PKN500016126",
+            None,
+            "Analityk IT",
+            "Analityk IT",
+        ),
+        # Rola w Championie też bywa przepisaną nazwą z numerem.
+        (
+            "usługi analizy systemowej (ZOB-3059)",
+            "ZOB-3059",
+            "Analityk Systemowy ZOB-3059 ",
+            "Analityk Systemowy",
+        ),
+    ],
+)
+async def test_service_title_gives_way_to_champion_role(
+    title, reference, role_name, expected
+):
+    job = _job(title, role_name, reference)
+    assert await cv_role_title_for_job(None, job) == expected
+    # Potok generacji czyści nagłówek drugi raz: rola ma z tego wyjść bez zmian.
+    assert cv_role_title(expected) == expected
+
+
+@pytest.mark.parametrize(
+    "title,role_name,expected",
+    [
+        # Bez roli w Championie nie ma czym zastąpić — zostaje nazwa od klienta.
+        ("usługi programistyczne (ZOB-1)", None, "usługi programistyczne"),
+        # Champion przepisał nazwę usługi albo sam kod: to też nie rola.
+        ("usługi programistyczne", "Usługi programistyczne", "usługi programistyczne"),
+        ("usługi programistyczne", "ZOB-3103", "usługi programistyczne"),
+        # Nazwa będąca rolą wygrywa z Championem jak dotąd (D2).
+        ("Programista Java (ZOB-2976)", "Senior Java Developer", "Programista Java"),
+        # „usług” w środku to część nazwy roli.
+        ("Administrator usług IT", "Admin", "Administrator usług IT"),
+        ("Programista Usług Integracyjnych", "Dev", "Programista Usług Integracyjnych"),
+    ],
+)
+async def test_champion_role_only_replaces_a_service_title(title, role_name, expected):
+    assert await cv_role_title_for_job(None, _job(title, role_name)) == expected

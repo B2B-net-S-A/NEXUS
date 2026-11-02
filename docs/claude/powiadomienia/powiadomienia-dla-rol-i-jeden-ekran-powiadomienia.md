@@ -95,7 +95,8 @@ zobaczył obcych nazwisk w „Ludziach” 22.10.
 
 **Decyzja Artura 22.10.2026.** Tylko alarm, bez blokady i bez znaku wodnego na
 plikach. Alarm dostają admin i Head of Recruitment (rola główna albo dodatkowa)
-jako dymek w NEXUSIE i mail od razu.
+jako dymek w NEXUSIE i mail od razu. Osoba, której alarm dotyczy, go nie dostaje
+(02.11.2026): przy roli admina albo HoR byłoby to uprzedzenie o sprawdzaniu.
 
 ### Co liczymy
 

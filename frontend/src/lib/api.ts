@@ -5130,6 +5130,8 @@ export interface ChampionBasics {
   start_date?: string | null;
   /** Termin na dostarczenie kandydatów do TEJ oferty. */
   deadline?: string | null;
+  /** Godzina tego terminu `GG:MM`, czas Europe/Warsaw. */
+  deadline_time?: string | null;
   contract_length?: string | null;
 }
 
@@ -5456,6 +5458,8 @@ export interface ChampionJobValues {
   role_name?: string | null;
   /** PR 1 — termin na kandydatów (ISO), jw. */
   deadline?: string | null;
+  /** Godzina terminu `GG:MM`; przy starszym backendzie brak klucza. */
+  deadline_time?: string | null;
 }
 
 export interface ChampionProfileResponse {
