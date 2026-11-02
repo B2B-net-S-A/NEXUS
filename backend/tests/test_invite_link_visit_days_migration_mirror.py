@@ -31,3 +31,9 @@ def test_every_statement_is_idempotent() -> None:
 def test_deep_health_probes_the_table() -> None:
     main = (BACKEND / "app/main.py").read_text(encoding="utf-8")
     assert '("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay)' in main
+
+
+def test_deep_health_imports_the_model_from_its_module() -> None:
+    """Import z modułu Sprzedaży dawał 500 na całym ``/api/health/deep``."""
+    main = (BACKEND / "app/main.py").read_text(encoding="utf-8")
+    assert "from app.models.invite_link import CandidateInviteLinkVisitDay" in main

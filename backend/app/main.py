@@ -3512,11 +3512,11 @@ async def api_health_deep_check():
         EmployeeProfile,
         LeaveEntitlement,
     )
+    from app.models.invite_link import CandidateInviteLinkVisitDay
     from app.models.sales import (
         SalesActivity,
         SalesCompany,
         SalesMeetingTranscript,
-        CandidateInviteLinkVisitDay,
         SalesOpportunity,
         SalesPipelineStage,
         SalesTarget,
