@@ -556,7 +556,10 @@ class Settings(BaseSettings):
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
