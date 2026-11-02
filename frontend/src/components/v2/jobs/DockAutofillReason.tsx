@@ -1,6 +1,7 @@
 import { Sparkles } from "lucide-react";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { workdaysText } from "@/lib/board-card-badges";
+import { daysAgoText } from "@/lib/new-column-queue";
 import { cn } from "@/lib/utils";
 
 /**
@@ -37,6 +38,22 @@ export function DockAutofillReason({
           </span>
         ) : null}
       </div>
+      {meta.known ? (
+        <div data-testid="dock-autofill-known" className="rounded-md bg-primary/10 px-2 py-1.5 text-[11px] leading-snug">
+          <p className="font-semibold text-primary">Wyżej w kolejce o {meta.known.points} pkt, bo znamy tę osobę</p>
+          {meta.known.client_points > 0 ? (
+            <p>
+              +{meta.known.client_points} zweryfikowana u tego klienta ({meta.known.verified_at_client}×)
+            </p>
+          ) : null}
+          {meta.known.note_points > 0 && meta.known.last_note_days != null ? (
+            <p>
+              +{meta.known.note_points} notatka {daysAgoText(meta.known.last_note_days)}
+            </p>
+          ) : null}
+          <p className="text-muted-foreground">Procent się nie zmienia. Punkty układają tylko kolejkę.</p>
+        </div>
+      ) : null}
       {meta.matched_must.length || meta.missing_must.length ? (
         <ul className="flex flex-wrap gap-1" aria-label="Wymagania „musi mieć”">
           {meta.matched_must.map((name) => (

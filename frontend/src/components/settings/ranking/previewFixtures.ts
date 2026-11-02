@@ -107,6 +107,7 @@ export function panelState(overrides: Partial<RankingPanelState> = {}): RankingP
     draft: null,
     fixed: { salary: 15, availability: 0 },
     limits: { threshold_min: 50, threshold_max: 90 },
+    known_points: { client: 6, note_recent: 8, note_older: 2, max: 15 },
     scoped_profiles: [],
     history: [
       {
