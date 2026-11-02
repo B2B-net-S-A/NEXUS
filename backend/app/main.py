@@ -3800,7 +3800,7 @@ async def api_health_deep_check():
         ("candidate_client_forms", CandidateClientForm),
         # 0626: wzór „Karty przed CV” — brak tabeli = 500 w przeglądzie DL-a.
         ("client_cover_sheet_templates", ClientCoverSheetTemplate),
-        # 0636: panel klienta — brak tabeli = 500 pod linkiem z CV i w „⋯” rekrutacji.
+        # 0637: panel klienta — brak tabeli = 500 pod linkiem z CV i w „⋯” rekrutacji.
         ("client_panels", ClientPanel),
         ("client_panel_candidates", ClientPanelCandidate),
         ("client_panel_requests", ClientPanelRequest),
