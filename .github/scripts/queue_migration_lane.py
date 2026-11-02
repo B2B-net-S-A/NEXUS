@@ -119,8 +119,8 @@ def plan_lane(prs: list[Pr]) -> Plan:
 
     Aktywny = pierwszy PR z migracją w kolejce; bez takiego — najstarszy
     uzbrojony ze zdrowymi checkami. Uzbrojony z czerwonymi checkami nie blokuje
-    pasa: do kolejki i tak nie wejdzie, a gdy wejdzie po poprawce, kolejne
-    ``enforce`` zostawi tylko jednego.
+    pasa, ale przy zajętym pasie też traci auto-merge: po zazielenieniu GitHub
+    wrzuciłby go do kolejki sam (#2916, 02.11.2026).
     """
     queued = sorted(
         (p for p in prs if p.queue_position is not None),
@@ -128,19 +128,22 @@ def plan_lane(prs: list[Pr]) -> Plan:
     )
     ready = [p for p in prs if p.queue_position is None and p.armed and p.healthy]
     if queued:
-        active, dequeue, park = queued[0], queued[1:], queued[1:] + ready
+        active, dequeue = queued[0], queued[1:]
     elif ready:
-        active, dequeue, park = ready[0], [], ready[1:]
+        active, dequeue = ready[0], []
     else:
         waiting = sorted(
             (p for p in prs if p.waiting), key=lambda p: (not p.healthy, p.number)
         )
         promote = waiting[0].number if waiting else None
         return Plan(active=None, promote=promote)
+    armed = [
+        p for p in prs if p.queue_position is None and p.armed and p is not active
+    ]
     return Plan(
         active=active.number,
         dequeue=tuple(p.number for p in dequeue),
-        park=tuple(p.number for p in park),
+        park=tuple(p.number for p in [*dequeue, *armed]),
         unlabel=active.number if active.waiting else None,
     )
 

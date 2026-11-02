@@ -1011,6 +1011,10 @@ def test_migration_prs_wait_in_the_lane_before_auto_merge() -> None:
     )
     code = re.search(r"^WAIT_EXIT = (\d+)$", lane_src, re.M).group(1)
     assert f'"$rc" -eq {code}' in run, "Kod „czekaj” w skrypcie i w kroku."
+    # Krok biegnie pod `bash -e`: bez `|| rc=$?` kod inny niż 0 kończy job na
+    # czerwono, zanim `rc` zostanie odczytany, a „wpuszczam jak dawniej” nie działa.
+    admit_line = next(line for line in run.splitlines() if "admit --repo" in line)
+    assert admit_line.rstrip().endswith("|| rc=$?"), admit_line
 
 
 def test_queue_runs_the_migration_lane_after_every_group_check() -> None:

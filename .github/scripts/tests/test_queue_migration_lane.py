@@ -134,8 +134,18 @@ class PlanTest(unittest.TestCase):
         )
         self.assertEqual(plan.active, 11)
         self.assertEqual(plan.dequeue, (10,))
-        self.assertEqual(plan.park, (10, 12))
+        self.assertEqual(plan.park, (10, 12, 13))
         self.assertIsNone(plan.promote)
+
+    def test_red_armed_pr_is_disarmed_while_the_lane_is_busy(self):
+        # #2916, 02.11.2026: uzbrojony z etykietą i czerwonym checkiem. Po
+        # zazielenieniu GitHub sam wrzuciłby go do kolejki obok aktywnego.
+        plan = QML.plan_lane(
+            [pr(70, queue=1, armed=True), pr(71, armed=True, waiting=True, healthy=False)]
+        )
+        self.assertEqual(plan.active, 70)
+        self.assertEqual(plan.park, (71,))
+        self.assertEqual(plan.dequeue, ())
 
     def test_without_queue_the_oldest_ready_pr_is_active(self):
         plan = QML.plan_lane(
