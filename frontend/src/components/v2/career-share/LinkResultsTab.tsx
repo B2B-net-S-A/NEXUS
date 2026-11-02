@@ -3,14 +3,15 @@
 /**
  * Zakładka „Wyniki” okna „Udostępnij rekrutację” (etap 4 linków, 19.10.2026).
  *
- * Co przyniosły linki osoby: lejek wszystkich linków i tabela per link.
- * Zgłoszenia liczą też osoby, które były już w bazie (do 19.10 nie liczyły się
- * nigdzie). Wejścia to licznik od początku istnienia linku — dat wejść nie
- * zapisujemy, więc wejścia nie zmieniają się z okresem.
- * Makieta: https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h (plansza 4).
+ * Co przyniosły linki osoby: kafle, kto się zgłosił i tabela per link w dwóch
+ * grupach (link ogólny, linki do rekrutacji). Zgłoszenia liczą też osoby, które
+ * były już w bazie. Wejścia to licznik od początku istnienia linku — dat wejść
+ * nie zapisujemy, więc wejścia nie zmieniają się z okresem.
+ * Makieta: https://claude.ai/artifact/BcevDUToiG7AGHfgY86T5P (A).
  */
 
-import { useState } from "react";
+import Link from "next/link";
+import { Fragment, useState } from "react";
 import { Copy } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
@@ -21,12 +22,19 @@ import { DialogBody } from "@/components/ui/dialog";
 import {
   type LinkResultRow,
   type LinkResultState,
+  type LinkResults,
   type LinkResultsPeriod,
+  useLinkPeople,
   useLinkResults,
 } from "@/lib/api/careerLinks";
+import {
+  linkPersonAppliedAt,
+  linkPersonKey,
+  linkPersonLinkName,
+  linkPersonNow,
+} from "@/lib/career-link-people";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { resolveViewState } from "@/lib/view-state";
-import { cn } from "@/lib/utils";
 
 const PERIODS: { value: LinkResultsPeriod; label: string }[] = [
   { value: 30, label: "30 dni" },
@@ -50,14 +58,21 @@ const STATE_VARIANT: Record<LinkResultState, "success" | "warning" | "neutral"> 
   revoked: "neutral",
 };
 
-const FUNNEL: { key: keyof LinkResultRow; label: string; indent?: boolean }[] = [
+const TILES: { key: "visits" | "applications" | "new_candidates" | "in_process" | "cv_sent"; label: string }[] = [
+  { key: "visits", label: "Wejścia od początku" },
   { key: "applications", label: "Zgłoszenia" },
-  { key: "new_candidates", label: "nowi w bazie", indent: true },
-  { key: "existing_candidates", label: "już byli w bazie", indent: true },
+  { key: "new_candidates", label: "Nowi w bazie" },
   { key: "in_process", label: "W rekrutacji" },
-  { key: "verified", label: "Zweryfikowani" },
   { key: "cv_sent", label: "CV wysłane" },
-  { key: "hired", label: "Zatrudnieni" },
+];
+
+const COUNT_COLUMNS: { key: keyof LinkResultRow & keyof LinkResults["totals"]; label: string }[] = [
+  { key: "visits", label: "Wejścia" },
+  { key: "applications", label: "Zgłoszenia" },
+  { key: "in_process", label: "W rekrutacji" },
+  { key: "verified", label: "Zweryf." },
+  { key: "cv_sent", label: "CV" },
+  { key: "hired", label: "Zatrudn." },
 ];
 
 function linkName(row: LinkResultRow): string {
@@ -68,6 +83,7 @@ function linkName(row: LinkResultRow): string {
 export function LinkResultsTab({ enabled }: { enabled: boolean }) {
   const [days, setDays] = useState<LinkResultsPeriod>(30);
   const query = useLinkResults(enabled, days);
+  const peopleQuery = useLinkPeople(enabled, days);
   const { showSuccess, showError } = useToast();
   const data = query.data;
   const state = resolveViewState({
@@ -78,7 +94,16 @@ export function LinkResultsTab({ enabled }: { enabled: boolean }) {
     isEmpty: (data?.links.length ?? 0) === 0,
   });
   const totals = data?.totals;
-  const scale = Math.max(totals?.applications ?? 0, 1);
+  const groups: { title: string; rows: LinkResultRow[] }[] = [
+    {
+      title: "Link ogólny: osoba trafia do bazy i do Moich ludzi",
+      rows: data?.links.filter((row) => row.kind === "recruiter") ?? [],
+    },
+    {
+      title: "Linki do rekrutacji: osoba trafia do „Nowi” tej rekrutacji",
+      rows: data?.links.filter((row) => row.kind !== "recruiter") ?? [],
+    },
+  ];
 
   const copy = async (url: string) => {
     if (await copyTextToClipboard(url)) showSuccess("Skopiowano link.");
@@ -119,41 +144,63 @@ export function LinkResultsTab({ enabled }: { enabled: boolean }) {
         </p>
       ) : data && totals ? (
         <>
-          <section className="space-y-2" aria-labelledby="results-funnel-heading">
-            <h4 id="results-funnel-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Wszystkie Twoje linki
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" data-testid="results-tiles">
+            {TILES.map((tile) => (
+              <div key={tile.key} className="rounded-lg border border-border px-3 py-2">
+                <p className="text-xs text-muted-foreground">{tile.label}</p>
+                <p className="text-lg font-semibold tabular-nums text-foreground">{totals[tile.key]}</p>
+              </div>
+            ))}
+          </div>
+
+          <section className="space-y-2" aria-labelledby="results-people-heading">
+            <h4 id="results-people-heading" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Kto się zgłosił
+              {peopleQuery.isSuccess ? ` (${peopleQuery.data.total})` : ""}
             </h4>
-            <p className="text-sm text-foreground">
-              <span className="text-lg font-semibold tabular-nums">{totals.visits}</span> wejść
-              od początku · <span className="font-semibold tabular-nums">{totals.applications}</span>{" "}
-              zgłoszeń {days ? `w ostatnich ${days} dniach` : "od początku"}
-            </p>
-            <ul className="space-y-1.5" data-testid="results-funnel">
-              {FUNNEL.map((step) => {
-                const value = Number(totals[step.key as keyof typeof totals] ?? 0);
-                return (
-                  <li
-                    key={step.key}
-                    className="grid grid-cols-[9.5rem_minmax(0,1fr)_2.5rem] items-center gap-3 text-sm"
-                  >
-                    <span className={cn("text-foreground", step.indent && "pl-3 text-muted-foreground")}>
-                      {step.label}
+            {peopleQuery.isError ? (
+              <QueryStateNotice
+                state="error"
+                description="Nie udało się wczytać listy osób. To nie znaczy, że nikt się nie zgłosił."
+                onRetry={() => peopleQuery.refetch()}
+              />
+            ) : !peopleQuery.isSuccess ? (
+              <p className="text-sm text-muted-foreground">Wczytuję osoby…</p>
+            ) : peopleQuery.data.people.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
+                W tym okresie nikt nie zgłosił się z Twoich linków.
+              </p>
+            ) : (
+              <ul className="divide-y divide-border rounded-lg border border-border" data-testid="results-people">
+                {peopleQuery.data.people.map((person) => (
+                  <li key={linkPersonKey(person)} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+                    <div className="min-w-0 flex-1 basis-64">
+                      <Link
+                        href={`/candidates/${person.candidate_id}`}
+                        className="text-sm font-medium text-foreground hover:underline"
+                      >
+                        {person.full_name}
+                      </Link>
+                      <p className="truncate text-xs text-muted-foreground">
+                        {linkPersonAppliedAt(person)} · {linkPersonLinkName(person)} ·{" "}
+                        {person.was_duplicate ? "już był w bazie" : "nowy w bazie"}
+                      </p>
+                    </div>
+                    <span className="max-w-[16rem] text-right text-xs text-foreground">
+                      {linkPersonNow(person)}
                     </span>
-                    <span className="h-3 overflow-hidden rounded bg-muted" aria-hidden="true">
-                      <span
-                        className="block h-full rounded bg-primary"
-                        style={{ width: `${Math.round((value / scale) * 100)}%` }}
-                      />
-                    </span>
-                    <span className="text-right font-semibold tabular-nums">{value}</span>
+                    <Badge size="sm" variant={person.in_my_people ? "success" : "neutral"}>
+                      {person.in_my_people ? "W Moich ludziach" : "Poza Moimi ludźmi"}
+                    </Badge>
                   </li>
-                );
-              })}
-            </ul>
-            <p className="text-xs text-muted-foreground">
-              Paski względem zgłoszeń. „W rekrutacji” i dalsze etapy liczą osobę, gdy po
-              zgłoszeniu trafiła na ten etap w rekrutacji linku (link ogólny: w dowolnej).
-            </p>
+                ))}
+              </ul>
+            )}
+            {peopleQuery.data?.truncated ? (
+              <p className="text-xs text-muted-foreground">
+                Pokazuję {peopleQuery.data.people.length} najnowszych z {peopleQuery.data.total} zgłoszeń.
+              </p>
+            ) : null}
           </section>
 
           <section className="space-y-2" aria-labelledby="results-links-heading">
@@ -165,51 +212,73 @@ export function LinkResultsTab({ enabled }: { enabled: boolean }) {
                 <thead className="bg-muted/50 text-xs text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2 text-left font-medium">Link</th>
-                    <th className="px-3 py-2 text-right font-medium">Wejścia</th>
-                    <th className="px-3 py-2 text-right font-medium">Zgłoszenia</th>
-                    <th className="px-3 py-2 text-right font-medium">W rekrutacji</th>
-                    <th className="px-3 py-2 text-right font-medium">Zweryfikowani</th>
-                    <th className="px-3 py-2 text-right font-medium">Zatrudnieni</th>
+                    {COUNT_COLUMNS.map((column) => (
+                      <th key={column.key} className="px-3 py-2 text-right font-medium">
+                        {column.label}
+                      </th>
+                    ))}
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody>
-                  {data.links.map((row) => (
-                    <tr key={`${row.kind}-${row.slug ?? row.job_id}`} className="border-t border-border">
-                      <td className="px-3 py-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium text-foreground">{linkName(row)}</span>
-                          <Badge size="sm" variant={STATE_VARIANT[row.state]}>
-                            {STATE_LABEL[row.state]}
-                          </Badge>
-                        </div>
-                        {row.existing_candidates > 0 ? (
-                          <span className="text-xs text-muted-foreground">
-                            w tym {row.existing_candidates} już w bazie
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{row.visits}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{row.applications}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{row.in_process}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{row.verified}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{row.hired}</td>
-                      <td className="px-3 py-2 text-right">
-                        {row.state === "live" && row.public_url ? (
-                          <Button
-                            size="sm"
-                            variant="tertiary"
-                            onClick={() => copy(row.public_url as string)}
-                            aria-label={`Kopiuj link: ${linkName(row)}`}
-                          >
-                            <Copy className="h-3.5 w-3.5" aria-hidden="true" />
-                            Kopiuj
-                          </Button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
+                  {groups.map((group) =>
+                    group.rows.length === 0 ? null : (
+                      <Fragment key={group.title}>
+                        <tr className="border-t border-border bg-muted/30">
+                          <td colSpan={COUNT_COLUMNS.length + 2} className="px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                            {group.title} ({group.rows.length})
+                          </td>
+                        </tr>
+                        {group.rows.map((row) => (
+                          <tr key={`${row.kind}-${row.slug ?? row.job_id}`} className="border-t border-border">
+                            <td className="px-3 py-2">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-medium text-foreground">{linkName(row)}</span>
+                                <Badge size="sm" variant={STATE_VARIANT[row.state]}>
+                                  {STATE_LABEL[row.state]}
+                                </Badge>
+                              </div>
+                              {row.existing_candidates > 0 ? (
+                                <span className="text-xs text-muted-foreground">
+                                  w tym {row.existing_candidates} już w bazie
+                                </span>
+                              ) : null}
+                            </td>
+                            {COUNT_COLUMNS.map((column) => (
+                              <td key={column.key} className="px-3 py-2 text-right tabular-nums">
+                                {row[column.key]}
+                              </td>
+                            ))}
+                            <td className="px-3 py-2 text-right">
+                              {row.state === "live" && row.public_url ? (
+                                <Button
+                                  size="sm"
+                                  variant="tertiary"
+                                  onClick={() => copy(row.public_url as string)}
+                                  aria-label={`Kopiuj link: ${linkName(row)}`}
+                                >
+                                  <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                                  Kopiuj
+                                </Button>
+                              ) : null}
+                            </td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ),
+                  )}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-border bg-muted/30 font-medium">
+                    <td className="px-3 py-2">Razem</td>
+                    {COUNT_COLUMNS.map((column) => (
+                      <td key={column.key} className="px-3 py-2 text-right tabular-nums">
+                        {totals[column.key]}
+                      </td>
+                    ))}
+                    <td />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </section>

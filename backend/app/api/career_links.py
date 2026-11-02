@@ -41,6 +41,8 @@ from app.schemas.invite_link import (
     CareerLinkResponse,
     CareerLinkResultCounts,
     CareerLinkResultRow,
+    CareerLinkPeople,
+    CareerLinkPerson,
     CareerLinkResults,
     CareerLinkStats,
     CareerLinkUpdate,
@@ -278,6 +280,30 @@ async def get_my_link_results(
     }
     return CareerLinkResults(
         days=days or None, totals=CareerLinkResultCounts(**totals), links=rows
+    )
+
+
+@router.get("/me/career-link/people", response_model=CareerLinkPeople)
+async def get_my_link_people(
+    current_user: RecruiterPlus,
+    days: int = Query(0, ge=0, le=3650),
+    db: AsyncSession = Depends(get_db),
+) -> CareerLinkPeople:
+    """Kto zgłosił się z linków osoby i gdzie jest teraz. ``days=0`` = od początku."""
+    from app.services import career_link_results as clr
+
+    since = None if days == 0 else _now() - timedelta(days=days)
+    rows, total = await clr.link_people(db, current_user.id, since)
+    return CareerLinkPeople(
+        days=days or None,
+        total=total,
+        truncated=total > len(rows),
+        people=[
+            CareerLinkPerson(
+                **{key: row[key] for key in CareerLinkPerson.model_fields if key in row}
+            )
+            for row in rows
+        ],
     )
 
 
