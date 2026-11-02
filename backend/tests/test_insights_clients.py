@@ -268,7 +268,6 @@ NON_BOARD_ROLES = (
     UserRole.head_of_recruitment,
     UserRole.delivery_lead,
     UserRole.recruiter,
-    UserRole.user,
 )
 
 
@@ -763,7 +762,6 @@ async def test_hiring_managers_is_open_to_every_logged_in_role(
     for role in (
         UserRole.recruiter,
         UserRole.delivery_lead,
-        UserRole.user,
         UserRole.admin,
     ):
         _, email, password = await _seed_user(role, "hm-rbac")

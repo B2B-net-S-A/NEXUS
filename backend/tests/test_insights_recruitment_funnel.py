@@ -117,7 +117,6 @@ async def test_funnel_is_reachable_for_every_logged_in_role(fx_client: AsyncClie
         UserRole.talent_community_manager,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(fx_client, email, password)
@@ -370,7 +369,6 @@ async def test_time_to_hire_is_open_to_every_role(fx_client: AsyncClient):
         UserRole.talent_community_manager,
         UserRole.recruiter,
         UserRole.finance,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "tth-rbac")
         headers = await _login(fx_client, email, password)
@@ -579,16 +577,13 @@ async def _seed_real_sources(user_id: int, when: datetime) -> None:
 
 @pytest.mark.asyncio
 async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncClient):
-    """D7 — także dla `user`, którego capability `VIEW_RECRUITMENT_RANKING`
-    NIE obejmuje (`analytics/capabilities.py` daje mu pustą frozenset).
+    """D7 — każda rola z sekcją Insights; wycofywany `user` od 0629 jej nie ma.
 
-    To jest dokładnie ta rola, dla której legacy `/api/activities/leaderboard`
-    zwraca 403 — a sekcja na `/insights` renderowała ten 403 jako „brak
-    danych o zespole".
+    Legacy `/api/activities/leaderboard` zwracał tej roli 403, a sekcja na
+    `/insights` renderowała ten 403 jako „brak danych o zespole".
     """
     for role in (
         UserRole.admin,
-        UserRole.user,
         UserRole.head_of_recruitment,
         UserRole.delivery_lead,
         UserRole.talent_community_manager,
@@ -900,7 +895,6 @@ async def test_invite_links_is_open_to_every_logged_in_role(fx_client: AsyncClie
         UserRole.talent_community_manager,
         UserRole.finance,
         UserRole.recruiter,
-        UserRole.user,
     ):
         _, email, password = await _seed_user(role, "il-rbac")
         headers = await _login(fx_client, email, password)
