@@ -92,6 +92,9 @@ przechodzi na „CV oryginalne”. Przegląd DL i edytor CV go nie dostają.
 
 ### Pobieranie z podglądu (15.10.2026, D1–D5)
 
+Od 02.11.2026 osoba z samą rolą rekrutera nie ma tu „Pobierz CV”:
+`generator-cv/oryginal-cv-tylko-po-generatorze.md`.
+
 Prośba z zespołu: z dużego podglądu nie dało się pobrać CV, które się ogląda
 (oryginał tylko przez dok: sekcja „CV” → „Pokaż CV oryginalne” → okno →
 „Pobierz”). Makiety i decyzje: https://claude.ai/artifact/EBFqwhJjt1CoSUGkjYnPTV,

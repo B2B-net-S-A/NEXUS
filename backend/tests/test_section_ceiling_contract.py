@@ -134,6 +134,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "GET /api/novelties/adoption": "panel „kto już umie” — imiennie, kto zaliczył nowość, bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     "POST /api/novelties/{novelty_id}/remind": "przypomnienie nowości (wraca karta przy kropce), bez danych domenowych; admin i HoR (decyzja Artura 28.10.2026)",
     "GET /api/novelties/start": "Start w NEXUSIE — własny postęp przy przeklikaniach swojej roli, bez danych domenowych; blokuje osobę na każdej sekcji (decyzja Artura 30.10.2026)",
+    "GET /api/cv-generator/feedback/summary": "Ustawienia → „Jakość generatora CV” — zestawienie dla admina i HoR (bramka roli), poza sekcjami jak panel nowości",
     "PUT /api/novelties/start/gate": "wyłącznik blokady Startu dla całej firmy, bez danych domenowych; admin i HoR (decyzja Artura 30.10.2026)",
     # ── Praktykant (0374): brak sekcji, własna lista telefonów ──────────────
     "GET /api/trainee/today": "praktykant nie ma sekcji — własna lista telefonów, tylko jego pozycje",

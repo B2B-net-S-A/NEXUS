@@ -52,6 +52,8 @@ ENTRY_SOURCES: tuple[str, ...] = ("manual", "leave_paid", "template", "compass_i
 STANDARD_DAY_HOURS = 8
 OVERTIME_MAX_HOURS = 16
 OVERTIME_REASON_MIN_LENGTH = 5
+#: Jeden wpis: najwięcej, ile przyjmuje baza (``CK_ENTRY_HOURS``).
+ENTRY_MAX_HOURS = 24
 
 
 def quoted(values: tuple[str, ...]) -> str:
@@ -75,7 +77,7 @@ CK_TIMESHEET_EMPLOYMENT_TYPE = (
     f"employment_type IS NULL OR employment_type IN ({quoted(EMPLOYMENT_TYPES)})"
 )
 
-CK_ENTRY_HOURS = "hours >= 0 AND hours <= 24"
+CK_ENTRY_HOURS = f"hours >= 0 AND hours <= {ENTRY_MAX_HOURS}"
 CK_ENTRY_DESCRIPTION = "char_length(btrim(description)) > 0"
 CK_ENTRY_SOURCE = f"source IN ({quoted(ENTRY_SOURCES)})"
 CK_ENTRY_OVERTIME = (

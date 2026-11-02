@@ -371,6 +371,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           day={editor.day}
           entry={editor.entry}
           allowOvertime={view.can_log_overtime}
+          noHoursLimit={view.no_hours_limit}
           form={view.employment_type}
           templates={templates.data?.items}
           hint={{ text: hint.data?.text ?? null, loading: hint.isLoading }}

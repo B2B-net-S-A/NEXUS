@@ -1,0 +1,25 @@
+"""Kartoteka: raport godzin bez limitu dnia dla wybranej osoby.
+
+Revision ID: 0638_no_hours_limit
+Revises: 0637_viewer_role_no_sections
+
+SQL ma jedno źródło (``app/services/hr_foundation_schema.py``) — ten sam
+moduł czyta ``entrypoint.sh`` przez ``hr_schema_bundle``.
+"""
+
+from alembic import op
+
+from app.services import hr_foundation_schema as schema
+
+revision = "0638_no_hours_limit"
+down_revision = "0637_viewer_role_no_sections"
+branch_labels = None
+depends_on = None
+
+
+def upgrade() -> None:
+    op.execute(schema.NO_HOURS_LIMIT_DDL)
+
+
+def downgrade() -> None:
+    op.execute("ALTER TABLE employee_profiles DROP COLUMN IF EXISTS no_hours_limit")

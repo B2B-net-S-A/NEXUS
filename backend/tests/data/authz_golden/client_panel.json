@@ -1,0 +1,41 @@
+{
+ "personas": [
+  "admin",
+  "finance",
+  "head_of_recruitment",
+  "delivery_lead",
+  "talent_community_manager",
+  "recruiter",
+  "user",
+  "trainee",
+  "delivery_lead+talent_community_manager",
+  "head_of_recruitment+delivery_lead",
+  "delivery_lead+recruiter",
+  "head_of_recruitment+recruiter",
+  "talent_community_manager+recruiter",
+  "talent_community_manager+contracts_orders_edit",
+  "recruiter+clients_edit",
+  "recruiter+delivery_view",
+  "recruiter+recruitment_manage",
+  "recruiter+finance_module",
+  "recruiter+amounts_edit",
+  "automation",
+  "employee",
+  "recruiter+people_admin",
+  "recruiter+payroll",
+  "recruiter+equipment",
+  "recruiter+cases",
+  "board",
+  "finance-finance_module"
+ ],
+ "routes": {
+  "GET /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "GET /api/client-panel/jobs/{job_id}/activity": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "GET /api/client-panel/requests": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "PATCH /api/client-panel/jobs/{job_id}/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "POST /api/client-panel/jobs/{job_id}/rotate-link": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "POST /api/client-panel/requests/{request_id}/answer": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "POST /api/client-panel/requests/{request_id}/close": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
+  "PUT /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDD"
+ }
+}

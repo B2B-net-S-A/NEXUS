@@ -349,6 +349,7 @@ from app.models.linkedin_extension import (  # noqa: F401
     LinkedinExtensionConnection,
 )
 from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
+from app.models.cv_generator_feedback import CvGeneratorFeedback  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
@@ -905,3 +906,6 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 # 0625: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402
 from app.models import access_usage as _access_usage_models  # noqa: F401,E402
+
+# 0639: panel klienta pod linkiem z CV.
+from app.models import client_panel as _client_panel_models  # noqa: F401,E402

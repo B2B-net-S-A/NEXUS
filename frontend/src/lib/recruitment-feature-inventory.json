@@ -455,6 +455,14 @@
    "v3_home": "menu „⋯” → Pliki"
   },
   {
+   "id": "header.menu-client-panel",
+   "area": "naglowek",
+   "opis": "Panel klienta pod linkiem z CV: włącznik, link, dowody, sprawy od klienta (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-client-panel",
+   "v3_home": "menu „⋯” → Panel klienta"
+  },
+  {
    "id": "questions.bank",
    "area": "pytania",
    "opis": "Baza pytań: przypinanie, kolejność, oceny",
@@ -2912,6 +2920,14 @@
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "preview-cv-upload-input",
    "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "cv-to-client.original-after-generator",
+   "area": "CV do klienta",
+   "opis": "„Generator źle zrobił CV? Pobierz oryginał” dla samej roli rekrutera: okno z powodami, potem plik",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-original-after-generator",
+   "v3_home": "panel osoby → CV → CV do klienta"
   },
   {
    "id": "screening-form.preview-cv-download",

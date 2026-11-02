@@ -263,6 +263,7 @@ from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
 from app.api import novelties as novelties_api
+from app.api import cv_generator_feedback as cv_generator_feedback_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -288,6 +289,8 @@ from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
+from app.api import public_client_panel as public_client_panel_api
+from app.api import client_panel as client_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -1906,6 +1909,16 @@ app.include_router(
     tags=["public-career"],
 )
 app.include_router(
+    public_client_panel_api.router,
+    prefix="/api/public/panel",
+    tags=["public-client-panel"],
+)
+app.include_router(
+    client_panel_api.router,
+    prefix="/api/client-panel",
+    tags=["client-panel"],
+)
+app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
@@ -2161,6 +2174,9 @@ app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
 app.include_router(novelties_api.router, prefix="/api", tags=["novelties"])
+app.include_router(
+    cv_generator_feedback_api.router, prefix="/api", tags=["cv-generator-feedback"]
+)
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
@@ -3475,6 +3491,12 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
+    from app.models.client_panel import (
+        ClientPanel,
+        ClientPanelCandidate,
+        ClientPanelRequest,
+        ClientPanelView,
+    )
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
@@ -3783,6 +3805,11 @@ async def api_health_deep_check():
         ("candidate_client_forms", CandidateClientForm),
         # 0626: wzór „Karty przed CV” — brak tabeli = 500 w przeglądzie DL-a.
         ("client_cover_sheet_templates", ClientCoverSheetTemplate),
+        # 0639: panel klienta — brak tabeli = 500 pod linkiem z CV i w „⋯” rekrutacji.
+        ("client_panels", ClientPanel),
+        ("client_panel_candidates", ClientPanelCandidate),
+        ("client_panel_requests", ClientPanelRequest),
+        ("client_panel_views", ClientPanelView),
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),

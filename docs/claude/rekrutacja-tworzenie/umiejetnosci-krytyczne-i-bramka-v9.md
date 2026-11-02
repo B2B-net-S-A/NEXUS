@@ -219,6 +219,21 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     „payments”. Walidacja słów przepuszcza oba bez zmian w kodzie; wiersze sprzed v12
     poprawia DL w Profilu Championa.
 
+## Statystyki podpowiedzi bez rozmowy wewnętrznej (decyzja Artura 02.11.2026)
+
+„Wysłani” w `compute_stats` to `cv_sent`, `client_interview`, `acceptance`, `hired`,
+ten sam zbiór co `SENT_TO_CLIENT_STAGES` w `api/jobs.py` (pilnuje test). Etap `interview`
+to rozmowa wewnętrzna przed wysyłką; widok `analytics_first_milestones` go niesie, bo
+czytają go Insights, więc nie wracaj do niego w tej statystyce.
+
+Pomiar na kopii z 02.11: 245 z 22 610 par miało tylko `interview`, 124 z nich odrzucono,
+żadna nie doszła do klienta. Próg 90% przekroczyły dwie technologie: Angular
+z 90,29% na 89,95% (wypada), BPMN z 89,31% na 91,27% (wchodzi). Podpowiedź zmieniła się
+w 5 z 98 otwartych rekrutacji bez decyzji Delivery Leada, wysłani ukryci: 0 przed i po.
+Rekrutacja z Angularem w tytule bez wyboru DL-a nie ma już na nim bramki, a Angular
+jest 0,05 pkt pod progiem: to skutek przyjęty przy decyzji, nie błąd do naprawy progiem.
+Nowe liczby wchodzą przy cotygodniowym przeliczeniu, `STATS_VERSION` bez zmian.
+
 ## Ocena „musi mieć” a bramka (02.11.2026)
 
 Bramka ukrywa tylko po krytycznych, ale ocena („musi mieć X/Y”, warstwa umiejętności)

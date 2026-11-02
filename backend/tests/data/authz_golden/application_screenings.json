@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/screened-out": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/screened-out": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "POST /api/jobs/{job_id}/screened-out/{screening_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

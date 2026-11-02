@@ -255,6 +255,7 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   // Nowości — kto już umie (28.10.2026): imienna lista bez danych domenowych,
   // lustro `HeadOfRecruitmentPlus`.
   { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],
@@ -460,12 +461,15 @@ const PUBLIC_PATHS = [
   "/apply/",
   "/sign/",
   "/cv/",
+  // Panel klienta pod linkiem z CV: token w adresie, klient nie ma konta.
+  "/k/",
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
   // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
   // nie ma konta (etap 3, O12).
   "/wypis/",
+  "/preview/client-panel",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",

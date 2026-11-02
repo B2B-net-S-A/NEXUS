@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.clients import polish_alphabetical_key
 from app.api.deps import AdminUser, OperationalUser
 from app.api.section_access import DELIVERY_SECTION_DEPENDENCIES
@@ -586,7 +587,7 @@ def _directory_export_row(row, *, can_view_legal: bool) -> list:
     return [safe_cell(value) for value in values]
 
 
-@router.get("/directory/export")
+@router.get("/directory/export", dependencies=NOT_READ_ONLY)
 async def export_client_directory(
     current_user: OperationalUser,
     db: AsyncSession = Depends(get_db),

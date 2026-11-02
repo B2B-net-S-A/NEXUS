@@ -134,9 +134,14 @@ wszystko, z każdą stawką i marżą, a uprawnienia osoby wtedy tylko dodawały
   Rola jest w zbiorach ODCZYTU (`READ_ONLY_ROLES` w `candidate_access.py`,
   `RECRUITMENT_READ_ROLES`) i w żadnym zbiorze zapisu ani eksportu. Imienne
   „Może usuwać klientów” jej nie otwiera (`client_deletion.py`). Zapisy robią
-  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Jak stary
-  Viewer zostawia tylko własne ślady: przebiegi wyszukiwania, rozmowy
-  z Jarvisem, ustawienia pulpitu i powiadomień.
+  automatyzacje kluczami API — ze śladem „Integracja: <nazwa>”. Zostawia tylko
+  własne ślady: przebiegi wyszukiwania, rozmowy z Jarvisem, ustawienia pulpitu
+  i powiadomień.
+- **Bez eksportu także z ekranów, które czyta** (audyt 02.11.2026): rejestr
+  kontraktów, lista klientów i import MD mają `dependencies=NOT_READ_ONLY` na
+  trasie pliku, front chowa przycisk (`mayExportFiles`). Nowa trasa eksportu za
+  `OperationalUser` albo `DeliveryViewUser` potrzebuje tego samego; pilnuje
+  `test_automation_exports_nothing`.
 - **Wyjątek: umowy przedwstępne** (22.10.2026, decyzja Artura, audyt F54) —
   pełny dostęp jak rekruter: odczyt, pliki i akcje, także zapis, z tytułu roli
   (`PRE_CONTRACT_ROLES` w `api/pre_contracts.py`). W panelu osoby sekcja
@@ -146,6 +151,11 @@ wszystko, z każdą stawką i marżą, a uprawnienia osoby wtedy tylko dodawały
 - **Rekrutacje bez członkostwa w zespole** (`_JOB_MEMBERSHIP_BYPASS_ROLES`),
   jak reszta firmy. Poczty M365 nie synchronizuje (`eligible_m365_owner`),
   także konto przerobione z rekrutera.
+- **Viewer (`user`) nie ma żadnej sekcji** (0637, audyt 02.11.2026): rola bez
+  nowych kont przechodziła imienne Insights, a na kopii produkcji z 02.11 nie
+  ma ani jednego konta. Zerowanie biegnie raz (`viewer_role_schema`, znacznik
+  w `app_settings`); rola nie przechodzi niczego ponad „Pracownika”
+  (`tests/test_viewer_role_no_sections.py`).
 - **Rola wyłączna** (jak Finanse, Viewer, Praktykant): CHECK
   `ck_users_exclusive_finance_viewer_roles`, `ensure_exclusive_roles`,
   `_normalized_role_values`, mapowanie grup AAD i `EXCLUSIVE_ROLES` na froncie.

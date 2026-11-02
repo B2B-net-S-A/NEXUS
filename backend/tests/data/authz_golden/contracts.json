@@ -41,7 +41,7 @@
   "GET /api/contracts/export/placements": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "GET /api/contracts/missing-orders-report": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "GET /api/contracts/order-sync-report": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contracts/register/export": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "GET /api/contracts/register/export": "PPDPPDDDPPPDPPPPDPPDDDDDDDP",
   "GET /api/contracts/register/subcategories": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
   "GET /api/contracts/{contract_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
   "GET /api/contracts/{contract_id}/activities": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",

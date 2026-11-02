@@ -849,6 +849,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
     # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
+    # 0639: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1215,6 +1217,16 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
+# Powody „co generator zrobił źle” (0636,
+# `app/services/cv_generator_feedback_schema.py`).
+try:
+    from app.services import cv_generator_feedback_schema as _cv_generator_feedback_schema
+
+    _CV_GENERATOR_FEEDBACK_DDL = list(_cv_generator_feedback_schema.TABLE_DDL)
+except Exception as _cv_generator_feedback_err:  # noqa: BLE001
+    print(f"cv generator feedback DDL unavailable: {_cv_generator_feedback_err!r}")
+    _CV_GENERATOR_FEEDBACK_DDL = []
+
 # Opieka po odejściu (migracja 0621) — JEDNO źródło z migracją
 # (`app/services/departure_care_schema.py`).
 try:
@@ -1240,6 +1252,16 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_COLUMNS = []
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
+
+# Panel klienta pod linkiem z CV (0639) — JEDNO źródło z migracją
+# (`app/services/client_panel_schema.py`, pilnuje test_migration_and_entrypoint_share_one_ddl_source).
+try:
+    from app.services import client_panel_schema as _client_panel_schema
+
+    _CLIENT_PANEL_DDL = list(_client_panel_schema.TABLE_DDL)
+except Exception as _client_panel_schema_err:  # noqa: BLE001
+    print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
+    _CLIENT_PANEL_DDL = []
 
 # Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
 # i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
@@ -1361,6 +1383,7 @@ _COLUMN_STATEMENTS = [
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
     *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_CV_GENERATOR_FEEDBACK_DDL,
     *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
@@ -6952,6 +6975,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_HR_COLUMN_DDL,
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
+    *_CLIENT_PANEL_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
@@ -7353,10 +7377,10 @@ _DATA_STATEMENTS = [
            ('recruiter', 'insights', 'read'),
            ('recruiter', 'finance', 'none'),
            ('recruiter', 'system_admin', 'none'),
-           ('user', 'sourcing', 'read'),
-           ('user', 'pipeline', 'read'),
+           ('user', 'sourcing', 'none'),
+           ('user', 'pipeline', 'none'),
            ('user', 'delivery', 'none'),
-           ('user', 'insights', 'read'),
+           ('user', 'insights', 'none'),
            ('user', 'finance', 'none'),
            ('user', 'system_admin', 'none'),
            ('trainee', 'sourcing', 'none'),

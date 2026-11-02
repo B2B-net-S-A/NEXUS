@@ -29,6 +29,6 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/reconciliation/placements": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/insights/reconciliation/placements": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

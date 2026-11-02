@@ -475,10 +475,33 @@ describe("CandidateFilesTab — „Usuń z profilu” (13.10.2026)", () => {
       currentRole = role;
       const view = renderTab();
       const { user, menu } = await openMenu("cv.pdf");
-      expect(within(menu).getByRole("menuitem", { name: "Pobierz" })).toBeInTheDocument();
+      if (role === "recruiter") {
+        // Sama rola rekrutera ogląda plik w NEXUSIE (decyzja Artura 02.11.2026).
+        expect(within(menu).queryByRole("menuitem", { name: "Pobierz" })).toBeNull();
+      } else {
+        expect(within(menu).getByRole("menuitem", { name: "Pobierz" })).toBeInTheDocument();
+      }
       expect(within(menu).queryByRole("menuitem", { name: "Usuń z profilu" })).toBeNull();
       await user.keyboard("{Escape}");
       view.unmount();
+    }
+  });
+
+  it("rekruter pobierze tylko plik bez podglądu, także gdy rodzaj to „Inny”", async () => {
+    currentRole = "recruiter";
+    mockDocuments([
+      cv({ id: 1, filename: "cv.pdf", is_primary: true }),
+      cv({ id: 2, filename: "stare.doc", content_type: "application/msword", document_kind: "other" }),
+      cv({ id: 3, filename: "kopia.docx", content_type: "application/msword", document_kind: "other" }),
+    ]);
+    renderTab();
+    for (const [filename, allowed] of [
+      ["stare.doc", true],
+      ["kopia.docx", false],
+    ] as const) {
+      const { user, menu } = await openMenu(filename);
+      expect(within(menu).queryAllByRole("menuitem", { name: "Pobierz" })).toHaveLength(allowed ? 1 : 0);
+      await user.keyboard("{Escape}");
     }
   });
 
@@ -801,6 +824,7 @@ describe("CandidateFilesTab — grupy plików (E5, 13.10.2026)", () => {
   });
 
   it("każda grupa zachowuje akcje wiersza „⋯”", async () => {
+    currentRole = "head_of_recruitment";
     mockApi([file(1, "cv.pdf", { is_primary: true }), file(2, "ZOB-2962_cv.docx")]);
     const user = userEvent.setup();
     renderTab(["ZOB-2962"]);

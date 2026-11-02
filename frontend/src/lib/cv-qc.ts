@@ -460,12 +460,14 @@ export function taskTitle(task: QcTask): string {
     const roles = items.filter((i) => i.role).length;
     if (roles === 1) return `${name} — brak opisu w 1 roli`;
     if (roles > 1) return `${name} — brak opisu w ${roles} rolach`;
+    if (items.some((i) => i.similar)) return `${name} — w oryginale pod inną nazwą?`;
     return items.some((i) => i.fix === "ask_candidate")
       ? `${name} — brak w CV i w oryginale`
       : `${name} — brak w CV`;
   }
   if (check.key === "no_unsupported") {
     const term = (items[0]?.term ?? name).trim() || name;
+    if (items[0]?.similar) return `${term} — w oryginale pod inną nazwą?`;
     return `${term} — jest w CV, a nie ma tego w oryginale`;
   }
   return name;

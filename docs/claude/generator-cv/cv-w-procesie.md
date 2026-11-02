@@ -182,3 +182,25 @@ https://claude.ai/artifact/J6p2cjG5opYDpkh2P6iMaE, raport
   pominięcia i podstawą klasyfikacji — wynik QC się nie zmienia. Nowy szablon
   uwagi w generatorze = nowy wzorzec w tym pliku, inaczej rekruter zobaczy go
   surowo.
+
+## Nazwa pliku CV (02.11.2026)
+
+Zgłoszenie rekruterki: nazwę pliku dało się zmienić tylko po pobraniu. Makiety:
+https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
+
+- **Trasa:** `PATCH /api/candidates/stages/{id}/cv/branded/filename`, to samo prawo co
+  edycja CV (`CandidateWriteAccess` i `_load_csv_for_stage`, decyzja Artura). Wiersz
+  „Plik: … · Zmień nazwę” stoi na karcie „CV do klienta” i w sekcji CV panelu osoby.
+- **Nazwa:** `clean_cv_filename` usuwa znaki sterujące i niedozwolone w nazwie pliku,
+  końcówka zawsze `.docx`. Treść CV i `edit_revision` się nie zmieniają, a otwarty edytor
+  nie dostaje konfliktu. Przy zatwierdzonym CV nazwa idzie na bieżącą wersję
+  (`CvDocumentVersion.docx_filename`), bo z niej biorą pobranie i pakiet CV. Starsze
+  wersje zostają.
+- **Nowa wersja CV:** nazwa ręczna zostaje (`custom_filename` w metadanych szkicu),
+  a wzór klienta idzie w `pattern_filename` i daje „Wróć do wzoru”. Powrót zdejmuje oba.
+- **Bez blokady wzoru:** nazwa poza wzorem klienta przechodzi.
+- **Ślad:** Activity `branded_cv_filename_changed` z `from` i `to`.
+
+Testy: `tests/test_cv_filename_clean.py`, sekcja w `tests/test_candidate_stage_cv_branded.py`,
+`CvFileNameRow.test.tsx`.
+

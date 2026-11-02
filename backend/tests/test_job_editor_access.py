@@ -82,7 +82,9 @@ async def world(app_client: AsyncClient):
     outsider_h, _ = await _seed_user(app_client, "recruiter")
     hor_h, _ = await _seed_user(app_client, "head_of_recruitment")
     dl_h, _ = await _seed_user(app_client, "delivery_lead")
-    viewer_h, _ = await _seed_user(app_client, "user")
+    # Podgląd bez zapisu: `automation`, bo wycofywany `user` nie ma już żadnej
+    # sekcji i nie otwiera nawet szczegółów rekrutacji (0637).
+    viewer_h, _ = await _seed_user(app_client, "automation")
     job_id = await _seed_job(recruiter_id=owner_id, collaborator_id=collab_id)
     return {
         "job_id": job_id,
@@ -236,8 +238,8 @@ async def test_job_detail_reports_can_staff_and_can_set_priority(app_client, wor
 
     Head of Recruitment ma oba bez pełnej redakcji (`can_manage` zostaje
     fałszem). Rekruter nie ma żadnego — do 0411 priorytet ustawiała jeszcze
-    rola TAC, wycofana razem ze swoimi dodatkami. Podgląd (`user`) nie ma
-    zapisu sekcji, więc też nie ma żadnego.
+    rola TAC, wycofana razem ze swoimi dodatkami. Podgląd (`automation`) nie
+    ma zapisu sekcji, więc też nie ma żadnego.
     """
     expected = {
         "owner": (False, False),

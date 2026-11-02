@@ -699,6 +699,59 @@ describe("CvQcDialog — QC CV", () => {
     expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeEnabled();
   });
 
+  describe("W oryginale pod inną nazwą", () => {
+    const similarResult = (): QcResult => {
+      const base = result();
+      const check: QcCheck = {
+        key: "no_unsupported",
+        label: "CV nie twierdzi niczego spoza oryginału",
+        severity: "blocking",
+        status: "fail",
+        summary: "1 do wyjaśnienia",
+        items: [
+          {
+            key: "no_unsupported|analiza systemowa|cv",
+            requirement: "Analiza systemowa",
+            term: "Analiza systemowa",
+            detail: "Dosłownie tego nie ma, ale oryginał ma „System analysis” — sprawdź, czy to ta sama rzecz.",
+            fix: "ask_candidate",
+            similar: { term: "System analysis", quote: "System analyst System analysis covering requirements" },
+          },
+        ],
+      };
+      return {
+        ...base,
+        passed: false,
+        blocking_failed: 1,
+        can_override: true,
+        original_cv: { ...base.original_cv, filename: "cv_kandydata.pdf", snapshot_at: "2026-10-15T10:00:00Z" },
+        checks: [check, ...base.checks.filter((c) => c.key !== "no_unsupported")],
+      };
+    };
+
+    it("zamiast „nie ma” pokazuje cytat, plik oryginału i jedno kliknięcie", async () => {
+      serve(similarResult());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(/Analiza systemowa — w oryginale pod inną nazwą\?/)).toBeTruthy();
+      expect(within(dialog).queryByText(/nie ma tego w oryginale/)).toBeNull();
+      expect(within(dialog).getByTestId("qc-similar-quote")).toHaveTextContent("System analysis covering");
+      expect(within(dialog).getByTestId("qc-original-file")).toHaveTextContent("cv_kandydata.pdf");
+      await userEvent.click(within(dialog).getByRole("button", { name: "To ta sama rzecz" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          `${QC_URL}/dismiss`,
+          expect.objectContaining({
+            key: "no_unsupported|analiza systemowa|cv",
+            reason: "other_name",
+            quote: "System analyst System analysis covering requirements",
+          }),
+        ),
+      );
+    });
+  });
+
   describe("tryb doradczy — QC doradza, nie blokuje", () => {
     const advisory = (over: Partial<QcResult> = {}): QcResult =>
       result({ advisory: true, can_override: true, ...over });

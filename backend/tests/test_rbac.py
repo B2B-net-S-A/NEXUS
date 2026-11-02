@@ -294,9 +294,15 @@ async def test_get_read_endpoints_open_to_all_authenticated(
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi."""
+    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi.
+
+    Poza wycofywanym Viewerem: od 0637 nie ma żadnej sekcji.
+    """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
+    if role is UserRole.user:
+        assert resp.status_code == 403
+        return
     # 200 lub 404/422 (np. brak parametru) — ale NIE 403 i NIE 5xx.
     assert resp.status_code != 403, (
         f"[{role.value}] GET {path} unexpectedly forbidden (status={resp.status_code})"

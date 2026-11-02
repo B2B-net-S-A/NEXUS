@@ -311,9 +311,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
     //
     // Od 21.09.2026 radar to tryb ekranu „Kandydaci" (`?mode=request`) i nie
-    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates` (np. viewer
-    // `user`), nie wejdzie na /candidates, więc dla niego adres zostaje
-    // samodzielną stroną /talent-radar (działa dla każdej roli).
+    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates`, nie wejdzie
+    // na /candidates, więc dla niego adres zostaje samodzielną stroną
+    // /talent-radar (działa dla każdej roli).
     id: "talent-radar",
     href: "/talent-radar",
     resolveHref: (user) =>

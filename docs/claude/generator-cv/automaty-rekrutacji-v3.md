@@ -265,6 +265,20 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   więc idzie na początek kolejki. Przegląd bez tych kluczy nie liczy się jako
   nieaktualny. Bump `MUST_GATE_POLICY_VERSION` w ciągu dnia i tak zostawia
   takie przeglądy do najbliższej nocy — wdrażaj go przed oknem 01–05.
+- **A. Inny odcisk requestu ma pierwszeństwo jak zdarzenie** (02.11.2026,
+  `auto_full_review._request_changed_ids`): przed wyborem kolejki automat porównuje
+  odcisk każdej należnej rekrutacji z ostatnim przeglądem (także z wpisu „Praca
+  w tle”, gdy retencja skasowała przegląd); 190 rekrutacji to ok. 0,4 s. Bo przy
+  limicie 48 na noc rekrutacja bez pierwszeństwa czeka do 4 nocy, a 8 ze 187 miało
+  inny odcisk bez zdarzenia. Przyczyny potwierdzone zgodnym hashem na kopii
+  z 02.11: pole spoza list zdarzeń (`hiring_manager_contact_id` w 676343),
+  cotygodniowe przeliczenie podpowiedzi krytycznych z 30.10 (`suggested` w 706641,
+  732527, 732529, 789175, 789176) i nowy wpis w słowniku (SailPoint z 28.10 zmienił
+  krytyczne w 789171: pula zgadzała się z pełnym przeglądem w 20% top 20). Słownika
+  i statystyk nie załatwi żadne zdarzenie rekrutacji, dlatego porównanie, nie
+  dopisywanie pól do `_AUTO_REVIEW_EXTRA_FIELDS`. Rekrutacja bez odcisku nie ma
+  pierwszeństwa z tego powodu. Podbicie wersji reguł daje pierwszeństwo wszystkim
+  naraz; wtedy kolejność rozstrzyga jak dotąd „Szukamy” i wiek przeglądu.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
   `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (48 od 02.11.2026: przy 187 rekrutacjach w pracy to nie jest „co noc wszystkie”, tylko każda co ok. 4 noce) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
@@ -303,6 +317,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   (`matched_must`, `missing_must`). Pula przeżywa retencję przeglądu (2 dni) do
   następnego przeglądu tej rekrutacji; przegląd bez wektora jej nie rusza.
   Propozycje bez zmian. Wpis „Praca w tle” niesie `autofill_pool` (liczba).
+  150 to liczba osób PO odrzuceniu innej roli (02.11.2026): wiersze idą paczkami
+  (`_POOL_PAGE`) do `AUTOFILL_POOL_SCAN_LIMIT` (5000) przeglądanych; mniej niż 150
+  = rekrutacja wyczerpała wiersze albo limit.
 - **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
