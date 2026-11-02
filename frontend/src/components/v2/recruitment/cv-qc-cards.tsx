@@ -785,6 +785,7 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
           <Button
             size="sm"
             variant="outline"
+            data-tour="cv-qc.confirm"
             onClick={() => {
               setDismissKey(null);
               setConfirmOpen(true);
