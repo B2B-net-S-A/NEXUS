@@ -56,4 +56,4 @@ Makiety: https://claude.ai/artifact/NDLBxLTB1GZZpWMQst5Hnk.
   `GET /api/jobs/{id}/cpro-events`. Front: `JobCproBanner`, `CproSettings`,
   `/settings/cpro`. Dziennik ostrzega, gdy skrzynka nie synchronizuje się od godziny:
   24 z 34 maili o zamknięciu przyszły tylko do jednej osoby.
-- Migracja 0634, DDL w `services/cpro_mail_schema.py` (czyta go też `entrypoint.sh`).
+- Migracja 0635, DDL w `services/cpro_mail_schema.py` (czyta go też `entrypoint.sh`).
