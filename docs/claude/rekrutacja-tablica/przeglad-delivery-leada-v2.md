@@ -56,3 +56,14 @@ porównania z innymi osobami; „Wróć do poprawy” niosło jedno zdanie, wię
   `DecisionPanel` bez zmian). Brak albo pusty tekst = nic.
 - Harness `/preview/dl-review` (`?state=queue`, `?state=returned`, `?as=recruiter`; kontekst ma uwagę rekrutera). Wzmianki w sekcjach 0352
   i 0413 o przeglądzie bez marży i o „Wróć do poprawy” z samą uwagą opisują stan sprzed 08.10.2026.
+
+## Dowód z rozmowy i odznaki nad CV (02.11.2026)
+
+- Tabela wymagań liczy z formularza samą odpowiedź kandydata; pytanie tylko przy
+  krótkim „tak” (`dl_review.conversation_texts`). Reguła wspólna z QC:
+  `qc-mowi-prawde.md`, „Pytanie nie jest dowodem”.
+- Odznaki „Wygenerowane automatycznie” i „Do przeglądu” nad CV firmowym stoją
+  tylko, gdy CV etapu pochodzi z tej generacji (`from_generator`
+  i `generated_document_id`), a nie z najnowszego wiersza pary. Plik wgrany ręcznie
+  ma odznakę z `stageCvOrigin` („z pliku Word”). Póki CV etapu nieznane lub odczyt
+  padł, odznak nie ma. Test: `StageCvPreview.origin.test.tsx`.
