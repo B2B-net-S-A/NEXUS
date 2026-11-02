@@ -26,9 +26,10 @@ name: Auto-enqueue
 # PR z TRWAJĄCEJ kolejki (GraphQL `dequeuePullRequest`). Zdjęcie etykiety
 # (`unlabeled`) albo „Ready for review” wrzuca PR z powrotem.
 #
-# PAS MIGRACJI (29.10.2026): w kolejce jest naraz najwyżej jeden PR
-# z migracją Alembica — dwa w jednej grupie dają dwie głowy i wywracają też
-# PR-y bez migracji za nimi (25–28.10: 54 z 54 czerwonych bramek kolejki).
+# PAS MIGRACJI (29.10.2026, łańcuch od 02.11.2026): w kolejce są naraz najwyżej
+# dwa PR-y z migracją Alembica, drugi na migracji pierwszego — dwa na tym samym
+# rodzicu dają w grupie dwie głowy i wywracają też PR-y bez migracji za nimi
+# (25–28.10: 54 z 54 czerwonych bramek kolejki).
 # PR z migracją przed włączeniem auto-merge'a pyta
 # `.github/scripts/queue_migration_lane.py admit` (kopia z MAINA); zajęty pas =
 # etykieta `czeka-na-migracje`, komentarz i bez auto-merge'a. Etykietę zdejmuje
