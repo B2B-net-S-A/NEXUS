@@ -760,7 +760,7 @@ async def test_job_team_links_open_for_delivery_lead_across_clients(api):
 
 
 async def test_visits_count_per_day_and_show_in_the_period(api):
-    """0638: wejście zapisuje się w dniu i w liczniku; okres czyta dzienne."""
+    """0640: wejście zapisuje się w dniu i w liczniku; okres czyta dzienne."""
     _, headers, job_id = await _owner_with_job(api)
     link = await _create_job_link(api, headers, job_id)
     assert (await _approve(api, headers, job_id)).status_code == 200

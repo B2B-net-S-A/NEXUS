@@ -5,7 +5,7 @@
  *
  * Co przyniosły linki osoby: kafle, kto się zgłosił i tabela per link w dwóch
  * grupach (link ogólny, linki do rekrutacji). Zgłoszenia liczą też osoby, które
- * były już w bazie. Wejścia w okresie liczą się z dziennych zapisów (0638), które
+ * były już w bazie. Wejścia w okresie liczą się z dziennych zapisów (0640), które
  * zaczynają się w dniu wdrożenia; „Od początku” czyta licznik linku.
  * Makieta: https://claude.ai/artifact/BcevDUToiG7AGHfgY86T5P (A).
  */
