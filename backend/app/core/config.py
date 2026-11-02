@@ -317,7 +317,7 @@ class Settings(BaseSettings):
     # i mapowanie błędów — `services/llm_providers.py`.
     OPENAI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie

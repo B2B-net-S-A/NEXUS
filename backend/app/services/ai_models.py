@@ -25,14 +25,15 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 |-----|----------------------------------|--------------------------|
 | F1  | scoring                          | claude-sonnet-5          |
 | F2  | champion_profile_parse           | claude-sonnet-5 (z Haiku)|
-| F3  | cv_requirement_map               | claude-sonnet-5          |
+| F3  | cv_requirement_map               | claude-sonnet-5-5 (z 5)  |
 | F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
 | F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
-| F9  | cv_parser                        | claude-sonnet-5          |
-| F10 | cv_backfill + cv_name_backfill   | gpt-6-luna (z Sonnet 5)  |
+| F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
+| F10 | cv_backfill                      | claude-sonnet-5-5 (z 5)  |
+|     | cv_name_backfill                 | gpt-6-luna (z Sonnet 5)  |
 | F11 | notes_extraction                 | gpt-6-luna (z Sonnet 5)  |
 | F12 | candidate_summary                | gpt-6-luna (z Sonnet 5)  |
 | F13 | champion_draft                   | gpt-6-luna (z Sonnet 5)  |
@@ -160,12 +161,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         rationale="F6. Generator ogłoszeń; jedyny model z językiem OK w 100% (badanie 16.09).",
     ),
     AIFeatureKey.cv_parser: ModelChoice(
-        default=SONNET_5,
+        default=SONNET_55,
         env_vars=("CV_PARSER_MODEL",),
         settings_attr="CLAUDE_MODEL_CV",
-        fallbacks=(SONNET_55,),
+        fallbacks=(SONNET_5,),
         rationale="F9. Parser CV; honoruje legacy CLAUDE_MODEL_CV, CV_PARSER_MODEL rozdziela "
-        "go od reszty. Badanie 16.09: najmniej wymyślonych faktów (0.063).",
+        "go od reszty. Sonnet 5.5 od 03.11.2026 (audyt 02.11): 29,0 technologii na CV wobec 25,4, "
+        "o 39% szybciej i o 8,5% taniej. Więcej zmyśleń (0,34 wobec 0,20) odcina przed zapisem "
+        "`cv_technology_grounding`, bez którego ta zmiana nie ma sensu.",
     ),
     AIFeatureKey.candidate_summary: ModelChoice(
         default=GPT_LUNA,
@@ -198,10 +201,12 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "zamówieniach nie liczył flagi niepewności, tylko trafność pól (0,960 vs 0,963).",
     ),
     AIFeatureKey.cv_requirement_map: ModelChoice(
-        default=SONNET_5,
+        default=SONNET_55,
         env_vars=("CV_REQUIREMENT_MAP_MODEL",),
-        fallbacks=(SONNET_55,),
-        rationale="F3. Mapa wymagań: zgodność 0.944, najmniej zgubionych dowodów.",
+        fallbacks=(SONNET_5,),
+        rationale="F3. Mapa wymagań: Sonnet 5.5 od 03.11.2026, odrzucone cytaty 0,10 wobec 0,37 "
+        "Sonneta 5, ta sama cena, o 33% szybciej (audyt 02.11). Zgodność z zapisanym wynikiem "
+        "84% wobec 94% liczona wobec dotychczasowych zapisów, nie wobec wzorca.",
     ),
     AIFeatureKey.cv_interactive_chat: ModelChoice(
         default=GPT_LUNA,
@@ -211,15 +216,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "cena i umowa powierzenia (OpenAI).",
     ),
     AIFeatureKey.cv_backfill: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_55,
         env_vars=("CV_BACKFILL_MODEL",),
         # Bez legacy CLAUDE_MODEL_CV_BULK od 22.09.2026: ta zmienna nadal steruje
         # lintem reguł i datami doświadczenia (Sonnet 5), a `settings_attr`
-        # wygrywa z `default` — zostawiona zabrałaby tej funkcji Lunę.
+        # wygrywa z `default` — zostawiona zabrałaby tej funkcji jej model.
         fallbacks=(SONNET_5,),
-        rationale="F10. Masowy backfill pól: GPT-6 Luna (decyzja 22.09.2026 po pomiarze na 96 "
-        "CV) — wymyślone technologie 0,07/CV vs 0,08 Sonneta 5, zła osoba 3,1% vs 6,3%, "
-        "31× taniej. Przeciążenie OpenAI → model parsera CV (cv_parser._parse_with_claude).",
+        rationale="F10. Masowy backfill pól: Sonnet 5.5 od 03.11.2026 (audyt 02.11): 14,5 "
+        "technologii na CV wobec 9,9 Luny, zmyślenia bez istotnej różnicy, zła osoba bez zmian, "
+        "ok. +21 USD miesięcznie. Wcześniej GPT-6 Luna (22.09.2026).",
     ),
     AIFeatureKey.experience_dates_on_demand: ModelChoice(
         default=SONNET_5,
