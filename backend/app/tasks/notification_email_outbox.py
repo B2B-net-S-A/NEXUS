@@ -119,6 +119,7 @@ def kind_clause(kind: str):
             [
                 NotificationType.automation_failing,
                 NotificationType.teams_prep_scope_missing,
+                NotificationType.hr_m365_scope_missing,
             ]
         )
     if kind == "data_access_alert":

@@ -174,12 +174,20 @@ async def hr_m365_outbox_loop() -> None:
 
 
 async def hr_m365_reconcile_job(db: AsyncSession) -> dict[str, Any] | None:
-    """Sam pilnuje 07:00 Warszawy i jednego przebiegu dziennie."""
-    from app.services.hr.m365 import reconcile
+    """Sam pilnuje 07:00 Warszawy i jednego przebiegu dziennie. Po udanym
+    przebiegu czyta świeże ``last_error`` i wysyła alarm o skrzynkach poza
+    zakresem aplikacji."""
+    from app.services.hr.m365 import reconcile, scope_alerts
 
     result = await reconcile.run_once(db)
     if result.get("skipped") or result.get("status") == "disabled":
         return None
+    if "failed" not in result:
+        try:
+            result["scope_alerts"] = await scope_alerts.scan_once(db)
+        except Exception:  # noqa: BLE001 — alarm nie psuje wyniku przebiegu
+            logger.exception("hr_m365_reconcile scope alert failed")
+            await db.rollback()
     return result
 
 

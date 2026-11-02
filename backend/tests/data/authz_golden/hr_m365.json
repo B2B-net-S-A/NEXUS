@@ -33,6 +33,7 @@
   "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
   "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
   "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
+  "POST /api/hr/admin/m365/mailboxes/{user_id}/scope-exempt": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
   "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDDD",
   "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDDD"
  }

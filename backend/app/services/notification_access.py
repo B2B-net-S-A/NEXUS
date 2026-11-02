@@ -55,6 +55,7 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.ai_spend_alert,
         NotificationType.automation_failing,
         NotificationType.teams_prep_scope_missing,
+        NotificationType.hr_m365_scope_missing,
     }
 )
 
