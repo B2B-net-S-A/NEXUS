@@ -784,7 +784,7 @@
       {
         "id": "hr.my_time.leave_list",
         "label": "Moje wnioski",
-        "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), przekierowanie poczty i anulowanie."
+        "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), kopia poczty do zastępcy i anulowanie."
       },
       {
         "id": "hr.my_time.month_actions",
@@ -823,7 +823,7 @@
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” w szczególe sprawy albo w widoku „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "a": "„Edytuj” w szczególe sprawy albo w widoku „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na kopię poczty — osoba może ją włączyć sama.",
         "anchor": "hr.approvals.history"
       },
       {
@@ -833,7 +833,7 @@
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na przekierowanie poczty nie dasz za tę osobę.",
+        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na kopię poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],
@@ -841,7 +841,7 @@
       "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
       "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
       "Liczba przy chipie „Nieobecności” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia („Do wiadomości”) nie czekają na nikogo.",
-      "Przekierowanie poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz przekierowanie” z powodem, do końca urlopu); włączyć je z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
+      "Kopię poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz kopię poczty” z powodem, do końca urlopu); włączyć ją z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
     ],
     "anchors": [
       {

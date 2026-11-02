@@ -133,7 +133,7 @@ describe("M365Card", () => {
     expect(await screen.findByLabelText("Tryb: Symulacja")).toBeInTheDocument();
     expect(screen.getByText(/nie trafiają do skrzynek/)).toBeInTheDocument();
     expect(screen.getByText(/Tylko lista próbna: anna.przykladowa@example.com/)).toBeInTheDocument();
-    expect(await screen.findByText("Przekierowanie poczty")).toBeInTheDocument();
+    expect(await screen.findByText("Kopia poczty do zastępcy")).toBeInTheDocument();
     expect(screen.getByText("2.11.2026 – 6.11.2026")).toBeInTheDocument();
     expect(screen.getByText(/Czeka na pierwszy dzień urlopu/)).toBeInTheDocument();
     expect(screen.getByText("Ewa Własna")).toBeInTheDocument();
