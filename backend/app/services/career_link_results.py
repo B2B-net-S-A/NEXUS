@@ -7,7 +7,7 @@ była już w bazie). Ten sam zapis liczy kolumnę „Z linków” w aktywności 
 
 Lejek: osoba ze zgłoszenia liczy się na etapie, gdy PO zgłoszeniu pojawiła się
 na nim w rekrutacji linku (link ogólny: w dowolnej rekrutacji). Wejścia: licznik
-od początku istnienia linku (``visit_count``), a od 0635 także dzienne
+od początku istnienia linku (``visit_count``), a od 0636 także dzienne
 (``candidate_invite_link_visit_days``) — okres liczy się z dziennych, które
 zaczynają się w dniu wdrożenia.
 
