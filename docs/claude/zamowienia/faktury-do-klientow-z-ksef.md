@@ -33,3 +33,17 @@
 - Kwoty widzą Finanse i Delivery Lead u swojego klienta (`can_read_client_finance`); rekruter nie.
   Moduł `app_settings['client_invoicing']` domyślnie wyłączony; zakładka „Faktury” u klienta
   i „Faktury do klientów” w Finansach.
+
+## Po pierwszej próbie na prawdziwych danych KSeF (02.11.2026)
+
+- Token spółki działa tylko na produkcji MF (`test` i `demo` odrzucają go kodem 450), ma wyłącznie
+  `InvoiceRead`. Wystawianie faktur z NEXUSA wymaga osobnego tokenu z `InvoiceWrite`.
+- Parser FA przeszedł 40 z 40 prawdziwych faktur FA(3), kwoty XML zgadzają się z metadanymi.
+- **Kolejka nie wygasa z powodu budżetu.** Sprzedaż ma ok. 600 faktur miesięcznie, pierwszy przebieg
+  od 3 miesięcy wstecz to ok. 1800 faktur przy 20 pobraniach na godzinę, czyli ok. 4 dni. `_defer`
+  z powodem `budget` nie nalicza próby: inaczej po 24 przebiegach faktury wypadały z kolejki
+  (`pending_expired`), a znacznik był już za nimi. Budżet przekazujemy do `_Run` jawnie, bo domyślna
+  wartość pola dataclass zapisuje się przy definicji i `monkeypatch` stałej jej nie zmienia.
+- **Nabywca z UE ma VAT UE zamiast NIP-u** (`KodUE` + `NrVatUE`, kolumna `buyer_foreign_id`, 0631):
+  to ok. 48% faktur sprzedażowych. Klucz rejestru `clients.nip_registry` to 10 cyfr albo prefiks
+  kraju z cyframi, porównanie w postaci `normalize_registry_id`.

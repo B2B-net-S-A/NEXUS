@@ -98,6 +98,7 @@ export interface SalesInvoice {
   client_name: string | null;
   buyer_name: string | null;
   buyer_nip: string | null;
+  buyer_foreign_id: string | null;
   corrections: {
     id: number;
     invoice_number: string;

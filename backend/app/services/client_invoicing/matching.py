@@ -301,7 +301,9 @@ async def auto_match(
         return Decision(reason=invoice.match_reason)
     registry = registry or await clients.nip_registry(db)
     if invoice.client_id is None:
-        client_id, reason = registry.resolve(invoice.buyer_nip)
+        client_id, reason = registry.resolve(
+            invoice.buyer_nip or invoice.buyer_foreign_id
+        )
         invoice.client_id = client_id
         if client_id is None:
             invoice.match_status = "unmatched"

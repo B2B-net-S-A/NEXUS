@@ -242,7 +242,13 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-COLUMN_DDL: tuple[str, ...] = ()
+#: Nabywca z UE bez polskiego NIP-u (0631): pierwsza produkcyjna próba 02.11.2026
+#: pokazała 48% faktur sprzedażowych z ``KodUE`` + ``NrVatUE``.
+BUYER_FOREIGN_ID_DDL = (
+    "ALTER TABLE client_sales_invoices "
+    "ADD COLUMN IF NOT EXISTS buyer_foreign_id VARCHAR(32) NULL"
+)
+COLUMN_DDL: tuple[str, ...] = (BUYER_FOREIGN_ID_DDL,)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_client_sales_invoices_ksef_number "

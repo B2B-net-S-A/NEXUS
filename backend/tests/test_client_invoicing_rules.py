@@ -7,8 +7,12 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
+
+import pytest
 
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
+from app.services.client_invoicing import clients, fa_sales
 from app.services.client_invoicing.billing import (
     COST_NOTE,
     BillingLine,
@@ -407,3 +411,35 @@ def test_credit_without_number_is_only_a_hint_and_unrelated_is_skipped():
         _credit("1230.00", "FS 11/7/2026", currency="EUR"), invoices
     )
     assert foreign.reason == "currency_differs"
+
+
+def _sales_xml(buyer: str) -> bytes:
+    path = (
+        Path(__file__).parent
+        / "data/ksef/sales/9876543210-20261103-A1180C0FFEE1-5C.xml"
+    )
+    return (
+        path.read_text(encoding="utf-8")
+        .replace("<NIP>1111111111</NIP>", buyer)
+        .encode("utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("buyer", "expected"),
+    [
+        ("<KodUE>FI</KodUE><NrVatUE>12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>fi</KodUE><NrVatUE>FI12345678</NrVatUE>", "FI12345678"),
+        ("<KodUE>DE</KodUE><NrVatUE>123 456 789</NrVatUE>", "DE123456789"),
+        ("<NIP>1111111111</NIP>", None),
+        ("<BrakID>1</BrakID>", None),
+    ],
+)
+def test_buyer_foreign_id_from_invoice(buyer, expected):
+    assert fa_sales.parse_sales_invoice(_sales_xml(buyer)).buyer_foreign_id == expected
+
+
+def test_registry_resolves_foreign_id_and_rejects_unknown():
+    registry = clients.NipRegistry(by_nip={"FI12345678": 7})
+    assert registry.resolve("FI12345678") == (7, None)
+    assert registry.resolve("FI00000000") == (None, "unknown_buyer")

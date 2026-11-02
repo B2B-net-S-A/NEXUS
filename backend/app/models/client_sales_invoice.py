@@ -105,6 +105,8 @@ class ClientSalesInvoice(Base, TimestampMixin):
     )
     xml_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     buyer_nip: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    # VAT UE nabywcy bez polskiego NIP-u, w postaci ``clients.nip`` (0631).
+    buyer_foreign_id: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     buyer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     client_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("clients.id", ondelete="SET NULL"), nullable=True
