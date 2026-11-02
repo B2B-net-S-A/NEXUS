@@ -149,7 +149,7 @@ describe("central section access matrix", () => {
     expect(hasCapability(financeModule, "nav.finance")).toBe(true);
   });
 
-  it("wycofywany Viewer (0636) nie ma żadnej sekcji", () => {
+  it("wycofywany Viewer (0637) nie ma żadnej sekcji", () => {
     const viewer = { role: "user" as const };
     expect(sectionAccessForUser(viewer, "sourcing")).toBe("none");
     expect(sectionAccessForUser(viewer, "pipeline")).toBe("none");

@@ -83,7 +83,7 @@ async def world(app_client: AsyncClient):
     hor_h, _ = await _seed_user(app_client, "head_of_recruitment")
     dl_h, _ = await _seed_user(app_client, "delivery_lead")
     # Podgląd bez zapisu: `automation`, bo wycofywany `user` nie ma już żadnej
-    # sekcji i nie otwiera nawet szczegółów rekrutacji (0636).
+    # sekcji i nie otwiera nawet szczegółów rekrutacji (0637).
     viewer_h, _ = await _seed_user(app_client, "automation")
     job_id = await _seed_job(recruiter_id=owner_id, collaborator_id=collab_id)
     return {

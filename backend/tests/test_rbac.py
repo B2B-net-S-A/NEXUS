@@ -296,7 +296,7 @@ async def test_get_read_endpoints_open_to_all_authenticated(
 ):
     """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi.
 
-    Poza wycofywanym Viewerem: od 0636 nie ma żadnej sekcji.
+    Poza wycofywanym Viewerem: od 0637 nie ma żadnej sekcji.
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
