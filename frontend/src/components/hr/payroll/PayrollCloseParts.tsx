@@ -366,6 +366,7 @@ export function DecisionPanel({
                       <span className="block text-xs text-muted-foreground">
                         {row.category_label}
                         {row.eligible_on ? ` · termin ${formatDayMonthPl(row.eligible_on)}` : ""}
+                        {row.from_sheet ? " · z arkusza" : ""}
                         {row.edited ? " · kwota poprawiona" : ""}
                         {row.edited_recipient ? " · osoba zmieniona" : ""}
                         {tab === "later" ? ` · wypłata ${String(row.period_month).padStart(2, "0")}.${row.period_year}` : ""}

@@ -84,6 +84,15 @@ describe("CareerApplyForm — przycisk", () => {
   });
 });
 
+describe("CareerApplyForm — stawka", () => {
+  it("puste pole nie podsuwa kandydatowi żadnej kwoty", () => {
+    const { container } = renderForm();
+    const rate = field(container, "expected_rate_hourly");
+    expect(rate).toHaveValue(null);
+    expect(rate).not.toHaveAttribute("placeholder");
+  });
+});
+
 describe("CareerApplyForm — walidacja", () => {
   it("wymaga imienia, nazwiska, e-maila, CV i zgody — podsumowanie z liczbą pól", () => {
     const { container } = renderForm();

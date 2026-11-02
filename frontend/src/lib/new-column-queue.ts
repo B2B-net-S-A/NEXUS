@@ -7,12 +7,21 @@
  *
  * Osoby dodane przez zespół i karty od systemu, które ktoś już wziął, zostają
  * na górze od najmłodszego (decyzja z 16.10.2026). Pod nimi czekające karty od
- * systemu od najwyższego wyniku: najpierw bez uwag, potem z ostrzeżeniem
+ * systemu od najwyższego wyniku powiększonego o punkty „znamy tę osobę”
+ * (`entry_autofill.known`, serwer): najpierw bez uwag, potem z ostrzeżeniem
  * o budżecie albo biurze, na końcu z brakiem krytycznej. Procent na karcie się
  * nie zmienia. Zasady: docs/claude/rekrutacja-tablica/kolejka-w-nowych.md.
  */
 
 export const CALL_FIRST_COUNT = 5;
+
+export type KnownFacts = {
+  points: number;
+  client_points: number;
+  note_points: number;
+  verified_at_client: number;
+  last_note_days: number | null;
+};
 
 type QueueItem = {
   id: number;
@@ -23,8 +32,29 @@ type QueueItem = {
     score: number;
     decided: boolean;
     cautions?: unknown[];
+    known?: KnownFacts | null;
   } | null;
 };
+
+function queueValue(item: QueueItem): number {
+  return (item.entry_autofill?.score ?? 0) + (item.entry_autofill?.known?.points ?? 0);
+}
+
+export function daysAgoText(days: number): string {
+  if (days <= 0) return "dziś";
+  return days === 1 ? "wczoraj" : `${days} dni temu`;
+}
+
+/** Krótkie powody na karcie „Zadzwoń najpierw”. */
+export function knownFactLabels(known: KnownFacts | null | undefined): string[] {
+  if (!known) return [];
+  const labels: string[] = [];
+  if (known.client_points > 0) labels.push(`U klienta · ${known.verified_at_client}×`);
+  if (known.note_points > 0 && known.last_note_days != null) {
+    labels.push(`Notatka ${daysAgoText(known.last_note_days)}`);
+  }
+  return labels;
+}
 
 export type NewColumnSection = "team" | "call_first" | "rest";
 
@@ -54,7 +84,7 @@ export function orderNewColumn<T extends QueueItem>(
     .sort(
       (a, b) =>
         a.tier - b.tier ||
-        (b.item.entry_autofill?.score ?? 0) - (a.item.entry_autofill?.score ?? 0) ||
+        queueValue(b.item) - queueValue(a.item) ||
         a.item.candidate_id - b.item.candidate_id,
     );
   const ranks = new Map<number, number>();

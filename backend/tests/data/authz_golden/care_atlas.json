@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/care/atlas/sales-signals": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/care/atlas/sales-signals/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

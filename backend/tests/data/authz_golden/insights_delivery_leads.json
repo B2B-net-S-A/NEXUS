@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/delivery-leads": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/delivery-leads/placements-by-client": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/delivery-leads/portfolio": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/delivery-leads/{dl_id}/trend": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
  }
 }

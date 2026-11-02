@@ -31,6 +31,35 @@ const SUMMARY: AutofillQualitySummary = {
     manual: { added: 960, verified: 78, verified_pct: 8.1 },
   },
   waiting_now: 412,
+  sent_vs_system: {
+    total: 12,
+    jobs: 5,
+    measured: 10,
+    shown: 4,
+    outside_base: 2,
+    missed: 4,
+    no_snapshot: 2,
+    shown_pct: 40,
+    outside_base_pct: 20,
+    missed_pct: 40,
+    segments: [
+      { key: "system", label: "System dodał sam", count: 2 },
+      { key: "proposal", label: "Wzięte z Propozycji", count: 2 },
+      { key: "outside_base", label: "Spoza bazy", count: 2 },
+      { key: "r21_40", label: "Ręcznie, miejsce 21–40", count: 3 },
+      { key: "below_pool", label: "Poniżej puli 150", count: 1 },
+      { key: "no_snapshot", label: "Sprzed pomiaru", count: 2 },
+    ],
+    worst_jobs: [
+      {
+        job_id: 1,
+        job_title: "Przykładowa rekrutacja",
+        sent: 4,
+        missed: 3,
+        reasons: [{ key: "r21_40", label: "Ręcznie, miejsce 21–40", count: 3 }],
+      },
+    ],
+  },
   buckets: [
     {
       bucket: "search",

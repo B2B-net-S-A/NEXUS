@@ -40,32 +40,43 @@ describe("katalog kafelków", () => {
     expect(margin.ok).toBe(false);
     // Powód nazywa uprawnienie, o które można poprosić — nie listę ról.
     expect(margin.ok ? "" : margin.reason).toBe(
-      "Wymaga uprawnienia „Stawki i kwoty: podgląd”",
+      "Wymaga uprawnienia „Wyniki firmy: podsumowania przychodu i marży”",
     );
     expect(templateAvailability(template("contact_oversight"), recruiter).ok).toBe(false);
     expect(templateAvailability(template("cv_sent_week"), recruiter).ok).toBe(true);
   });
 
-  describe("kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”", () => {
+  describe("kafelki kwot: „Wyniki firmy” albo portfel Delivery Leada", () => {
     const MONEY_TILES = ["margin_monthly", "margin_by_client"];
     const available = (u: User) =>
       MONEY_TILES.map((key) => templateAvailability(template(key), u).ok);
 
-    it.each(["admin", "finance", "delivery_lead"] as UserRole[])(
-      "%s ma uprawnienie domyślnie i dodaje kafelki kwot",
+    it.each(["admin", "delivery_lead"] as UserRole[])(
+      "%s dodaje kafelki kwot",
       (role) => {
         expect(available(user(role))).toEqual([true, true]);
       },
     );
 
-    it("rekruter z nadanym uprawnieniem dodaje kafelki kwot", () => {
+    it("Finanse nie dodają kafelków z sumą firmy", () => {
+      expect(available(user("finance"))).toEqual([false, false]);
+    });
+
+    it("rekruter z nadanymi „Wynikami firmy” dodaje kafelki kwot", () => {
       const recruiter = user("recruiter", {
-        effective_action_access: permissionSnapshot("amounts_view"),
+        effective_action_access: permissionSnapshot("company_results"),
       });
       expect(available(recruiter)).toEqual([true, true]);
     });
 
-    it.each(["delivery_lead", "finance"] as UserRole[])(
+    it("sam „podgląd kwot” bez roli DL nie otwiera sumy firmy", () => {
+      const recruiter = user("recruiter", {
+        effective_action_access: permissionSnapshot("amounts_view"),
+      });
+      expect(available(recruiter)).toEqual([false, false]);
+    });
+
+    it.each(["delivery_lead"] as UserRole[])(
       "%s z wyłączonym uprawnieniem nie dodaje kafelków kwot mimo roli",
       (role) => {
         const account = user(role, {

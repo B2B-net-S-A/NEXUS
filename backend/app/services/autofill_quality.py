@@ -197,6 +197,8 @@ async def _worst_jobs(db, since: datetime, until: datetime) -> list[dict]:
 
 async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dict:
     """Liczby okna ``[since, until)`` — wszystko, co pokazuje ekran B2."""
+    from app.services.sent_vs_system import sent_vs_system
+
     system = await _cohort(db, (candidate_claim.ENTRY_SYSTEM,), since, until)
     manual = await _cohort(db, _MANUAL_SOURCES, since, until)
     decided_at = RecruitmentProcess.entry_meta["decided_at"].astext.cast(
@@ -255,6 +257,7 @@ async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dic
         "waiting_now": await _waiting_now(db, now),
         "buckets": [buckets[b] for b in BUCKETS],
         "worst_jobs": await _worst_jobs(db, since, until),
+        "sent_vs_system": await sent_vs_system(db, since=since, until=until),
     }
 
 

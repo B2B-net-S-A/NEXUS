@@ -24,6 +24,15 @@ w żadnym źródle.
   ocenia ZDANIA, nie całą odpowiedź: „Używała Grafany. Nie zna Iceberga.”
   zostaje dowodem Grafany). Notatki przez `evidence_note_text` i
   `ai_readable_clause` (bez automatów, wycofanych odpowiedzi karty, follow-upu).
+- **Pytanie nie jest dowodem** (`qc-truth-2`, 02.11.2026). Z karty rekomendacji
+  odpada pytanie i nazwa rekrutacji („Nazwa projektu”, „Nazwa pliku CV”). Pytanie
+  zostaje tylko przy krótkim „tak” (`answer_confirms_question`, do 6 słów):
+  wtedy to ono niesie treść odpowiedzi. To samo robi tabela wymagań przeglądu DL
+  (`dl_review.conversation_texts`). Do tej zmiany QC pisało „kandydat mówił
+  o tym w rozmowie, dopisz” przy słowie z pytania, a w tabeli DL 73 z 319 par
+  miało „jest” tylko z pytania. Pomiar: 867 par, zaliczone 726 → 723 (termin padł
+  tylko w pytaniu, blokada `no_unsupported` ma rację), pozycje `must_in_cv`
+  325 → 301.
 - **Dwa dopasowania, `dz_review.found_in(text, req, mode=…)`.** `_found`
   zostaje dosłowne — czytają je też przegląd DZ, AI w edytorze i przegląd DL.
   - `mode="support"` (blokada `no_unsupported`): dosłownie z aliasami

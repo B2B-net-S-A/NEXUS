@@ -45,27 +45,26 @@ def test_delivery_lead_without_amounts_view_cannot_count_money():
     assert reason and "Stawki i kwoty: podgląd" in reason
 
 
-def test_recruiter_granted_amounts_view_counts_money():
+def test_amounts_view_alone_does_not_add_up_the_whole_company():
+    """Bez roli DL „podgląd kwot” dawałby sumę firmy (decyzja Artura 02.11.2026)."""
     recruiter = _holder(UserRole.recruiter, "amounts_view")
 
-    assert engine.source_denial(recruiter, "finance") is None
-
-
-def test_recruiter_without_amounts_view_is_told_which_permission_is_missing():
-    recruiter = _holder(UserRole.recruiter)
-
     reason = engine.source_denial(recruiter, "finance")
+
+    assert reason and "Wyniki firmy" in reason
+
+
+def test_delivery_lead_without_amounts_view_is_told_which_permission_is_missing():
+    lead = _holder(UserRole.delivery_lead)
+
+    reason = engine.source_denial(lead, "finance")
 
     assert reason and "Stawki i kwoty: podgląd" in reason
 
 
 @pytest.mark.asyncio
-async def test_granted_holder_without_dl_role_counts_every_client(monkeypatch):
-    async def _no_portfolio(user, db):
-        return None
-
-    monkeypatch.setattr(engine, "resolve_delivery_lead_finance_client_ids", _no_portfolio)
-    recruiter = _holder(UserRole.recruiter, "amounts_view")
+async def test_company_results_holder_counts_every_client():
+    recruiter = _holder(UserRole.recruiter, "company_results")
 
     assert await engine._finance_client_boundary(recruiter, None) is None
 

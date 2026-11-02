@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/charts/placement-analysis": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/charts/yearly-stats": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/charts/placement-analysis": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/charts/yearly-stats": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
  }
 }

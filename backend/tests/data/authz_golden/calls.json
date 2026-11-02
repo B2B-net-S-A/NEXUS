@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/calls": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/calls/cloudtalk-status": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/calls/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidates/{candidate_id}/calls": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidates/{candidate_id}/calls/{call_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/calls": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/calls/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

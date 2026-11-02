@@ -38,9 +38,21 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   `AUTHZ_GOLDEN_WRITE=1 python -m pytest tests/test_authz_guard_matrix.py`,
   a diff trafia do PR-a. Macierz widzi tylko zależności tras — reguła w środku
   handlera potrzebuje własnego testu.
-- **Uprawnienia osoby tylko dodają** („Edytuj użytkownika” → „Dodatkowe
-  uprawnienia”); API odmawia `none` (422 `additive_only`). Role Viewer
-  i Praktykant nie przyjmują uprawnień — nadanie zapisane wcześniej przestaje
+- **Uprawnienia osoby dodają i odbierają** („Edytuj użytkownika” → „Uprawnienia
+  tej osoby”). Decyzja właściciela 02.11.2026 cofa zasadę z 02.10.2026 „tylko
+  dodają”, bo przycięcie jednej osoby wymagało nowej roli i tak powstały Rada
+  i Automatyzacje. Okno pokazuje cały katalog; każdy wiersz ma dwa stany: „Z roli”
+  / „Odebrane”, gdy uprawnienie daje rola, inaczej „Brak” / „Nadane”. Zapis:
+  `manage`, `none`, a `inherit` zdejmuje wyjątek. Wiersze `none` sprzed tej
+  decyzji to zwykłe „Odebrane”; stare limity sekcji Delivery/Finanse
+  (`legacy_section_caps`) zostają z osobnym „Usuń ograniczenia”.
+  API odmawia 422 `permission_required_by_kept`, gdy odbierane uprawnienie jest
+  wymagane przez inne, które osoba zachowuje po tej samej zmianie: zależności
+  przywróciłyby je przy odczycie, a Historia zdarzeń podałaby „Odebrano”. Ekran
+  blokuje taki wiersz z podpisem „Wymagane przez”. Odebranie działa na bramki
+  uprawnień; to, co „zostaje przy roli” (lista niżej), nie zmienia się.
+  Administratora nie da się ruszyć (`immutable_admin_access`). Role Viewer,
+  Praktykant i Rada nie przyjmują nadań — nadanie zapisane wcześniej przestaje
   działać po zmianie roli (`action_permissions.account_accepts_grants`),
   wiersz zostaje. Zmiana wylogowuje dotknięte konta
   i zostawia wpis w Historii zdarzeń (`rbac.role_permissions`,
@@ -102,9 +114,9 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
 
 Decyzje Artura 14.10.2026. Osoba, która podpina procesy firmy pod NEXUSA
 (API integracyjne v1), miała dostać rolę Finanse. Finanse czytają jednak
-wszystko, z każdą stawką i marżą, a uprawnienia osoby tylko dodają, więc tej
-roli nie da się przyciąć. Powstała osobna rola `automation`, na ekranie
-„Automatyzacje”.
+wszystko, z każdą stawką i marżą, a uprawnienia osoby wtedy tylko dodawały
+(do 02.11.2026), więc tej roli nie dało się przyciąć. Powstała osobna rola
+`automation`, na ekranie „Automatyzacje”.
 
 - **Co widzi:** rekrutacje, Tablicę, kandydatów z CV i notatkami (decyzja:
   „od razu podgląd, jak reszta firmy”), Insights bez imiennych KPI zespołu

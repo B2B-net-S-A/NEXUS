@@ -8,8 +8,9 @@ Premia przypisana do kontraktu dostaje klucz automatu
 (``contract:{id}:{rola}``), więc automat nie zaproponuje jej drugi raz. Istniejąca
 propozycja automatu jest przejmowana: osoba, kwota i miesiąc przychodzą z arkusza.
 Wiersz z kwotą 0 odrzuca propozycję (powód poza ``AUTO_CANCEL_REASONS``, więc
-automat jej nie przywraca). Uwagi z arkusza są widoczne tylko w podglądzie: do
-opisu premii, który czyta osoba, trafia zdanie zbudowane z nazw.
+automat jej nie przywraca), także gdy propozycji jeszcze nie było. Uwagi z arkusza
+widzą tylko Płace, w podglądzie i w oknie premii: do opisu premii, który czyta
+osoba, trafia zdanie zbudowane z nazw.
 """
 
 from __future__ import annotations
@@ -36,7 +37,7 @@ from app.models.hr_profile import EmployeeProfile
 from app.models.user import User
 from app.services.contract_rates import RATE_SCHEDULE_LOADS
 from app.services.hr import placement_bonuses
-from app.services.hr.bonus_rules import load_rules, money
+from app.services.hr.bonus_rules import extra_dl_recipient, load_rules, money
 from app.services.hr.payroll_access import PayrollViewer
 from app.services.hr.payroll_bonuses import (
     _audit,
@@ -158,10 +159,15 @@ def resolve_role(
     recipient_id: Optional[int],
     automat_dl: Optional[int],
     automat_recruiter: Optional[int],
+    automat_extra: Optional[int] = None,
     is_dl: bool,
     is_recruiter: bool,
 ) -> str:
-    """Rola wiersza: uwaga wygrywa, potem wskazanie automatu, potem rola konta."""
+    """Rola wiersza: uwaga wygrywa, potem wskazanie automatu, potem rola konta.
+
+    Odbiorca dodatkowej premii ma jej rolę, nie główną premię DL: inaczej automat
+    dopisze mu drugą premię za ten sam placement.
+    """
 
     lowered = note.lower()
     if "premia dl" in lowered:
@@ -172,6 +178,8 @@ def resolve_role(
         return "recruiter"
     if recipient_id is not None and recipient_id == automat_dl:
         return "dl"
+    if recipient_id is not None and recipient_id == automat_extra:
+        return "dl_extra"
     if is_dl and not is_recruiter:
         return "dl"
     return "recruiter"
@@ -329,6 +337,11 @@ async def _preview_row(
         recipient_id=person.id,
         automat_dl=dl_id,
         automat_recruiter=recruiter_id,
+        automat_extra=(
+            extra_dl_recipient(dl_id, rules, client_id=contract.client_id)
+            if dl_id is not None
+            else None
+        ),
         is_dl=placement_bonuses.holds_dl_role(person.role, person.roles),
         is_recruiter=placement_bonuses.holds_recruiter_role(person.role, person.roles),
     )
@@ -351,7 +364,7 @@ async def _preview_row(
         db, contract, contract.start_date or business_today()
     )
     target = placement_bonuses.placement_targets(
-        margin.per_hour, dl_id, recruiter_id, rules
+        margin.per_hour, dl_id, recruiter_id, rules, client_id=contract.client_id
     ).get(role)
     automat_id = target.recipient_user_id if target else None
     item.update(
@@ -444,6 +457,30 @@ async def apply_rows(
         amount = money(Decimal(str(row["amount"])))
         bonus = await _bonus_for_row(db, row, contract)
         if amount == 0:
+            # Wiersz bez propozycji też zostaje jako odmowa (kwota z reguły, bo baza
+            # wymaga dodatniej): inaczej automat dopisze premię wstrzymaną arkuszem.
+            if bonus is None and contract is not None and row.get("keyed"):
+                rule = row.get("automat_amount")
+                recipient = row.get("recipient_user_id")
+                if rule and recipient:
+                    bonus = HrBonus(
+                        recipient_user_id=int(recipient),
+                        source=placement_bonuses.SOURCE,
+                        source_key=placement_bonuses.source_key(
+                            contract.id, row["role"]
+                        ),
+                        contract_id=contract.id,
+                        currency="PLN",
+                        category=clean_category(row.get("category") or "custom"),
+                        period_year=year,
+                        period_month=month,
+                        amount=clean_amount(Decimal(str(rule))),
+                        status="proposed",
+                        description=_description(row, contract),
+                        rule_snapshot={"settlement_import": True},
+                    )
+                    db.add(bonus)
+                    await db.flush()
             if bonus is not None and bonus.status == "proposed":
                 bonus.status = "cancelled"
                 bonus.cancelled_by = viewer.user_id
@@ -510,6 +547,8 @@ async def apply_rows(
             "edited_amount": True,
             "edited_recipient": True,
             "edited_period": True,
+            # Uwaga z arkusza tylko dla Płac: migawki nie dostaje osoba ani przełożony.
+            **({"settlement_note": str(row["note"])[:500]} if row.get("note") else {}),
         }
         await db.flush()
         if as_proposal:

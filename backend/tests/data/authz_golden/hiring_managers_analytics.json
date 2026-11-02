@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/reports/hiring-managers": "PPPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/reports/hiring-managers": "PPPDDDDDDPDPDDDDDDDDDDDDDDP"
  }
 }

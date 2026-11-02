@@ -2159,8 +2159,8 @@ async def _assert_not_on_order_yet(
 def _contract_cooperation_end(contract: Contract) -> Optional[date]:
     """Dzień końca współpracy z kontraktu: zakończonego albo wypowiedzianego.
 
-    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia i
-    przywrócenie (`reopen_contract` go nie czyści), więc samo jego istnienie
+    Runda 8 (R8-N13-1): `terminated_at` przeżywa aneks przedłużenia (powrót
+    bezterminowy czyści go dopiero od 02.11.2026), więc samo jego istnienie
     nie dowodzi wypowiedzenia, a jego wartość bywa datą PIERWSZEGO zakończenia.
     „Zakończ współpracę" zawsze skraca `end_date` do dnia zakończenia, więc
     trwające wypowiedzenie to `end_date <= terminated_at`; umowa przedłużona
@@ -2189,8 +2189,8 @@ def _assert_historical_line_allowed(
     końca udziału w przyszłości zamieniłaby zakończoną linię w obsadę, która
     jeszcze trwa, tylko bez niczyjego nadzoru.
     """
-    # Wyłącznie status `ended`: `terminated_at` przeżywa wznowienie kontraktu
-    # (`reopen_contract` go nie czyści), więc nie dowodzi, że osoba nie pracuje.
+    # Wyłącznie status `ended`: `terminated_at` przeżywa aneks przedłużenia,
+    # więc nie dowodzi, że osoba nie pracuje.
     status_value = getattr(contract.status, "value", contract.status)
     if status_value != ContractStatus.ended.value:
         raise HTTPException(
