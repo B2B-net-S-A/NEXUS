@@ -109,3 +109,15 @@ test("validateLookup uzupełnia brakujące listy pustymi", () => {
   const v = validateLookup({ status: "not_found", processes: null });
   assert.deepEqual([v.processes, v.contacts, v.matches, v.ambiguous], [[], [], [], []]);
 });
+
+test("lookup: active_job_id płasko w profilu, bez wyboru pole nie jedzie; /active-job osobną trasą", async () => {
+  const calls = [];
+  const client = api(200, { status: "not_found", active_job: null }, calls);
+  await client.lookup({ full_name: "A B" });
+  await client.lookup({ full_name: "A B" }, 11);
+  await client.activeJob(11, { full_name: "A B" });
+  assert.deepEqual(JSON.parse(calls[0].init.body), { full_name: "A B" });
+  assert.deepEqual(JSON.parse(calls[1].init.body), { full_name: "A B", active_job_id: 11 });
+  assert.equal(calls[2].url, "https://api.nexus.example.test/api/extension/active-job");
+  assert.deepEqual(JSON.parse(calls[2].init.body), { job_id: 11, profile: { full_name: "A B" } });
+});

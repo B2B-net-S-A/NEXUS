@@ -35,6 +35,7 @@ from app.models.pipeline_template import RejectionReason
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User
 from app.schemas.linkedin_extension import (
+    ActiveJobOut,
     AmbiguousItem,
     BatchItem,
     BatchPerson,
@@ -594,35 +595,38 @@ async def job_matches(
         from app.services.embedding_service import search_jobs_semantic
         from app.services.scoring_service import rank_jobs_for_candidate
 
-        hits = await search_jobs_semantic(
-            text, top_k=30, statuses=[JobStatus.published.value]
-        )
-        similarity = {h["job_id"]: h["score"] for h in hits}
-        excluded = set(exclude_job_ids)
-        ids = [jid for jid in similarity if jid not in excluded]
         if only_job_id is not None:
+            # Podobieństwo do tej jednej rekrutacji, nie czołówka 30: poza nią
+            # procent byłby zaniżony. Awaria dostawcy to „brak procentu”, nie 0.
+            # Bez warunku na status, bo wybór w panelu (`/jobs`) go nie ma.
+            hits = await search_jobs_semantic(
+                text, top_k=1, raise_on_error=True, job_ids=[only_job_id]
+            )
             ids = [only_job_id]
-            similarity.setdefault(only_job_id, 0.0)
+            conditions = [Job.id == only_job_id, Job.is_open.is_(True)]
+        else:
+            hits = await search_jobs_semantic(
+                text, top_k=30, statuses=[JobStatus.published.value]
+            )
+            excluded = set(exclude_job_ids)
+            ids = [h["job_id"] for h in hits if h["job_id"] not in excluded]
+            conditions = [
+                Job.id.in_(ids),
+                Job.is_open.is_(True),
+                Job.status == JobStatus.published,
+            ]
+        similarity = {h["job_id"]: h["score"] for h in hits}
         if not ids:
             return []
-        jobs = (
-            (
-                await db.execute(
-                    select(Job).where(
-                        Job.id.in_(ids),
-                        Job.is_open.is_(True),
-                        Job.status == JobStatus.published,
-                    )
-                )
+        # Savepoint: błąd SQL w scoringu nie może zostawić całej transakcji
+        # lookupu w stanie aborted, bo reszta panelu czyta z tej samej sesji.
+        async with db.begin_nested():
+            jobs = (await db.execute(select(Job).where(*conditions))).scalars().all()
+            if not jobs:
+                return []
+            breakdowns = await rank_jobs_for_candidate(
+                _ephemeral_candidate(profile), jobs, db, similarity_map=similarity
             )
-            .scalars()
-            .all()
-        )
-        if not jobs:
-            return []
-        breakdowns = await rank_jobs_for_candidate(
-            _ephemeral_candidate(profile), jobs, db, similarity_map=similarity
-        )
     except Exception:  # noqa: BLE001 — dopasowanie jest podpowiedzią, nie warunkiem
         logger.warning("linkedin_extension.matching_failed", exc_info=True)
         return []
@@ -649,6 +653,32 @@ async def job_matches(
         if len(out) >= limit:
             break
     return out
+
+
+async def active_job_out(
+    db: AsyncSession, profile: ProfileRead, job_id: int
+) -> Optional[ActiveJobOut]:
+    """Rekrutacja z paska „Pracuję nad” z procentem, także poniżej progu listy.
+
+    Zamknięta albo nieistniejąca = None (bez tytułu, bo wybór w panelu oddaje
+    tylko otwarte). Procent jest podpowiedzią: gdy się nie uda, ``score`` None.
+    """
+    job = await db.scalar(select(Job).where(Job.id == job_id, Job.is_open.is_(True)))
+    if job is None:
+        return None
+    title = job.title
+    matches = await job_matches(db, profile, only_job_id=job_id)
+    if matches:
+        return ActiveJobOut(**matches[0].model_dump())
+    client_name, recruiter_name = (await _job_labels(db, [job_id])).get(
+        job_id, (None, None)
+    )
+    return ActiveJobOut(
+        job_id=job_id,
+        title=title,
+        client_name=client_name,
+        recruiter_name=recruiter_name,
+    )
 
 
 async def _job_labels(
@@ -685,15 +715,27 @@ class LookupResult:
     contractor: Optional[ContractorOut]
     job_change: Optional[JobChangeOut]
     matches: list[JobMatchOut]
+    active_job: Optional[ActiveJobOut]
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
 
 
-async def lookup(db: AsyncSession, user: User, profile: ProfileRead) -> LookupResult:
+async def lookup(
+    db: AsyncSession,
+    user: User,
+    profile: ProfileRead,
+    *,
+    active_job_id: Optional[int] = None,
+) -> LookupResult:
     match = await find_person(db, profile)
     candidate = match.candidate
     off_limits = await off_limits_out(db, profile.current_company, candidate)
+    active_job = (
+        await active_job_out(db, profile, active_job_id)
+        if active_job_id is not None
+        else None
+    )
     if candidate is None:
         return LookupResult(
             status=match.status,
@@ -717,6 +759,7 @@ async def lookup(db: AsyncSession, user: User, profile: ProfileRead) -> LookupRe
             contractor=None,
             job_change=None,
             matches=await job_matches(db, profile),
+            active_job=active_job,
         )
 
     processes, open_pairs = await load_processes(db, user, candidate.id)
@@ -745,6 +788,7 @@ async def lookup(db: AsyncSession, user: User, profile: ProfileRead) -> LookupRe
         matches=await job_matches(
             db, profile, exclude_job_ids=[p.job_id for p in processes]
         ),
+        active_job=active_job,
     )
 
 

@@ -26,6 +26,7 @@ from app.core.rate_limit import limiter
 from app.core.integer_range import OUT_OF_RANGE, is_integer_out_of_range
 from app.core.null_character_guard import NullCharacterGuardMiddleware
 from app.core.body_size_limit import BodySizeLimitMiddleware
+from app.core.access_usage_middleware import AccessUsageMiddleware
 from app.core.request_correlation import RequestCorrelationMiddleware
 from app.services.client_off_limits import (
     OffLimitsConfirmationMiddleware,
@@ -860,6 +861,7 @@ async def lifespan(app: FastAPI):
 
     # audyt 22.09 r2 (DATA-03/04/PROD-10): retencja kolejek i dziennika automatów.
     from app.tasks.queue_retention import queue_retention_loop
+    from app.tasks.access_usage import access_usage_loop
     from app.tasks.priority_work import priority_work_loop
     from app.tasks.recruitment_allocation import (
         availability_loop,
@@ -914,6 +916,8 @@ async def lifespan(app: FastAPI):
         "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
+        # 0632: zapis i retencja licznika użycia obszarów.
+        "access_usage": asyncio.create_task(access_usage_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
         "slack_sla_alerts": asyncio.create_task(slack_sla_alerts_loop()),
@@ -1202,6 +1206,9 @@ app.add_middleware(
     max_bytes=settings.MAX_REQUEST_BODY_MB * 1024 * 1024,
     path_limits={"/api/cv-generator/generate-upload": 101 * 1024 * 1024},
 )
+# Licznik użycia obszarów, domyślnie wyłączony (`ACCESS_USAGE_COUNTER_ENABLED`):
+# tylko dolicza w pamięci, zapis robi pętla `access_usage`.
+app.add_middleware(AccessUsageMiddleware)
 app.add_middleware(RequestCorrelationMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(LegacyStatsDeprecationMiddleware)
@@ -1260,6 +1267,9 @@ app.add_middleware(
         "X-Operation-Id",
         # Off-limits: „sama się zgłosiła” przy dodaniu do rekrutacji.
         "X-Off-Limits-Confirmation",
+        # Ekran dla licznika użycia (`services/access_usage`). Front wysyła go
+        # dopiero, gdy `/api/health` niesie `usageCounter: true`.
+        "X-Nexus-Screen",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -3218,6 +3228,10 @@ async def api_health_check():
             "status": overall,
             "version": os.environ.get("GIT_SHA", "unknown"),
             "deployedAt": _resolve_deployed_at(),
+            # Front dokleja `X-Nexus-Screen` dopiero po tym sygnale: stara wersja
+            # API odrzuciłaby nieznany nagłówek w CORS, a wyłączony licznik nie
+            # ma w ruchu żadnego śladu.
+            "usageCounter": settings.ACCESS_USAGE_COUNTER_ENABLED,
             "diskPercent": disk_percent,
             "backupVolumePercent": backup_volume_percent,
             "backupVolumeCheckedAt": backup_volume_checked_at,
@@ -3424,6 +3438,7 @@ async def api_health_deep_check():
         PreContractWatcher,
     )
     from app.services.care.board_state import CARE_BOARD_STATES
+    from app.models.access_usage import AccessUsageDaily
     from app.models.novelty import NoveltyProgress
     from app.models.candidate_job_owner import CandidateJobOwner
     from app.models.pair_departure_care import PairDepartureCare
@@ -3838,6 +3853,8 @@ async def api_health_deep_check():
         # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
+        # 0632: licznik użycia obszarów — pętla zapisuje tu co minutę.
+        ("access_usage_daily", AccessUsageDaily),
     ]
 
     checks: dict[str, str] = {}

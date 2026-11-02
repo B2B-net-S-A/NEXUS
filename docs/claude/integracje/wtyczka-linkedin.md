@@ -99,6 +99,44 @@ pozycji grupy „Experience” (`… at Firma · 2023 – Present`). Nadal poza 
 bo niezmierzone: `discover/automatedSourcing/review` i `discover/applicants`
 bez otwartego profilu.
 
+## Tryb pracy na requeście (decyzja Artura 02.11.2026, wersja 1.0.5)
+
+Rekruter pyta, czy NEXUS może od razu łączyć aktywność na LinkedInie z konkretnym
+requestem. Artur wybrał i zaakceptował makietę
+https://claude.ai/artifact/4L1s92CaXHKYsbpQv7s5os: rekruter raz wybiera rekrutację na
+pasku „Pracuję nad”, panel pamięta ją dla projektu Recruitera, a dodania i kontakty
+domyślnie do niej trafiają. **Odrzucone:** odczyt skrzynki Recruitera i trzymanie wyboru
+na serwerze. Odczyt i zapis nadal tylko na akcję człowieka.
+
+- **Pamięć:** `chrome.storage.local`, `activeJobs[serwer][kontekst]`. Kontekst to
+  `hire/<id>` z adresu projektu albo `global` poza projektem (`workContext`). Osobno na
+  serwer, bo id ze stagingu nic nie znaczy na produkcji. Najwyżej 50 projektów na serwer.
+  NEXUS nie zna powiązania projektu Recruitera z rekrutacją, więc w każdym projekcie
+  wybiera się ją raz ręcznie.
+- **Procent:** `/lookup` z `active_job_id` oddaje `active_job` z procentem także poniżej
+  progu 50. Podobieństwo liczone do tej jednej rekrutacji (`job_ids` w
+  `search_jobs_semantic`), bo poza czołówką 30 byłoby 0 i zaniżało wynik. Awaria
+  dopasowania = `score: null`, nie 0% i nie błąd lookupu.
+- **Zamknięta albo nieistniejąca rekrutacja** = `active_job: null`, bez błędu. Panel mówi
+  o tym na pasku, czyści wybór i niczego nie zaznacza.
+- **Limit odczytów:** zmiana wyboru na pasku przy odczytanym profilu nie czyta strony
+  LinkedIna ani nie zużywa odczytu: panel woła `POST /active-job` z już odczytanym
+  profilem, jak `/draft-message`. Prototyp robił tu pełny odczyt z przewijaniem i liczył
+  1 z 150 przy każdym kliknięciu, a do tego kasował wpisane poprawki. Powrót na profil
+  z pamięci panelu (10 min) z innym wyborem też idzie tą trasą. Odczyt liczy tylko
+  faktyczne czytanie strony (`/lookup`, `/lookup-batch`).
+- **Off-limits bez zmian:** zaznaczenie z paska nie omija pytania, bo `submit` wymaga
+  odpowiedzi, a backend i tak zwraca 409. „Nie, to my” = bez rekrutacji, także tej z paska.
+  Ramki off-limits i kontraktora stoją nad „Dodaj do tej rekrutacji”.
+- **Lista:** nie ma już wyboru „Do:”, rekrutacja idzie z paska, a ekran mówi, dokąd trafią
+  osoby. Procentów na liście nadal nie ma.
+- **Pasek nie traci fokusu:** picker budujemy od nowa tylko po zmianie projektu albo wyboru
+  spoza niego (`renderWorkbar`), reszta przerysowań dotyka widoczności i podpowiedzi.
+
+Niezmierzone na żywym Recruiterze: czy profil otwierany z projektu ma w adresie
+`/talent/hire/<id>/…/profile/…` w każdym układzie. Gdy otworzy się jako `/talent/profile/…`,
+panel użyje wyboru spoza projektu.
+
 ## Dystrybucja: ZIP z NEXUSA i Web Store (29.10.2026)
 
 Prośba Artura z 29.10: wtyczka ma działać u zespołu także wtedy, gdy Google nie

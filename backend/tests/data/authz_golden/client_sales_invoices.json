@@ -47,6 +47,7 @@
   "POST /api/finance/sales-invoices/statements": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "POST /api/finance/sales-invoices/{invoice_id}/accept-difference": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "POST /api/finance/sales-invoices/{invoice_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "POST /api/finance/sales-invoices/{invoice_id}/buyer-number": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "POST /api/finance/sales-invoices/{invoice_id}/ignore": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "POST /api/finance/sales-invoices/{invoice_id}/mark-paid": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
   "POST /api/finance/sales-invoices/{invoice_id}/reopen": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",

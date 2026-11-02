@@ -150,6 +150,8 @@ class PersonRow:
     snooze_reason: Optional[str] = None
     snoozed_at: Optional[datetime] = None
     new_matches: int = 0
+    # Osoba zgłosiła się z linku właściciela listy (ogólnego albo do rekrutacji).
+    from_link: bool = False
 
 
 def _works_now(marker: Optional[EmploymentMarker]) -> bool:
@@ -475,6 +477,51 @@ def _sort_key(row: PersonRow) -> tuple:
     return (-rank, -sent, row.full_name.lower())
 
 
+async def _from_link_ids(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    rows = await db.execute(
+        text(
+            "SELECT DISTINCT entity_id FROM activities "
+            "WHERE action = 'applied_via_invite' AND entity_type = 'candidate' "
+            "AND user_id = :uid AND entity_id = ANY(:ids)"
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
+async def my_people_membership(
+    db: AsyncSession, user_id: int, candidate_ids: list[int]
+) -> set[int]:
+    """Kto z podanych jest dziś na liście osoby (także w „Uśpionych”).
+
+    Ta sama reguła co ``load_my_people``, bez liczenia całej listy: wyliczenie
+    z etapów albo ręczna decyzja, czarna lista wyklucza zawsze.
+    """
+    if not candidate_ids:
+        return set()
+    rows = await db.execute(
+        text(
+            _owned_pairs_cte(single_user=True)
+            + """
+            SELECT c.id
+            FROM candidates c
+            WHERE c.id = ANY(:ids)
+              AND c.status::text <> 'blacklisted'
+              AND (
+                  c.id IN (SELECT candidate_id FROM owned)
+                  OR c.id IN (
+                      SELECT candidate_id FROM my_people_overrides WHERE user_id = :uid
+                  )
+              )
+            """
+        ),
+        {"uid": user_id, "ids": candidate_ids},
+    )
+    return {int(cid) for (cid,) in rows.all()}
+
+
 async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     stats = await _pair_stats(db, user_id)
     overrides = {
@@ -508,6 +555,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
     employment = await load_employment_markers(db, ids, today=today)
     processes = await active_process_counts(db, ids)
     unseen = await _unseen_match_counts(db, user_id)
+    from_link = await _from_link_ids(db, user_id, ids)
 
     rows: list[PersonRow] = []
     for cid in ids:
@@ -538,6 +586,7 @@ async def load_my_people(db: AsyncSession, user_id: int) -> MyPeople:
                 snooze_reason=ov.reason if ov and ov.kind == "snoozed" else None,
                 snoozed_at=ov.created_at if ov and ov.kind == "snoozed" else None,
                 new_matches=unseen.get(cid, 0),
+                from_link=cid in from_link,
             )
         )
     rows.sort(key=_sort_key)

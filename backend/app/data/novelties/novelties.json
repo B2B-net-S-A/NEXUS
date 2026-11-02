@@ -697,5 +697,17 @@
     "href": "/insights/autofill",
     "section": "insights",
     "dot_anchor": "insights.sent-vs-system"
+  },
+  {
+    "id": "linki-kto-sie-zglosil",
+    "title": "Linki: kto się zgłosił i gdzie jest teraz",
+    "why": "Twoje linki dawały dotąd same liczby. Teraz widzisz nazwiska osób ze zgłoszeń, a zakładka „Z linków” w „Moich ludziach” zbiera też osoby z linków do rekrutacji, które jeszcze nie mają wysłanego CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Moi ludzie → Z linków",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "my-people.from-links"
   }
 ]

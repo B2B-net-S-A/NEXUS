@@ -46,17 +46,20 @@ def node(
     }
 
 
-def pr(number, queue=None, armed=False, waiting=False, healthy=True):
-    return QML.Pr(number, f"PR_{number}", queue, armed, waiting, healthy)
+def pr(number, queue=None, armed=False, waiting=False, healthy=True, fresh=True):
+    return QML.Pr(number, f"PR_{number}", queue, armed, waiting, healthy, fresh)
 
 
 class FakeGh:
-    def __init__(self, pages):
+    def __init__(self, pages, main_files=""):
         self.pages = list(pages)
+        self.main_files = main_files
         self.calls = []
 
     def __call__(self, *args, stdin=None):
         self.calls.append(args)
+        if "contents/backend/alembic/versions" in args[1]:
+            return self.main_files
         if args[:2] == ("api", "graphql") and "query=mutation" not in args[3]:
             nodes = self.pages.pop(0) if self.pages else []
             more = bool(self.pages)
@@ -78,7 +81,8 @@ class FakeGh:
         return [
             c
             for c in self.calls
-            if c[:2] != ("api", "graphql") or "query=mutation" in c[3]
+            if "contents/backend/alembic/versions" not in c[1]
+            and (c[:2] != ("api", "graphql") or "query=mutation" in c[3])
         ]
 
 
@@ -121,6 +125,25 @@ class ParseTest(unittest.TestCase):
         self.assertFalse(prs[4].healthy)
         self.assertTrue(prs[5].healthy, "Brak checków to nie czerwień.")
 
+    def test_migration_numbered_at_or_below_main_is_not_fresh(self):
+        prs = {
+            p.number: p
+            for p in QML.parse_prs(
+                [
+                    node(1, files=("backend/alembic/versions/0631_a.py",)),
+                    node(2, files=("backend/alembic/versions/0632_b.py",)),
+                    node(3, files=("backend/alembic/versions/0630_c.py",)),
+                ],
+                main_top=631,
+            )
+        }
+        self.assertFalse(prs[1].fresh)
+        self.assertTrue(prs[2].fresh)
+        self.assertFalse(prs[3].fresh)
+
+    def test_unknown_main_top_keeps_everyone_fresh(self):
+        self.assertTrue(QML.parse_prs([node(1)])[0].fresh)
+
 
 class PlanTest(unittest.TestCase):
     def test_first_in_queue_keeps_the_lane_the_rest_leave(self):
@@ -134,8 +157,21 @@ class PlanTest(unittest.TestCase):
         )
         self.assertEqual(plan.active, 11)
         self.assertEqual(plan.dequeue, (10,))
-        self.assertEqual(plan.park, (10, 12))
+        self.assertEqual(plan.park, (10, 12, 13))
         self.assertIsNone(plan.promote)
+
+    def test_red_armed_pr_is_disarmed_while_the_lane_is_busy(self):
+        # #2916, 02.11.2026: uzbrojony z etykietą i czerwonym checkiem. Po
+        # zazielenieniu GitHub sam wrzuciłby go do kolejki obok aktywnego.
+        plan = QML.plan_lane(
+            [
+                pr(70, queue=1, armed=True),
+                pr(71, armed=True, waiting=True, healthy=False),
+            ]
+        )
+        self.assertEqual(plan.active, 70)
+        self.assertEqual(plan.park, (71,))
+        self.assertEqual(plan.dequeue, ())
 
     def test_without_queue_the_oldest_ready_pr_is_active(self):
         plan = QML.plan_lane(
@@ -159,6 +195,17 @@ class PlanTest(unittest.TestCase):
             ]
         )
         self.assertEqual(plan.promote, 41)
+
+    def test_free_lane_skips_waiting_pr_not_yet_rechained(self):
+        # 02.11.2026: pas dał kolej #2897 w tej samej chwili, gdy #2889 wszedł
+        # na main. PR był zielony, więc trafił do kolejki z dwiema głowami,
+        # a push z przepięciem odbił się od GH006.
+        plan = QML.plan_lane([pr(80, waiting=True, fresh=False), pr(81, waiting=True)])
+        self.assertEqual(plan.promote, 81)
+
+    def test_free_lane_waits_when_nobody_is_rechained_yet(self):
+        plan = QML.plan_lane([pr(82, waiting=True, fresh=False)])
+        self.assertEqual(plan, QML.Plan(active=None))
 
     def test_active_pr_with_the_wait_label_loses_it(self):
         plan = QML.plan_lane([pr(50, queue=1, armed=True, waiting=True)])
@@ -223,6 +270,33 @@ class ActionsTest(unittest.TestCase):
         self.assertIn(
             ("pr", "merge", "5", "--repo", "o/r", "--squash", "--auto"), fake.calls
         )
+
+    def test_enforce_reads_main_and_does_not_promote_a_stale_pr(self):
+        fake = FakeGh(
+            [
+                [
+                    node(
+                        5,
+                        labels=("czeka-na-migracje",),
+                        files=("backend/alembic/versions/0631_x.py",),
+                    )
+                ]
+            ],
+            main_files="0630_a.py\n0631_b.py\nREADME\n",
+        )
+        plan = quiet(QML.enforce, "o/r", dry_run=False, run=fake)
+        self.assertIsNone(plan.promote)
+        self.assertEqual(fake.mutations(), [])
+
+    def test_main_listing_failure_falls_back_to_old_behaviour(self):
+        class NoListing(FakeGh):
+            def __call__(self, *args, stdin=None):
+                if "contents/backend/alembic/versions" in args[1]:
+                    raise RuntimeError("boom")
+                return super().__call__(*args, stdin=stdin)
+
+        fake = NoListing([[node(5, labels=("czeka-na-migracje",))]])
+        self.assertEqual(quiet(QML.enforce, "o/r", dry_run=False, run=fake).promote, 5)
 
     def test_admit_parks_when_the_lane_is_busy(self):
         fake = FakeGh([[node(1, queue=1, armed=True), node(2, armed=True)]])

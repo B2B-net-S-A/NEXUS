@@ -837,6 +837,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # 0510: osoby, których kalendarza nie widzi aplikacja prepów (do adminów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
+    # 0633: skrzynki poza zakresem aplikacji „NEXUS Kadry” (do adminów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_m365_scope_missing'",
     # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
     # 0612: nowa osoba po pierwszym logowaniu — do HoR i adminów.
@@ -1299,6 +1301,16 @@ try:
 except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")
     _NOVELTY_TABLE_DDL = []
+
+# Licznik użycia obszarów (0632) — JEDNO źródło z migracją
+# (`app/services/access_usage_schema.py`).
+try:
+    from app.services import access_usage_schema as _access_usage_schema
+
+    _ACCESS_USAGE_TABLE_DDL = list(_access_usage_schema.TABLE_DDL)
+except Exception as _access_usage_schema_err:  # noqa: BLE001
+    print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
+    _ACCESS_USAGE_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -6923,6 +6935,8 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_ANNOUNCEMENTS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
+    # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
+    *_ACCESS_USAGE_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""

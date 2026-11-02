@@ -203,6 +203,32 @@ export interface LinkResults {
 /** 30, 90 albo 0 (= od początku). */
 export type LinkResultsPeriod = 30 | 90 | 0;
 
+/** Jedno zgłoszenie z linku osoby: kto, z którego linku i gdzie jest teraz. */
+export interface LinkPerson {
+  candidate_id: number;
+  full_name: string;
+  applied_at: string;
+  was_duplicate: boolean;
+  kind: "job" | "recruiter";
+  slug: string | null;
+  job_id: number | null;
+  job_title: string | null;
+  current_stage: string | null;
+  current_job_id: number | null;
+  current_job_title: string | null;
+  screening_status: string | null;
+  screening_outcome: string | null;
+  in_my_people: boolean;
+}
+
+export interface LinkPeople {
+  /** `null` = od początku. */
+  days: number | null;
+  total: number;
+  truncated: boolean;
+  people: LinkPerson[];
+}
+
 export interface SlugAvailability {
   available: boolean;
   reason: string | null;
@@ -228,6 +254,8 @@ export const shareableJobQueryKey = (jobId: number) =>
   ["career-share", "job", jobId] as const;
 export const linkResultsQueryKey = (days: LinkResultsPeriod) =>
   ["career-link", "results", days] as const;
+export const linkPeopleQueryKey = (days: LinkResultsPeriod) =>
+  ["career-link", "people", days] as const;
 export const slugAvailabilityQueryKey = (slug: string) =>
   ["career-link", "slug-available", slug] as const;
 
@@ -319,6 +347,11 @@ export const careerLinksApi = {
       status: typeof d.status === "string" ? d.status : undefined,
     };
   },
+  getLinkPeople: async (days: LinkResultsPeriod): Promise<LinkPeople> => {
+    const res = await api.get("/api/me/career-link/people", { params: { days } });
+    return res.data as LinkPeople;
+  },
+
   getLinkResults: async (days: LinkResultsPeriod): Promise<LinkResults> => {
     const res = await api.get("/api/me/career-link/results", { params: { days } });
     return res.data as LinkResults;
@@ -472,6 +505,14 @@ export function useLinkResults(enabled: boolean, days: LinkResultsPeriod) {
   return useQuery({
     queryKey: linkResultsQueryKey(days),
     queryFn: () => careerLinksApi.getLinkResults(days),
+    enabled,
+  });
+}
+
+export function useLinkPeople(enabled: boolean, days: LinkResultsPeriod) {
+  return useQuery({
+    queryKey: linkPeopleQueryKey(days),
+    queryFn: () => careerLinksApi.getLinkPeople(days),
     enabled,
   });
 }
