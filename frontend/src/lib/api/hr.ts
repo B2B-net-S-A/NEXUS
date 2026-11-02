@@ -65,6 +65,8 @@ export interface HrConfig {
     back_office_head?: boolean;
     /** Zespół kolejki back office'u albo kierownik (moduł `back_office`, 02.11.2026). */
     back_office_member?: boolean;
+    /** Kierownik kolejki: head back office, zastępca, admin. */
+    back_office_lead?: boolean;
     /** Kogo osoba zastępuje dziś (przełożony na urlopie z nią jako zastępcą). */
     covering?: { manager_user_id: number; manager_name: string; until: string; reports: number }[];
   };

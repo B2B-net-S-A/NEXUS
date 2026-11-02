@@ -289,3 +289,53 @@ def test_important_only_rhythm_keeps_milestones_and_moves_pre_end() -> None:
     assert {slot.kind for slot in important} == {"day_7", "pre_end"}
     pre_end = next(slot for slot in important if slot.kind == "pre_end")
     assert pre_end.due_on == end - timedelta(days=60)
+
+
+def test_single_rule_routes_and_conflicting_rules_go_to_a_person() -> None:
+    from app.services.back_office import triage
+
+    route = triage.rule_routes("Faktura za październik", None)
+    assert route == [triage.Route("finance", "invoice")]
+    assert triage.decide(route, None, 0.0) == (route[0], route[0])
+
+    many = triage.rule_routes("Aneks i faktura", "Proszę o aneks i korektę faktury")
+    assert {r.team for r in many} == {"finance", "contracts"}
+    target, guess = triage.decide(many, None, 0.0)
+    assert target is None and guess is not None
+
+
+def test_model_only_decides_when_sure_and_never_blocks() -> None:
+    from app.services.back_office import triage
+
+    sure = triage.Route("orders", "mail")
+    assert triage.decide([], sure, 0.9) == (sure, sure)
+    assert triage.decide([], sure, 0.5) == (None, sure)
+    assert triage.decide([], None, 0.0) == (None, None)
+    # Reguła i pewny model się różnią: decyduje człowiek.
+    rule = triage.Route("finance", "invoice")
+    assert triage.decide([rule], sure, 0.95) == (None, rule)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "nie json",
+        '{"team": "care"}',
+        '{"team": "care", "lane": "gap", "confidence": 1}',
+        '{"team": "hakerzy", "lane": "help", "confidence": 1}',
+        "[]",
+    ],
+)
+def test_bad_model_answers_are_rejected(raw: str) -> None:
+    from app.services.back_office import triage
+
+    assert triage.parse_model_answer(raw) == (None, 0.0)
+
+
+def test_good_model_answer_is_parsed() -> None:
+    from app.services.back_office import triage
+
+    route, confidence = triage.parse_model_answer(
+        '{"team": "care", "lane": "help", "confidence": 0.9}'
+    )
+    assert route == triage.Route("care", "help") and confidence == 0.9

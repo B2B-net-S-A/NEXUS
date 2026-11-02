@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.back_office import BoCard, BoCardEvent
-from app.services.back_office import access, escalation, service, steps
+from app.services.back_office import access, escalation, service, steps, triage
 from app.services.back_office.sources import ADAPTERS, CardSpec
 from app.services.hr import modules as hr_modules
 
@@ -162,6 +162,7 @@ async def run_once(db: AsyncSession, *, today: date) -> dict[str, Any]:
     if not modules.get(hr_modules.HrModule.back_office):
         return {"status": "disabled"}
     result = await sync_kinds(db, today=today)
+    result["triage"] = await triage.route_new_cards(db)
     result["steps"] = await steps.sync_steps(db, today=today)
     result["priorities"] = await service.apply_priorities(db, today=today)
     result["escalation"] = await escalation.run(db, today=today)

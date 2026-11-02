@@ -345,6 +345,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -7758,6 +7759,11 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0637: seed klucza AI rozdzielania spraw back office'u.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'case_triage', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'case_triage')",
     # 0628: seed klucza AI podsumowania spotkania handlowca.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "

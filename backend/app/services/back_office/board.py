@@ -171,6 +171,9 @@ def card_payload(
             else None
         ),
         "needs_review": card.needs_review,
+        "triage_guess": meta.get("triage_guess"),
+        "case_id": card.case_id if card.source_kind == "case" else None,
+        "case_source": meta.get("case_source"),
         "actions": list(actions),
         "amounts": amounts,
         "count": meta.get("count"),

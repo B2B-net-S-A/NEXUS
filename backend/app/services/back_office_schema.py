@@ -146,7 +146,14 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-COLUMN_DDL: tuple[str, ...] = ()
+#: Kierunek wiadomości w sprawie: odpowiedź ze sprawy to ``out``. Stare wiersze
+#: dostają ``in``; własne maile w wątku czytnik zapisuje już jako ``out``.
+MESSAGE_DIRECTIONS: tuple[str, ...] = ("in", "out")
+CK_MESSAGE_DIRECTION = f"direction IN ({quoted(MESSAGE_DIRECTIONS)})"
+COLUMN_DDL: tuple[str, ...] = (
+    "ALTER TABLE admin_case_messages ADD COLUMN IF NOT EXISTS direction "
+    "VARCHAR(3) NOT NULL DEFAULT 'in'",
+)
 
 INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_bo_cards_board "
@@ -161,11 +168,24 @@ INDEX_DDL: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS ix_bo_team_members_user ON bo_team_members (user_id)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+CONSTRAINT_DDL: tuple[str, ...] = (
+    f"""DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'ck_admin_case_messages_direction'
+    ) THEN
+        ALTER TABLE admin_case_messages
+        ADD CONSTRAINT ck_admin_case_messages_direction CHECK ({CK_MESSAGE_DIRECTION});
+    END IF;
+END $$""",
+)
 DATA_DDL: tuple[str, ...] = ()
 
 TABLES: tuple[str, ...] = ("bo_cards", "bo_card_events", "bo_team_members")
-DOWNGRADE_DDL: tuple[str, ...] = ()
+DOWNGRADE_DDL: tuple[str, ...] = (
+    "ALTER TABLE admin_case_messages DROP CONSTRAINT IF EXISTS "
+    "ck_admin_case_messages_direction",
+    "ALTER TABLE admin_case_messages DROP COLUMN IF EXISTS direction",
+)
 
 ALL_DDL: tuple[str, ...] = (
     *TABLE_DDL,

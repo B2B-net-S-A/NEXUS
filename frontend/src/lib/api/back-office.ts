@@ -36,6 +36,9 @@ export interface BoCard {
   escalated: boolean;
   priority: { user_id: number; name: string | null; until: string | null } | null;
   needs_review: boolean;
+  triage_guess: { team: BoTeamId; lane: string } | null;
+  case_id: number | null;
+  case_source: string | null;
   actions: BoAction[];
   amounts: { total: string; currency: string }[] | null;
   count: number | null;
@@ -197,6 +200,37 @@ export const useStepDone = () => useCardCommand<{ id: number }>("step-done");
 export const useMoveCard = () =>
   useCardCommand<{ id: number; team: BoTeamId; lane: string }>("move", ({ team, lane }) => ({ team, lane }));
 export const useRefreshCard = () => useCardCommand<{ id: number }>("refresh");
+
+export const useReviewCard = () =>
+  useCardCommand<{
+    id: number;
+    decision: "current" | "close" | "move";
+    team?: BoTeamId;
+    lane?: string;
+    note?: string;
+  }>("review", ({ decision, team, lane, note }) => ({
+    decision,
+    team: team ?? null,
+    lane: lane ?? null,
+    note: note ?? null,
+  }));
+
+export function useFinishReview() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await api.post("/api/back-office/review/finish", {})).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
+
+export function useCaseReply() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ caseId, body }: { caseId: number; body: string }) =>
+      (await api.post(`/api/cases/${caseId}/reply`, { body })).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
 
 export function useBoSync() {
   const client = useQueryClient();

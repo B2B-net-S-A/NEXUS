@@ -168,6 +168,7 @@ DECISION_2026_09_16 = {
     # F41 — 02.11.2026: słowa z CV wysłanych do wiersza „musi mieć”.
     AIFeatureKey.requirement_word_hints: ("F41", "claude-sonnet-5"),
     # F40 — 02.11.2026: podsumowanie transkryptu spotkania handlowca.
+    AIFeatureKey.case_triage: ("F42", "claude-sonnet-5"),
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
 }
 

@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Megaphone } from "lucide-react";
 
 import { QueueBoard } from "@/components/back-office/QueueBoard";
+import { ReviewPanel } from "@/components/back-office/ReviewPanel";
+import { TeamsPanel } from "@/components/back-office/TeamsPanel";
 import { PageHeader } from "@/components/ds/PageHeader";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { TabbedNav } from "@/components/ds/TabbedNav";
@@ -32,7 +34,7 @@ import { ConsultantsPanel, type ConsultantsFilter } from "./ConsultantsPanel";
 import { ConversationDialog } from "./ConversationDialog";
 import { CareTeamPanel } from "./team/CareTeamPanel";
 
-export type CareTab = "todo" | "consultants" | "clients" | "team" | "announcements";
+export type CareTab = "todo" | "consultants" | "clients" | "team" | "announcements" | "teams" | "review";
 
 export interface CareRoute {
   tab: CareTab;
@@ -77,6 +79,10 @@ export function careRouteFrom(
       return { tab: "team" };
     case "announcements":
       return { tab: "announcements" };
+    case "teams":
+      return { tab: "teams" };
+    case "przeglad":
+      return { tab: "review" };
     case "review": {
       const target = findSettingsItem(canSeeSkills ? "skills" : "skills-review");
       return { tab: "todo", redirect: target ? settingsItemHref(target) : "/settings" };
@@ -95,6 +101,11 @@ export function contractParam(value: string | null | undefined): number | null {
 /** Zespół opiekunów — `require_hr_care_assigner`: head back office i admin. */
 export function canSeeTeam(config: Pick<HrConfig, "me">): boolean {
   return Boolean(config.me.back_office_head || config.me.is_admin);
+}
+
+/** Kierownik kolejki: head back office, admin (zastępcy pilnuje serwer przy trasach). */
+function canSeeBackOfficeLead(config: Pick<HrConfig, "me">): boolean {
+  return Boolean(config.me.back_office_lead || config.me.back_office_head || config.me.is_admin);
 }
 
 const TITLE = "Opieka nad konsultantami";
@@ -143,10 +154,17 @@ function CareTabs({ config }: { config: HrConfig }) {
   const careRole = canSeeCareBoard(user, config);
   // Moduł `back_office`: główna zakładka to kolejka zespołów. Stare linki z kartą
   // albo filtrem kanbanu (`?card=`, `?filter=`) dalej otwierają kanban.
-  const backOffice = config.open_modules.back_office;
   const kanbanLink = Boolean(searchParams?.get("card") || searchParams?.get("filter"));
   const teamOpen = canSeeTeam(config);
-  const tab: CareTab = !careRole || (route.tab === "team" && !teamOpen) ? "todo" : route.tab;
+  const backOffice = config.open_modules.back_office;
+  const leadOpen = backOffice && canSeeBackOfficeLead(config);
+  const leadTab = route.tab === "teams" || route.tab === "review";
+  const tab: CareTab =
+    leadTab && leadOpen
+      ? route.tab
+      : leadTab || !careRole || (route.tab === "team" && !teamOpen)
+        ? "todo"
+        : route.tab;
   const [scope, setScope] = useState<"mine" | "all">("mine");
   const announcements = useAnnouncements(careRole);
   const pendingApprovals = (announcements.data?.items ?? []).filter((row) => row.can_approve).length;
@@ -225,6 +243,12 @@ function CareTabs({ config }: { config: HrConfig }) {
           ...(teamOpen ? [{ value: "team", label: "Zespół opiekunów" }] : []),
         ]
       : []),
+    ...(leadOpen
+      ? [
+          { value: "teams", label: "Zespoły" },
+          { value: "przeglad", label: "Przegląd przed startem" },
+        ]
+      : []),
   ];
   const scoped = tab === "consultants" || tab === "clients";
 
@@ -289,7 +313,7 @@ function CareTabs({ config }: { config: HrConfig }) {
       />
       <TabbedNav
         ariaLabel={backOffice ? "Back office" : "Opieka nad konsultantami"}
-        value={tab}
+        value={tab === "review" ? "przeglad" : tab}
         onValueChange={select}
         tabs={tabs}
       >
@@ -313,6 +337,8 @@ function CareTabs({ config }: { config: HrConfig }) {
           ) : null}
           {tab === "clients" ? <ClientsPanel scope={scope} onOpenContract={openContract} /> : null}
           {tab === "team" ? <CareTeamPanel /> : null}
+          {tab === "teams" ? <TeamsPanel /> : null}
+          {tab === "review" ? <ReviewPanel /> : null}
           {tab === "announcements" ? <AnnouncementsTab /> : null}
         </div>
       </TabbedNav>

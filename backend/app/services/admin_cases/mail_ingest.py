@@ -392,6 +392,7 @@ async def _ingest_message(
             received_at=received_at,
             body_text=body_text,
             attachments=attachments,
+            direction="out" if own else "in",
         )
     )
     await db.flush()

@@ -20,6 +20,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   useAssignCard,
   useBoCard,
+  useCaseReply,
   useBoTeam,
   useCardNote,
   useDismissCard,
@@ -53,7 +54,13 @@ const EVENT_LABELS: Record<string, string> = {
   dismissed: "„Nie dotyczy”",
   moved: "przeniósł(a) kartę",
   note: "notatka",
+  reviewed: "przegląd przed startem",
+  routed: "Rozdzielona przez reguły",
+  triaged: "Do rozdzielenia u kierownika",
 };
+
+/** Sprawy z wątkiem maila: tylko na nie da się odpowiedzieć ze sprawy. */
+const MAIL_SOURCES = new Set(["mail"]);
 
 function when(iso: string): string {
   return new Date(iso).toLocaleString("pl-PL", {
@@ -81,8 +88,9 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
   const note = useCardNote();
   const dismiss = useDismissCard();
   const stepDone = useStepDone();
+  const reply = useCaseReply();
   const [draft, setDraft] = useState("");
-  const [dialog, setDialog] = useState<"waiting" | "dismiss" | null>(null);
+  const [dialog, setDialog] = useState<"waiting" | "dismiss" | "reply" | null>(null);
   const card = query.data;
 
   const run = async (work: Promise<unknown>, fallback: string, success?: string) => {
@@ -256,6 +264,11 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                       </Button>
                     ) : null
                   ) : null}
+                  {own && card.case_id != null && MAIL_SOURCES.has(card.case_source ?? "") ? (
+                    <Button size="sm" variant="outline" onClick={() => setDialog("reply")}>
+                      Odpowiedz
+                    </Button>
+                  ) : null}
                   {own && card.state !== "waiting" ? (
                     <Button size="sm" variant="outline" onClick={() => setDialog("waiting")}>
                       Czeka na kogoś
@@ -379,6 +392,23 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                 expected_updated_at: card.updated_at,
               }),
               "Nie udało się zmienić stanu.",
+            );
+            setDialog(null);
+          }}
+        />
+      ) : null}
+      {dialog === "reply" && card?.case_id != null ? (
+        <ReasonDialog
+          title="Odpowiedz w wątku maila"
+          label="Treść odpowiedzi"
+          confirmLabel="Wyślij"
+          busy={reply.isPending}
+          onCancel={() => setDialog(null)}
+          onConfirm={async (text) => {
+            await run(
+              reply.mutateAsync({ caseId: card.case_id ?? 0, body: text }),
+              "Nie udało się wysłać odpowiedzi.",
+              "Odpowiedź wysłana",
             );
             setDialog(null);
           }}

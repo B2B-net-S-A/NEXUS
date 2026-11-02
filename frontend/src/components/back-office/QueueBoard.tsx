@@ -29,6 +29,7 @@ import {
 } from "./board-model";
 import { CardPanel } from "./CardPanel";
 import { CardTile } from "./CardTile";
+import { TriageStrip } from "./TriageStrip";
 import { useCardCommands, type CardCommands } from "./use-card-commands";
 
 const VISIBLE_IN_LANE = 5;
@@ -387,6 +388,7 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
         </span>
       </p>
 
+      {board.me.is_lead && !activeTeam ? <TriageStrip board={board} /> : null}
       {activeTeam && layout === "status" ? (
         activeTeam.id === "care" && careStatusBoard ? (
           careStatusBoard

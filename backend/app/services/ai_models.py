@@ -62,6 +62,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F39 | candidate_ai_assessment          | gpt-6-luna (z Sonnet 5)  |
 | F40 | sales_meeting_summary            | gpt-6-luna (z Sonnet 5)  |
 | F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
+| F42 | case_triage                      | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -446,6 +447,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z CV, screeningu i notatek — ta sama robota co generator CV (F4), więc jego model "
         "i fallback. Każda wartość z cytatem ze źródła; wartość bez cytatu odrzuca kod, "
         "ocen 1–10 i numerów certyfikatów model nie zgaduje. Całość sprawdza rekruter.",
+    ),
+    AIFeatureKey.case_triage: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CASE_TRIAGE_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F42 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Do którego zespołu "
+        "back office trafia mail, gdy reguły nie są pewne. Wynik jest tylko propozycją: "
+        "niepewność albo awaria kończy się kartą „Do rozdzielenia”.",
     ),
     AIFeatureKey.requirement_word_hints: ModelChoice(
         default=SONNET_5,
