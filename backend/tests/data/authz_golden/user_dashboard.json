@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/dashboard/panels/{panel}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

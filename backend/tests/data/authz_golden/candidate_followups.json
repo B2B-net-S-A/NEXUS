@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/candidate-followups/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidate-followups/candidates/{candidate_id}/teams-meetings/{meeting_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/outcome": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/candidate-followups/candidates/{candidate_id}/teams-meetings": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

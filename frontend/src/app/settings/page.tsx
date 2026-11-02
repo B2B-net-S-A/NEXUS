@@ -265,7 +265,7 @@ const ADVANCED_LINKS: Array<{
     title: "Przegląd klientów",
     description: "Ranking klientów + leaderboard delivery leadów.",
     icon: <BarChart3 className="w-5 h-5" />,
-    roles: ["admin", "finance"],
+    roles: ["admin"],
     section: "finance",
   },
   {
@@ -294,7 +294,6 @@ const FINANCE_READ_ONLY_LINKS = new Set([
   "/settings/contract-templates",
   "/settings/team-structure",
   "/settings/chats",
-  "/settings/clients-overview",
   "/settings/client-portfolio-preview",
   "/settings/hiring-managers",
 ]);

@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/section-permissions": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/section-permissions/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

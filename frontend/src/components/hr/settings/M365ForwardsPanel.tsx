@@ -50,7 +50,7 @@ interface CloseTarget {
 }
 
 /**
- * Karta Microsoft 365 → przekierowania poczty (Compass `AdminForwardRules`):
+ * Karta Microsoft 365 → kopie poczty do zastępców (Compass `AdminForwardRules`):
  * lista zapisanych w NEXUSIE, „Sprawdź skrzynki” (odczyt na żywo, bez zapisu),
  * „Uzgodnij teraz” i „Zamknij regułę” przez kolejkę. Tylko Kadry i admin.
  */
@@ -73,7 +73,7 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
 
   const closeRule = async (target: CloseTarget) => {
     const ok = await askConfirm({
-      title: "Zamknąć regułę przekierowania?",
+      title: "Zamknąć regułę kopii poczty?",
       description: `${target.user_name ?? "Osoba"} — reguła zastępstwa zostanie usunięta ze skrzynki przez kolejkę Microsoft 365. Poczta przestanie trafiać do zastępcy.`,
       confirmLabel: "Zamknij regułę",
       cancelLabel: "Zostaw",
@@ -111,11 +111,11 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 id="m365-forwards" className="text-sm font-medium text-foreground">
-            Przekierowania poczty do zastępców
+            Kopie poczty do zastępców
           </h3>
           <p className="text-xs text-muted-foreground">
-            Reguła w skrzynce nie wygasa sama — zamyka ją kolejka po ostatnim dniu i uzgadnianie
-            o 7:00.
+            NEXUS zakłada regułę kopii: oryginał zostaje w skrzynce osoby. Reguła nie wygasa
+            sama, zamyka ją kolejka po ostatnim dniu i uzgadnianie o 7:00.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -140,17 +140,17 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
       </div>
 
       {state === "loading" ? (
-        <p className="text-sm text-muted-foreground">Wczytywanie przekierowań…</p>
+        <p className="text-sm text-muted-foreground">Wczytywanie kopii poczty…</p>
       ) : state === "forbidden" || state === "not_found" || state === "error" ? (
         <QueryStateNotice state={state} onRetry={() => forwards.refetch()} />
       ) : state === "empty" ? (
         <p className="text-sm text-muted-foreground">
-          Nikt nie ma teraz ani w najbliższym czasie przekierowania poczty.
+          Nikt nie ma teraz ani w najbliższym czasie kopii poczty do zastępcy.
         </p>
       ) : (
         <div className="relative overflow-x-auto">
           <table className="w-full min-w-[560px] text-sm">
-            <caption className="sr-only">Przekierowania zapisane w NEXUSIE</caption>
+            <caption className="sr-only">Kopie poczty zapisane w NEXUSIE</caption>
             <thead>
               <tr className={CALM_ROW}>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Osoba</th>
@@ -192,7 +192,7 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
                           })
                         }
                       >
-                        Wyłącz przekierowanie
+                        Wyłącz kopię poczty
                       </Button>
                     ) : canCloseRule(row) ? (
                       <Button
@@ -224,7 +224,7 @@ export function M365ForwardsPanel({ mode }: { mode: M365Mode }) {
         target={forwardOff}
         onClose={(done) => {
           setForwardOff(null);
-          if (done) showToast("Przekierowanie wyłączone — reguła zostanie zamknięta", "success");
+          if (done) showToast("Kopia poczty wyłączona, reguła zostanie zamknięta", "success");
         }}
       />
       {confirmDialog}
@@ -248,7 +248,9 @@ function MailboxCheckResult({
       </p>
     );
   }
-  const problems = result.items.filter((item) => item.health !== "ok");
+  const problems = result.items.filter(
+    (item) => item.health !== "ok" || !item.mailbox_keeps_mail,
+  );
   return (
     <div className="space-y-2 rounded-md border border-border p-3" aria-live="polite">
       <p className="text-sm text-foreground">
@@ -268,13 +270,14 @@ function MailboxCheckResult({
       ) : null}
       {result.items.length > 0 ? (
         <div className="relative overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <caption className="sr-only">Reguły zastępstw w skrzynkach</caption>
             <thead>
               <tr className={CALM_ROW}>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Skrzynka</th>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Reguła</th>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Stan</th>
+                <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Skrzynka osoby</th>
                 <th className={`${CALM_HEAD} py-2 text-right`}>
                   <span className="sr-only">Akcje</span>
                 </th>
@@ -300,6 +303,16 @@ function MailboxCheckResult({
                   <td className="py-2 pr-3 align-top">
                     <Health health={item.health} reason={item.reason} />
                   </td>
+                  <td className="py-2 pr-3 align-top">
+                    <StatusDot
+                      tone={item.mailbox_keeps_mail ? "success" : "danger"}
+                      note={item.mailbox_note ?? undefined}
+                    >
+                      {item.mailbox_keeps_mail
+                        ? "Bez reguł zabierających pocztę"
+                        : "Maile mogą nie zostawać"}
+                    </StatusDot>
+                  </td>
                   <td className="py-2 text-right align-top">
                     {item.rule_id && canCloseRule(item) ? (
                       <Button
@@ -324,6 +337,10 @@ function MailboxCheckResult({
           </table>
         </div>
       ) : null}
+      <p className="text-xs text-muted-foreground">
+        NEXUS czyta reguły Outlooka. Przekierowania ustawionego przez admina w Exchange stąd nie
+        widać.
+      </p>
     </div>
   );
 }

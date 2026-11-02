@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/oauth-clients/scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/oauth-clients/scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/oauth-clients/{client_pk}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/oauth-clients": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

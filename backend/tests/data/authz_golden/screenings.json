@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/ai-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidates/{candidate_id}/screenings": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/screenings": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/candidates/{candidate_id}/ai-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidates/{candidate_id}/screenings": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/screenings": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

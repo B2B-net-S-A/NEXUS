@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

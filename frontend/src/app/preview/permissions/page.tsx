@@ -9,7 +9,8 @@
  * Warianty:
  * - bez parametrów — zakładka „Uprawnienia”, rola Finanse (dziewięć przełączników);
  * - `?tab=users` — lista osób z plakietką „+N uprawnienie”; ołówek otwiera okno
- *   każdej osoby (wszystkie są zasiane, jedna ma stare ograniczenia);
+ *   każdej osoby (wszystkie są zasiane, jedna ma odebrane uprawnienie i stary
+ *   limit sekcji);
  * - `?modal=1` — okno „Edytuj użytkownika” fikcyjnej Talent Community Manager
  *   z jednym dodatkowym uprawnieniem.
  *

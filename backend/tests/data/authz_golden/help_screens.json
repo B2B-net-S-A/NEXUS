@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "GET /api/help/screens": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/help/screens/{key}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

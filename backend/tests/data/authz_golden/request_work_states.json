@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDD",
-  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDD"
+  "GET /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDDD",
+  "PATCH /api/request-work-states": "PDPPDDDDPPPPDDDDDDDDDDDDDDD"
  }
 }

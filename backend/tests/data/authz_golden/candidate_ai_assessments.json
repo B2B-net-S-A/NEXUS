@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/ai-assessments/latest": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/ai-assessments": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/jobs/{job_id}/ai-assessments/latest": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/ai-assessments": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

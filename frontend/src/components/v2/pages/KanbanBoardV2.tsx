@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
 import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
@@ -138,6 +138,7 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
+import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -712,6 +713,8 @@ interface CardProps {
  overBudget: boolean;
  /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
  criticalGaps?: string[];
+ /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
+ callFirstRank?: number;
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -929,6 +932,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScorecard,
  overBudget,
  criticalGaps,
+ callFirstRank,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -1088,6 +1092,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  // Champion (D3, 15.10.2026): złota obwódka; zaznaczenie i weto HM wygrywają.
  item.is_champion &&"border-medal-gold-foreground/40",
+ callFirstRank != null &&"border-primary/50",
  selected &&"ring-2 ring-primary border-primary",
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
@@ -1143,6 +1148,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  aria-hidden="true"
  />
  )}
+
+ {callFirstRank != null ? (
+ <span
+ data-testid="card-call-first-rank"
+ aria-label={`Zadzwoń najpierw, miejsce ${callFirstRank}`}
+ className="absolute -left-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground"
+ >
+ {callFirstRank}
+ </span>
+ ) : null}
 
  {desktopOverview && (
  <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
@@ -1488,6 +1503,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ) : null}
 
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
+ {callFirstRank != null && knownFactLabels(item.entry_autofill?.known).length > 0 ? (
+ <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
+ {knownFactLabels(item.entry_autofill?.known).map((label) => (
+ <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
+ {label}
+ </span>
+ ))}
+ </div>
+ ) : null}
  <NextActionRow
  action={nextAction}
  step={nextStep}
@@ -1640,6 +1664,8 @@ interface ColProps {
  onOpenScreening: (stageId: number, name: string) => void;
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
+ /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
+ newQueue?: { ranks: Map<number, number>; total: number } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1707,6 +1733,31 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
  );
 }
 
+/** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
+function NewColumnSectionHeader({ section, total }: { section: NewColumnSection; total: number }) {
+ const callFirst = Math.min(total, CALL_FIRST_COUNT);
+ const label =
+ section === "team"
+ ? "Dodani przez zespół"
+ : section === "call_first"
+ ? `Zadzwoń najpierw · ${callFirst} z ${total}`
+ : `Dalej w kolejce · ${total - callFirst}`;
+ return (
+ <div
+ data-testid={`new-column-section-${section}`}
+ data-tour={section === "call_first" ? "board.new-queue" : undefined}
+ className="px-0.5 pt-1 text-[11px] leading-tight"
+ >
+ <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
+ {label}
+ </div>
+ {section === "call_first" ? (
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground">Wynik plus to, co o osobie wiemy</div>
+ ) : null}
+ </div>
+ );
+}
+
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
  jobId,
@@ -1715,6 +1766,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScreening,
  scoreMap,
  criticalGapMap,
+ newQueue = null,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1898,9 +1950,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
- {col.items.map((item, index) => (
+ {col.items.map((item, index) => {
+ const section = newQueue && newQueue.total > 0 ? newColumnSection(newQueue.ranks.get(item.id)) : null;
+ const previous = index > 0 ? col.items[index - 1] : null;
+ const startsSection =
+ section != null &&
+ (previous == null || newColumnSection(newQueue?.ranks.get(previous.id)) !== section);
+ const rank = newQueue?.ranks.get(item.id);
+ return (
+ <Fragment key={String(item.id)}>
+ {startsSection && newQueue ? (
+ <NewColumnSectionHeader section={section} total={newQueue.total} />
+ ) : null}
  <Draggable
- key={String(item.id)}
  draggableId={String(item.id)}
  index={index}
  isDragDisabled={readOnly}
@@ -1933,6 +1995,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  criticalGaps={criticalGapMap?.get(item.candidate_id)}
+ callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
@@ -1946,7 +2009,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </div>
  )}
  </Draggable>
- ))}
+ </Fragment>
+ );
+ })}
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
  karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
  kolumna jest po prostu pusta (04.10.2026). */}
@@ -2026,10 +2091,25 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => foldBoardColumns(stageCols, { cproEnabled }),
  [stageCols, cproEnabled]
  );
+ // Kolejka w „Nowych” (02.11.2026): zespół na górze, potem karty od systemu
+ // od najwyższego wyniku. Liczona przed filtrem „Kto dodał”, żeby miejsce
+ // karty nie zależało od filtra.
+ const newColumnQueue = useMemo(
+ () =>
+ orderNewColumn(
+ boardFold.columns.find((f) => f.key === "new")?.items ?? [],
+ criticalGapMap
+ ),
+ [boardFold, criticalGapMap]
+ );
  const allDisplayCols = useMemo(
  () =>
- boardFold.columns.map((f) => ({ ...f.host, items: f.items, count: f.count })),
- [boardFold]
+ boardFold.columns.map((f) => ({
+ ...f.host,
+ items: f.key === "new" ? newColumnQueue.items : f.items,
+ count: f.count,
+ })),
+ [boardFold, newColumnQueue]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
@@ -4355,6 +4435,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onOpenScreening={handleOpenScreening}
  scoreMap={scoreMap}
  criticalGapMap={criticalGapMap}
+ newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}

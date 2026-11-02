@@ -24,7 +24,8 @@
       "permissions": [
         "amounts_view",
         "amounts_edit",
-        "finance_module"
+        "finance_module",
+        "company_results"
       ]
     },
     {
@@ -201,6 +202,13 @@
       "key": "timesheets",
       "label": "Raporty godzin: akceptacja całej firmy",
       "group": "people",
+      "requires": [],
+      "default_roles": []
+    },
+    {
+      "key": "company_results",
+      "label": "Wyniki firmy: podsumowania przychodu i marży",
+      "group": "money",
       "requires": [],
       "default_roles": []
     }

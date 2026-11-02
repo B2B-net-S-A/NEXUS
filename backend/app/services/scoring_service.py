@@ -898,6 +898,10 @@ def job_explicit_must_skills(job) -> list[str]:
     return canonical_skill_names(_champion_stack_must_names(job))
 
 
+# Wymaganie z tylu słów to zdanie z opisu, nie nazwa, której szukamy w CV.
+PROSE_REQUIREMENT_WORDS = 4
+
+
 def job_skill_requirements(job) -> dict[str, list[str]]:
     """Shared interpretation for scoring, preview and explicit hard gates."""
     from app.services.requirement_contract import stored_contract, requirement_labels
@@ -918,6 +922,11 @@ def job_skill_requirements(job) -> dict[str, list[str]]:
     stack_must = canonical_skill_names(stack.get("must"))
     stack_nice = canonical_skill_names(stack.get("nice"))
     if must or nice or stack_must or stack_nice:
+        # Kolumna ze zdaniami z opisu klienta, a Champion ma chipy (02.11.2026):
+        # liczymy to, co widzi Delivery Lead. Zdania nigdy nie padają w CV dosłownie,
+        # więc „bardzo dobra znajomość SQL” było brakiem u każdego (27 rekrutacji).
+        if stack_must and any(len(m.split()) >= PROSE_REQUIREMENT_WORDS for m in must):
+            must = stack_must
         must = must or stack_must
         nice = nice or stack_nice
         return {

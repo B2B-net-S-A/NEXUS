@@ -37,8 +37,8 @@ from app.api import (
     contractors,
     contracts,
     financial_adjustments,
-    invoices,
     hiring_managers_analytics,
+    invoices,
     job_chat,
     jobs,
     my_clients,
@@ -56,17 +56,18 @@ from app.api.financial_access import (
     FinanceReadUser,
     redact_financial_fields,
 )
-from app.services.notification_access import user_can_receive_notification
-from app.models.notification import NotificationType
+from app.api.permission_access import CompanyResultsUser
 from app.models.contract import RateUnit
+from app.models.notification import NotificationType
 from app.models.user import User, UserRole
-from app.schemas.my_clients import ClientDashboardResponse, MyClientRow
 from app.schemas.client_order import ClientOrderRead
 from app.schemas.client_order_group import OrderGroupRead
+from app.schemas.my_clients import ClientDashboardResponse, MyClientRow
 from app.schemas.new_contractor_order import (
     NewContractorOrderRequest,
     NewContractorOrderResponse,
 )
+from app.services.notification_access import user_can_receive_notification
 
 
 def _current_user_annotation(endpoint):
@@ -101,20 +102,35 @@ def _user(role: UserRole) -> User:
     [
         financial_adjustments.list_adjustments,
         invoices.list_invoices,
-        invoices.dso_by_client,
         invoices.export_invoices_csv,
         invoices.get_invoice,
         rate_cards.list_rate_cards,
         rate_cards.suggest_rate,
         rate_cards.get_rate_card,
         rate_benchmarks.list_benchmarks,
-        reports.report_sales,
-        contract_analytics.margin_by_client,
-        contract_analytics.revenue_forecast,
     ],
 )
 def test_financial_reads_require_finance_read(endpoint):
     assert _current_user_annotation(endpoint) == FinanceReadUser
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        invoices.dso_by_client,
+        reports.report_sales,
+        contract_analytics.margin_by_client,
+        contract_analytics.revenue_forecast,
+        contract_analytics.margin_by_contractor,
+        contract_analytics.utilization,
+        contract_analytics.role_client_mix,
+        contract_analytics.location_distribution,
+        contract_analytics.termination_analysis,
+    ],
+)
+def test_company_wide_results_require_the_company_results_permission(endpoint):
+    """Zbiorcze wyniki firmy: „Wyniki firmy”, nie VIEW_FINANCE (decyzja 02.11.2026)."""
+    assert _current_user_annotation(endpoint) == CompanyResultsUser
 
 
 @pytest.mark.parametrize(
@@ -150,20 +166,6 @@ def test_financial_adjustment_approval_requires_finance_approve():
 )
 def test_rate_exception_and_candidate_pii_finance_endpoints_are_admin_only(endpoint):
     assert _current_user_annotation(endpoint) == AdminUser
-
-
-@pytest.mark.parametrize(
-    "endpoint",
-    [
-        contract_analytics.margin_by_contractor,
-        contract_analytics.utilization,
-        contract_analytics.role_client_mix,
-        contract_analytics.location_distribution,
-        contract_analytics.termination_analysis,
-    ],
-)
-def test_organization_contract_analytics_are_finance_read(endpoint):
-    assert _current_user_annotation(endpoint) == FinanceReadUser
 
 
 def test_my_clients_financial_none_fields_are_structurally_omitted():
@@ -540,20 +542,20 @@ async def test_finance_analytics_team_and_user_scope_are_organization_wide():
     assert user_scope.user_id == 999
 
 
-def test_finance_reads_client_overview_and_hiring_manager_reports():
+def test_client_overview_needs_company_results_and_finance_reads_hiring_reports():
     assert (
         get_type_hints(
             admin_clients_overview.clients_overview,
             include_extras=True,
         )["_user"]
-        == FinanceReadUser
+        == CompanyResultsUser
     )
     assert (
         get_type_hints(
             admin_clients_overview.kpi_by_dl,
             include_extras=True,
         )["_user"]
-        == FinanceReadUser
+        == CompanyResultsUser
     )
     assert (
         get_type_hints(
