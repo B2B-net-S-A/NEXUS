@@ -25,7 +25,7 @@ from typing import Any, Optional
 from lxml import etree
 
 from app.services.hr.ksef import fa
-from app.services.order_client_identity import normalize_registry_id
+from app.services.order_client_identity import normalize_buyer_number
 
 MAX_REFS = 20
 REF_MAX_LENGTH = 300
@@ -36,7 +36,8 @@ FOREIGN_ID_MAX_LENGTH = 32
 class SalesInvoice:
     base: fa.ParsedInvoice
     buyer_name: Optional[str]
-    #: VAT UE nabywcy bez polskiego NIP-u, w postaci ``clients.nip`` („FI12345678”).
+    #: Pełny VAT UE nabywcy bez polskiego NIP-u, w postaci ``clients.nip``
+    #: („FI12345678”, „FR1A123456789”).
     buyer_foreign_id: Optional[str]
     due_date: Optional[date]
     paid_on: Optional[date]
@@ -74,7 +75,7 @@ def _foreign_id(buyer: Any) -> Optional[str]:
         return None
     if number.startswith(country):
         number = number[len(country) :].strip()
-    return normalize_registry_id(f"{country}{number}")[:FOREIGN_ID_MAX_LENGTH] or None
+    return normalize_buyer_number(f"{country}{number}")[:FOREIGN_ID_MAX_LENGTH] or None
 
 
 def parse_sales_invoice(xml: bytes) -> SalesInvoice:

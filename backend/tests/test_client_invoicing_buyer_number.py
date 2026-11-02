@@ -345,6 +345,28 @@ async def test_vat_cut_short_by_a_letter_is_not_a_number_of_one_company(
         assert sibling.match_reason == "unknown_buyer"
 
 
+async def test_full_vat_with_letters_goes_to_one_company(client, seed):
+    """Pełny numer z literą wiąże fakturę, a sąsiedni numer innej firmy już nie."""
+
+    client_id, order_id = await _client_with_order()
+    other_id = await _sibling_of_unknown(
+        buyer_nip=None, buyer_foreign_id="FR1B987654321"
+    )
+    same_id = await _sibling_of_unknown(
+        buyer_nip=None, buyer_foreign_id="FR1A123456789"
+    )
+
+    assert (await _options(client, seed, client_id))["state"] == "add"
+    response = await _assign(client, seed, order_id)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["buyer_number"]["saved"] is True
+    assert await _nip(client_id) == "FR1A123456789"
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(ClientSalesInvoice, same_id)).client_id == client_id
+        assert (await db.get(ClientSalesInvoice, other_id)).client_id is None
+
+
 async def test_vat_cut_short_in_a_client_profile_binds_no_invoice(client, seed):
     """Ten sam klucz wpisany ręcznie w profilu też nie wiąże cudzych faktur."""
 
