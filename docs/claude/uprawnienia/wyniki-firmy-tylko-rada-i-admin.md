@@ -12,7 +12,7 @@ Makiety i audyt: https://claude.ai/artifact/P9J4Zgecx7B9D9S9VQvQoN.
 ## Reguła
 
 - **„Wyniki firmy: podsumowania przychodu i marży”** (`company_results`,
-  grupa „Pieniądze”, 0628) to osobne uprawnienie. Bez domyślnych posiadaczy
+  grupa „Pieniądze”, 0629) to osobne uprawnienie. Bez domyślnych posiadaczy
   poza adminem i bez zależności, więc nadanie nie otwiera przy okazji Delivery.
   Admin może nadać je jednej osobie w „Osoby i role”. Na start nikt z Finansów
   go nie ma.
