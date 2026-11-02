@@ -453,8 +453,8 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         fallbacks=("claude-haiku-4-5",),
         rationale="F41 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Przycisk przy wierszu "
         "„musi mieć”, którego nie ma nikt z wysłanych: model czyta do 6 CV i podaje słowa, "
-        "kod zostawia tylko te, które silnik znajduje. Pomiar 02.11 na Sonnecie 5, 297 odczytów: "
-        "słowa łapią co najmniej połowę wysłanych w 32 z 36 fałszywych braków.",
+        "kod zostawia tylko te, które silnik znajduje. Pomiar 02.11 na Sonnecie 5, 257 odczytów: "
+        "słowa łapią co najmniej połowę wysłanych w 31 z 35 fałszywych braków.",
     ),
     AIFeatureKey.consent_screenshot_check: ModelChoice(
         default=SONNET_5,

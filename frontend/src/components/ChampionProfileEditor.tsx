@@ -436,7 +436,8 @@ export function ChampionProfileEditor({
     return {
       sent: gaps.sent,
       rows: gaps.rows,
-      wordsFor: (label) => hints?.find((row) => row.label === label)?.words ?? (hints ? [] : null),
+      // Wiersz nowszy niż odpowiedź modelu: o niego jeszcze nie pytano.
+      wordsFor: (label) => hints?.find((row) => row.label === label)?.words ?? null,
       canAsk: gaps.can_ask_hints,
       asking: wordHints.isPending,
       askError: wordHints.isError

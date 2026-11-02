@@ -3799,7 +3799,12 @@ async def get_requirement_sent_gaps(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     await _ensure_delivery_lead_job_visible(job, current_user, db)
-    gaps = await requirement_sent_gaps.compute(db, job)
+    try:
+        gaps = await requirement_sent_gaps.compute(db, job)
+    except requirement_sent_gaps.EvidenceUnavailable:
+        # Brak dowodu to brak ostrzeżenia, a nie „nie ma nikt”.
+        logger.warning("requirement sent gaps: brak dowodu dla rekrutacji %s", job_id)
+        gaps = requirement_sent_gaps.SentGaps(sent=0, rows=())
     return {
         **gaps.as_dict(),
         "can_ask_hints": requirement_cleanup.can_decide(current_user, job),

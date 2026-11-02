@@ -719,6 +719,15 @@ describe("sentGapForRow", () => {
     expect(sentGapForRow(["AWS", "Azure"], gaps)?.label).toBe("azure lub aws");
   });
 
+  it("zapisane warianty spoza etykiety dalej pasują", () => {
+    const withVariants = [
+      { label: "płatności", words: ["płatnoś*", "płatności", "payments"] },
+    ];
+    expect(sentGapForRow(["płatnoś*", "płatności", "payments"], withVariants)?.label).toBe(
+      "płatności",
+    );
+  });
+
   it("dopisane słowo chowa ostrzeżenie do zapisu", () => {
     expect(sentGapForRow(["risk mgmt.", "risk management"], gaps)).toBeNull();
   });

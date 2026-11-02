@@ -1,8 +1,8 @@
 """Wiersze „musi mieć”, których nie ma nikt z osób wysłanych do klienta (02.11.2026).
 
-Pomiar na kopii z 02.11: w 57 otwartych rekrutacjach z co najmniej 3 wysłanymi 143
-z 1064 wierszy nie ma według silnika nikt z nich. Model czytający CV znajduje je
-u co najmniej połowy tylko w 36 przypadkach, a w 77 też ich nie znajduje, więc
+Pomiar na kopii z 02.11: w 55 otwartych rekrutacjach z co najmniej 3 wysłanymi 142
+z 1033 wierszy nie ma według silnika nikt z nich. Model czytający CV znajduje je
+u co najmniej połowy tylko w 35 przypadkach, a w 74 też ich nie znajduje, więc
 częściej to wymaganie przesadzone niż błąd odczytu. Dlatego ostrzeżenie pyta, a o
 zmianie decyduje Delivery Lead. Raport: https://claude.ai/artifact/EHzqs9fXxjfrwjDgfZ8bwj.
 
@@ -45,7 +45,8 @@ CACHE_TTL_SECONDS = 6 * 3600
 REFRESH_BEFORE_SECONDS = 3 * 3600
 BUDGET_SECONDS = 1.5
 
-_SENT_STAGES = ("cv_sent", "interview", "client_interview", "acceptance", "hired")
+# Lustro `api.jobs.SENT_TO_CLIENT_STAGES`: `interview` to rozmowa wewnętrzna przed wysyłką.
+SENT_STAGES = ("cv_sent", "client_interview", "acceptance", "hired")
 _SENT_SQL = text(
     "SELECT DISTINCT candidate_id FROM candidate_stages "
     "WHERE job_id = :job_id AND stage::text = ANY(:stages)"
@@ -73,6 +74,10 @@ Dla każdego wymagania podaj:
 
 Format: {{"rows":[{{"i":1,"v":"met|partial|none","words":["..."]}}]}}"""
 _VERDICTS = frozenset({"met", "partial", "none"})
+
+
+class EvidenceUnavailable(RuntimeError):
+    """Odczyt notatek padł: ocena nie widzi wtedy CV, więc każdy wiersz byłby brakiem."""
 
 
 @dataclass(frozen=True)
@@ -128,9 +133,7 @@ async def _sent_candidates(db: AsyncSession, job_id: int) -> list[Any]:
 
     ids = list(
         (
-            await db.execute(
-                _SENT_SQL, {"job_id": job_id, "stages": list(_SENT_STAGES)}
-            )
+            await db.execute(_SENT_SQL, {"job_id": job_id, "stages": list(SENT_STAGES)})
         ).scalars()
     )
     if len(ids) < MIN_SENT:
@@ -148,25 +151,48 @@ async def _sent_candidates(db: AsyncSession, job_id: int) -> list[Any]:
     return [c for c in people if (cv_text(c) or "").strip()]
 
 
+def with_saved_words(gaps: SentGaps, job: Any) -> SentGaps:
+    """Słowa wiersza z profilu: kontrakt zna etykietę, a edytor wszystkie warianty."""
+    from app.services.critical_skills import _row_words_by_label, match_must_labels
+
+    saved = _row_words_by_label(job)
+    rows = []
+    for row in gaps.rows:
+        words = next(
+            (w for name, w in saved if match_must_labels([name], list(row.words))),
+            row.words,
+        )
+        rows.append(SentGapRow(label=row.label, words=tuple(words)))
+    return SentGaps(sent=gaps.sent, rows=tuple(rows))
+
+
 async def compute(db: AsyncSession, job: Any) -> SentGaps:
     """Tylko odczyt. Dowód jak w ocenie: profil, CV, notatki i przegląd rekrutera."""
-    from app.services.must_text_evidence import attach_gate_evidence
-    from app.services.requirement_contract import (
-        evaluate_requirements,
-        requirements_for_job,
-        search_dealbreaker_inputs,
+    from app.services import (
+        must_text_evidence,
+        requirement_contract,
+        requirement_verification,
     )
 
     people = await _sent_candidates(db, job.id)
     if len(people) < MIN_SENT:
         return SentGaps(sent=len(people), rows=())
-    contract = requirements_for_job(job)
-    inputs = search_dealbreaker_inputs(job)
-    await attach_gate_evidence(
+    contract = requirement_contract.requirements_for_job(job)
+    inputs = requirement_contract.search_dealbreaker_inputs(job)
+    await requirement_verification.load_verified_requirements(db, job, people)
+    await must_text_evidence.attach_gate_evidence(
         db, people, inputs.gate_evidence_labels, options=inputs.gate_options
     )
-    return rows_nobody_has(
-        [evaluate_requirements(contract, c, job_id=job.id) for c in people]
+    if any(getattr(c, "_must_text_evidence", None) is None for c in people):
+        raise EvidenceUnavailable
+    return with_saved_words(
+        rows_nobody_has(
+            [
+                requirement_contract.evaluate_requirements(contract, c, job_id=job.id)
+                for c in people
+            ]
+        ),
+        job,
     )
 
 
@@ -285,6 +311,21 @@ def parse_reply(
     return out
 
 
+def tally_words(readings: Iterable[Mapping], label: str) -> dict[str, int]:
+    """Słowa z odczytów „met” w pisowni z CV: „QA” i „Go” silnik szuka z wielkością liter."""
+    spelling: dict[str, str] = {}
+    counts: Counter[str] = Counter()
+    for reading in readings:
+        verdict, words = reading.get(label, ("none", ()))
+        if verdict != "met":
+            continue
+        for word in words:
+            key = word.casefold()
+            spelling.setdefault(key, word)
+            counts[key] += 1
+    return {spelling[key]: count for key, count in counts.items()}
+
+
 def pick_hints(
     mentions: Mapping[str, int],
     *,
@@ -330,7 +371,10 @@ async def word_hints(db: AsyncSession, job: Any, *, user_id: int) -> dict:
     from app.services.cv_quoted_evidence import job_prompt_block
     from app.services.must_text_evidence import cv_text, text_met_labels
 
-    gaps = await compute(db, job)
+    try:
+        gaps = await compute(db, job)
+    except EvidenceUnavailable:
+        return {"available": False, "sent": 0, "rows": []}
     if not gaps.rows:
         return {"available": True, "sent": gaps.sent, "rows": []}
     people = await _sent_candidates(db, job.id)
@@ -354,6 +398,7 @@ async def word_hints(db: AsyncSession, job: Any, *, user_id: int) -> dict:
 
     try:
         async with ai_feature(db, AIFeatureKey.requirement_word_hints, user_id=user_id):
+            await db.commit()  # zwolnij połączenie na czas modelu
             reads = await asyncio.gather(*[read(c) for c in people[:HINT_READ_MAX_CV]])
     except Exception as exc:  # noqa: BLE001 — wyłączona funkcja nie psuje ekranu
         logger.warning(
@@ -372,17 +417,14 @@ async def word_hints(db: AsyncSession, job: Any, *, user_id: int) -> dict:
 
     rows = []
     for row in gaps.rows:
-        mentions: Counter[str] = Counter()
-        for reading in done:
-            verdict, words = reading.get(row.label, ("none", ()))
-            if verdict == "met":
-                mentions.update(w.casefold() for w in words)
         rows.append(
             {
                 "label": row.label,
                 "words": [
                     {"word": hint.word, "hits": hint.hits}
-                    for hint in pick_hints(mentions, row_words=row.words, hits=catches)
+                    for hint in pick_hints(
+                        tally_words(done, row.label), row_words=row.words, hits=catches
+                    )
                 ],
             }
         )

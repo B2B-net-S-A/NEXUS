@@ -270,3 +270,125 @@ class TestCache:
             "stack": {"rows": [{"words": ["kotlin"], "level": "must"}]}
         }
         assert gaps.cached(job) is None
+
+
+class TestTallyWords:
+    def test_short_forms_keep_their_spelling(self):
+        # „QA” i „Go” silnik szuka z wielkością liter, po casefold dają 0 trafień.
+        readings = [{"a": ("met", ("QA", "Go"))}, {"a": ("met", ("qa",))}]
+        assert gaps.tally_words(readings, "a") == {"QA": 2, "Go": 1}
+
+    def test_only_met_counts(self):
+        readings = [{"a": ("partial", ("x",))}, {"a": ("none", ())}, {}]
+        assert gaps.tally_words(readings, "a") == {}
+
+
+def _candidate(cid):
+    return SimpleNamespace(id=cid, raw_cv_text="CV")
+
+
+class TestCompute:
+    """`compute` bez bazy: co musi się stać, zanim wiersz nazwiemy brakiem."""
+
+    def _patch(self, monkeypatch, *, people, attach, verified=None):
+        from app.services import must_text_evidence, requirement_contract
+        from app.services import requirement_verification as rv
+
+        async def sent(_db, _job_id):
+            return people
+
+        async def load(_db, _job, candidates):
+            (verified if verified is not None else []).extend(c.id for c in candidates)
+
+        monkeypatch.setattr(gaps, "_sent_candidates", sent)
+        monkeypatch.setattr(must_text_evidence, "attach_gate_evidence", attach)
+        monkeypatch.setattr(rv, "load_verified_requirements", load)
+        monkeypatch.setattr(
+            requirement_contract, "requirements_for_job", lambda _j: "contract"
+        )
+        monkeypatch.setattr(
+            requirement_contract,
+            "search_dealbreaker_inputs",
+            lambda _j: SimpleNamespace(gate_evidence_labels=(), gate_options={}),
+        )
+        monkeypatch.setattr(
+            requirement_contract,
+            "evaluate_requirements",
+            lambda _contract, _c, job_id: [_row(["kafka"])],
+        )
+
+    @pytest.mark.asyncio
+    async def test_failed_notes_lookup_is_not_a_gap(self, monkeypatch):
+        # `attach_gate_evidence` połyka błąd bazy, a ocena bez dowodu nie czyta CV,
+        # więc każdy wiersz wyszedłby brakiem i propozycja zdjęłaby go z szukania.
+        async def attach(_db, _people, _labels, *, options=None):
+            return None
+
+        self._patch(
+            monkeypatch, people=[_candidate(i) for i in (1, 2, 3)], attach=attach
+        )
+        with pytest.raises(gaps.EvidenceUnavailable):
+            await gaps.compute(None, _job([{"words": ["kafka"], "level": "must"}]))
+
+    @pytest.mark.asyncio
+    async def test_recruiter_review_is_loaded_before_reading(self, monkeypatch):
+        verified: list[int] = []
+
+        async def attach(_db, people, _labels, *, options=None):
+            for candidate in people:
+                candidate._must_text_evidence = object()
+
+        self._patch(
+            monkeypatch,
+            people=[_candidate(i) for i in (1, 2, 3)],
+            attach=attach,
+            verified=verified,
+        )
+        result = await gaps.compute(None, _job([{"words": ["kafka"], "level": "must"}]))
+        assert verified == [1, 2, 3]
+        assert [r.label for r in result.rows] == ["kafka"]
+
+    @pytest.mark.asyncio
+    async def test_failure_is_not_remembered(self, monkeypatch):
+        gaps.clear()
+
+        async def broken(_db, _job):
+            raise gaps.EvidenceUnavailable
+
+        class _Nested:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return False
+
+        monkeypatch.setattr(gaps, "compute", broken)
+        job = _job([{"words": ["kafka"], "level": "must"}])
+        assert await gaps.prepare(SimpleNamespace(begin_nested=_Nested), [job]) == 0
+        assert gaps.cached(job) is None
+
+
+class TestSavedWords:
+    def test_row_variants_come_from_the_profile(self):
+        # Kontrakt zna tylko etykietę, a edytor ma wszystkie warianty wiersza.
+        job = _job([{"words": ["płatnoś*", "płatności", "payments"], "level": "must"}])
+        result = gaps.with_saved_words(
+            gaps.SentGaps(sent=5, rows=(gaps.SentGapRow("płatności", ("płatności",)),)),
+            job,
+        )
+        assert result.rows[0].words == ("płatnoś*", "płatności", "payments")
+
+    def test_profile_without_rows_keeps_contract_words(self):
+        job = SimpleNamespace(id=1, champion_profile={"stack": {}})
+        result = gaps.with_saved_words(
+            gaps.SentGaps(sent=5, rows=(gaps.SentGapRow("kafka", ("kafka",)),)), job
+        )
+        assert result.rows[0].words == ("kafka",)
+
+
+def test_interview_is_not_sent_to_client():
+    # „interview” to rozmowa wewnętrzna przed wysyłką, ta sama lista co analityka wysłanych.
+    from app.api.jobs import SENT_TO_CLIENT_STAGES
+
+    assert set(gaps.SENT_STAGES) == {stage.value for stage in SENT_TO_CLIENT_STAGES}
+    assert "interview" not in gaps.SENT_STAGES
