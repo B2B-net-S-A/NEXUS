@@ -1,7 +1,7 @@
 """Dziennik zdarzeń z maili CPro i typy dzwonków.
 
-Revision ID: 0632_cpro_mail_events
-Revises: 0631_user_receives_board_report
+Revision ID: 0633_cpro_mail_events
+Revises: 0632_access_usage_daily
 
 SQL: ``app/services/cpro_mail_schema.py`` (to samo źródło czyta ``entrypoint.sh``).
 """
@@ -10,8 +10,8 @@ from alembic import op
 
 from app.services import cpro_mail_schema as schema
 
-revision = "0632_cpro_mail_events"
-down_revision = "0631_user_receives_board_report"
+revision = "0633_cpro_mail_events"
+down_revision = "0632_access_usage_daily"
 branch_labels = None
 depends_on = None
 
