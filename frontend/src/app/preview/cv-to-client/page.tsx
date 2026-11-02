@@ -34,7 +34,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api } from "@/lib/api";
 import type { CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import type { QcCheck } from "@/lib/api/cvQc";
+import { qcRoleFactsQueryKey, type QcCheck } from "@/lib/api/cvQc";
 import { cvAiSourcesQueryKey, type CvAiSourceFile, type CvAiSources } from "@/lib/cv-ai-sources";
 import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import type { RecruitmentOption } from "@/lib/cv-generator";
@@ -298,6 +298,7 @@ function seed(qc: QueryClient) {
     const rows: StageGeneratedCvRow[] = hasCv ? [readyRow(person, "manual")] : [];
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, JOB_ID), rows, FRESH);
     qc.setQueryData(stageBrandedQueryKey(person.stageId), branded(person, hasCv), FRESH);
+    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] }, FRESH);
     qc.setQueryData(
       ["cv-original", person.stageId],
       {

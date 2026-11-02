@@ -104,8 +104,10 @@ def test_scoped_figure_uses_the_same_rule():
     )
 
 
-def test_under_a_year_leaves_the_text_alone():
+def test_under_a_year_is_one_year_like_before():
     assert _fixed("1 rok doświadczenia", "01.2026 – 06.2026") == "1 rok doświadczenia"
+    assert _fixed("5 lat doświadczenia", "01.2026 – 09.2026") == "1 rok doświadczenia"
+    assert _fixed("5 lat doświadczenia", "01.2026 – 03.2026") == "5 lat doświadczenia"
 
 
 def test_fraction_far_from_the_dates_is_still_corrected():
