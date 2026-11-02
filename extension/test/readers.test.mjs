@@ -196,6 +196,7 @@ test("lista: najwyżej 50 osób", () => {
 test("parseDateRange: polskie i angielskie zakresy, sam rok, „obecnie”", () => {
   assert.deepEqual(parseDateRange("mar 2022 – obecnie · 2 lata 8 mies."), { start: "2022-03", end: null, current: true });
   assert.deepEqual(parseDateRange("Jan 2018 - Dec 2021 · 4 yrs"), { start: "2018-01", end: "2021-12", current: false });
+  assert.deepEqual(parseDateRange("Jan 2013 – Jun 2018 • 5 yrs"), { start: "2013-01", end: "2018-06", current: false });
   assert.deepEqual(parseDateRange("paź 2020 – lis 2021"), { start: "2020-10", end: "2021-11", current: false });
   assert.deepEqual(parseDateRange("2015 - 2019"), { start: "2015-01", end: "2019-12", current: false });
   assert.deepEqual(parseDateRange("Sep 2023 - Present"), { start: "2023-09", end: null, current: true });

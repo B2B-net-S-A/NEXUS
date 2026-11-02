@@ -72,8 +72,8 @@ export const NOISE_LINES = [
   DEGREE,
   PRONOUNS,
   CONNECTIONS,
-  /^(Connect|Message|Follow|Following|Save|Save in Recruiter|More|Pending|Edit|Add section|Resources|Enhance cover image|Open to|Add profile section|Visit my website|View in Sales Navigator)$/i,
-  /^(Nawiąż kontakt|Wiadomość|Obserwuj|Obserwujesz|Zapisz|Więcej|Oczekuje|Edytuj|Dodaj sekcję|Zasoby|Otwarty na|Otwarta na)$/i,
+  /^(Connect|Message|Follow|Following|Save|Save in Recruiter|More|Pending|Edit|Add section|Resources|Enhance cover image|Open to|Open to work|Add profile section|Visit my website|View in Sales Navigator)$/i,
+  /^(Nawiąż kontakt|Wiadomość|Obserwuj|Obserwujesz|Zapisz|Więcej|Oczekuje|Edytuj|Dodaj sekcję|Zasoby|Otwarty na|Otwarta na|Otwarty na pracę|Otwarta na pracę)$/i,
   /^(Show all|Pokaż wszystk|See all|Zobacz wszystk)/i,
   /^(Endorsed by|Potwierdzone przez|Poparte przez)/i,
   /^\d+\s+(endorsements?|potwierdze\w*|rekomendac\w*)$/i,
@@ -253,7 +253,7 @@ export const RESULTS = {
 
 // Teksty, które nie są imieniem, stanowiskiem ani firmą (przyciski, stopnie kontaktu).
 export const NOISE_TEXT = [
-  /^(•\s*)?(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)$/i,
+  /^[·•]?\s*(1st|2nd|3rd\+?|1\.|2\.|3\.\+?)$/i,
   /^(Connect|Message|Follow|Save|Nawiąż kontakt|Wiadomość|Obserwuj|Zapisz|Więcej|More|Pending|Oczekuje)$/i,
   /^(View|Zobacz)\b.*(profile|profil)/i,
   /^(Status is|Status:)/i,
