@@ -158,12 +158,22 @@ def reads_board_money(user: User) -> bool:
     """Kwoty kokpitu Rady: uprawnienie „Moduł Finanse” albo rola Rada nadzorcza.
 
     Lustro bramki ``deps.BoardReader`` dla miejsc, które same decydują
-    o redakcji kwot (tabele rok-do-roku) albo o odbiorcach (mail zarządu).
+    o redakcji kwot (tabele rok-do-roku).
     """
 
     return user.has_role(UserRole.board) or has_permission(
         user, ProductAction.finance_module
     )
+
+
+def receives_company_results(user: User) -> bool:
+    """Mail ze zbiorczym przychodem i marżą firmy: tylko Rada i admin.
+
+    Decyzja Artura 02.11.2026: „Moduł Finanse” służy pracy na pojedynczych
+    rekordach i nie otwiera podsumowania całej firmy.
+    """
+
+    return user.has_any_role(UserRole.board, UserRole.admin)
 
 
 def named_permissions_of(user: User) -> frozenset[str]:

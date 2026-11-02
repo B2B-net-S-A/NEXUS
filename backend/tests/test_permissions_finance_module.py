@@ -72,22 +72,22 @@ def _account(role: UserRole, *permissions: str, insights: str = "read") -> User:
     return user
 
 
-def test_board_mail_goes_to_holders_of_the_permission_who_read_insights() -> None:
+def test_board_mail_skips_the_permission_holders() -> None:
+    """Zbiorcze wyniki firmy: Rada i admin, nie „Moduł Finanse” (02.11.2026)."""
     admin = _account(UserRole.admin, *catalog.KEYS, insights="write")
+    board = _account(UserRole.board)
     finance = _account(UserRole.finance, FM)
-    # Uprawnienie nadane osobie spoza domyślnych ról.
+    # Uprawnienie nadane osobie spoza domyślnych ról też nie otwiera maila.
     granted = _account(UserRole.recruiter, FM)
-    # Rola Finanse z wyłączonym przełącznikiem „Moduł Finanse”.
-    switched_off = _account(UserRole.finance, "amounts_view")
     # Raport niesie liczby z Insights — bez odczytu tej sekcji nie wychodzi.
-    without_insights = _account(UserRole.finance, FM, insights="none")
+    without_insights = _account(UserRole.admin, *catalog.KEYS, insights="none")
     hor = _account(UserRole.head_of_recruitment, insights="write")
 
     readers = reports._board_readers(
-        [admin, finance, granted, switched_off, without_insights, hor]
+        [admin, board, finance, granted, without_insights, hor]
     )
 
-    assert readers == [admin, finance, granted]
+    assert readers == [admin, board]
 
 
 async def test_year_on_year_admits_the_permission_or_the_hor_role() -> None:
@@ -303,26 +303,19 @@ async def test_year_on_year_money_follows_the_permission(
         assert _metric(full.json(), "margin_monthly_pln")["series"] is not None
 
 
-async def test_board_mail_recipients_come_from_the_saved_policy(
+async def test_board_mail_recipients_are_the_board_and_admins(
     app_client: AsyncClient,
 ) -> None:
+    _, admin_id = await _seed_user(app_client, "admin")
+    _, board_id = await _seed_user(app_client, "board")
     _, finance_id = await _seed_user(app_client, "finance")
     _, granted_id = await _seed_user(app_client, "recruiter")
     _, hor_id = await _seed_user(app_client, "head_of_recruitment")
-    _, recruiter_id = await _seed_user(app_client, "recruiter")
-    _, inactive_id = await _seed_user(app_client, "finance", is_active=False)
+    _, inactive_id = await _seed_user(app_client, "admin", is_active=False)
     await grant_permissions(granted_id, FM)
 
-    async def recipient_ids() -> set[int]:
-        async with AsyncSessionLocal() as db:
-            return {user.id for user in await reports._board_recipients(db)}
+    async with AsyncSessionLocal() as db:
+        ids = {user.id for user in await reports._board_recipients(db)}
 
-    ids = await recipient_ids()
-    assert {finance_id, granted_id} <= ids
-    assert not {hor_id, recruiter_id, inactive_id} & ids
-
-    async with role_permission("finance", FM, granted=False):
-        ids = await recipient_ids()
-        # Rola traci raport, nadanie osobie zostaje.
-        assert finance_id not in ids
-        assert granted_id in ids
+    assert {admin_id, board_id} <= ids
+    assert not {finance_id, granted_id, hor_id, inactive_id} & ids
