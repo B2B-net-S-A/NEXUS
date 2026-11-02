@@ -87,7 +87,7 @@ DATA_DDL: tuple[str, ...] = (
     *foundation.DATA_DDL,
     *access.SEED_DDL,
     *board_role.SEED_DDL,
-    # 0634: raz, potem decyzja admina z panelu wygrywa.
+    # 0635: raz, potem decyzja admina z panelu wygrywa.
     *viewer_role.DATA_DDL,
     *(stmt for module in MODULES for stmt in module.DATA_DDL),
 )
