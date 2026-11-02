@@ -1244,7 +1244,7 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
 # Panel klienta pod linkiem z CV (0636) — JEDNO źródło z migracją
-# (`app/services/client_panel_schema.py`, pilnuje test_client_panel_migration_mirror).
+# (`app/services/client_panel_schema.py`, pilnuje test_migration_and_entrypoint_share_one_ddl_source).
 try:
     from app.services import client_panel_schema as _client_panel_schema
 
