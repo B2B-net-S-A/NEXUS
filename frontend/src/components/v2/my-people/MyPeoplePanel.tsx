@@ -262,7 +262,11 @@ export function MyPeoplePanel() {
 
   const tabs = [
     { value: "all", label: "Z procesów", count: people.data?.active_count },
-    ...(canSeeLinks ? [{ value: "links", label: "Z linków", count: linkPeople.data?.total }] : []),
+    ...(canSeeLinks ? [{
+            value: "links",
+            label: <span data-tour="my-people.from-links">Z linków</span>,
+            count: linkPeople.data?.total,
+          }] : []),
     {
       value: "lists",
       label: "Listy",
