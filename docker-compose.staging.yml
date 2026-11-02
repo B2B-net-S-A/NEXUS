@@ -156,6 +156,17 @@ services:
       SENTRY_DSN: ""
       SENTRY_ENVIRONMENT: staging
       UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN: "8"
+      # Ranking jak na produkcji, bo wnioski ze stagingu idą do decyzji Artura.
+      # Trzy pierwsze wchodzą do stempla `ranker_version`; bez nich wyniki różniły
+      # się do 22 pkt. Reszta zmienia pulę i kolejność, a stempla nie, więc ich
+      # rozjazdu strażnik `scripts/staging_ranking_parity.py` nie zobaczy.
+      CHAMPION_MATCH_SIGNALS_ENABLED: ${CHAMPION_MATCH_SIGNALS_ENABLED:-true}
+      CHAMPION_SENIORITY_PENALTY_ENABLED: ${CHAMPION_SENIORITY_PENALTY_ENABLED:-true}
+      SKILL_ALIAS_EXTENDED_ENABLED: ${SKILL_ALIAS_EXTENDED_ENABLED:-true}
+      HYBRID_POOL_ENABLED: ${HYBRID_POOL_ENABLED:-true}
+      KNOWN_PEOPLE_BOOST_ENABLED: ${KNOWN_PEOPLE_BOOST_ENABLED:-true}
+      KEYWORD_SEARCH_FOLDED_FTS: ${KEYWORD_SEARCH_FOLDED_FTS:-true}
+      MATCH_POOL_SIZE: ${MATCH_POOL_SIZE:-2000}
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:

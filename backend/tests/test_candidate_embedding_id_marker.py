@@ -245,6 +245,8 @@ async def test_bulk_reembed_marks_every_row_it_pushed_into_qdrant(
     # zapisuje `str(candidate_id)`. Inna wartość zmieniłaby znaczenie kolumny.
     assert "CAST(candidates.id AS VARCHAR)" in sql
     assert "IN (1, 2)" in sql
+    # Znacznik to nie edycja osoby: `onupdate=now()` robiłby z niej świeżą zmianę.
+    assert "updated_at=candidates.updated_at" in sql
     assert sessions[-1].commits == 1
 
 

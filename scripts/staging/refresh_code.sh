@@ -8,7 +8,8 @@
 # na bazie z STAGING_DATABASE_NAME.
 #
 # Użycie: scripts/staging/refresh_code.sh
-# Kod wyjścia: 0 = staging na origin/main, 3 = kod nowy, schemat bazy nieaktualny.
+# Kod wyjścia: 0 = staging na origin/main, 3 = kod nowy, schemat bazy nieaktualny,
+# 4 = kod nowy, ale ranking liczy co innego niż produkcja (flagi albo stary Qdrant).
 set -euo pipefail
 
 REPO="${NEXUS_REPO:-$HOME/NEXUS}"
@@ -19,12 +20,21 @@ FRONT="http://localhost:3100"
 
 [ -f "$ENV_FILE" ] || { echo "Brak pliku $ENV_FILE (wzór: scripts/staging/env.staging.example)." >&2; exit 2; }
 
+# Staging z innym rankingiem działa normalnie, a wnioski z niego idą do decyzji Artura.
+check_ranking_parity() {
+  docker exec nexus-staging-backend-1 python -m scripts.staging_ranking_parity 2>&1 \
+    | grep -E '^(ranker_version=|UWAGA:)' && return 0
+  echo "Ranking na stagingu nie zgadza się z produkcją (docs/claude/podstawy/staging-na-laptopie.md)." >&2
+  exit 4
+}
+
 git -C "$REPO" fetch --quiet origin main
 SHA="$(git -C "$REPO" rev-parse origin/main)"
 
 running="$(curl -fsS --max-time 10 "$API/api/health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)"
 if [ "$running" = "$SHA" ]; then
   echo "Staging już jest na $SHA."
+  check_ranking_parity
   exit 0
 fi
 
@@ -58,6 +68,7 @@ for _ in $(seq 1 60); do
       unhealthy*) echo "Staging na $SHA, ale schemat bazy jest nieaktualny: $migrations" >&2; exit 3 ;;
     esac
     echo "Staging na $SHA."
+    check_ranking_parity
     exit 0
   fi
   sleep 15
