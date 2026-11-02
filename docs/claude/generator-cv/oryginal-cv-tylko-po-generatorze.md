@@ -1,5 +1,5 @@
 # Oryginał CV tylko po próbie z generatorem — sama rola rekrutera, powody, „Jakość generatora CV”
-<!-- indeks: bramka `services/cv_download_policy.py`, trasa `…/cv/original/download-after-generator`, tabela `cv_generator_feedback` (0633), ekran `/settings/jakosc-generatora` -->
+<!-- indeks: bramka `services/cv_download_policy.py`, trasa `…/cv/original/download-after-generator`, tabela `cv_generator_feedback` (0634), ekran `/settings/jakosc-generatora` -->
 
 Decyzje Artura z 02.11.2026 (makiety: https://claude.ai/artifact/9tug3jyTM3kZmjaXo8VcQ6).
 Rekruterzy pobierali CV hurtem do prywatnych baz i czatów. Od 23.10 do 02.11

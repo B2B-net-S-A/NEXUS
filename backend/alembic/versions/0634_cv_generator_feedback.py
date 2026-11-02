@@ -1,7 +1,7 @@
 """Powody „co generator zrobił źle” przy pobraniu oryginału CV.
 
-Revision ID: 0633_cv_generator_feedback
-Revises: 0632_access_usage_daily
+Revision ID: 0634_cv_generator_feedback
+Revises: 0633_hr_m365_scope_alert
 
 Decyzja Artura 02.11.2026: osoba z samą rolą rekrutera pobiera oryginał CV tylko
 po złym wyniku generatora i podaje powód. SQL tabeli ma jedno źródło
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import cv_generator_feedback_schema as schema
 
-revision = "0633_cv_generator_feedback"
-down_revision = "0632_access_usage_daily"
+revision = "0634_cv_generator_feedback"
+down_revision = "0633_hr_m365_scope_alert"
 branch_labels = None
 depends_on = None
 
