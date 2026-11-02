@@ -29,9 +29,9 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidate-search/runs/{run_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/candidate-search/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPDP"
+  "GET /api/candidate-search/jobs/{job_id}/latest-run": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidate-search/jobs/{job_id}/requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidate-search/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/candidate-search/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

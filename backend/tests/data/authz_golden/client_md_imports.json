@@ -31,6 +31,6 @@
  "routes": {
   "GET /api/clients/{client_id}/md-imports": "PPDBPDDDBBBDPPPPDPPPDDDDDDP",
   "GET /api/clients/{client_id}/md-imports/{import_id}": "PPDBPDDDBBBDPPPPDPPPDDDDDDP",
-  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPPDDDDDDP"
+  "GET /api/clients/{client_id}/md-imports/{import_id}/export": "PPDBPDDDBBBDPPPPDPPDDDDDDDP"
  }
 }

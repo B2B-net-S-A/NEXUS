@@ -29,6 +29,6 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stage-breakdown": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/insights/recruitment/stage-breakdown": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

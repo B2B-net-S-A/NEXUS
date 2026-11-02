@@ -29,8 +29,8 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/clients/ranking": "PDDDDDDDDDDDDDDDDDDDDDDDDPD"
  }
 }

@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }

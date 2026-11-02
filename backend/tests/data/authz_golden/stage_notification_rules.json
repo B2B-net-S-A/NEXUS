@@ -32,7 +32,7 @@
   "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
   "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
   "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
   "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
   "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
