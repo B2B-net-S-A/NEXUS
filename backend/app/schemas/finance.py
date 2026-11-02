@@ -100,7 +100,8 @@ class FinanceResultsResponse(BaseModel):
     month: int
     run_id: int
     rows: list[FinanceResultRow]
-    totals: FinanceTotals
+    # `None` = konto bez „Wyników firmy”: kafle sum są wynikiem całej firmy.
+    totals: Optional[FinanceTotals]
     needs_completion_count: int
 
 

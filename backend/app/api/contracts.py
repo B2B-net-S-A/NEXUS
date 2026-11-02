@@ -1954,6 +1954,15 @@ def _redact_contract_finance(
     return item
 
 
+def _hide_company_margin(item: Any) -> None:
+    """Lista bez marży dla posiadacza kwot całej firmy bez „Wyników firmy”."""
+    for field in ("margin", "monthly_margin"):
+        if hasattr(item, field):
+            setattr(item, field, None)
+    for member in getattr(item, "group_members", None) or []:
+        member.margin = None
+
+
 # Kolejność członków w zgrupowanym wierszu i rodzeństwa w szczegółach: żywe
 # umowy przed papierowymi, w obrębie statusu najnowsza pierwsza. Dzięki temu
 # chip/oznaczenie pierwszego klienta wskazuje bieżące zatrudnienie.
@@ -2230,6 +2239,15 @@ async def list_contracts(
         # caller can binary-search a hidden rate/margin by watching which rows
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
+    # Marża przy każdym wierszu i ranking po niej to wynik całej firmy (decyzja
+    # Artura 02.11.2026). Stawki zostają; portfel Delivery Leada bez zmian.
+    company_margin_hidden = global_finance and not has_permission(
+        current_user, ProductAction.company_results
+    )
+    if company_margin_hidden:
+        margin_min = None
+        if sort_by == "margin":
+            sort_by = None
     if not global_finance and sort_by in _FINANCE_SORT_KEYS:
         # Ta sama wyrocznia co przy filtrach kwot: kolejność wierszy po ukrytej
         # stawce pozwala ją odtworzyć. Rola bez finansów dostaje kolejność domyślną.
@@ -2423,6 +2441,9 @@ async def list_contracts(
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
+    if company_margin_hidden:
+        for item in items:
+            _hide_company_margin(item)
     return ContractList(
         items=items,
         total=total,
@@ -2598,6 +2619,10 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    # Plik z całą firmą to zbiorczy wynik (decyzja Artura 02.11.2026): bez
+    # „Wyników firmy” eksport obejmuje jednego klienta.
+    if client_id is None:
+        ensure_permission(current_user, ProductAction.company_results)
     # Eksport zawiera dane kandydata razem ze stawkami i marżą. Finance ma
     # jawny organization-wide business read; zapis i lifecycle kontraktu nadal
     # pozostają poza tą zależnością.
@@ -2720,14 +2745,17 @@ async def export_placements(
     wb = Workbook()
     ws = wb.active
     ws.title = "Placementy"
-    ws.append(list(placements.PLACEMENT_EXPORT_COLUMNS))
+    # Arkusz roboczy zostaje dla całego okresu, ale bez marży, jeśli konto nie ma
+    # „Wyników firmy” (decyzja Artura 02.11.2026).
+    columns: tuple[str, ...] = placements.PLACEMENT_EXPORT_COLUMNS
+    if not has_permission(current_user, ProductAction.company_results):
+        columns, rows = placements.without_margin_columns(rows)
+    ws.append(list(columns))
     for cell in ws[1]:
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"
     date_columns = [
-        idx + 1
-        for idx, name in enumerate(placements.PLACEMENT_EXPORT_COLUMNS)
-        if name in placements.DATE_COLUMNS
+        idx + 1 for idx, name in enumerate(columns) if name in placements.DATE_COLUMNS
     ]
     for row in rows:
         ws.append(safe_row(row))

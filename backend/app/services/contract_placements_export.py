@@ -172,6 +172,25 @@ def bonus_text(bonuses: Iterable[PlacementBonus]) -> str:
     return "; ".join(parts)
 
 
+MARGIN_COLUMNS = frozenset({"Marża", "Marża mies."})
+
+
+def without_margin_columns(
+    rows: Iterable[list[Any]],
+) -> tuple[tuple[str, ...], list[list[Any]]]:
+    """Kolumny i wiersze arkusza bez marży (dla konta bez „Wyników firmy”)."""
+
+    keep = [
+        index
+        for index, name in enumerate(PLACEMENT_EXPORT_COLUMNS)
+        if name not in MARGIN_COLUMNS
+    ]
+    return (
+        tuple(PLACEMENT_EXPORT_COLUMNS[index] for index in keep),
+        [[row[index] for index in keep] for row in rows],
+    )
+
+
 def placement_notes(contract: Contract, facts: PlacementFacts) -> str:
     """Uwagi, które arkusz miał tekstem, złożone z danych kontraktu."""
 
