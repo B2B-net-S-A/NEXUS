@@ -28,6 +28,7 @@ from app.services.hr.calendar import WorkCalendar
 from app.models.user import UserRole
 from app.services.hr.placement_bonuses import (
     PlacementContext,
+    contract_end,
     contract_margin,
     holds_dl_role,
     holds_recruiter_role,
@@ -403,3 +404,89 @@ def test_automation_since_cannot_reach_back_over_compass_imports(
         current, new, has_compass_imports=imported
     )
     assert (error is not None) is refused
+
+
+def test_extra_dl_rule_with_clients_works_only_for_them() -> None:
+    rules = parse_rules(
+        {
+            "extra_dl": [
+                {"dl_user_id": 11, "recipient_user_id": 12, "client_ids": [5, 5]}
+            ]
+        }
+    )
+    assert rules.extra_dl[0].client_ids == (5,)
+    assert bonus_rules.extra_dl_recipient(11, rules, client_id=5) == 12
+    assert bonus_rules.extra_dl_recipient(11, rules, client_id=6) is None
+    assert bonus_rules.extra_dl_recipient(11, rules) is None
+    assert bonus_rules.rules_payload(rules)["extra_dl"][0]["client_ids"] == [5]
+
+
+def test_extra_dl_rule_without_clients_keeps_working_everywhere() -> None:
+    rules = parse_rules({"extra_dl": [{"dl_user_id": 11, "recipient_user_id": 12}]})
+    assert bonus_rules.extra_dl_recipient(11, rules, client_id=6) == 12
+
+
+def test_extra_dl_rule_refuses_bad_client_list() -> None:
+    with pytest.raises(BonusRulesError):
+        parse_rules(
+            {"extra_dl": [{"dl_user_id": 1, "recipient_user_id": 2, "client_ids": 5}]}
+        )
+    with pytest.raises(BonusRulesError):
+        parse_rules(
+            {"extra_dl": [{"dl_user_id": 1, "recipient_user_id": 2, "client_ids": [0]}]}
+        )
+
+
+@pytest.mark.parametrize(
+    ("snapshot", "role", "expected"),
+    [
+        (
+            {
+                "margin_per_hour": "53.00",
+                "recruiter_tier_bounds": ["40", "50"],
+                "recruiter_tier_amounts": ["1000.00", "1500.00", "2000.00"],
+            },
+            "recruiter",
+            "2000.00",
+        ),
+        ({"margin_per_hour": "40.00"}, "recruiter", "1000.00"),
+        (
+            {
+                "margin_per_hour": "43.00",
+                "individual_percent": "35",
+                "monthly_hours": 168,
+            },
+            "recruiter",
+            "2528.40",
+        ),
+        (
+            {"margin_per_hour": "53.00", "dl_hours": 160, "dl_percent": "10"},
+            "dl",
+            "848.00",
+        ),
+        ({"margin_per_hour": "40.00", "monthly_hours": 168}, "dl_extra", "672.00"),
+    ],
+)
+def test_rule_amount_from_snapshot(snapshot, role, expected) -> None:
+    assert bonus_rules.rule_amount(snapshot, role) == Decimal(expected)
+
+
+def test_rule_amount_without_margin_is_unknown() -> None:
+    assert bonus_rules.rule_amount({}, "dl") is None
+    assert bonus_rules.rule_amount({"margin_per_hour": "-1"}, "recruiter") is None
+    assert bonus_rules.rule_amount({"margin_per_hour": "x"}, "dl") is None
+
+
+def test_active_contract_ignores_stale_termination_date() -> None:
+    from app.models.contract import ContractStatus
+
+    stale = Contract(
+        status=ContractStatus.active,
+        start_date=date(2026, 9, 1),
+        terminated_at=date(2026, 8, 31),
+    )
+    assert contract_end(stale) is None
+    ended = Contract(status=ContractStatus.ended, terminated_at=date(2026, 8, 31))
+    assert contract_end(ended) == date(2026, 8, 31)
+    fixed_term = Contract(status=ContractStatus.active, end_date=date(2026, 12, 31))
+    assert contract_end(fixed_term) == date(2026, 12, 31)
