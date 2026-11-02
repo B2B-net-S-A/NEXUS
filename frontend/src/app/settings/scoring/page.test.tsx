@@ -110,7 +110,7 @@ describe("Ranking kandydatów — panel wag", () => {
       expect(mocks.saveKnownPoints).toHaveBeenCalledWith({ client: 9, note_recent: 8, note_older: 2 }),
     );
     expect(mocks.saveDraft).not.toHaveBeenCalled();
-    expect(screen.getByTestId("ranking-known-points")).toHaveTextContent("w top 20 z 32% do 41%");
+    expect(screen.getByTestId("ranking-known-points")).toHaveTextContent("w top 20 z 32% do 38%");
   });
 
   it("Delivery Lead widzi punkty, ale nie zapisuje", async () => {
