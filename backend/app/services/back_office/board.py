@@ -158,7 +158,7 @@ def card_payload(
             else None
         ),
         "substituting": card.substituting,
-        "created_at": card.created_at,
+        "created_at": meta.get("since") or card.created_at,
         "updated_at": card.updated_at,
         "escalated": card.escalated_at is not None,
         "priority": (

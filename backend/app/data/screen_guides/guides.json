@@ -999,7 +999,7 @@
     "title": "Opieka nad konsultantami",
     "section": null,
     "roles": [],
-    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów.",
+    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów. Gdy włączony jest moduł Back office, główna zakładka to „Kolejka”: cztery zespoły po cztery kolumny, „Biorę” i „Zastępuję”, limit 5 spraw w toku, a dotychczasowy kanban jest pod przełącznikiem „Po statusie”.",
     "tasks": [
       {
         "q": "Od czego zacząć dzień?",
@@ -1034,6 +1034,11 @@
     ],
     "anchors": [
       {
+        "id": "hr.care.queue",
+        "label": "Kolejka",
+        "describe": "Karty czterech zespołów po typie pracy, filtry Do wzięcia i Moje, przełącznik Po typie / Po statusie, lista Wszystko dla kierownika."
+      },
+      {
         "id": "hr.care.board",
         "label": "Do zrobienia",
         "describe": "Tablica spraw z kartami opieki: kolumny Nowa, W toku, Czeka na kogoś, Zrobione, chipy obszarów i przełącznik Tablica / Lista."
@@ -1053,7 +1058,7 @@
     "sources": [
       "frontend/src/components/care/CareScreen.tsx",
       "frontend/src/components/care/card/ConsultantCard.tsx",
-      "frontend/src/components/care/ConversationDialog.tsx"
+      "frontend/src/components/back-office/QueueBoard.tsx"
     ]
   }
 ]

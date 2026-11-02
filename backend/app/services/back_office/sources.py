@@ -95,6 +95,7 @@ async def case_cards(db: AsyncSession, today: date) -> list[CardSpec]:
         f"""
         SELECT c.id, c.title, c.area, c.status, c.due_on, c.contract_id,
                c.subject_user_id, c.assignee_user_id, c.source, c.source_key,
+               c.created_at,
                k.client_id, coalesce({_PERSON}, su.name) AS person,
                {_CLIENT} AS client
         FROM admin_cases c
@@ -122,7 +123,11 @@ async def case_cards(db: AsyncSession, today: date) -> list[CardSpec]:
             mirror_state=row["status"],
             mirror_assignee=row["assignee_user_id"],
             mirrors_case=True,
-            meta={"area": row["area"], "case_source": row["source"]},
+            meta={
+                "area": row["area"],
+                "case_source": row["source"],
+                "since": row["created_at"].isoformat(),
+            },
         )
         for row in rows
     ]

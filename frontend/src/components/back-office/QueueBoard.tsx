@@ -261,9 +261,11 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
     ...(board.me.is_lead ? (["escalated"] as const) : []),
   ];
   const onOpen = (card: BoCard) => write((next) => next.set("karta", String(card.id)));
+  // Kanban Opieki ma własne filtry i szukanie; dwa paski obok siebie mylą.
+  const kanban = activeTeam?.id === "care" && layout === "status" && Boolean(careStatusBoard);
 
   return (
-    <div className="space-y-2" data-help="back-office.queue">
+    <div className="space-y-2" data-help="hr.care.queue">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Zespoły">
           {board.teams.map((team) => (
@@ -322,71 +324,76 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-        <span className="inline-flex overflow-hidden rounded-md border">
-          {filters.map((id) => (
-            <button
-              key={id}
-              type="button"
-              aria-pressed={filter === id}
-              onClick={() =>
-                write((next) => {
-                  if (id === "all") next.delete("filtr");
-                  else next.set("filtr", id);
-                })
-              }
+      {kanban ? null : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <span className="inline-flex overflow-hidden rounded-md border">
+              {filters.map((id) => (
+                <button
+                  key={id}
+                  type="button"
+                  aria-pressed={filter === id}
+                  onClick={() =>
+                    write((next) => {
+                      if (id === "all") next.delete("filtr");
+                      else next.set("filtr", id);
+                    })
+                  }
+                  className={cn(
+                    "px-2.5 py-1",
+                    filter === id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground",
+                  )}
+                >
+                  {FILTER_LABELS[id]}
+                </button>
+              ))}
+            </span>
+            <span className="flex items-center gap-2">
+              <Input
+                aria-label="Szukaj spraw"
+                placeholder="Szukaj spraw…"
+                className="h-7 w-40 text-xs"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+              <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreating(true)}>
+                Nowa sprawa
+              </Button>
+              {board.me.is_lead ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 gap-1 px-2 text-xs"
+                  disabled={sync.isPending}
+                  onClick={() =>
+                    sync.mutate(undefined, {
+                      onError: (error) =>
+                        showToast(apiErrorMessage(error, "Nie udało się odświeżyć kolejki."), "error"),
+                    })
+                  }
+                >
+                  <RefreshCw aria-hidden className="size-3" /> Odśwież
+                </Button>
+              ) : null}
+            </span>
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Bez osoby: <span className="font-medium text-foreground">{board.counts.unassigned}</span> · po terminie i bez
+            osoby: <span className="font-medium text-destructive">{board.counts.overdue_unassigned}</span> · u kierownika po
+            dniu roboczym: <span className="font-medium text-foreground">{board.counts.escalated}</span> · moje w toku:{" "}
+            <span
               className={cn(
-                "px-2.5 py-1",
-                filter === id ? "bg-primary font-medium text-primary-foreground" : "text-muted-foreground",
+                "font-medium",
+                board.me.in_progress > board.me.limit ? "text-destructive" : "text-foreground",
               )}
             >
-              {FILTER_LABELS[id]}
-            </button>
-          ))}
-        </span>
-        <span className="flex items-center gap-2">
-          <Input
-            aria-label="Szukaj spraw"
-            placeholder="Szukaj spraw…"
-            className="h-7 w-40 text-xs"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreating(true)}>
-            Nowa sprawa
-          </Button>
-          {board.me.is_lead ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7 gap-1 px-2 text-xs"
-              disabled={sync.isPending}
-              onClick={() =>
-                sync.mutate(undefined, {
-                  onError: (error) =>
-                    showToast(apiErrorMessage(error, "Nie udało się odświeżyć kolejki."), "error"),
-                })
-              }
-            >
-              <RefreshCw aria-hidden className="size-3" /> Odśwież
-            </Button>
-          ) : null}
-        </span>
-      </div>
+              {board.me.in_progress} z {board.me.limit}
+            </span>
+          </p>
 
-      <p className="text-xs text-muted-foreground">
-        Bez osoby: <span className="font-medium text-foreground">{board.counts.unassigned}</span> · po terminie i bez
-        osoby: <span className="font-medium text-destructive">{board.counts.overdue_unassigned}</span> · u kierownika po
-        dniu roboczym: <span className="font-medium text-foreground">{board.counts.escalated}</span> · moje w toku:{" "}
-        <span
-          className={cn(
-            "font-medium",
-            board.me.in_progress > board.me.limit ? "text-destructive" : "text-foreground",
-          )}
-        >
-          {board.me.in_progress} z {board.me.limit}
-        </span>
-      </p>
+        </>
+      )}
 
       {board.me.is_lead && !activeTeam ? <TriageStrip board={board} /> : null}
       {activeTeam && layout === "status" ? (
