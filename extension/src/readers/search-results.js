@@ -1,8 +1,9 @@
 // Czytnik list osób: wyniki wyszukiwania (search/results/people), wyszukiwanie
 // w Recruiterze (talent/hire/…/discover/recruiterSearch) i lista projektu
-// (talent/hire/…/manage). Odczyt tylko widocznych pozycji, najwyżej 50.
+// (talent/hire/…/manage). Odczyt pozycji wczytanych na stronie, najwyżej 50.
 
-import { CURRENT_PREFIX, RESULTS, UNKNOWN_MEMBER } from "./selectors.js";
+import { parseDateRange } from "./dates.js";
+import { CURRENT_PREFIX, RESULTS, SECTION_HEADINGS, UNKNOWN_MEMBER } from "./selectors.js";
 import {
   clean,
   firstText,
@@ -43,6 +44,16 @@ function findItems(main) {
   return out;
 }
 
+/** „Stanowisko at Firma · 2023 – Present” z wiersza Recruitera; pusto, gdy pozycja nie trwa. */
+function currentFromHistory(item) {
+  const experience = safeQueryAll(item, RESULTS.historyGroup).find((group) => {
+    const term = clean(safeQueryAll(group, RESULTS.historyTerm)[0]?.textContent).toLowerCase();
+    return SECTION_HEADINGS.experience.some((name) => term.startsWith(name.toLowerCase()));
+  });
+  const line = experience ? clean(safeQueryAll(experience, "li")[0]?.textContent) : "";
+  return line && parseDateRange(line.split("·").pop())?.current ? line : "";
+}
+
 function readItem(item) {
   const link = safeQueryAll(item, RESULTS.personLinks).find((a) => !inForeignRegion(a)) || null;
   const slug = safeQueryAll(item, "a[href*='/in/']")
@@ -56,7 +67,7 @@ function readItem(item) {
     .filter((b) => b && b !== fullName && !isNoise(b));
   const headline = firstText(item, RESULTS.headline) || blocks[0] || "";
   const location = firstText(item, RESULTS.location) || "";
-  const currentLine = clean(firstText(item, RESULTS.current)).replace(CURRENT_PREFIX, "");
+  const currentLine = clean(firstText(item, RESULTS.current)).replace(CURRENT_PREFIX, "") || currentFromHistory(item);
   const fromCurrent = splitTitleCompany(currentLine);
   const fromHeadline = splitTitleCompany(headline);
   const company = fromCurrent.company || fromHeadline.company || null;

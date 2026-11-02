@@ -30,7 +30,7 @@ EXTENSION_KEY_HEADER = "X-Extension-Key"
 # Wersja z extension/manifest.json (pilnuje test). Wtyczka z ZIP-a (strona
 # /wtyczka) nie aktualizuje się sama — panel porównuje swoją wersję z tą
 # i pokazuje „Jest nowa wersja”. Podbij razem z manifestem i ZIP-em zespołu.
-LATEST_EXTENSION_VERSION = "1.0.3"
+LATEST_EXTENSION_VERSION = "1.0.4"
 
 _WIRE_PREFIX = "nxe_v1_"
 _KEY_ID_HEX_LEN = 24

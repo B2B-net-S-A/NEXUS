@@ -161,12 +161,40 @@ test("starszy układ listy wyników: ukryte „Zobacz profil …” nie przyklej
   assert.ok(!names.some((n) => /Zobacz|View/.test(n)), String(names));
 });
 
-test("captureConfig: przewijanie tylko na profilach, imię z h2 na profilu publicznym", () => {
+test("captureConfig: profile przewijamy, listy LinkedIna nie, imię z h2 na profilu publicznym", () => {
   assert.equal(captureConfig(PROFILE_URL).scroll, true);
   assert.deepEqual(captureConfig(PROFILE_URL).headingSelectors, ["section h1", "h2", "h1"]);
   assert.equal(captureConfig("https://www.linkedin.com/talent/profile/AEMA1").scroll, true);
   assert.equal(captureConfig("https://www.linkedin.com/search/results/people/?k=1").scroll, false);
   assert.ok(captureConfig(PROFILE_URL).scrollBudgetMs <= 4000);
+});
+
+test("captureConfig: listy Recruitera przewijamy, bo wiersze doładowują się po przewinięciu", () => {
+  for (const url of ["https://www.linkedin.com/talent/search?start=0", "https://www.linkedin.com/talent/hire/555/discover/recruiterSearch", "https://www.linkedin.com/talent/hire/555/manage/all"]) {
+    const cfg = captureConfig(url);
+    assert.equal(cfg.scroll, true, url);
+    // Zmierzone 02.11.2026: 25 wierszy to ponad 5000 px strony.
+    assert.ok(cfg.scrollStepPx * (cfg.scrollBudgetMs / cfg.scrollPauseMs) >= 20000, url);
+  }
+});
+
+test("lista Recruitera: wiersze doczytane w trakcie przewijania trafiają do zrzutu", async () => {
+  const url = "https://www.linkedin.com/talent/search?start=0";
+  const row = (i) => `<li><article class="profile-list-item"><a data-test-row-lockup-full-name href="https://www.linkedin.com/talent/search/profile/AEMA${i}">Osoba Fikcyjna ${i}</a><p data-test-row-lockup-headline>Tester</p></article></li>`;
+  const rows = (n) => Array.from({ length: n }, (_, i) => row(i + 1)).join("");
+  load(`<html><body><ol id="rows">${rows(3)}</ol></body></html>`, url);
+  const list = document.getElementById("rows");
+  let top = 0;
+  const scroller = { scrollHeight: 5000, clientHeight: 700, get scrollTop() { return top; }, set scrollTop(v) { top = v; if (top > 0) list.innerHTML = rows(25); } };
+  Object.defineProperty(document, "scrollingElement", { configurable: true, value: scroller });
+  globalThis.getComputedStyle = () => ({ overflowY: "visible" });
+  try {
+    const snap = await capturePage({ ...captureConfig(url), scrollBudgetMs: 60, scrollPauseMs: 1 });
+    assert.equal(snap.listItems.length, 25);
+    assert.equal(top, 0, "panel wraca na miejsce użytkownika");
+  } finally {
+    delete globalThis.getComputedStyle;
+  }
 });
 
 const RECRUITER_PROFILE_URL = "https://www.linkedin.com/talent/hire/555/discover/recruiterSearch/profile/AEMAFAKE3";
