@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/integrations/v1/absences": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/absences/{request_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/absences": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/absences/{request_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PUT /api/jobs/{job_id}/champions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

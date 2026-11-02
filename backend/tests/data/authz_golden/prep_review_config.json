@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/prep-review-config": "PDPPDPDDPPPPPDPPPPPDDPPPPD",
-  "PUT /api/prep-review-config": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/prep-review-config": "PDPPDPDDPPPPPDPPPPPDDPPPPDD",
+  "PUT /api/prep-review-config": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

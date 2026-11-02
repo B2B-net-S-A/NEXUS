@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/contracts/{contract_id}/client-reassign-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contracts/{contract_id}/client-reassign": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/contracts/{contract_id}/client-reassign-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contracts/{contract_id}/client-reassign": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

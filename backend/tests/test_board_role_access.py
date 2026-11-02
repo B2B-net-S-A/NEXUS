@@ -220,6 +220,10 @@ def test_board_never_gets_payroll() -> None:
 def test_board_reads_money_but_head_of_recruitment_does_not() -> None:
     assert action_permissions.reads_board_money(_user(UserRole.board))
     assert action_permissions.reads_board_money(
+        _user(UserRole.finance, "company_results")
+    )
+    # „Moduł Finanse” służy pracy na rekordach, nie kokpitowi (02.11.2026).
+    assert not action_permissions.reads_board_money(
         _user(UserRole.finance, "finance_module")
     )
     assert not action_permissions.reads_board_money(_user(UserRole.head_of_recruitment))

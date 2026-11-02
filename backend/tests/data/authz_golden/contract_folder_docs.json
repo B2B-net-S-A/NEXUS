@@ -25,18 +25,19 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/contract-docs-sharepoint/review": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs/{run_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/runs/{run_id}/report.xlsx": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-docs-sharepoint/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/review/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/runs/{run_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-docs-sharepoint/sync-now": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/contract-docs-sharepoint/review": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs/{run_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/runs/{run_id}/report.xlsx": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-docs-sharepoint/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/review/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/runs/{run_id}/apply": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-docs-sharepoint/sync-now": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

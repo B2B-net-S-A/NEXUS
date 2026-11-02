@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/user-email-templates": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/user-email-templates/{template_id}/render": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PUT /api/user-email-templates/{template_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

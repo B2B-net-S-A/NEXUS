@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
+  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
  }
 }
