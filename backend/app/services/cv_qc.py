@@ -101,6 +101,10 @@ CONFIRM_TEXT_MAX = 1000
 # Potwierdzenie ma mówić, co kandydat powiedział: 101 ze 153 wpisów od 12.10.2026
 # było samym kliknięciem i Delivery Lead nie miał czego sprawdzić.
 CONFIRM_TEXT_MIN = 15
+ROLE_COMPANY_MAX = 80
+_COMPANY_LIST = re.compile(r"\b\d+\.\s+\S+.*\b\d+\.\s+\S")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+_DENIAL = re.compile(r"\b(?:nie|bez|brak|nigdy|not|no|never|without)\b", re.IGNORECASE)
 CONFIRMATIONS_MAX = 20
 DESCRIPTIVE_MIN_WORDS = 6
 HEADER_BLOCKS = 6
@@ -3095,9 +3099,28 @@ def confirm_roles(src: dz.ReviewSources) -> list[str]:
     seen: dict[str, str] = {}
     for entry in entries:
         company = " ".join(str(entry.get("company") or "").split())
-        if company:
+        # Odczyt CV bywa listą firm w jednym polu („1. Marcel 2. Capco 3. …”).
+        if (
+            company
+            and len(company) <= ROLE_COMPANY_MAX
+            and not _COMPANY_LIST.search(company)
+        ):
             seen.setdefault(company.casefold(), company)
     return list(seen.values())
+
+
+def _sentence_denies(answer: str, term: str) -> bool:
+    """Zdanie z wymaganiem przeczy mu: „Samego Customer 360 nie, podobne: …”.
+
+    `drop_negative_sentences` usuwa zdania z typowym przeczeniem, a takie luźne
+    odpowiedzi przepuszcza. Lista faktów woli pominąć wątpliwe zdanie niż
+    podsunąć rekruterowi coś, czego kandydat nie powiedział.
+    """
+    wanted = term.casefold()
+    for sentence in _SENTENCE_END.split(answer):
+        if wanted in sentence.casefold() and _DENIAL.search(sentence):
+            return True
+    return False
 
 
 def checked_role(src: dz.ReviewSources, role: Optional[str]) -> Optional[str]:
@@ -3122,7 +3145,11 @@ async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
     src = await _load_sources(stage=stage, db=db)
     original = src.original.get("text") or ""
     answers = answers_text(stage, src.job) or ""
-    known = {_norm(row["text"]) for row in await _confirmations(db, src.candidate.id)}
+    # Tylko to, co potwierdzono: cytat w notatce wymienia też inne wymagania.
+    known = {
+        _norm(row["text"].split(" — ", 1)[0])
+        for row in await _confirmations(db, src.candidate.id)
+    }
     facts: list[dict] = []
     for req in src.must:
         if not answers or dz.found_in(original, req, mode="support"):
@@ -3134,7 +3161,7 @@ async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
             continue
         term = match_in(answers, req)
         quote = _snippet(answers, term) if term else None
-        if quote:
+        if quote and not _sentence_denies(answers, term):
             facts.append({"term": req.label, "quote": quote})
     return {"facts": facts, "roles": confirm_roles(src)}
 

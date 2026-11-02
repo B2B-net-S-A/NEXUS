@@ -5526,6 +5526,46 @@ def test_confirm_roles_are_the_candidates_companies_once() -> None:
     assert qc.confirm_roles(src) == ["Firma A", "Firma B"]
 
 
+def test_confirm_roles_skip_a_field_that_is_a_list_of_companies() -> None:
+    # Staging 02.11.2026: odczyt CV dał jedną „firmę” z dziesięcioma nazwami.
+    src = _role_src(
+        [
+            {
+                "company": "1. Marcel 2. Capco 3. 360 Code Lab 4. Avra",
+                "position": "Dev",
+            },
+            {"company": "Firma " + "x" * 90, "position": "Dev"},
+            {"company": "3M", "position": "Dev"},
+        ]
+    )
+    assert qc.confirm_roles(src) == ["3M"]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Samego Customer 360 nie, podobne: moduły w Salesforce.",
+        "Customer 360 not used, only similar tools.",
+        "Bez Customer 360, tylko inne moduły.",
+    ],
+)
+def test_denied_requirement_is_not_a_fact_from_the_conversation(answer: str) -> None:
+    assert qc._sentence_denies(answer, "Customer 360")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Pracowałem z Customer 360 od 2020. Nie znam Iceberga.",
+        "Customer 360 używam, a to nie jest mój jedyny projekt z nie mniejszym zakresem."[
+            :29
+        ],
+    ],
+)
+def test_sentence_about_the_requirement_stays_a_fact(answer: str) -> None:
+    assert not qc._sentence_denies(answer, "Customer 360")
+
+
 def test_checked_role_accepts_only_the_candidates_company() -> None:
     src = _role_src([{"company": "Firma A", "position": "Dev"}])
     assert qc.checked_role(src, None) is None
@@ -5555,7 +5595,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
     stage_id = await _seed_review(world, hor, api_client)
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, world["job_id"])
-        job.must_skills = ["Kafka", "Terraform"]
+        job.must_skills = ["Kafka", "Redis", "Terraform"]
         candidate = await db.get(Candidate, world["candidate_id"])
         candidate.experience = [{"company": "Firma Testowa", "position": "Dev"}]
         stage = await db.get(CandidateStage, stage_id)
@@ -5564,7 +5604,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
                 {
                     "question_id": "q1",
                     "question_text": "Czy znasz Terraform?",
-                    "response": "Pracowałem z Kafka od 2023 w projekcie płatności.",
+                    "response": "Pracowałem z Kafka i Redis od 2023 w projekcie płatności.",
                 }
             ]
         }
@@ -5573,7 +5613,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
     try:
         with hydrated_taxonomy():
             body = (await api_client.get(url, headers=rec)).json()
-        assert [fact["term"] for fact in body["facts"]] == ["Kafka"]
+        assert [fact["term"] for fact in body["facts"]] == ["Kafka", "Redis"]
         assert "projekcie płatności" in body["facts"][0]["quote"]
         assert body["roles"] == ["Firma Testowa"]
 
@@ -5591,7 +5631,8 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
                 url, headers=rec, json={"term": "Kafka", "role": "Firma Testowa"}
             )
         assert ok.status_code == 200, ok.text
-        assert ok.json()["facts"] == []
+        # Cytat notatki wymienia też Redis, ale potwierdzono tylko Kafkę.
+        assert [fact["term"] for fact in ok.json()["facts"]] == ["Redis"]
         async with AsyncSessionLocal() as db:
             note = await db.scalar(
                 select(Note).where(
