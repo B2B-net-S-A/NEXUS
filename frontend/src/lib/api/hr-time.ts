@@ -89,6 +89,8 @@ export interface MonthView {
   employment_type: "uop" | "b2b" | "zlecenie";
   default_location: WorkLocation;
   can_log_overtime: boolean;
+  /** Kartoteka: bez sufitu dnia i bez opisu godzin ponad 8 h. */
+  no_hours_limit?: boolean;
   /** Przełożony z kartoteki (bez niego akceptują Kadry). */
   approver_name: string | null;
   timesheet: TimesheetHeader | null;

@@ -352,6 +352,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   timesheetu; ponad 8 h (do 16 h) to nadgodziny — tylko z prawem
   (`can_log_overtime`, Kadry, admin) i z uzasadnieniem. Pełny dzień urlopu
   blokuje wpis, pół dnia zajmuje 4 h; płatny urlop B2B z puli to auto-wpis.
+- **„Godziny bez limitu”** (`no_hours_limit`, kartoteka, decyzja Artura 02.11.2026,
+  bo osoba na wielu projektach raportuje ponad 8 h dziennie): reguła idzie za osobą,
+  której raport dotyczy, nie za wpisującym. Bez sufitu 16 h na sumę dnia i bez opisu
+  godzin ponad 8 h. Wpis ponad 8 h nadal ma `is_overtime`; bez opisu dostaje tekst
+  `NO_LIMIT_REASON`, bo CHECK `ck_timesheet_entries_overtime` wymaga uzasadnienia,
+  a raport i PDF mają dalej pokazywać takie dni. Zostają: jeden wpis ≤ 24 h (CHECK),
+  blokada pełnego dnia urlopu, „Wypełnij miesiąc” ≤ 8 h dziennie.
 - Przejścia: szkic → wysłany → zaakceptowany; zwrot do szkicu z notatką; cofnięcie
   akceptacji. Nikt nie akceptuje własnego timesheetu (CHECK `approved_by <> user_id`).
 - **`pdf_hash` = funkcja Compassa co do bajtu** (`time_hash.py`, sortowanie jak

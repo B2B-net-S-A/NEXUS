@@ -29,6 +29,8 @@ export interface EntryDialogProps {
   entry: TimesheetEntry | null;
   /** Czy wolno wpisać nadgodziny (kartoteka albo Kadry) — serwer i tak sprawdza. */
   allowOvertime: boolean;
+  /** Kartoteka osoby: bez sufitu dnia i bez opisu godzin ponad 8 h. */
+  noHoursLimit?: boolean;
   /** Forma osoby: przy B2B i zleceniu „godziny ponad 8 h” zamiast „nadgodzin”. */
   form?: EmploymentType | null;
   onSave: (payload: EntryPatch & { id?: number }) => Promise<unknown>;
@@ -45,6 +47,7 @@ export function EntryDialog({
   day,
   entry,
   allowOvertime,
+  noHoursLimit = false,
   form,
   onSave,
   onDelete,
@@ -79,13 +82,13 @@ export function EntryDialog({
       setError("Opis jest wymagany.");
       return;
     }
-    if (overtime && !allowOvertime && !hoursUnchanged) {
+    if (overtime && !noHoursLimit && !allowOvertime && !hoursUnchanged) {
       setError(
         `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Kadry.`,
       );
       return;
     }
-    if (overtime && !hoursUnchanged && reason.trim().length < 5) {
+    if (overtime && !noHoursLimit && !hoursUnchanged && reason.trim().length < 5) {
       setError(`${words.overtime_reason_required} (co najmniej 5 znaków).`);
       return;
     }
@@ -133,7 +136,9 @@ export function EntryDialog({
       onOpenChange={onOpenChange}
       title={`${entry ? "Wpis" : "Nowy wpis"} · ${formatWeekdayDayPl(day.date)}`}
       description={
-        day.capacity != null && day.capacity < 8
+        noHoursLimit
+          ? "Godziny tego dnia bez limitu. Jeden wpis to najwyżej 24 h."
+          : day.capacity != null && day.capacity < 8
           ? `Pół dnia urlopu — do wpisania ${formatHours(day.capacity)} h.`
           : "Limit dnia to 8 h razem ze wszystkimi wpisami."
       }
@@ -212,7 +217,7 @@ export function EntryDialog({
             Podpowiedź: {hint.text}
           </p>
         ) : null}
-        {overtime ? (
+        {overtime && !noHoursLimit ? (
           <FormField
             label={words.overtime_reason}
             htmlFor="time-entry-reason"
