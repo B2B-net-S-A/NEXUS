@@ -133,7 +133,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.saved_search_reapproval: ProductSection.sourcing,
     # 0338: cykl rozmowy u klienta (terminy od klienta) — sekcja kalendarza.
     NotificationType.interview_slots_requested: ProductSection.pipeline,
-    # 0629: sprawa z panelu klienta pod linkiem z CV.
+    # 0630: sprawa z panelu klienta pod linkiem z CV.
     NotificationType.client_panel_request: ProductSection.pipeline,
     NotificationType.interview_slot_chosen: ProductSection.pipeline,
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
