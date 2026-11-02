@@ -916,7 +916,7 @@ async def lifespan(app: FastAPI):
         "cc_participants_sync": asyncio.create_task(cc_participants_sync_loop()),
         # audyt 22.09 r2 (DATA-03/04/PROD-10): dziennik auto-matcha, kolejki.
         "queue_retention": asyncio.create_task(queue_retention_loop()),
-        # 0628: zapis i retencja licznika użycia obszarów.
+        # 0629: zapis i retencja licznika użycia obszarów.
         "access_usage": asyncio.create_task(access_usage_loop()),
         "calendar_reminder": asyncio.create_task(calendar_reminder_loop()),
         "match_history_ttl": asyncio.create_task(match_history_ttl_loop()),
@@ -3853,7 +3853,7 @@ async def api_health_deep_check():
         # 0625: nowości do przeklikania — kropki i lista „Nowości” czytają ją
         # przy każdym wejściu.
         ("novelty_progress", NoveltyProgress),
-        # 0628: licznik użycia obszarów — pętla zapisuje tu co minutę.
+        # 0629: licznik użycia obszarów — pętla zapisuje tu co minutę.
         ("access_usage_daily", AccessUsageDaily),
     ]
 

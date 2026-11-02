@@ -1,4 +1,4 @@
-"""Dzienny licznik użycia obszarów (0628) — patrz ``app/services/access_usage.py``."""
+"""Dzienny licznik użycia obszarów (0629) — patrz ``app/services/access_usage.py``."""
 
 from datetime import date
 

@@ -1,4 +1,4 @@
-# Licznik użycia obszarów do przeglądu dostępów (0628, 02.11.2026)
+# Licznik użycia obszarów do przeglądu dostępów (0629, 02.11.2026)
 <!-- indeks: ACCESS_USAGE_COUNTER_ENABLED domyślnie wyłączony, osoba × obszar × dzień, po ekranie nie po trasie, X-Nexus-Screen, retencja 90 dni, scripts.access_usage_review -->
 
 Program najmniejszych dostępów (Artur 02.11.2026): dużo osób ma dostępy, których
@@ -69,6 +69,11 @@ ma `usageCounter: true`, a po kilku minutach pracy zespołu tabela ma wiersze
 SELECT day, area, COUNT(*) AS osoby, SUM(entries) AS wejscia
   FROM access_usage_daily GROUP BY day, area ORDER BY day DESC, area;
 ```
+
+Nie włączaj flagi w tym samym oknie co scalenie tego kodu i nie cofaj API poniżej
+tej wersji przy włączonym liczniku: karta otwarta przed cofnięciem zna sygnał
+i dalej wysyłałaby nagłówek, którego starsze API nie przepuszcza w CORS, aż do
+przeładowania. Przed cofnięciem najpierw wyłącz flagę.
 
 Pracownicy powinni wiedzieć o pomiarze przed włączeniem. Co i jak im powiedzieć,
 decyduje Artur.
