@@ -70,4 +70,5 @@
   w eksporcie, bo klucz musi być taki sam po obu stronach. `normalize_registry_id` zostaje bez zmian dla poczty zamówień:
   ucina takie numery, ale skan tekstu znajduje tylko polskie i fińskie, więc ucięty klucz nigdy tam nie trafia.
   Faktura nie trzyma XML-a (tylko `xml_sha256`), więc numeru uciętego przed tą zmianą nie da się poprawić z bazy; trzeba
-  pobrać fakturę z KSeF ponownie po `ksef_number`.
+  pobrać fakturę z KSeF ponownie po `ksef_number`. Pomiar z 02.11.2026: na produkcji 0 faktur przy wyłączonym module,
+  więc modułu włączonego po wdrożeniu tej zmiany to nie dotyczy i skryptu naprawczego nie ma.
