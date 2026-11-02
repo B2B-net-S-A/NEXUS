@@ -167,6 +167,22 @@ services:
       KNOWN_PEOPLE_BOOST_ENABLED: ${KNOWN_PEOPLE_BOOST_ENABLED:-true}
       KEYWORD_SEARCH_FOLDED_FTS: ${KEYWORD_SEARCH_FOLDED_FTS:-true}
       MATCH_POOL_SIZE: ${MATCH_POOL_SIZE:-2000}
+      # Reszta `_SCORING_CACHE_INPUTS`: wartość z produkcji zapisuje co noc
+      # `scripts/staging/nightly_sync.py` w `.env.staging-flags.local`. Bez tego
+      # pliku obowiązuje wartość domyślna z `config.py`. Przełączniki integracji
+      # wyżej są na sztywno, więc nocna kopia flag ich nie włączy.
+      CHAMPION_AVAILABILITY_FALLBACK_ENABLED:
+      CHAMPION_AVAILABILITY_CONFLICT_ENABLED:
+      AI_SCORING_CONTRACT_V2:
+      AI_SCORING_SKILL_RECENCY:
+      VOYAGE_MODEL:
+      SEMANTIC_CALIBRATION_GAMMA:
+      SCORE_UNKNOWN_NEUTRAL_FRACTION:
+      AI_TEXT_SCHEMA_V2:
+      AI_TEXT_SCHEMA_V3:
+      QDRANT_COLLECTION:
+      SCORE_RENORMALIZE_UNSCORED_LAYERS:
+      CV_PASSAGES_ENABLED:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:
