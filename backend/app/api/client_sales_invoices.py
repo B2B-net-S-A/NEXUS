@@ -69,7 +69,7 @@ from app.services.client_invoicing.ledger import ZERO, check, rows_by_period
 from app.services.client_sales_invoices_schema import REASON_MAX_LENGTH
 from app.services.hr.bank import statements
 from app.services.hr.bank.parsed import StatementError
-from app.services.order_client_identity import normalize_registry_id
+from app.services.order_client_identity import normalize_buyer_number
 from app.services.permission_denial import permission_denied
 
 router = APIRouter(
@@ -171,7 +171,7 @@ async def _export_response(
         for client_id, raw in (
             await db.execute(select(Client.id, Client.nip).where(Client.id.in_(ids)))
         ).all():
-            nips[int(client_id)] = normalize_registry_id(raw or "")
+            nips[int(client_id)] = normalize_buyer_number(raw or "")
     lines = export.table(payload["rows"], period=payload["period"], nips=nips)
     filename = f"{stem}-{payload['period']}"
     if fmt == "xlsx":
