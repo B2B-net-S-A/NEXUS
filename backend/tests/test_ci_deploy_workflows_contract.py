@@ -1042,6 +1042,13 @@ def test_rechain_parks_the_lane_before_pushing() -> None:
     assert steps.index(lane) < steps.index(_step(steps, "Przepnij")), (
         "Najpierw etykiety, potem push — inaczej auto-enqueue wrzuci wszystkich."
     )
+    after = _step(steps, "Pas migracji po przepięciu (kolej następnego)")
+    assert steps.index(after) > steps.index(_step(steps, "Przepnij")), (
+        "Kolej dostaje dopiero przepięty PR, a pusty pas nikt inny nie obudzi."
+    )
+    assert after["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
+    assert '"$RUNNER_TEMP/queue_migration_lane.py"' in after["run"]
+    assert "!cancelled()" in after["if"], "Błąd przepięcia jednego PR-a nie wstrzymuje pasa."
 
 
 def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:
