@@ -324,7 +324,7 @@ describe("CalendarCycleScreen", () => {
     expect(within(panel).getByRole("list", { name: "Kroki rozmowy u klienta" })).toBeInTheDocument();
     const questions = await within(panel).findByTestId("cycle-client-questions");
     await waitFor(() => expect(questions).toHaveTextContent("Transakcje w Spring"));
-    expect(questions).toHaveTextContent("Pytania klienta Alior z poprzednich rozmów");
+    expect(questions).toHaveTextContent("Pytania klienta Alior z rozmów w tej rekrutacji");
   });
 
   it("link z dzwonka do pary spoza „mine” przełącza HoR na cały zespół (R10-N15-4)", async () => {
