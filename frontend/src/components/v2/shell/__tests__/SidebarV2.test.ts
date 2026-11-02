@@ -164,7 +164,7 @@ describe("visibleNavSections", () => {
 
     expect(viewer).not.toContain("/candidates");
     expect(viewer).not.toContain("/clients");
-    // 0637: bez żadnej sekcji znikają też Rekrutacje i Insights.
+    // 0636: bez żadnej sekcji znikają też Rekrutacje i Insights.
     expect(viewer).not.toContain("/jobs");
     expect(viewer).not.toContain("/insights");
     expect(viewer).not.toContain("/cortex");
@@ -226,7 +226,7 @@ describe("szyna vs „Więcej”", () => {
   });
 
   it("viewer `user` nie ma nic na szynie", () => {
-    // 0637: bez żadnej sekcji odpadają Dashboard, Rekrutacje i Insights.
+    // 0636: bez żadnej sekcji odpadają Dashboard, Rekrutacje i Insights.
     expect(primary("user")).toEqual([]);
   });
 });

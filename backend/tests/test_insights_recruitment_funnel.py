@@ -577,7 +577,7 @@ async def _seed_real_sources(user_id: int, when: datetime) -> None:
 
 @pytest.mark.asyncio
 async def test_team_activity_is_open_to_every_logged_in_role(fx_client: AsyncClient):
-    """D7 — każda rola z sekcją Insights; wycofywany `user` od 0637 jej nie ma.
+    """D7 — każda rola z sekcją Insights; wycofywany `user` od 0636 jej nie ma.
 
     Legacy `/api/activities/leaderboard` zwracał tej roli 403, a sekcja na
     `/insights` renderowała ten 403 jako „brak danych o zespole".
