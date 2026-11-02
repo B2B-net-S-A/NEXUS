@@ -1,7 +1,7 @@
 """Licznik użycia obszarów do przeglądu najmniejszych dostępów.
 
-Revision ID: 0631_access_usage_daily
-Revises: 0630_sales_invoice_foreign_id
+Revision ID: 0632_access_usage_daily
+Revises: 0631_user_receives_board_report
 
 Program najmniejszych dostępów (Artur 02.11.2026): odczyty ekranów nie są nigdzie
 logowane, więc bez pomiaru nie da się uczciwie zdecydować, komu odebrać odczyt.
@@ -14,8 +14,8 @@ from alembic import op
 
 from app.services.access_usage_schema import TABLE_DDL
 
-revision = "0631_access_usage_daily"
-down_revision = "0630_sales_invoice_foreign_id"
+revision = "0632_access_usage_daily"
+down_revision = "0631_user_receives_board_report"
 branch_labels = None
 depends_on = None
 

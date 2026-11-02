@@ -389,7 +389,7 @@ def test_schema_has_one_source_and_a_mirror() -> None:
     entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
     assert "from app.services import access_usage_schema" in entrypoint
     assert "*_ACCESS_USAGE_TABLE_DDL," in entrypoint
-    migration = (BACKEND / "alembic/versions/0631_access_usage_daily.py").read_text(
+    migration = (BACKEND / "alembic/versions/0632_access_usage_daily.py").read_text(
         encoding="utf-8"
     )
     assert "from app.services.access_usage_schema import TABLE_DDL" in migration

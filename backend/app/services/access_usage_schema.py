@@ -1,4 +1,4 @@
-"""DDL licznika użycia obszarów (0631) — jedno źródło dla migracji i entrypointu.
+"""DDL licznika użycia obszarów (0632) — jedno źródło dla migracji i entrypointu.
 
 Jeden wiersz na osobę × obszar × dzień. Bez treści, bez identyfikatorów rekordów
 i bez parametrów zapytań, patrz ``docs/claude/uprawnienia/licznik-uzycia-obszarow.md``.
