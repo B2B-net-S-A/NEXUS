@@ -45,6 +45,7 @@
   "PATCH /api/hr/payroll/bonuses/{bonus_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/approve-batch": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/payroll/bonuses/cancel-batch": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/approve": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/bonuses/{bonus_id}/cancel": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/hr/payroll/months/{year}/{month}/close": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",

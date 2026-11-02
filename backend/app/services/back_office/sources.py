@@ -39,6 +39,9 @@ EXTEND_DAYS = 45
 #: sprzed startu zamyka jednorazowy skrypt (``close_overdue_contact_plan``).
 CONTACT_LOOKBACK_DAYS = 14
 CONTACT_HORIZON_DAYS = 7
+#: Rozmowa z oceną 1–2 daje kartę kontaktu, dopóki nie ma nowszej rozmowy.
+LOW_RATING_LOOKBACK_DAYS = 30
+LOW_RATING_DUE_DAYS = 7
 MAIL_LOOKBACK_DAYS = 45
 SIGN_LOOKBACK_DAYS = 90
 GAP_MONTHS_BACK = 3
@@ -126,31 +129,51 @@ async def case_cards(db: AsyncSession, today: date) -> list[CardSpec]:
 
 
 async def contact_cards(db: AsyncSession, today: date) -> list[CardSpec]:
-    """Kontakt 7. dnia i kontakt przed końcem: rytm „tylko ważne punkty”."""
+    """Rytm „tylko ważne punkty”: kontakt 7. dnia i kontakt po ocenie 1–2.
 
-    rows = await _rows(
+    Kontakt 60 dni przed końcem to karta Ławki, więc tu się nie dubluje.
+    """
+
+    plan_rows = await _rows(
         db,
         f"""
-        SELECT p.id, p.kind, p.due_on, p.contract_id, k.client_id,
+        SELECT p.id, p.due_on, p.contract_id, k.client_id,
                {_PERSON} AS person, {_CLIENT} AS client
         FROM contract_care_plan_items p
         JOIN contracts k ON k.id = p.contract_id
         {_CONTRACT_JOIN}
-        WHERE p.kind IN ('day_7', 'pre_end') AND p.status = 'open'
+        WHERE p.kind = 'day_7' AND p.status = 'open'
           AND p.due_on BETWEEN :since AND :until
           AND k.status IN ('active', 'ending')
         """,
         since=today - timedelta(days=CONTACT_LOOKBACK_DAYS),
         until=today + timedelta(days=CONTACT_HORIZON_DAYS),
     )
-    labels = {"day_7": "Kontakt 7. dnia", "pre_end": "Kontakt przed końcem"}
+    low_rows = await _rows(
+        db,
+        f"""
+        SELECT r.id, r.occurred_on, r.contract_id, k.client_id,
+               {_PERSON} AS person, {_CLIENT} AS client
+        FROM (
+            SELECT DISTINCT ON (c.contract_id) c.id, c.contract_id, c.occurred_on,
+                   c.satisfaction
+            FROM care_conversations c
+            ORDER BY c.contract_id, c.occurred_on DESC, c.id DESC
+        ) r
+        JOIN contracts k ON k.id = r.contract_id
+        {_CONTRACT_JOIN}
+        WHERE r.satisfaction <= 2 AND r.occurred_on >= :since
+          AND k.status IN ('active', 'ending')
+        """,
+        since=today - timedelta(days=LOW_RATING_LOOKBACK_DAYS),
+    )
     return [
         CardSpec(
             source_kind="contact",
             source_key=f"contact:{row['id']}",
             team="care",
             lane="help",
-            title=labels[row["kind"]],
+            title="Kontakt 7. dnia",
             person=row["person"],
             client_label=row["client"],
             due_on=row["due_on"],
@@ -158,7 +181,22 @@ async def contact_cards(db: AsyncSession, today: date) -> list[CardSpec]:
             contract_id=row["contract_id"],
             client_id=row["client_id"],
         )
-        for row in rows
+        for row in plan_rows
+    ] + [
+        CardSpec(
+            source_kind="contact",
+            source_key=f"contact:low:{row['id']}",
+            team="care",
+            lane="help",
+            title="Kontakt po niskiej ocenie",
+            person=row["person"],
+            client_label=row["client"],
+            due_on=row["occurred_on"] + timedelta(days=LOW_RATING_DUE_DAYS),
+            href=f"/care?contract={row['contract_id']}",
+            contract_id=row["contract_id"],
+            client_id=row["client_id"],
+        )
+        for row in low_rows
     ]
 
 

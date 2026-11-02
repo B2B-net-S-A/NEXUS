@@ -275,3 +275,17 @@ def test_amounts_only_for_payroll_and_no_actions_on_other_teams(monkeypatch) -> 
         card, viewer=_viewer(teams=["finance"]), user=user, names={}, totals=totals
     )
     assert finance["amounts"] is None and finance["actions"] == []
+
+
+def test_important_only_rhythm_keeps_milestones_and_moves_pre_end() -> None:
+    from app.services.care import plan
+
+    start = date(2026, 1, 5)
+    end = date(2026, 12, 31)
+    first, last = date(2026, 1, 1), date(2026, 12, 31)
+    regular = plan.slots_between(start, end, (), first, last)
+    important = plan.slots_between(start, end, (), first, last, important_only=True)
+    assert {slot.kind for slot in regular} == {"day_7", "pre_end", "cadence"}
+    assert {slot.kind for slot in important} == {"day_7", "pre_end"}
+    pre_end = next(slot for slot in important if slot.kind == "pre_end")
+    assert pre_end.due_on == end - timedelta(days=60)

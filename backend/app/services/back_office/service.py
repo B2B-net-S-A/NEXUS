@@ -385,6 +385,45 @@ async def move(
     await db.flush()
 
 
+async def review(
+    db: AsyncSession,
+    card: BoCard,
+    *,
+    actor: User,
+    viewer: Viewer,
+    decision: str,
+    team: Optional[str],
+    lane: Optional[str],
+    note: Optional[str],
+) -> None:
+    """Jedna decyzja dla starej sprawy: zostaje, zamknięta albo przeniesiona."""
+
+    if decision == "move":
+        if team is None or lane is None:
+            raise CardError("Wskaż zespół i kolumnę.")
+        await move(db, card, actor=actor, team=team, lane=lane)
+    elif decision == "close":
+        await dismiss(
+            db,
+            card,
+            actor=actor,
+            viewer=viewer,
+            note=note or "Przegląd przed startem: nieaktualna",
+        )
+    now = _now()
+    card.needs_review = False
+    card.updated_at = now
+    _event(
+        db,
+        card,
+        actor_id=actor.id,
+        action="reviewed",
+        details={"decision": decision},
+        now=now,
+    )
+    await db.flush()
+
+
 async def apply_priorities(db: AsyncSession, *, today: date) -> int:
     """Pierwszeństwo dla ostatniego rozmówcy: 3 dni od założenia karty.
 

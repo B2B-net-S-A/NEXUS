@@ -313,6 +313,70 @@ async def run_sync(
     return result
 
 
+class ReviewBody(BaseModel):
+    decision: Literal["current", "close", "move"]
+    team: Optional[Team] = None
+    lane: Optional[str] = Field(default=None, max_length=12)
+    note: Optional[str] = Field(default=None, max_length=NOTE_MAX)
+
+
+@router.post("/cards/{card_id}/review")
+async def review_card(
+    card_id: int,
+    body: ReviewBody,
+    current_user: BackOfficeLead,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Przegląd przed startem: każda stara sprawa dostaje jedną decyzję kierownika."""
+
+    card = await _card(db, card_id)
+    viewer = await access.load_viewer(db, current_user)
+    try:
+        await service.review(
+            db,
+            card,
+            actor=current_user,
+            viewer=viewer,
+            decision=body.decision,
+            team=body.team,
+            lane=body.lane,
+            note=body.note,
+        )
+    except _CARD_ERRORS as exc:
+        raise _translate(exc) from exc
+    return await _detail(db, card, current_user)
+
+
+@router.post("/review/finish")
+async def finish_review(
+    current_user: BackOfficeLead, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Koniec przeglądu: nowe sprawy nie trafiają już na listę do przejrzenia."""
+
+    await _save_setting(
+        db,
+        {"review_done_at": business_today().isoformat()},
+        actor=current_user,
+    )
+    await db.commit()
+    return {"review_done_at": business_today().isoformat()}
+
+
+async def _save_setting(
+    db: AsyncSession, changes: dict[str, Any], *, actor: User
+) -> None:
+    value = {**(await access.load_settings(db)), **changes}
+    statement = insert(AppSetting).values(
+        key=BACK_OFFICE_SETTING, value=value, updated_by=actor.id
+    )
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[AppSetting.key],
+            set_={"value": statement.excluded.value, "updated_by": actor.id},
+        )
+    )
+
+
 @router.get("/team")
 async def get_team(
     current_user: BackOfficeLead, db: AsyncSession = Depends(get_db)
@@ -401,15 +465,6 @@ async def put_deputy(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Nie ma takiego aktywnego konta.",
             )
-    value = {**(await access.load_settings(db)), "deputy_user_id": body.user_id}
-    statement = insert(AppSetting).values(
-        key=BACK_OFFICE_SETTING, value=value, updated_by=current_user.id
-    )
-    await db.execute(
-        statement.on_conflict_do_update(
-            index_elements=[AppSetting.key],
-            set_={"value": statement.excluded.value, "updated_by": current_user.id},
-        )
-    )
+    await _save_setting(db, {"deputy_user_id": body.user_id}, actor=current_user)
     await db.commit()
     return {"deputy_user_id": body.user_id}
