@@ -325,7 +325,8 @@ async def scan_once(db: AsyncSession, now: Optional[datetime] = None) -> int:
         )
         sent += await _notify(
             db,
-            recipients,
+            # Osoba, której dotyczy alarm, nie dostaje o nim uprzedzenia.
+            [uid for uid in recipients if uid != usage.user_id],
             title=title,
             message=message,
             entity_type="user",
