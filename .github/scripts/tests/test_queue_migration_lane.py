@@ -181,8 +181,8 @@ class PlanTest(unittest.TestCase):
     def test_first_in_queue_keeps_the_lane_the_rest_leave(self):
         plan = QML.plan_lane(
             [
-                pr(10, queue=4, armed=True),
-                pr(11, queue=2, armed=True),
+                pr(10, queue=4, armed=True, parent="0633_m", tail="0634_a"),
+                pr(11, queue=2, armed=True, parent="0633_m", tail="0634_b"),
                 pr(12, armed=True),
                 pr(13, armed=True, healthy=False),
             ]
@@ -397,6 +397,63 @@ class ChainTest(unittest.TestCase):
         self.assertFalse(prs[3].orphan)
         self.assertEqual(QML.plan_lane(list(prs.values())).promote, 2)
 
+    def test_file_of_a_squashed_base_pr_does_not_count_as_this_prs(self):
+        # #2516 → #2522: PR na gałęzi innego PR-a. Automat nie scala maina, więc
+        # po squashu tamtego jego migracja nadal jest na liście plików tego PR-a.
+        path = "backend/alembic/versions/"
+        fake = FakeGh(
+            [
+                [
+                    node(
+                        20,
+                        files=(path + "0633_a.py", path + "0634_b.py"),
+                        labels=("czeka-na-migracje",),
+                    )
+                ]
+            ],
+            main_files="0632_x.py\n0633_a.py\n",
+            blobs={
+                "0633_a.py": source("0633_a", "0632_x"),
+                "0634_b.py": source("0634_b", "0633_a"),
+            },
+        )
+        prs = quiet(QML.fetch_prs, "o/r", fake)
+        self.assertEqual(prs[0].parent, "0633_a")
+        self.assertTrue(prs[0].fresh)
+        self.assertEqual(QML.plan_lane(prs).promote, 20)
+
+    def test_unknown_chain_never_takes_a_pr_out_of_the_queue(self):
+        # Przejściowy błąd odczytu nie może kosztować grupy pełnego CI: gdyby stan
+        # był naprawdę zły, czerwieni go „Jedna głowa Alembica”.
+        plan = QML.plan_lane(
+            [
+                pr(1, queue=1, armed=True, parent="0633_m"),
+                pr(2, queue=2, armed=True, parent="0634_a", tail="0635_b"),
+            ]
+        )
+        self.assertEqual(plan.lane, (1, 2))
+        self.assertEqual(plan.dequeue, ())
+        plan = QML.plan_lane(
+            [self.a(), pr(2, queue=2, armed=True)],
+        )
+        self.assertEqual(plan.lane, (1, 2))
+        self.assertEqual(plan.dequeue, ())
+
+    def test_unknown_chain_still_respects_the_depth(self):
+        plan = QML.plan_lane(
+            [
+                self.a(),
+                pr(2, queue=2, armed=True, parent="0634_a", tail="0635_b"),
+                pr(3, queue=3, armed=True),
+            ]
+        )
+        self.assertEqual(plan.dequeue, (3,))
+
+    def test_unknown_chain_does_not_let_an_armed_pr_in(self):
+        plan = QML.plan_lane([self.a(), pr(2, armed=True)])
+        self.assertEqual(plan.lane, (1,))
+        self.assertEqual(plan.park, (2,))
+
     def test_unreadable_pr_files_do_not_stack(self):
         class NoBlobs(FakeGh):
             def __call__(self, *args, stdin=None):
@@ -457,7 +514,8 @@ class AdmitTest(unittest.TestCase):
 class ActionsTest(unittest.TestCase):
     def test_enforce_dequeues_disarms_comments_and_labels_last(self):
         fake = FakeGh(
-            [[node(1, queue=1, armed=True)], [node(2, queue=2, armed=True), node(3)]]
+            [[node(1, queue=1, armed=True)], [node(2, queue=2, armed=True), node(3)]],
+            blobs={"0616_x.py": source("0616_x", "0615_m")},
         )
         plan = quiet(QML.enforce, "o/r", dry_run=False, run=fake)
         self.assertEqual(plan.active, 1)
@@ -552,7 +610,10 @@ class ActionsTest(unittest.TestCase):
         )
 
     def test_dry_run_changes_nothing(self):
-        fake = FakeGh([[node(1, queue=1, armed=True), node(2, queue=2, armed=True)]])
+        fake = FakeGh(
+            [[node(1, queue=1, armed=True), node(2, queue=2, armed=True)]],
+            blobs={"0616_x.py": source("0616_x", "0615_m")},
+        )
         quiet(QML.enforce, "o/r", dry_run=True, run=fake)
         self.assertEqual(fake.mutations(), [])
 
@@ -564,7 +625,10 @@ class ActionsTest(unittest.TestCase):
                     raise RuntimeError("boom")
                 return super().__call__(*args, stdin=stdin)
 
-        fake = Failing([[node(1, queue=1, armed=True), node(2, queue=2, armed=True)]])
+        fake = Failing(
+            [[node(1, queue=1, armed=True), node(2, queue=2, armed=True)]],
+            blobs={"0616_x.py": source("0616_x", "0615_m")},
+        )
         out = io.StringIO()
         with redirect_stdout(out):
             QML.enforce("o/r", dry_run=False, run=fake)

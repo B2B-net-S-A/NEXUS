@@ -554,8 +554,10 @@ def run(
 ) -> int:
     base_migrations = load_base(repo, base, versions_dir)
     target = base
+    stack: List[Migration] = []
     if stack_on:
-        base_migrations += load_stack(repo, base, stack_on, versions_dir)
+        stack = load_stack(repo, base, stack_on, versions_dir)
+        base_migrations += stack
         target = f"{base} + {stack_on}"
     heads = heads_of(base_migrations)
     if len(heads) != 1:
@@ -581,6 +583,13 @@ def run(
         if mig is None:
             raise RechainError(f"{path}: brak `revision` w pliku migracji.")
         pr.append(mig)
+    # PR zbudowany na gałęzi PR-a przed nim ma jego plik u siebie: to nie jego
+    # migracja, a przenumerowana wykonałaby się na produkcji drugi raz.
+    stack_revisions = {m.revision for m in stack}
+    pr = [m for m in pr if m.revision not in stack_revisions]
+    if not pr:
+        out(f"Gałąź nie dodaje własnych migracji względem {target} — nic do zrobienia.")
+        return 0
     chain = order_chain(pr)
 
     base_numbers = {m.number for m in base_migrations if m.number}

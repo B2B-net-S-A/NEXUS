@@ -502,6 +502,27 @@ def test_ahead_pr_gone_rechain_returns_to_the_main_head(tmp_path: Path) -> None:
     assert 'down_revision = "0368_y"' in text
 
 
+def test_stack_on_does_not_copy_the_migration_of_a_pr_built_on_it(
+    tmp_path: Path,
+) -> None:
+    # PR zbudowany na gałęzi PR-a przed nim ma jego plik u siebie. Bez pominięcia
+    # wyglądał na kolizję i automat wypychał kopię migracji pod nowym id, a jej
+    # treść wykonałaby się na produkcji dwa razy.
+    repo = base_repo(tmp_path)
+    add_ahead_branch(repo)
+    sh(repo, "checkout", "-q", "-b", "pr", "pr-ahead")
+    write(
+        repo,
+        f"{VERSIONS}/0370_on_top.py",
+        migration("0370_on_top", "0369_ahead", "PR na gałęzi PR-a"),
+    )
+    commit(repo, "pr on top")
+    code, output = run_script(repo, "--stack-on", "pr-ahead")
+    assert code == 0, output
+    assert "nic do zrobienia" in output
+    assert sh(repo, "status", "--porcelain").strip() == ""
+
+
 def test_stub_lets_a_stacked_pr_pass_the_one_head_gate(tmp_path: Path) -> None:
     repo = base_repo(tmp_path)
     write(

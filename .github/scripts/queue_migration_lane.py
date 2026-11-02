@@ -207,8 +207,14 @@ def plan_lane(prs: list[Pr], depth: int = LANE_DEPTH) -> Plan:
             return not p.orphan
         return len(lane) < depth and stacked_on(p, lane[-1])
 
+    def stays_queued(p: Pr) -> bool:
+        # Nieznany łańcuch (błąd odczytu) nie kosztuje grupy pełnego CI: gdyby
+        # stan był naprawdę zły, czerwieni go „Jedna głowa Alembica”.
+        unknown = lane and (p.parent is None or lane[-1].tail is None)
+        return fits(p) or (bool(unknown) and len(lane) < depth)
+
     for p in queued:
-        (lane if fits(p) else dequeue).append(p)
+        (lane if stays_queued(p) else dequeue).append(p)
     # Uzbrojony na stosie czeka, aż poprzedni będzie w kolejce: mógłby go wyprzedzić.
     for p in ready:
         if fits(p) and (not lane or lane[-1].queue_position is not None):
@@ -347,12 +353,21 @@ def read_main(repo: str, run: Gh = gh) -> MainChain:
     return MainChain(top=top, revisions=frozenset(stems | {tip}), tip=tip)
 
 
-def read_chain(repo: str, node: dict, run: Gh = gh) -> tuple[str | None, str | None]:
-    """``chain_ends`` migracji PR-a; błąd = nieznane, PR nie stanie na stosie."""
+def read_chain(
+    repo: str, node: dict, main: MainChain, run: Gh = gh
+) -> tuple[str | None, str | None]:
+    """``chain_ends`` migracji PR-a; błąd = nieznane, PR nie stanie na stosie.
+
+    Plik, który jest już na mainie, nie jest migracją tego PR-a: PR zbudowany na
+    gałęzi innego PR-a ma go na liście plików także po squashu tamtego (automat
+    nie scala maina do gałęzi), a wtedy nigdy nie stałby na głowie.
+    """
     paths = [
         f["path"]
         for f in (node.get("files") or {}).get("nodes", [])
-        if f["path"].startswith(VERSIONS_PREFIX) and f["path"].endswith(".py")
+        if f["path"].startswith(VERSIONS_PREFIX)
+        and f["path"].endswith(".py")
+        and f["path"].rsplit("/", 1)[-1][:-3] not in main.revisions
     ]
     try:
         return chain_ends([raw_file(repo, p, node["headRefOid"], run) for p in paths])
@@ -380,7 +395,7 @@ def fetch_prs(repo: str, run: Gh = gh) -> list[Pr]:
     main = read_main(repo, run)
     participants = {p.number for p in parse_prs(nodes)}
     chains = {
-        int(node["number"]): read_chain(repo, node, run)
+        int(node["number"]): read_chain(repo, node, main, run)
         for node in nodes
         if int(node["number"]) in participants
     }
