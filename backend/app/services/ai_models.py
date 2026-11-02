@@ -62,7 +62,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F39 | candidate_ai_assessment          | gpt-6-luna (z Sonnet 5)  |
 | F40 | sales_meeting_summary            | gpt-6-luna (z Sonnet 5)  |
 | F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
-| F42 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
+| F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -493,7 +493,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         default=GPT_LUNA,
         env_vars=("PORTAL_MEETING_SUMMARY_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F42 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Podsumowanie rozmowy "
+        rationale="F43 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Podsumowanie rozmowy "
         "z portalu konsultanta do sprawy: krótkie streszczenie jak F40. Dodatek do "
         "transkryptu: awaria modelu zostawia rozmowę bez podsumowania, nic nie blokuje.",
     ),

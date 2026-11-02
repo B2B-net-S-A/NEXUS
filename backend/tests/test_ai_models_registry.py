@@ -169,8 +169,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.requirement_word_hints: ("F41", "claude-sonnet-5"),
     # F40 — 02.11.2026: podsumowanie transkryptu spotkania handlowca.
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
-    # F42 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
-    AIFeatureKey.portal_meeting_summary: ("F42", "gpt-6-luna"),
+    # F43 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
+    AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
 }
 
 

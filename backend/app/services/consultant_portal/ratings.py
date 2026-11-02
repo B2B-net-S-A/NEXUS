@@ -330,10 +330,12 @@ async def quality(
     ]
     total_meetings = sum(person["meetings"] for person in people)
     total_rated = sum(person["rated"] for person in people)
+    # Te same wiersze co na liście: inaczej różnica sum odsłania ocenę oglądającego.
+    visible = [row for row in rows if row.id != viewer_id]
     total_score = sum(
-        (row.average or 0) * (row.rated or 0) for row in rows if row.rated
+        (row.average or 0) * (row.rated or 0) for row in visible if row.rated
     )
-    total_resolved = sum(row.resolved or 0 for row in rows)
+    total_resolved = sum(row.resolved or 0 for row in visible)
     return {
         "days": days,
         "meetings": total_meetings,

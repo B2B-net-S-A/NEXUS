@@ -899,6 +899,30 @@ async def test_lead_who_hosted_does_not_see_own_rating(app_client) -> None:
 
 
 @pytest.mark.usefixtures("care_on", "clean_team", "divisions_restored")
+async def test_quality_totals_do_not_reveal_the_viewers_own_rating(app_client) -> None:
+    """Sumy liczą te same wiersze co lista: różnica nie może odsłonić oceny oglądającego."""
+
+    head = await make_head()
+    host = await make_member("finance")
+    person = await make_person()
+    when = datetime.now(timezone.utc)
+    await _rating_row(person, head, score=1, when=when)
+    await _rating_row(person, host, score=5, when=when)
+    report = (
+        await app_client.get(f"{STAFF}/quality", headers=staff_headers(head))
+    ).json()
+    people = report["people"]
+    assert report["rated"] == sum(row["rated"] for row in people)
+    expected = (
+        sum(row["average"] * row["rated"] for row in people if row["rated"])
+        / report["rated"]
+    )
+    # Średnie w wierszach są zaokrąglone do dwóch miejsc.
+    assert report["average"] == pytest.approx(expected, abs=0.02)
+    assert report["average"] <= 5
+
+
+@pytest.mark.usefixtures("care_on", "clean_team", "divisions_restored")
 async def test_case_owner_sees_the_talk(app_client) -> None:
     owner = await make_member("care", name="Opiekun")
     host = await make_member("finance")

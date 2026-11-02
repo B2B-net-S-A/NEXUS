@@ -15,8 +15,9 @@ konta. Zamiast JWT pracownika stoją tu trzy własne warunki:
 
 Limity liczą się per IP (``client_ip_key``): limit trasy i wspólny kubełek, żeby seria
 różnych tokenów z jednego adresu nie posłużyła do zgadywania. Prośba o link odpowiada
-zawsze tym samym zdaniem, a mail idzie w tle: ani treść, ani czas odpowiedzi nie mówią,
-czy konsultant istnieje. Błędy bez szczegółów wewnętrznych.
+zawsze tym samym zdaniem, a mail idzie w tle, więc treść i czas wysyłki nie mówią, czy
+konsultant istnieje (zostaje zapis linku w bazie: milisekundy, niemierzone). Błędy bez
+szczegółów wewnętrznych.
 """
 
 from datetime import datetime, timezone
