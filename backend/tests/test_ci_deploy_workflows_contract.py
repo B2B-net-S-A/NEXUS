@@ -365,8 +365,8 @@ def test_frontend_required_context_always_reports_even_when_skipped() -> None:
 def test_e2e_stack_verifies_the_merge_queue_not_every_pr_push() -> None:
     """226 przebiegów na PR-ach, 3 czerwone, 0 bramek: 1 506 min za sygnał.
 
-    W kolejce ten sam sygnał BLOKUJE wejście na main, czyli po raz pierwszy coś
-    znaczy. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
+    W kolejce też nie blokuje, ale czerwony bieg trafia na PR przez
+    `queue-failure-feedback.yml`. `pull_request` wraca w dniu, w którym „E2E stack (ci-chromium)”
     zostanie wymaganym kontekstem rulesetu.
     """
     triggers = _triggers(_load("e2e.yml"))
@@ -856,7 +856,7 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
     wyrzucane po 4–6 razy, bo nikt nie mówił sesji, że PR wypadł."""
     wf = _load("queue-failure-feedback.yml")
     trigger = _triggers(wf)["workflow_run"]
-    assert trigger["workflows"] == ["CI"]
+    assert trigger["workflows"] == ["CI", "E2E (Playwright)"]
     assert trigger["types"] == ["completed"]
     job = wf["jobs"]["feedback"]
     condition = " ".join(str(job["if"]).split())
@@ -868,6 +868,33 @@ def test_queue_failure_feedback_reports_ejected_merge_group_runs() -> None:
         "queue_failure_feedback.py"
         in _step(job["steps"], "Status i komentarz na PR-ach z grupy")["run"]
     )
+
+
+def test_preview_harnesses_run_in_queue_when_group_touches_frontend() -> None:
+    """27.10.2026 #2692 i #2732 zepsuły testy harnessów, a krok był w kolejce
+    wyłączony: zielona kolejka, 5 czerwonych nocy (#2745). Filtr ma złapać obie
+    zmiany i odpuścić grupę bez frontendu (102 z 361 grup z 26.10–02.11)."""
+    steps = _load("e2e.yml")["jobs"]["stack"]["steps"]
+    scope = _step(steps, "Czy grupa dotyka frontendu?")
+    assert scope["id"] == "preview-scope"
+    assert "github.event.merge_group.base_sha" in scope["env"]["BASE_SHA"]
+
+    preview = _step(steps, "Playwright — harnessy /preview/* (preview-chromium)")
+    condition = preview["if"]
+    assert "github.event_name != 'merge_group'" in condition
+    assert "steps.preview-scope.outputs.run == 'true'" in condition
+
+    pattern = re.search(r"grep -E '([^']+)'", scope["run"]).group(1)
+    for touched in (
+        "frontend/src/components/v2/request-board/RequestBoardFilters.tsx",  # #2692
+        "frontend/src/components/QueryProvider.tsx",  # #2732
+        "frontend/e2e/responsive-preview.spec.ts",
+        "docker-compose.e2e.yml",
+        ".github/workflows/e2e.yml",
+    ):
+        assert re.search(pattern, touched), touched
+    for untouched in ("backend/app/main.py", "docs/claude/podstawy/ci-gotchas.md"):
+        assert not re.search(pattern, untouched), untouched
 
 
 # ── Runda 6 audytu (26.09.2026) — artefakty biegów przeciw produkcji ──────
