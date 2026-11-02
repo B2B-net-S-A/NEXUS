@@ -137,6 +137,14 @@ Niezmierzone na żywym Recruiterze: czy profil otwierany z projektu ma w adresie
 `/talent/hire/<id>/…/profile/…` w każdym układzie. Gdy otworzy się jako `/talent/profile/…`,
 panel użyje wyboru spoza projektu.
 
+**Pomiar 03.11.2026 (1.0.7):** kod z ZIP-a uruchomiony w zalogowanej karcie Recruitera
+(lista wyszukiwania, lista w projekcie, trzy profile). Daty stanowisk Recruiter rozdziela
+znakiem `•`, nie `·`, więc 1.0.6 gubiła daty zakończonych stanowisk, a z nimi staż
+i odczyt doświadczenia. Sekcja „Summary” ma w `aria-hidden` tylko plakietki (`· 1st`)
+i ułamki opisu, dlatego opis bierzemy z tekstu strony, gdy jest dłuższy. Zainstalowanego
+panelu nie da się prowadzić z narzędzi: `chrome://` i `chrome-extension://` są dla nich
+zablokowane, więc pełną ścieżkę na prawdziwym LinkedInie przechodzi człowiek.
+
 ## Dystrybucja: ZIP z NEXUSA i Web Store (29.10.2026)
 
 Prośba Artura z 29.10: wtyczka ma działać u zespołu także wtedy, gdy Google nie

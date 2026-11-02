@@ -89,3 +89,61 @@ for (const [label, displayed, expected] of [
     assert.equal(p.experience[0].start, "2023-05");
   });
 }
+
+// Pomiar na żywym Recruiterze 03.11.2026: daty kończy „•” zamiast „·”, a sekcja
+// „Summary” ma w aria-hidden tylko plakietki kontaktów, więc opis ginął.
+test("Recruiter: zakończone stanowisko z „•” przed czasem trwania zachowuje daty", () => {
+  const doc = load();
+  for (const dd of doc.querySelectorAll("dd")) if (/\d{4}/.test(dd.textContent)) dd.textContent = dd.textContent.replace(/\s*·\s*/, " • ");
+  const { experience } = readPageDom(doc, PROFILE).profile;
+  assert.deepEqual(
+    experience.map((e) => [e.start, e.end, e.current]),
+    [["2023-05", null, true], ["2019-05", "2023-04", false], ["2017-10", "2019-05", false]],
+  );
+});
+
+const withSummary = (doc, html) => {
+  const section = doc.createElement("section");
+  section.innerHTML = `<h2>Summary</h2>${html}`;
+  const root = doc.querySelector(".profile__container") || doc.querySelector(".profile-slidein__profile");
+  for (const old of root.querySelectorAll("section")) if (/Fikcyjny opis/.test(old.textContent)) old.remove();
+  root.appendChild(section);
+  return doc;
+};
+const snapshotWith = (lines) => ({
+  heading: { text: "Zofia Testowa", level: 2 },
+  top: { lines: ["Zofia Testowa"] },
+  sections: [{ heading: "Summary", lines, items: [], itemsBy: null }],
+  listItems: [],
+  links: [],
+});
+
+test("Recruiter: plakietka „· 1st” nie jest opisem, a opis bierzemy z tekstu strony", () => {
+  const doc = withSummary(load(), `<p>Fikcyjny długi opis doświadczenia.</p><span aria-hidden="true">· 1st</span>`);
+  const { profile } = readPage({
+    url: PROFILE,
+    doc,
+    snapshot: snapshotWith(["Summary", "Fikcyjny długi opis doświadczenia.", "Open to work", "12 mutual connections"]),
+  });
+  assert.equal(profile.about, "Fikcyjny długi opis doświadczenia.");
+});
+
+test("Recruiter: dłuższy opis z tekstu wygrywa z ułamkiem z aria-hidden", () => {
+  const doc = withSummary(load(), `<span aria-hidden="true">Fikcyjny ułamek opisu</span>`);
+  const { profile } = readPage({
+    url: PROFILE,
+    doc,
+    snapshot: snapshotWith(["Summary", "Fikcyjny ułamek opisu i cała reszta wymyślonego doświadczenia."]),
+  });
+  assert.equal(profile.about, "Fikcyjny ułamek opisu i cała reszta wymyślonego doświadczenia.");
+});
+
+test("Recruiter: sekcja z samymi plakietkami nie daje opisu", () => {
+  const doc = withSummary(load(), `<span aria-hidden="true">· 1st</span>`);
+  const { profile } = readPage({
+    url: PROFILE,
+    doc,
+    snapshot: snapshotWith(["Summary", "Open to work", "99 mutual connections"]),
+  });
+  assert.equal(profile.about, null);
+});
