@@ -166,7 +166,7 @@ class NotificationType(str, enum.Enum):
     # bez autora; related_entity=(announcement, id). Mail obowiązkowy
     # (`services/announcements.py`).
     announcement_important = "announcement_important"
-    # 0634 (02.11.2026): klient z panelu pod linkiem z CV zadał pytanie, poprosił
+    # 0635 (02.11.2026): klient z panelu pod linkiem z CV zadał pytanie, poprosił
     # o rozmowę, napisał „nie pasuje” albo zmianę wymagań — do Delivery Leada;
     # related_entity=(client_panel_request, id). Mail obowiązkowy jak rozmowy.
     client_panel_request = "client_panel_request"

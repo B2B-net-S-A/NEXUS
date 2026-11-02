@@ -1,4 +1,4 @@
-"""Panel klienta pod linkiem z CV (0634) — ``services/client_panel_schema.py``."""
+"""Panel klienta pod linkiem z CV (0635) — ``services/client_panel_schema.py``."""
 
 from datetime import datetime
 from typing import Optional

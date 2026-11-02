@@ -213,7 +213,7 @@ def test_migration_and_entrypoint_share_one_ddl_source() -> None:
         "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'"
         in entrypoint
     )
-    migration = (BACKEND / "alembic/versions/0634_client_panel.py").read_text(
+    migration = (BACKEND / "alembic/versions/0635_client_panel.py").read_text(
         encoding="utf-8"
     )
     assert "schema.TABLE_DDL" in migration

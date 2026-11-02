@@ -1,4 +1,4 @@
-"""DDL panelu klienta (0634) — jedno źródło dla migracji i ``entrypoint.sh``.
+"""DDL panelu klienta (0635) — jedno źródło dla migracji i ``entrypoint.sh``.
 
 Panel to strona całej rekrutacji pod linkiem z CV, bez logowania
 (``docs/claude/klienci/panel-klienta-pod-linkiem.md``). Domyślnie wyłączony.
