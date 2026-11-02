@@ -1,4 +1,4 @@
-"""DDL powodów „co generator zrobił źle” — JEDNO źródło dla migracji 0630
+"""DDL powodów „co generator zrobił źle” — JEDNO źródło dla migracji 0631
 i siatki w ``entrypoint.sh`` (produkcyjny alembic bywa osierocony).
 
 ``cv_generator_feedback``: jeden wiersz na pobranie oryginału CV po złym wyniku
