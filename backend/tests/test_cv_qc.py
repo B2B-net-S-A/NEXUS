@@ -5557,9 +5557,7 @@ def test_denied_requirement_is_not_a_fact_from_the_conversation(answer: str) -> 
     "answer",
     [
         "Pracowałem z Customer 360 od 2020. Nie znam Iceberga.",
-        "Customer 360 używam, a to nie jest mój jedyny projekt z nie mniejszym zakresem."[
-            :29
-        ],
+        "Customer 360 używam od 2021. Iceberg? Nie.",
     ],
 )
 def test_sentence_about_the_requirement_stays_a_fact(answer: str) -> None:
@@ -5616,7 +5614,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
     stage_id = await _seed_review(world, hor, api_client)
     async with AsyncSessionLocal() as db:
         job = await db.get(Job, world["job_id"])
-        job.must_skills = ["Kafka", "Redis", "Terraform"]
+        job.must_skills = ["RabbitMQ", "Redis", "Terraform"]
         candidate = await db.get(Candidate, world["candidate_id"])
         candidate.experience = [{"company": "Firma Testowa", "position": "Dev"}]
         stage = await db.get(CandidateStage, stage_id)
@@ -5625,7 +5623,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
                 {
                     "question_id": "q1",
                     "question_text": "Czy znasz Terraform?",
-                    "response": "Pracowałem z Kafka i Redis od 2023 w projekcie płatności.",
+                    "response": "Pracowałem z RabbitMQ i Redis od 2023 w projekcie płatności.",
                 }
             ]
         }
@@ -5634,13 +5632,13 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
     try:
         with hydrated_taxonomy():
             body = (await api_client.get(url, headers=rec)).json()
-        assert [fact["term"] for fact in body["facts"]] == ["Kafka", "Redis"]
+        assert [fact["term"] for fact in body["facts"]] == ["RabbitMQ", "Redis"]
         assert "projekcie płatności" in body["facts"][0]["quote"]
         assert body["roles"] == ["Firma Testowa"]
 
         with hydrated_taxonomy():
             refused = await api_client.post(
-                url, headers=rec, json={"term": "Kafka", "role": "Obca Firma"}
+                url, headers=rec, json={"term": "RabbitMQ", "role": "Obca Firma"}
             )
             ghost = await api_client.post(
                 url, headers=rec, json={"term": "Terraform", "role": "Firma Testowa"}
@@ -5649,10 +5647,10 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
 
         with hydrated_taxonomy():
             ok = await api_client.post(
-                url, headers=rec, json={"term": "Kafka", "role": "Firma Testowa"}
+                url, headers=rec, json={"term": "RabbitMQ", "role": "Firma Testowa"}
             )
         assert ok.status_code == 200, ok.text
-        # Cytat notatki wymienia też Redis, ale potwierdzono tylko Kafkę.
+        # Cytat notatki wymienia też Redis, ale potwierdzono tylko RabbitMQ.
         assert [fact["term"] for fact in ok.json()["facts"]] == ["Redis"]
         async with AsyncSessionLocal() as db:
             note = await db.scalar(
@@ -5662,7 +5660,7 @@ async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
                 )
             )
         assert note.content.startswith(
-            "Potwierdzone z kandydatem: Kafka (Firma Testowa) — "
+            "Potwierdzone z kandydatem: RabbitMQ (Firma Testowa) — "
         )
         assert note.author_id == rec_id
     finally:
