@@ -48,8 +48,25 @@ Karta klienta, kontraktu i zamówienia, zakładka Zmiany w zamówieniach, Płace
 wydatki ze zgodą oraz kwoty przy pojedynczej parze (mail i dzwonek o zmianie
 stawki: decyzja Artura 02.11.2026, bez zmian).
 
-Lista kontraktów, eksporty, kafle sum w Wynikach miesięcznych i Fakturach oraz
-`/api/my-clients` to następny PR tego programu.
+## Praca działu bez sum (wariant A, decyzja Artura 02.11.2026)
+
+Bez uprawnienia, poza portfelem Delivery Leada:
+
+- **Lista kontraktów:** stawki zostają, marży nie ma (kolumna, pole `margin`,
+  sortowanie, filtr `margin_min`; `contracts._hide_company_margin`). Kwoty
+  w karcie kontraktu bez zmian.
+- **Eksport:** plik całej firmy (`/api/contracts/export` bez klienta) wymaga
+  uprawnienia, a per klient działa jak dotąd. Placementy zostają dla całego
+  okresu, bo to arkusz roboczy z 23.10, ale bez kolumn marży
+  (`placements.without_margin_columns`).
+- **Wyniki miesięczne:** wiersze i import zostają, `totals` = `null`, bez
+  sortowania po marży. API v1 woła `get_results` bez konta i ma własne zakresy.
+- **Faktury:** bez sumy netto miesiąca (`summary.totals_hidden`); klient
+  i faktura zostają.
+- **`/api/my-clients`:** bez przychodów wszystkich klientów.
+
+Klucze API v1 (`insights/placements`, `totals`) nadal czekają na sprawdzenie,
+które konta serwisowe mają te zakresy.
 
 **Nie da się ukryć ekranem:** dział sam wgrywa arkusz Wyników z marżą każdej
 osoby, więc sumę ma we własnym pliku.

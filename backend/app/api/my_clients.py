@@ -44,9 +44,11 @@ from app.schemas.my_clients import (
 from app.services.access_scope import (
     apply_delivery_lead_client_scope,
     assert_delivery_lead_client_visible,
+    is_delivery_lead_governed,
     resolve_delivery_lead_client_ids,
     resolve_delivery_lead_finance_client_ids,
 )
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.client_identity import (
     client_display_name,
     client_display_name_expression,
@@ -270,6 +272,13 @@ async def list_my_clients(
             delivery_lead_finance_client_ids=delivery_lead_finance_client_ids,
         )
     )
+
+    # Przychody wszystkich klientów na jednej liście to zbiorczy wynik firmy
+    # (decyzja Artura 02.11.2026). Portfel Delivery Leada zostaje.
+    if not has_permission(
+        user, ProductAction.company_results
+    ) and not is_delivery_lead_governed(user):
+        finance_client_ids = frozenset()
 
     # Aktywne zamówienia — licznik jest operacyjny dla każdego dopuszczonego
     # czytelnika Delivery, w tym TCM. Zamówienie MD/kosztowe to jedno

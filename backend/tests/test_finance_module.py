@@ -228,9 +228,7 @@ async def _headers_for(app_client: AsyncClient, role_value: str) -> dict[str, st
     return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
-@pytest.mark.parametrize(
-    "role", ["recruiter", "delivery_lead", "head_of_recruitment"]
-)
+@pytest.mark.parametrize("role", ["recruiter", "delivery_lead", "head_of_recruitment"])
 async def test_finance_endpoints_forbidden_for_other_roles(
     app_client: AsyncClient, role: str
 ):
@@ -301,6 +299,37 @@ async def _import(
             )
         },
         data={"year": str(year), "month": str(month), "replace": str(replace).lower()},
+    )
+
+
+async def test_finance_role_gets_rows_without_company_totals(
+    app_client: AsyncClient, app_auth_headers: dict[str, str]
+):
+    """Kafle sum i ranking po marży: „Wyniki firmy”, wiersze zostają (02.11.2026)."""
+    year, month = 2031, 4
+    await _reset_period(year, month)
+    resp = await _import(app_client, app_auth_headers, year=year, month=month)
+    assert resp.status_code == 201, resp.text
+    params = {"year": year, "month": month}
+
+    admin = await app_client.get(
+        "/api/finance/results", headers=app_auth_headers, params=params
+    )
+    assert admin.json()["totals"] is not None
+
+    finance_headers = await _headers_for(app_client, "finance")
+    finance = await app_client.get(
+        "/api/finance/results",
+        headers=finance_headers,
+        params={**params, "sort": "margin_pln", "direction": "desc"},
+    )
+    assert finance.status_code == 200, finance.text
+    body = finance.json()
+    assert body["totals"] is None
+    assert len(body["rows"]) == 2
+    # Sortowanie po marży wraca do kolejności z arkusza.
+    assert [r["row_number"] for r in body["rows"]] == sorted(
+        r["row_number"] for r in body["rows"]
     )
 
 

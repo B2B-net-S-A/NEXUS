@@ -140,6 +140,8 @@ export interface InvoicingSummary {
   unmatched_invoices: number;
   expected: MoneyTotal[];
   invoiced_net: MoneyTotal[];
+  /** Konto bez „Wyników firmy”: suma miesiąca całej firmy nie przychodzi. */
+  totals_hidden?: boolean;
   overdue?: number;
 }
 

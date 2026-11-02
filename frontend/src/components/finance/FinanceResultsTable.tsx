@@ -129,13 +129,18 @@ interface Props {
   onError: (msg: string) => void;
   searching: boolean;
   readOnly?: boolean;
+  /** Sortowanie po marży to ranking całej firmy: tylko z „Wynikami firmy”. */
+  marginSortable?: boolean;
 }
+
+const MARGIN_SORT_KEYS: readonly string[] = ["margin_pln", "margin_pct"];
 
 export function FinanceResultsTable({
   rows,
   sort,
   direction,
   onSort,
+  marginSortable = true,
   onEdit,
   onError,
   searching,
@@ -182,7 +187,7 @@ export function FinanceResultsTable({
                     index === 0 && "sticky left-0 z-20 bg-background",
                   )}
                 >
-                  {col.numeric ? (
+                  {col.numeric && (marginSortable || !MARGIN_SORT_KEYS.includes(col.key)) ? (
                     <button
                       type="button"
                       onClick={() => onSort(col.key)}

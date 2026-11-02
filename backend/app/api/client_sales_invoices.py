@@ -317,11 +317,21 @@ async def finance_invoices(
     payload = await views.month_view(
         db, year=period[0], month=period[1], client_ids=None, today=business_today()
     )
+    summary = payload["summary"]
+    # Suma netto miesiąca to praktycznie przychód firmy (decyzja Artura
+    # 02.11.2026); klient i faktura zostają.
+    if not has_permission(current_user, ProductAction.company_results):
+        summary = {
+            **summary,
+            "expected": [],
+            "invoiced_net": [],
+            "totals_hidden": True,
+        }
     return {
         "period": payload["period"],
         "module_enabled": enabled,
         "invoices": payload["invoices"],
-        "summary": payload["summary"],
+        "summary": summary,
     }
 
 
