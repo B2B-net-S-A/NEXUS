@@ -1,0 +1,60 @@
+import { describe, expect, it } from "vitest";
+import { newColumnSection, orderNewColumn, waitsInSystemQueue } from "@/lib/new-column-queue";
+
+const system = (id: number, score: number, extra: object = {}) => ({
+  id,
+  candidate_id: id * 10,
+  entry_source: "system",
+  entry_autofill: { score, decided: false, cautions: [] },
+  ...extra,
+});
+const team = (id: number) => ({ id, candidate_id: id * 10, entry_source: "added_manual" });
+
+describe("orderNewColumn", () => {
+  it("odwraca paczkę od systemu: najwyższy wynik pierwszy, zespół na górze", () => {
+    // Kolejność z serwera: od najmłodszego, więc w paczce od najniższego wyniku.
+    const { items, ranks, total } = orderNewColumn([team(1), system(2, 75), system(3, 76), team(4), system(5, 79)]);
+    expect(items.map((i) => i.id)).toEqual([1, 4, 5, 3, 2]);
+    expect(ranks.get(5)).toBe(1);
+    expect(ranks.get(2)).toBe(3);
+    expect(ranks.has(1)).toBe(false);
+    expect(total).toBe(3);
+  });
+
+  it("kartę, którą ktoś wziął, traktuje jak kartę zespołu", () => {
+    const decided = system(2, 90, { entry_autofill: { score: 90, decided: true, cautions: [] } });
+    const claimed = system(3, 88, { claim_user_id: 7 });
+    expect(waitsInSystemQueue(decided)).toBe(false);
+    expect(waitsInSystemQueue(claimed)).toBe(false);
+    const { items, ranks } = orderNewColumn([system(1, 70), decided, claimed]);
+    expect(items.map((i) => i.id)).toEqual([2, 3, 1]);
+    expect(ranks.get(1)).toBe(1);
+  });
+
+  it("ostrzeżenie za osobami bez uwag, brak krytycznej na samym końcu", () => {
+    const caution = system(2, 80, { entry_autofill: { score: 80, decided: false, cautions: [{ key: "budget" }] } });
+    const gap = system(3, 90);
+    const { items } = orderNewColumn([gap, caution, system(4, 70)], new Map([[30, ["angular"]]]));
+    expect(items.map((i) => i.id)).toEqual([4, 2, 3]);
+  });
+
+  it("remis wyniku rozstrzyga numer osoby, więc kolejność jest stała", () => {
+    const { items } = orderNewColumn([system(3, 75), system(1, 75), system(2, 75)]);
+    expect(items.map((i) => i.id)).toEqual([1, 2, 3]);
+  });
+
+  it("karta od systemu bez migawki zostaje u góry i nie psuje kolejki", () => {
+    const { items, total } = orderNewColumn([{ id: 9, candidate_id: 90, entry_source: "system", entry_autofill: null }, system(1, 70)]);
+    expect(items.map((i) => i.id)).toEqual([9, 1]);
+    expect(total).toBe(1);
+  });
+});
+
+describe("newColumnSection", () => {
+  it("dzieli na zespół, pięć pierwszych i resztę", () => {
+    expect(newColumnSection(undefined)).toBe("team");
+    expect(newColumnSection(1)).toBe("call_first");
+    expect(newColumnSection(5)).toBe("call_first");
+    expect(newColumnSection(6)).toBe("rest");
+  });
+});
