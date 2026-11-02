@@ -50,6 +50,7 @@ export type SettingsItemId =
   | "kpi-targets"
   | "twin-rules"
   | "novelties"
+  | "cv-generator-quality"
   | "mail"
   | "skills"
   | "skills-review"
@@ -161,6 +162,14 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "nowosci co nowego wdrozenia przeklikanie adopcja przypomnij funkcje",
     route: "/settings/nowosci",
     // Lustro `HeadOfRecruitmentPlus` w `api/novelties.py` (decyzja Artura 28.10.2026).
+    gate: { roles: ["admin", "head_of_recruitment"] },
+  },
+  {
+    id: "cv-generator-quality", area: "team", title: "Jakość generatora CV", group: "Zespół rekrutacji",
+    description: "Co rekruterzy zgłaszają, gdy pobierają oryginał CV po złym wyniku generatora.",
+    keywords: "generator cv jakosc powody feedback pobieranie oryginal uwagi",
+    route: "/settings/jakosc-generatora",
+    // Lustro `HeadOfRecruitmentPlus` w `api/cv_generator_feedback.py` (decyzja Artura 02.11.2026).
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {

@@ -141,6 +141,7 @@ import { boardColumnPurpose } from "@/lib/board-column-purpose";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { isRecruiterOnly } from "@/lib/cv-download-access";
 import {
  CARD_BADGE_TONE_CLASS,
  cardBadges,
@@ -4253,6 +4254,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  Wyślij CV do klienta
  </Button>
  )}
+ {isRecruiterOnly(authUser) ? null : (
  <Button
  size="sm"
  variant="secondary"
@@ -4266,6 +4268,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  )}{""}
  CV (ZIP)
  </Button>
+ )}
  {/* Skrót do tej samej ścieżki, co wybór „Odrzucony" z listy wyżej —
  `bulkMove` otwiera wspólny modal powodu (`RejectionV2`). Żadnej nowej
  mutacji: bez kolumny terminalnej „Odrzucony" w szablonie przycisku

@@ -623,5 +623,36 @@
     "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
     "href": "/sales",
     "dot_anchor": "sales.decision-map.add"
+  },
+  {
+    "id": "oryginal-cv-po-generatorze",
+    "title": "Oryginał CV pobierzesz po próbie z generatorem",
+    "why": "Jeśli masz samą rolę rekrutera, pliki kandydatów oglądasz w NEXUSIE. Oryginał CV pobierzesz z karty „CV do klienta”, gdy generator zrobi złe CV, i napiszesz, co było źle. Paczki ZIP już nie ma. Do szukania pasujących osób służą wyszukiwanie i „Oceń z AI”.",
+    "tier": "process",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → CV do klienta",
+    "href": "/jobs",
+    "section": "pipeline",
+    "path_prefix": "/jobs",
+    "dot_anchor": "person.cv.to-client-card",
+    "used_anchor": "person.cv.original-after-generator",
+    "steps": [
+      {
+        "anchor": "jobs.list.title",
+        "text": "Otwórz dowolną rekrutację i kartę osoby.",
+        "hint": "Kartę „CV do klienta” znajdziesz w panelu osoby, w zakładce CV. Nic nie zmienisz, przeklikanie kończy się przed zapisem."
+      },
+      {
+        "anchor": "person.cv.to-client-card",
+        "text": "Tu najpierw powstaje CV z generatora.",
+        "hint": "Gdy wynik będzie zły, pod CV pojawi się „Generator źle zrobił CV? Pobierz oryginał”. Zaznaczysz, co było źle, i plik się pobierze.",
+        "ack": true
+      }
+    ]
   }
 ]

@@ -90,6 +90,8 @@ import {
   postAuthenticatedDownload,
 } from "@/lib/authenticated-files";
 import { withDownloadIntent, type CvDownloadSurface } from "@/lib/cv-download-intent";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
+import { CvDownloadExceptionDialog } from "@/components/v2/files/CvDownloadExceptionDialog";
 import { CV_CONTENT_MODES } from "@/lib/cv-generator";
 import { countForm } from "@/lib/cv-qc";
 import { cvAiSourcesQueryKey, fetchCvAiSources } from "@/lib/cv-ai-sources";
@@ -411,6 +413,8 @@ export function CvToClientCard({
   const [previewOpen, setPreviewOpen] = useState(false);
   const [originalOpen, setOriginalOpen] = useState(false);
   const [otherOpen, setOtherOpen] = useState(false);
+  const recruiterOnly = useRecruiterOnly();
+  const [exceptionOpen, setExceptionOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   // Liczba stron z miniatury — ważna tylko dla wersji CV, z której pochodzi.
@@ -1012,6 +1016,17 @@ export function CvToClientCard({
           onReview={() => openEditor("issues")}
         />
         {readyHint}
+        {recruiterOnly && canReplace && branded.from_generator === true ? (
+          <button
+            type="button"
+            data-testid="cv-original-after-generator"
+            data-tour="person.cv.original-after-generator"
+            onClick={() => setExceptionOpen(true)}
+            className="text-left text-xs font-medium text-primary hover:underline"
+          >
+            Generator źle zrobił CV? Pobierz oryginał
+          </button>
+        ) : null}
         {state.consentMissing ? (
           <div
             role="note"
@@ -1169,6 +1184,11 @@ export function CvToClientCard({
           <div className="flex flex-wrap gap-1.5">
             {generateButton("Spróbuj ponownie", true, "sparkles")}
             {useOtherButton}
+            {recruiterOnly ? (
+              <Button size="sm" variant="outline" onClick={() => setExceptionOpen(true)}>
+                <Download className="h-3.5 w-3.5" aria-hidden /> Pobierz oryginał
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1225,6 +1245,7 @@ export function CvToClientCard({
             <p className="text-[11px] text-muted-foreground">
               Najpierw potwierdzisz plik CV, odpowiedzi ze screeningu i dodatkowe notatki — CV powstaje
               dopiero po „Generuj”, nie samo po ruchu na „Zweryfikowany”.
+              {recruiterOnly ? " Oryginał CV pobierzesz po próbie z generatorem, jeśli wynik będzie zły." : ""}
             </p>
           </div>
         ) : (
@@ -1241,6 +1262,7 @@ export function CvToClientCard({
     <section
       aria-label="CV do klienta"
       data-testid="cv-to-client-card"
+      data-tour="person.cv.to-client-card"
       className="space-y-3 rounded-xl border border-border bg-card p-3"
     >
       <h3 className="text-sm font-semibold text-foreground">CV do klienta</h3>
@@ -1257,6 +1279,9 @@ export function CvToClientCard({
         </p>
       ) : null}
       {body}
+      {recruiterOnly && exceptionOpen ? (
+        <CvDownloadExceptionDialog stageId={cvStageId} open onOpenChange={setExceptionOpen} />
+      ) : null}
       {generateOpen && canReplace ? (
         <CvGeneratePanel
           candidateId={candidateId}

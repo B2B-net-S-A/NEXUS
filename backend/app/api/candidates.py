@@ -193,6 +193,7 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
+    CandidateBulkCvAccess,
     CANDIDATE_WRITE_ROLES,
     NOT_READ_ONLY,
     client_rate_write_allowed,
@@ -214,7 +215,12 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_audit, candidate_hard_delete, client_rate_correction
+from app.services import (
+    candidate_audit,
+    candidate_hard_delete,
+    client_rate_correction,
+    cv_download_policy,
+)
 from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
@@ -6434,6 +6440,13 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
+    # Do dziennika to, o co prosił klient: nagłówek pliku Word zawsze jest
+    # `attachment`, a jego podgląd nie może liczyć się jako zapis na dysk.
+    requested_disposition = disposition
     disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
@@ -6441,7 +6454,7 @@ async def download_candidate_document(
         action=candidate_audit.DOCUMENT_DOWNLOADED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={"doc_id": doc_id, "disposition": disposition},
+        details={"doc_id": doc_id, "disposition": requested_disposition},
     )
     await db.commit()
 
@@ -6529,6 +6542,10 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
     # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
     disposition = _safe_document_disposition(doc.content_type, disposition)
 
@@ -8555,6 +8572,9 @@ async def download_cv(
     file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
     if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    await cv_download_policy.ensure_can_save_file(
+        db, current_user, filename=candidate.cv_filename, content_type=None
+    )
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CV_DOWNLOADED,
@@ -8591,7 +8611,7 @@ def _bulk_cv_archive_name() -> str:
 @router.post("/bulk-cv-download", dependencies=NOT_READ_ONLY)
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateBulkCvAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.

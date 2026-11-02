@@ -315,7 +315,7 @@ export function isTraineeOnly(
 /** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
  *  API odpowiedź) — używamy ``[role]``. */
-type RoleBearingUser = {
+export type RoleBearingUser = {
   role: UserRole
   roles?: readonly UserRole[]
 }

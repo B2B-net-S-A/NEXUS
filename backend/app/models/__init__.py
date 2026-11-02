@@ -348,6 +348,7 @@ from app.models.linkedin_extension import (  # noqa: F401
     LinkedinExtensionConnection,
 )
 from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
+from app.models.cv_generator_feedback import CvGeneratorFeedback  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,

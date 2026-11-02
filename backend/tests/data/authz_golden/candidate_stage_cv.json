@@ -58,6 +58,7 @@
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-generated": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-stage-cv": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/branded/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
+  "POST /api/candidates/stages/{stage_id}/cv/original/download-after-generator": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/original/refresh": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/original/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
   "POST /api/candidates/stages/{stage_id}/cv/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPD"

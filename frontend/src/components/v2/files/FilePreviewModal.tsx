@@ -12,6 +12,7 @@
  * backendu), więc bez problemów CORS z bucketem Hetzner Object Storage.
  */
 
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   useEffect,
   useMemo,
@@ -225,6 +226,7 @@ export function FilePreviewContent({
   // najwyżej do 125%, zamiast wypełniać 1400 px szerokości.
   pdfFit?: "page-width" | "auto";
 }) {
+  const recruiterOnly = useRecruiterOnly();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const docxHostRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
@@ -454,6 +456,7 @@ export function FilePreviewContent({
             <p className="text-sm text-muted-foreground">
               Nie udało się wyświetlić podglądu tego pliku.
             </p>
+            {recruiterOnly ? null : (
             <button
               type="button"
               onClick={() => onDownload(doc)}
@@ -462,6 +465,7 @@ export function FilePreviewContent({
               <Download className="h-4 w-4" />
               Pobierz plik
             </button>
+            )}
           </div>
         )}
 
@@ -548,6 +552,7 @@ export function FilePreviewModal({
   /** Gdzie wrócić fokusem po zamknięciu (domyślnie przycisk, który otworzył okno). */
   onCloseAutoFocus?: (event: Event) => void;
 }) {
+  const recruiterOnly = useRecruiterOnly();
   const gallery = useMemo(() => {
     if (documents?.length) {
       return [...documents].sort((left, right) => {
@@ -666,7 +671,7 @@ export function FilePreviewModal({
               </button>
             </div>
             {headerActions}
-            {activeDocument && (
+            {activeDocument && !(recruiterOnly && previewKind(activeDocument) !== "unsupported") && (
               <button
                 type="button"
                 onClick={() => onDownload(activeDocument)}

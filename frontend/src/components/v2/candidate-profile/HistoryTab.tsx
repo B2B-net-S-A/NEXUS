@@ -38,8 +38,10 @@ import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
 import {
   FilePreviewContent,
   downloadDocumentBlob,
+  previewKind,
   type CandidateDocument,
 } from "@/components/v2/files/FilePreviewModal";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   candidateQueryKeys,
   candidateViewerScopeKey,
@@ -535,6 +537,7 @@ function CvSidePane({
     );
   }, [documentsQuery.data, cvFilename]);
 
+  const recruiterOnly = useRecruiterOnly();
   const handleDownload = async (doc: CandidateDocument) => {
     try {
       await downloadDocumentBlob(candidateId, doc);
@@ -552,6 +555,7 @@ function CvSidePane({
               <span className="min-w-0 truncate text-sm font-medium text-foreground">
                 {primaryDoc.filename}
               </span>
+              {recruiterOnly && previewKind(primaryDoc) !== "unsupported" ? null : (
               <button
                 type="button"
                 onClick={() => handleDownload(primaryDoc)}
@@ -561,6 +565,7 @@ function CvSidePane({
                 <Download className="h-3.5 w-3.5" />
                 Pobierz
               </button>
+              )}
             </div>
             <FilePreviewContent
               doc={primaryDoc}
