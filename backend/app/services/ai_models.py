@@ -61,6 +61,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F38 | linkedin_message_draft           | claude-sonnet-5 (z Haiku)|
 | F39 | candidate_ai_assessment          | gpt-6-luna (z Sonnet 5)  |
 | F40 | sales_meeting_summary            | gpt-6-luna (z Sonnet 5)  |
+| F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -445,6 +446,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z CV, screeningu i notatek — ta sama robota co generator CV (F4), więc jego model "
         "i fallback. Każda wartość z cytatem ze źródła; wartość bez cytatu odrzuca kod, "
         "ocen 1–10 i numerów certyfikatów model nie zgaduje. Całość sprawdza rekruter.",
+    ),
+    AIFeatureKey.requirement_word_hints: ModelChoice(
+        default=SONNET_5,
+        env_vars=("REQUIREMENT_WORD_HINTS_MODEL",),
+        fallbacks=("claude-haiku-4-5",),
+        rationale="F41 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Przycisk przy wierszu "
+        "„musi mieć”, którego nie ma nikt z wysłanych: model czyta do 6 CV i podaje słowa, "
+        "kod zostawia tylko te, które silnik znajduje. Pomiar 02.11 na Sonnecie 5, 297 odczytów: "
+        "słowa łapią co najmniej połowę wysłanych w 32 z 36 fałszywych braków.",
     ),
     AIFeatureKey.consent_screenshot_check: ModelChoice(
         default=SONNET_5,

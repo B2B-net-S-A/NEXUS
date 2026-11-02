@@ -114,6 +114,8 @@ class TestFeatureKeyEnum:
             # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
             "candidate_ai_assessment",
             "sales_meeting_summary",
+            # 0632: słowa z CV wysłanych do wiersza „musi mieć”.
+            "requirement_word_hints",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

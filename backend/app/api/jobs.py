@@ -3786,6 +3786,46 @@ async def get_requirement_proposal(
     }
 
 
+@router.get("/{job_id}/requirement-sent-gaps")
+async def get_requirement_sent_gaps(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Wiersze „musi mieć”, których nie ma nikt z wysłanych (na żywo, tylko odczyt)."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    gaps = await requirement_sent_gaps.compute(db, job)
+    return {
+        **gaps.as_dict(),
+        "can_ask_hints": requirement_cleanup.can_decide(current_user, job),
+    }
+
+
+@router.post("/{job_id}/requirement-sent-gaps/word-hints")
+async def post_requirement_word_hints(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Słowa z CV wysłanych do wierszy z zerem (F41). Nic nie zapisuje."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not requirement_cleanup.can_decide(current_user, job):
+        raise HTTPException(
+            403,
+            "Słowa podpowiadamy Delivery Leadowi tej rekrutacji albo Head of Recruitment.",
+        )
+    return await requirement_sent_gaps.word_hints(db, job, user_id=current_user.id)
+
+
 async def _locked_proposal(
     db: AsyncSession,
     job_id: int,
@@ -3793,7 +3833,7 @@ async def _locked_proposal(
     profile_hash: str,
     proposal_digest: Optional[str] = None,
 ):
-    from app.services import requirement_cleanup
+    from app.services import requirement_cleanup, requirement_sent_gaps
 
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
@@ -3805,6 +3845,7 @@ async def _locked_proposal(
             "Recruitment.",
         )
     await requirement_cleanup.prepare_counts(db, [job])
+    await requirement_sent_gaps.prepare(db, [job])
     proposal = requirement_cleanup.build_proposal(job)
     if proposal is None:
         raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")

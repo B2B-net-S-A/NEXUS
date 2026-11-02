@@ -26,7 +26,7 @@
  */
 
 import { ChampionImportButton, ChampionImportReview, ChampionTemplateDownload, ChampionValidationPanel } from "./ChampionIntake";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -103,7 +103,14 @@ import {
 import { ChampionProfileSuggestionReview } from "./ChampionProfileSuggestionReview";
 import { ChampionExperienceFields } from "@/components/champion/ChampionExperienceFields";
 import { SearchRequirementsEditor } from "@/components/champion/SearchRequirementsEditor";
-import { RequirementRowsEditor } from "@/components/champion/RequirementRowsEditor";
+import {
+  RequirementRowsEditor,
+  type RequirementSentGaps,
+} from "@/components/champion/RequirementRowsEditor";
+import {
+  useRequirementSentGaps,
+  useRequirementWordHints,
+} from "@/lib/requirement-sent-gaps-api";
 import { TalkSearchWordHints } from "@/components/champion/TalkSearchWordHints";
 import {
   CRITICAL_PEOPLE_MIN,
@@ -419,6 +426,28 @@ export function ChampionProfileEditor({
   const proposalQuery = useRequirementProposal(jobId, Boolean(data));
   const proposal = proposalQuery.data?.proposal ?? null;
   const [proposalOpen, setProposalOpen] = useState(false);
+  // 02.11.2026: wiersze „musi mieć”, których nie ma nikt z wysłanych, i słowa z ich CV.
+  const sentGapsQuery = useRequirementSentGaps(jobId, Boolean(data));
+  const wordHints = useRequirementWordHints(jobId);
+  const sentGaps = useMemo<RequirementSentGaps | undefined>(() => {
+    const gaps = sentGapsQuery.data;
+    if (!gaps || gaps.rows.length === 0) return undefined;
+    const hints = wordHints.data?.available ? wordHints.data.rows : null;
+    return {
+      sent: gaps.sent,
+      rows: gaps.rows,
+      wordsFor: (label) => hints?.find((row) => row.label === label)?.words ?? (hints ? [] : null),
+      canAsk: gaps.can_ask_hints,
+      asking: wordHints.isPending,
+      askError: wordHints.isError
+        ? apiErrorMessage(wordHints.error, "Nie udało się podpowiedzieć słów. Spróbuj ponownie.")
+        : wordHints.data && !wordHints.data.available
+          ? "Nie udało się przeczytać CV. Spróbuj ponownie."
+          : null,
+      onAsk: () => wordHints.mutate(),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `mutate` jest stabilne
+  }, [sentGapsQuery.data, wordHints.data, wordHints.isPending, wordHints.isError, wordHints.error]);
   const moveToTalk = (item: TalkItem) =>
     setDraft((d) => {
       if (item.kind === "language") {
@@ -1450,6 +1479,7 @@ export function ChampionProfileEditor({
                 disabled={disabled}
                 onMoveToTalk={moveToTalk}
                 onCriticalCountChange={setCriticalReach}
+                sentGaps={disabled ? undefined : sentGaps}
               />
             </div>
             <div className="mt-3">

@@ -24,11 +24,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import { ChipField, type ChipCommitSource } from "@/components/v2/filters/AdvancedSearchPopover";
 import { peopleCountLabel } from "@/components/champion/SearchRequirementsEditor";
+import type { SentGapRow, SentGapWord } from "@/lib/requirement-sent-gaps-api";
 import {
   CityCallout,
   CommentCallout,
   DecisionCallout,
   RareWordCallout,
+  SentGapCallout,
 } from "@/components/champion/RequirementRowCallouts";
 import { statSentence } from "@/lib/critical-skills";
 import {
@@ -53,6 +55,7 @@ import {
   enterRequirements,
   gluedVariants,
   isRareRowCount,
+  sentGapForRow,
   levelBlockedReason,
   parseRequirementEntry,
   requiredOverflowNotice,
@@ -83,6 +86,17 @@ import { cn } from "@/lib/utils";
 export const OUTSIDE_DICTIONARY_NOTE =
   "Spoza słownika technologii — w propozycjach AI zostają osoby, które mają którekolwiek ze słów tego wiersza w profilu, CV albo notatkach. Szukamy dokładnie tych słów; odmianę łapie początek słowa z gwiazdką, np. „bankow*”.";
 
+export interface RequirementSentGaps {
+  sent: number;
+  rows: readonly SentGapRow[];
+  /** Słowa po wierszu serwera; `null` = jeszcze nie pytano modelu. */
+  wordsFor: (label: string) => readonly SentGapWord[] | null;
+  canAsk: boolean;
+  asking: boolean;
+  askError: string | null;
+  onAsk: () => void;
+}
+
 export interface RequirementRowsEditorProps {
   rows: RequirementRowForm[];
   onRowsChange: (rows: RequirementRowForm[]) => void;
@@ -110,6 +124,8 @@ export interface RequirementRowsEditorProps {
   onMoveToTalk?: (item: TalkItem) => void;
   /** Ile osób zostawiają krytyczne razem (`undefined` = liczę, `null` = nie wiadomo). */
   onCriticalCountChange?: (count: number | null | undefined) => void;
+  /** Wiersze, których nie ma nikt z wysłanych; brak = nie mówimy nic (nowa rekrutacja, harness). */
+  sentGaps?: RequirementSentGaps;
 }
 
 /** Podpowiedzi w wierszu: lista dopiero po wpisaniu tekstu (nie zasłania wiersza niżej). */
@@ -154,6 +170,7 @@ export function RequirementRowsEditor({
   className,
   onMoveToTalk,
   onCriticalCountChange,
+  sentGaps,
 }: RequirementRowsEditorProps) {
   const noCriticalId = useId();
   const shown = useMemo<RequirementRowForm[]>(
@@ -362,8 +379,16 @@ export function RequirementRowsEditor({
           const countHint = counted ? rowCountHint(counts.perRow[row.key]) : null;
           const rowCount = counts.perRow[row.key];
           const rareKey = `rare:${head}`;
+          const sentGapKey = `sent-gap:${head}`;
+          const sentGap =
+            sentGaps && row.level !== "nice" && !dismissed.has(sentGapKey)
+              ? sentGapForRow(row.words, sentGaps.rows)
+              : null;
+          // Jedno ostrzeżenie na wiersz: dowód z wysłanych mówi więcej niż licznik.
           const rareCount =
-            counted && isRareRowCount(rowCount) && !dismissed.has(rareKey) ? rowCount : null;
+            counted && isRareRowCount(rowCount) && !dismissed.has(rareKey) && !sentGap
+              ? rowCount
+              : null;
           const rowHints = hints.filter((hint) => hint.row === index);
           // Pusty wiersz przyjmuje wymagania. Wypełniony pokazuje same chipy:
           // bez pola kolejne słowo nie stanie się po cichu wariantem — pole
@@ -522,6 +547,26 @@ export function RequirementRowsEditor({
                   reading={city}
                   onRemove={() => remove(row.key)}
                   onKeep={() => setDismissed((prev) => new Set(prev).add(cityKey))}
+                />
+              ) : null}
+              {sentGap && sentGaps ? (
+                <SentGapCallout
+                  word={row.words.join(" lub ")}
+                  gap={{
+                    sent: sentGaps.sent,
+                    words: sentGaps.wordsFor(sentGap.label),
+                    canAsk: sentGaps.canAsk,
+                    asking: sentGaps.asking,
+                    askError: sentGaps.askError,
+                  }}
+                  countEnabled={countEnabled}
+                  onAsk={sentGaps.onAsk}
+                  onAddWord={(word) => setWords(row.key, [...row.words, word])}
+                  onTalk={() => {
+                    remove(row.key);
+                    toTalk(row.words.join(" / "), "skills");
+                  }}
+                  onKeep={() => setDismissed((prev) => new Set(prev).add(sentGapKey))}
                 />
               ) : null}
               {rareCount != null ? (
