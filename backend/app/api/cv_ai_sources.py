@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateDocumentAccess
@@ -105,6 +105,7 @@ async def get_stage_cv_ai_sources(
         _not_followup_note,
         champion_present,
     )
+    from app.services.client_cv_upload import looks_like_client_cv
     from app.services.money_text import is_rate_text
     from app.services.must_text_evidence import is_negative_answer
 
@@ -116,9 +117,15 @@ async def get_stage_cv_ai_sources(
     candidate_id = stage.candidate_id
 
     cv_files = await _cv_files(db, stage)
-    default = next((f for f in cv_files if f.stage_original), None) or next(
-        (f for f in cv_files if not f.outdated), None
-    )
+    stage_copy = next((f for f in cv_files if f.stage_original), None)
+    # Kopia etapu sprzed 02.11.2026 bywa firmowym CV: wtedy domyślnie CV kandydata.
+    if (
+        stage_copy is not None
+        and looks_like_client_cv(stage_copy.filename or "")
+        and await _has_candidate_cv(db, candidate_id)
+    ):
+        stage_copy = None
+    default = stage_copy or next((f for f in cv_files if not f.outdated), None)
     if default is None and cv_files:
         default = cv_files[0]
     original = (
@@ -230,6 +237,29 @@ async def get_stage_cv_ai_sources(
     )
 
 
+async def _has_candidate_cv(db: AsyncSession, candidate_id: int) -> bool:
+    """Czy osoba ma plik rodzaju „cv”, który może zastąpić firmowe CV."""
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+    from app.services.cv_generator_b2b.standalone_service import (
+        _supported_cv_doc_filter,
+    )
+    from app.services.cv_source import client_cv_file_clause, current_cv_filters
+
+    return bool(
+        await db.scalar(
+            select(CandidateDocument.id)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                not_(client_cv_file_clause()),
+                _supported_cv_doc_filter(),
+                *current_cv_filters(),
+            )
+            .limit(1)
+        )
+    )
+
+
 async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFile]:
     """Pliki CV osoby, które generator umie przeczytać, w kolejności generatora.
 
@@ -244,6 +274,7 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
     from app.services.cv_generator_b2b.standalone_service import (
         _supported_cv_doc_filter,
     )
+    from app.services.cv_source import current_cv_ordering
 
     eligible = source_is_eligible_clause(
         candidate_id_column=CandidateDocument.candidate_id,
@@ -265,11 +296,7 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
                 CandidateDocument.candidate_id == stage.candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     # Kopia bieżącego wiersza etapu, a bez niej najnowsza kopia pary (ruch

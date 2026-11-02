@@ -2623,6 +2623,8 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
+    from app.services.cv_source import current_cv_ordering
+
     rows = (
         await db.scalars(
             select(CandidateDocument)
@@ -2630,11 +2632,7 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     return [

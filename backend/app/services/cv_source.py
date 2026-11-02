@@ -17,7 +17,7 @@ import logging
 from dataclasses import dataclass
 
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import ColumnElement, and_, case, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
@@ -28,6 +28,7 @@ from app.services.candidate_identity_quarantine import (
     source_is_eligible_clause,
     source_is_quarantined_clause,
 )
+from app.services.client_cv_upload import CLIENT_CV_NAME
 from app.core.log_safety import safe_storage_key
 
 logger = logging.getLogger(__name__)
@@ -52,8 +53,8 @@ def current_cv_filters() -> tuple:
     * „nieaktualne” (0400) nie może zostać głównym CV, więc nie jest też
       bieżącym — po usunięciu głównego CV z profilu nie wraca jako następca
       (`usun-plik-z-profilu-kandydata.md`). Plików „…B2B…” nie odsiewamy po
-      nazwie: u osób bez wskazanego głównego CV (stare importy) bywa to jedyne
-      CV, a bez pomiaru na produkcji heurystyka odcięłaby generator.
+      nazwie: pomiar 02.11.2026 to 1280 osób, dla których firmowy Word jest
+      jedynym CV. Ustępują CV kandydata w `current_cv_ordering`.
     """
     return (
         CandidateDocument.document_kind.notin_(_NOT_CV_KINDS),
@@ -82,13 +83,33 @@ async def _legacy_cv_quarantined(db: AsyncSession, candidate_id: int) -> bool:
     )
 
 
+def client_cv_file_clause() -> ColumnElement[bool]:
+    """Firmowe CV po nazwie: Word „…B2B…” (lustro `looks_like_client_cv` bez wzoru klienta)."""
+    return and_(
+        CandidateDocument.filename.op("~*")(CLIENT_CV_NAME.pattern),
+        func.lower(CandidateDocument.filename).like("%.docx"),
+    )
+
+
 def current_cv_ordering() -> tuple:
-    """Kolejność wyboru bieżącego CV: główne → rodzaj „cv" → najnowsze."""
+    """Kolejność wyboru bieżącego CV: główne → rodzaj „cv" → najnowsze.
+
+    02.11.2026: firmowe CV (Word „…B2B…”) ustępuje CV kandydata rodzaju „cv”,
+    także jako główne. Czytane jak oryginał przenosi swoje błędy i skróty do
+    następnej generacji i do kopii „Oryginał CV”, z którą porównuje QC. „Other”
+    go nie zastępuje: import Traffita nie klasyfikuje plików, a co piąty taki
+    plik Word obok firmowego CV sam ma układ szablonu
+    (`generator-cv/firmowe-cv-ustepuje-cv-kandydata.md`).
+    """
+    is_cv = CandidateDocument.document_kind == CandidateDocumentKind.cv
+    is_candidate_file = not_(client_cv_file_clause())
     return (
-        CandidateDocument.is_primary.desc(),
         case(
-            (CandidateDocument.document_kind == CandidateDocumentKind.cv, 0),
-            else_=1,
+            (and_(CandidateDocument.is_primary, is_candidate_file), 0),
+            (and_(is_cv, is_candidate_file), 1),
+            (CandidateDocument.is_primary, 2),
+            (is_cv, 3),
+            else_=4,
         ),
         CandidateDocument.uploaded_at.desc(),
     )
