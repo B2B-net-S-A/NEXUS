@@ -26,7 +26,7 @@ _PASS_BUDGET_SECONDS = 3600.0
 
 
 async def requirement_row_counts_loop() -> None:
-    from app.services import requirement_cleanup
+    from app.services import requirement_cleanup, requirement_sent_gaps
 
     await asyncio.sleep(_START_DELAY_SECONDS)
     # Tick na początku obrotu; obrót trwa najwyżej godzinę, potem godzina przerwy.
@@ -44,6 +44,10 @@ async def requirement_row_counts_loop() -> None:
                 await db.rollback()
             if counted:
                 logger.info("requirement row counts: %d wierszy policzonych", counted)
+            # Wiersze bez nikogo z wysłanych czytają CV, więc we własnej sesji.
+            async with AsyncSessionLocal() as db:
+                await requirement_sent_gaps.warm(db, budget=_PASS_BUDGET_SECONDS)
+                await db.rollback()
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — pętla tła nie może paść

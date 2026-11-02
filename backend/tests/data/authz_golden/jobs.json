@@ -48,6 +48,7 @@
   "GET /api/jobs/{job_id}/readiness": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
   "GET /api/jobs/{job_id}/request-history": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/jobs/{job_id}/requirement-proposal": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/requirement-sent-gaps": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "PATCH /api/jobs/{job_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "PATCH /api/jobs/{job_id}/close-reason": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
   "POST /api/jobs": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
@@ -71,6 +72,7 @@
   "POST /api/jobs/{job_id}/publish": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
   "POST /api/jobs/{job_id}/requirement-proposal/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/requirement-proposal/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/requirement-sent-gaps/word-hints": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "PUT /api/jobs/{job_id}/champion-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "PUT /api/jobs/{job_id}/hiring-manager": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
