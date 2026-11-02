@@ -47,18 +47,21 @@ import {
   EmptyListView,
   ErrorView,
   ForJobView,
+  FromLinksView,
   PeopleListView,
   type RowActions,
 } from "./MyPeopleViews";
 import { shouldCloseOnEscape } from "@/lib/panel-escape";
 import { useCandidateLists } from "@/lib/api/candidateLists";
 import { useEndingConsultants } from "@/lib/api/endingConsultants";
+import { useLinkPeople } from "@/lib/api/careerLinks";
+import { useCapability } from "@/hooks/useCapability";
 import { hasPermission } from "@/lib/permissions";
 import { ListsTab } from "./CandidateListsViews";
 import { EndingAtClientsView } from "./EndingAtClientsView";
 import { TeamListsView } from "./TeamListsView";
 
-type PanelTab = "all" | "job" | "move" | "lists" | "ending" | "team";
+type PanelTab = "links" | "all" | "job" | "move" | "lists" | "ending" | "team";
 
 const JOB_PATH = /^\/jobs\/(\d+)/;
 const CANDIDATE_PATH = /^\/candidates\/(\d+)/;
@@ -135,6 +138,9 @@ export function MyPeoplePanel() {
   const { showSuccess, showError } = useToast();
 
   const [tab, setTab] = useState<PanelTab>("all");
+  // Trasa stoi za RecruiterPlus; ta sama bramka co „Wygeneruj link aplikacyjny”.
+  const canSeeLinks = useCapability("invite_link.create");
+  const linkPeople = useLinkPeople(open && canSeeLinks, 0);
   const [query, setQuery] = useState("");
   const [addFor, setAddFor] = useState<{
     candidate_id: number;
@@ -256,6 +262,7 @@ export function MyPeoplePanel() {
 
   const tabs = [
     { value: "all", label: "Z procesów", count: people.data?.active_count },
+    ...(canSeeLinks ? [{ value: "links", label: "Z linków", count: linkPeople.data?.total }] : []),
     {
       value: "lists",
       label: "Listy",
@@ -339,6 +346,19 @@ export function MyPeoplePanel() {
               />
             )}
           </>
+        ) : null}
+
+        {tab === "links" && canSeeLinks ? (
+          linkPeople.isError ? (
+            <ErrorView
+              message={apiErrorMessage(linkPeople.error, "Nie udało się wczytać osób z Twoich linków.")}
+              onRetry={() => void linkPeople.refetch()}
+            />
+          ) : !linkPeople.isSuccess ? (
+            <p className="px-2 py-6 text-center text-sm text-muted-foreground">Wczytuję osoby…</p>
+          ) : (
+            <FromLinksView people={linkPeople.data.people} onAdd={(row) => setAddFor(row)} />
+          )
         ) : null}
 
         {tab === "job" ? (
