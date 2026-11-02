@@ -3807,7 +3807,7 @@ async def api_health_deep_check():
         # 0623: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
         ("sales_meeting_transcripts", SalesMeetingTranscript),
-        # 0637: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
+        # 0638: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
         ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),

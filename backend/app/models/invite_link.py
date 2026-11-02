@@ -131,7 +131,7 @@ class CandidateInviteLink(Base):
 
 
 class CandidateInviteLinkVisitDay(Base):
-    """Wejścia na link jednego dnia kalendarza firmy (0637, decyzja Artura 02.11.2026)."""
+    """Wejścia na link jednego dnia kalendarza firmy (0638, decyzja Artura 02.11.2026)."""
 
     __tablename__ = "candidate_invite_link_visit_days"
 

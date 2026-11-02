@@ -1,4 +1,4 @@
-"""Dzienne wejścia na linki aplikacyjne: SQL migracji ``0637_invite_link_visit_days``.
+"""Dzienne wejścia na linki aplikacyjne: SQL migracji ``0638_invite_link_visit_days``.
 
 JEDNO źródło instrukcji dla migracji i ``entrypoint.sh``; każda instrukcja
 idempotentna. Decyzja Artura 02.11.2026: do tej pory link miał tylko licznik od

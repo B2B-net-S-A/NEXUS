@@ -1,4 +1,4 @@
-"""0637: dzienne wejścia na linki mają lustro w entrypoincie i sondę w health/deep."""
+"""0638: dzienne wejścia na linki mają lustro w entrypoincie i sondę w health/deep."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 
 
 def test_migration_reads_the_shared_ddl() -> None:
-    migration = (BACKEND / "alembic/versions/0637_invite_link_visit_days.py").read_text(
+    migration = (BACKEND / "alembic/versions/0638_invite_link_visit_days.py").read_text(
         encoding="utf-8"
     )
     assert "for stmt in schema.TABLE_DDL:" in migration

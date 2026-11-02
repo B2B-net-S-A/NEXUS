@@ -1268,7 +1268,7 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
 
-# Dzienne wejścia na linki aplikacyjne (0637): JEDNO źródło z migracją
+# Dzienne wejścia na linki aplikacyjne (0638): JEDNO źródło z migracją
 # (`app/services/invite_link_visits_schema.py`).
 try:
     from app.services import invite_link_visits_schema as _invite_link_visits_schema
@@ -6958,7 +6958,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
-    # 0637: dzienne wejścia na linki (po `candidate_invite_links`).
+    # 0638: dzienne wejścia na linki (po `candidate_invite_links`).
     *_INVITE_LINK_VISITS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
