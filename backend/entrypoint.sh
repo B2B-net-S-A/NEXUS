@@ -843,7 +843,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
     # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
-    # 0635: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
+    # 0636: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
@@ -1237,7 +1237,7 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
-# Panel klienta pod linkiem z CV (0635) — JEDNO źródło z migracją
+# Panel klienta pod linkiem z CV (0636) — JEDNO źródło z migracją
 # (`app/services/client_panel_schema.py`, pilnuje test_client_panel_migration_mirror).
 try:
     from app.services import client_panel_schema as _client_panel_schema

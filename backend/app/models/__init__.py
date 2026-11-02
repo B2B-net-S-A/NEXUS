@@ -904,5 +904,5 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 from app.models import novelty as _novelty_models  # noqa: F401,E402
 from app.models import access_usage as _access_usage_models  # noqa: F401,E402
 
-# 0635: panel klienta pod linkiem z CV.
+# 0636: panel klienta pod linkiem z CV.
 from app.models import client_panel as _client_panel_models  # noqa: F401,E402

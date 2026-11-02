@@ -1,7 +1,7 @@
 """Panel klienta pod linkiem z CV (02.11.2026).
 
-Revision ID: 0635_client_panel
-Revises: 0634_requirement_word_hints
+Revision ID: 0636_client_panel
+Revises: 0635_cpro_mail_events
 
 Tabele panelu i typ dzwonka ``client_panel_request``. SQL i powód:
 ``app/services/client_panel_schema.py``. Lustro w ``entrypoint.sh``.
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import client_panel_schema as schema
 
-revision = "0635_client_panel"
-down_revision = "0634_requirement_word_hints"
+revision = "0636_client_panel"
+down_revision = "0635_cpro_mail_events"
 branch_labels = None
 depends_on = None
 
@@ -34,7 +34,7 @@ BEGIN
         SELECT 1 FROM notifications
          WHERE notification_type::text = 'client_panel_request'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0635 odmawia: są dzwonki client_panel_request, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0636 odmawia: są dzwonki client_panel_request, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
