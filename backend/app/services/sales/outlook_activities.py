@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Sequence
 
-from sqlalchemy import and_, delete, func, literal_column, or_, select
+from sqlalchemy import and_, delete, exists, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ from app.models.sales import (
     SalesActivity,
     SalesCompany,
     SalesCompanyContact,
+    SalesMeetingTranscript,
     SalesContact,
 )
 from app.services.m365.matcher import PUBLIC_EMAIL_DOMAINS, external_addresses
@@ -301,4 +302,15 @@ async def forget(
     else:
         conditions.append(SalesActivity.external_ref.is_(None))
     result = await db.execute(delete(SalesActivity).where(*conditions))
+    if source == EVENT_SOURCE:
+        # Spotkanie zniknęło z każdej firmy (odwołane, prywatne): transkrypt też.
+        await db.execute(
+            delete(SalesMeetingTranscript).where(
+                SalesMeetingTranscript.ical_uid == external_id,
+                ~exists().where(
+                    SalesActivity.external_source == source,
+                    SalesActivity.external_id == external_id,
+                ),
+            )
+        )
     return int(result.rowcount or 0)

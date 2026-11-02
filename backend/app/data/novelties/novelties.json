@@ -619,7 +619,20 @@
     "shipped_on": "2026-11-02",
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
     "where": "Ludzie → Akceptacje → Raporty godzin",
-    "href": "/people/approvals?tab=time",
+    "href": "/people/approvals",
     "dot_anchor": "hr.timesheet-status"
+  },
+  {
+    "id": "sprzedaz-mapa-decyzyjna-edycja",
+    "title": "Mapę decyzyjną poprawisz w NEXUSIE",
+    "why": "W szansach z lejka Fabryki IT dodasz, poprawisz i usuniesz osobę na mapie decyzyjnej. Telefon, mail, LinkedIn i notatka uzupełnią też puste pola jej kontaktu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "permissions": ["sales_edit"]
+    },
+    "where": "Sprzedaż → szansa z lejka Fabryki IT → Mapa decyzyjna",
+    "href": "/sales",
+    "dot_anchor": "sales.decision-map.add"
   }
 ]

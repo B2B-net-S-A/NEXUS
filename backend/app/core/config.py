@@ -556,7 +556,10 @@ class Settings(BaseSettings):
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
@@ -1290,6 +1293,9 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
