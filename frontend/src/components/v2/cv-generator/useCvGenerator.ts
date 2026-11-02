@@ -150,11 +150,12 @@ export function useCvGenerator({
       (await api.get<CvSourceFile[]>(`/api/cv-generator/candidates/${candidateId}/cv-sources`)).data,
   });
   const sources = useMemo(() => sourcesQuery.data ?? [], [sourcesQuery.data]);
-  // Domyślnie plik główny (albo jedyny); rekruter może wybrać inny.
+  // Domyślnie pierwszy z listy serwera (główne CV kandydata, firmowe CV dopiero
+  // bez innego CV — `cv_source.current_cv_ordering`); rekruter może wybrać inny.
   const cvDocumentId =
     sourceChoice != null && sources.some((s) => s.id === sourceChoice)
       ? sourceChoice
-      : (sources.find((s) => s.is_primary)?.id ?? sources[0]?.id ?? null);
+      : (sources[0]?.id ?? null);
 
   // Proces wybierany sam — raz na osobę (i na rekrutację, z której otwarto).
   const appliedProcessFor = useRef<string | null>(null);

@@ -61,6 +61,15 @@ export function isClientCvFilename(filename: string | null | undefined): boolean
   return CLIENT_CV_NAME.test(filename ?? "");
 }
 
+/**
+ * Firmowe CV, które ustępuje CV kandydata jako źródło generatora (02.11.2026):
+ * sam Word, jak `client_cv_upload.looks_like_client_cv`. PDF z „B2B” w nazwie
+ * zwykle jest CV kandydata, więc nie nazywamy go przy wyborze pliku firmowym.
+ */
+export function isClientCvWordFile(filename: string | null | undefined): boolean {
+  return isClientCvFilename(filename) && /\.docx$/i.test((filename ?? "").trim());
+}
+
 /** Pliki kandydata i CV dla klientów — kolejność z `sortCandidateFiles`. */
 export function splitClientCvFiles<T extends CandidateFileListItem & { filename?: string | null }>(
   docs: readonly T[],

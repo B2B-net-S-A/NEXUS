@@ -105,6 +105,7 @@ async def get_stage_cv_ai_sources(
         _not_followup_note,
         champion_present,
     )
+    from app.services.client_cv_upload import looks_like_client_cv
     from app.services.money_text import is_rate_text
     from app.services.must_text_evidence import is_negative_answer
 
@@ -115,10 +116,16 @@ async def get_stage_cv_ai_sources(
     job = await db.get(Job, stage.job_id)
     candidate_id = stage.candidate_id
 
-    cv_files = await _cv_files(db, stage)
-    default = next((f for f in cv_files if f.stage_original), None) or next(
-        (f for f in cv_files if not f.outdated), None
-    )
+    cv_files, has_candidate_cv = await _cv_files(db, stage)
+    stage_copy = next((f for f in cv_files if f.stage_original), None)
+    # Kopia etapu sprzed 02.11.2026 bywa firmowym CV: wtedy domyślnie CV kandydata.
+    if (
+        stage_copy is not None
+        and has_candidate_cv
+        and looks_like_client_cv(stage_copy.filename or "")
+    ):
+        stage_copy = None
+    default = stage_copy or next((f for f in cv_files if not f.outdated), None)
     if default is None and cv_files:
         default = cv_files[0]
     original = (
@@ -230,20 +237,26 @@ async def get_stage_cv_ai_sources(
     )
 
 
-async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFile]:
+async def _cv_files(
+    db: AsyncSession, stage: CandidateStage
+) -> tuple[list[AiSourceFile], bool]:
     """Pliki CV osoby, które generator umie przeczytać, w kolejności generatora.
 
     21.10.2026 (zgłoszenie zespołu „CV wygenerowało się z błędnego pliku”):
     karta pokazywała kopię „Oryginał CV” etapu, a generator brał główne albo
     najnowsze CV z profilu — także „nieaktualne” i z kwarantanny. Domyślnym
     plikiem jest teraz plik kopii etapu (po SHA, także sprzed ruchu karty).
+
+    Drugi wynik: czy osoba ma CV kandydata, które może zastąpić firmowe CV
+    (rodzaj „cv”, nie „…B2B….docx”, nie nieaktualne, nie z kwarantanny).
     """
-    from app.models.candidate_document import CandidateDocument
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
     from app.models.candidate_stage_cv import CandidateStageCV
     from app.services.candidate_identity_quarantine import source_is_eligible_clause
     from app.services.cv_generator_b2b.standalone_service import (
         _supported_cv_doc_filter,
     )
+    from app.services.cv_source import client_cv_file_clause, current_cv_ordering
 
     eligible = source_is_eligible_clause(
         candidate_id_column=CandidateDocument.candidate_id,
@@ -260,16 +273,14 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
                 CandidateDocument.content_sha256,
                 CandidateDocument.outdated_at.isnot(None),
                 eligible,
+                CandidateDocument.document_kind,
+                client_cv_file_clause(),
             )
             .where(
                 CandidateDocument.candidate_id == stage.candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     # Kopia bieżącego wiersza etapu, a bez niej najnowsza kopia pary (ruch
@@ -290,7 +301,11 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
     )
     files: list[AiSourceFile] = []
     marked = False
-    for doc_id, filename, uploaded_at, primary, sha, outdated, ok in rows:
+    has_candidate_cv = False
+    for doc_id, filename, uploaded_at, primary, sha, outdated, ok, kind, firm in rows:
+        has_candidate_cv = has_candidate_cv or (
+            kind == CandidateDocumentKind.cv and ok and not outdated and not firm
+        )
         is_original = bool(original_sha) and sha == original_sha and not marked
         marked = marked or is_original
         files.append(
@@ -303,7 +318,7 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
                 stage_original=is_original,
             )
         )
-    return files
+    return files, has_candidate_cv
 
 
 def _used_file(
