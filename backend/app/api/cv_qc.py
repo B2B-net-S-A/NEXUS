@@ -570,7 +570,9 @@ async def override_stage_qc(
 
 
 @router.get("/stages/{stage_id}/qc/role-facts", response_model=QcRoleFactsResponse)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
 async def stage_role_facts(
+    request: Request,
     stage_id: int,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
