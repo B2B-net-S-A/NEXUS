@@ -33,6 +33,7 @@ from app.models.hr_ops import HrJobRun
 from app.models.md_consumption import ClientOrderMdConsumption
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
+from app.services.client_invoicing import matching
 from app.services.client_invoicing import settings as module_settings
 from app.services.client_invoicing import sync
 
@@ -294,7 +295,11 @@ async def wipe() -> None:
             update(Client).where(Client.nip.in_(FIXTURE_NIPS)).values(nip=None)
         )
         await db.execute(delete(HrJobRun).where(HrJobRun.kind.like("sales_ksef_%")))
-        await db.execute(delete(AppSetting).where(AppSetting.key == sync.STATE_KEY))
+        await db.execute(
+            delete(AppSetting).where(
+                AppSetting.key.in_([sync.STATE_KEY, matching.REMATCH_CURSOR_KEY])
+            )
+        )
         await db.commit()
 
 
