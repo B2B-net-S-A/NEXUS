@@ -15,6 +15,7 @@
 // Wydzielona z `CandidateDetailV2.tsx` (plik ~4,7 tys. linii) przy dodawaniu
 // write-pathu, żeby dało się ją renderować i testować w izolacji.
 
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import * as React from "react";
 import { useRef, useState } from "react";
 import Link from "next/link";
@@ -514,6 +515,7 @@ function FileRow({
  onRemove: () => void;
 }) {
  // Radix: akcja z menu po zamknięciu menu (issue 533 — fokus i okna).
+ const recruiterOnly = useRecruiterOnly();
  const later = (fn: () => void) => () => window.setTimeout(fn, 0);
  const typeLabel = fileTypeLabel(doc.content_type, doc.filename);
  const size = formatFileSize(doc.size_bytes);
@@ -583,7 +585,9 @@ function FileRow({
  </DropdownMenuTrigger>
  <DropdownMenuContent align="end" className="w-60">
  <DropdownMenuItem onSelect={later(onPreview)}>Podgląd</DropdownMenuItem>
+ {recruiterOnly && previewKind(doc) !== "unsupported" ? null : (
  <DropdownMenuItem onSelect={later(onDownload)}>Pobierz</DropdownMenuItem>
+ )}
  {canEdit ? (
  <>
  <DropdownMenuSeparator />

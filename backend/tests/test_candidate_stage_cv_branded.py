@@ -1620,3 +1620,105 @@ def test_snapshot_migration_is_mirrored_in_entrypoint_and_model() -> None:
         r"^    ([a-z_]+) [A-Z]", migration.split('"""CREATE TABLE')[1], re.M
     ):
         assert name in columns, name
+
+
+# ── Zmiana nazwy pliku CV (02.11.2026) ───────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_rename_keeps_content_and_revision_and_returns_pattern(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor_klienta.docx"
+        before_revision, before_html = csv.edit_revision, csv.branded_draft_html
+        await db.commit()
+    url = f"/api/candidates/stages/{sid}/cv/branded/filename"
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "  Inna: nazwa?.docx "}
+    )
+    assert res.status_code == 200, res.text
+    assert res.json() == {
+        "filename": "Inna nazwa.docx",
+        "pattern_filename": "Wzor_klienta.docx",
+    }
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        assert csv.branded_docx_filename == "Inna nazwa.docx"
+        assert csv.edit_revision == before_revision
+        assert csv.branded_draft_html == before_html
+    # Powrót do wzoru zdejmuje nazwę ręczną.
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "Wzor_klienta.docx"}
+    )
+    assert res.json() == {"filename": "Wzor_klienta.docx", "pattern_filename": None}
+
+
+@pytest.mark.asyncio
+async def test_rename_updates_current_approved_version(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor.docx"
+        csv.branded_status = "finalized"
+        db.add(
+            CvDocumentVersion(
+                candidate_stage_cv_id=csv.id,
+                version=csv.branded_version,
+                content_html=csv.branded_draft_html or "<p>x</p>",
+                content_sha256=hashlib.sha256(b"x").hexdigest(),
+                docx_filename="Wzor.docx",
+                approved_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+        version_no, csv_id = csv.branded_version, csv.id
+    res = await app_client.patch(
+        f"/api/candidates/stages/{sid}/cv/branded/filename",
+        headers=app_auth_headers,
+        json={"filename": "Nowa.docx"},
+    )
+    assert res.status_code == 200, res.text
+    async with AsyncSessionLocal() as db:
+        version = await db.scalar(
+            select(CvDocumentVersion).where(
+                CvDocumentVersion.candidate_stage_cv_id == csv_id,
+                CvDocumentVersion.version == version_no,
+            )
+        )
+        assert version.docx_filename == "Nowa.docx"
+
+
+@pytest.mark.asyncio
+async def test_rename_is_refused_without_cv_or_name(
+    app_client: AsyncClient, app_auth_headers: dict
+):
+    sid, _, _ = await _seed_full_stage()
+    url = f"/api/candidates/stages/{sid}/cv/branded/filename"
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "A.docx"}
+    )
+    assert res.status_code in (404, 409), res.text
+    await _seed_draft(sid)
+    async with AsyncSessionLocal() as db:
+        csv = await db.scalar(
+            select(CandidateStageCV).where(CandidateStageCV.candidate_stage_id == sid)
+        )
+        csv.branded_docx_filename = "Wzor.docx"
+        await db.commit()
+    res = await app_client.patch(
+        url, headers=app_auth_headers, json={"filename": "***.docx"}
+    )
+    assert res.status_code == 422, res.text

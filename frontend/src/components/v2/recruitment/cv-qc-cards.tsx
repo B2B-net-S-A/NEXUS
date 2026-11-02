@@ -367,6 +367,16 @@ function RoleEvidence({ item, ctx, onDismiss }: { item: QcItem; ctx: ActionConte
   );
 }
 
+/** Fragment oryginału, gdy ta sama rzecz może stać tam pod inną nazwą. */
+export function SimilarQuote({ item }: { item: QcItem }) {
+  if (!item.similar) return null;
+  return (
+    <p data-testid="qc-similar-quote" className="border-l-2 border-warning pl-2 text-xs text-foreground [overflow-wrap:anywhere]">
+      Oryginał: <q className="italic">{item.similar.quote}</q>
+    </p>
+  );
+}
+
 /**
  * „Szukałem w: …” — gdzie QC szukało pozycji i co znalazło. Bez tego rekruter
  * nie wie, czy „brak w oryginale” to prawda, czy zapis, którego QC nie zna.
@@ -724,6 +734,23 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
       <DismissButton onClick={() => openDismiss(single.key ?? "")} disabled={ctx.dismissing} />
     ) : null;
   const dismissItem = dismissKey ? items.find((item) => item.key === dismissKey) ?? null : null;
+  // „Pod inną nazwą” jednym kliknięciem: cytat z oryginału podaje QC.
+  const sameThingButton = single?.similar ? (
+    <Button
+      size="sm"
+      disabled={ctx.dismissing}
+      onClick={() =>
+        ctx.dismiss({
+          check_key: check.key,
+          key: single.key ?? "",
+          reason: "other_name",
+          quote: single.similar?.quote,
+        })
+      }
+    >
+      To ta sama rzecz
+    </Button>
+  ) : null;
   const editorButton = ctx.openEditor ? (
     <Button size="sm" variant="outline" onClick={ctx.openEditor}>
       Poprawię w edytorze
@@ -779,7 +806,12 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
   } else if (check.key === "no_unsupported" && first) {
     const term = (first.term ?? name ?? "").trim();
     // Tytuł mówi już, co jest nie tak — niżej tylko, co z tym zrobić.
-    body = (
+    body = first.similar ? (
+      <>
+        <p className="text-xs text-muted-foreground">{first.detail}</p>
+        <SimilarQuote item={first} />
+      </>
+    ) : (
       <>
         <p className="text-xs text-muted-foreground">
           Oryginalne CV, odpowiedzi ze screeningu i notatki z rozmów o tym nie wspominają. Usuń to z CV albo potwierdź
@@ -790,8 +822,9 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
     );
     actions = (
       <>
+        {sameThingButton}
         {term ? <RemoveTermButton term={term} ctx={ctx} /> : null}
-        <AskCandidateButtons item={first} ctx={ctx} />
+        {first.similar ? null : <AskCandidateButtons item={first} ctx={ctx} />}
         {term && !confirmOpen ? (
           <Button
             size="sm"
@@ -816,14 +849,16 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
       detail || first.searched?.length ? (
         <>
           {detail}
+          <SimilarQuote item={first} />
           <SearchedChips searched={first.searched} />
         </>
       ) : null;
     const where = ctx.locate ? itemTarget(first) : null;
     const action = first.fix ? <ItemAction item={first} ctx={ctx} /> : editorButton;
     actions =
-      action || where ? (
+      action || where || sameThingButton ? (
         <>
+          {sameThingButton}
           {action}
           <LocateButton target={where} ctx={ctx} />
         </>

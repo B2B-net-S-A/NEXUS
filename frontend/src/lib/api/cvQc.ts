@@ -53,6 +53,8 @@ export interface QcItem {
   evidence?: string | null;
   evidence_kind?: QcEvidenceKind | null;
   searched?: QcSearch[];
+  /** Fragment oryginału z tą samą rzeczą pod inną nazwą: pytanie zamiast „nie ma”. */
+  similar?: { term: string; quote: string } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
 }
@@ -175,7 +177,13 @@ export interface QcResult {
   run_id: number | null;
   computed_at: string | null;
   cv: QcCv | null;
-  original_cv: { source: "snapshot" | "profile_text" | null; filename: string | null; text: string | null };
+  original_cv: {
+    source: "snapshot" | "profile_text" | null;
+    filename: string | null;
+    text: string | null;
+    snapshot_at?: string | null;
+    newer_profile_cv?: { filename: string; uploaded_at: string } | null;
+  };
   client_request: QcClientRequest;
   checks: QcCheck[];
 }

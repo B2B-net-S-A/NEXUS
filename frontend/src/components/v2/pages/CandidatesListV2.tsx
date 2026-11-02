@@ -151,6 +151,7 @@ import {
 import type { AvailabilityStatus, EmploymentInfo } from "@/components/v2/CandidateHighlights";
 import { candidatesListFiltersForQuery } from "@/lib/job-search-filters";
 import { useAuthStore, hasRole, type UserRole } from "@/store/auth";
+import { isRecruiterOnly } from "@/lib/cv-download-access";
 import { ActiveFilterChips } from "@/components/v2/filters/ActiveFilterChips";
 import type { StageFilterValue } from "@/components/v2/filters/StageFilterPanel";
 import {
@@ -3101,7 +3102,7 @@ export function CandidatesListV2({ onRequestSearch, embed }: CandidatesListV2Pro
           // stronę i zaznaczenie (UAT B21).
           router.push(encodeCompareHref(applied, Array.from(selectedIds)))
         }
-        onDownloadCvs={() => void doBulkDownloadCvs()}
+        onDownloadCvs={isRecruiterOnly(currentUser) ? undefined : () => void doBulkDownloadCvs()}
         downloadingCvs={isDownloadingZip}
         onAddToPool={() => setShowBulkPool(true)}
         addingToPool={bulkPoolPending}

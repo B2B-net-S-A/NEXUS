@@ -82,6 +82,11 @@ CANDIDATE_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.automation,
 )
 CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = CANDIDATE_READ_ROLES
+# Paczka ZIP: bez samej roli rekrutera (decyzja Artura 02.11.2026). Rekruter
+# z rolą dodatkową przechodzi, bo bramka pyta o dowolną z ról.
+CANDIDATE_BULK_CV_ROLES: tuple[UserRole, ...] = tuple(
+    role for role in CANDIDATE_READ_ROLES if role != UserRole.recruiter
+)
 
 # Parity with deps.RecruiterPlus. Od 2026-09-17 obejmuje head_of_recruitment
 # (decyzja Artura: HoR = pełny parytet z rekruterem; wcześniej FE bramkował
@@ -486,6 +491,10 @@ CandidatePIIAccess = Annotated[
 # CV + document listing/content/presigned URLs/ZIP.
 CandidateDocumentAccess = Annotated[
     User, Depends(require_candidate_roles(*CANDIDATE_DOCUMENT_ROLES))
+]
+
+CandidateBulkCvAccess = Annotated[
+    User, Depends(require_candidate_roles(*CANDIDATE_BULK_CV_ROLES))
 ]
 
 # Mutations: notes, source events, talent pools, tags, engagement, location.

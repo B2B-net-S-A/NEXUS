@@ -45,6 +45,7 @@
   "GET /api/candidates/stages/{stage_id}/cv/share-tokens": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/pipeline/candidates/{candidate_id}/jobs/{job_id}/cv-share-tokens": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "PATCH /api/candidates/stages/{stage_id}/cv/branded": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PATCH /api/candidates/stages/{stage_id}/cv/branded/filename": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/consent": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/discard": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/finalize": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
@@ -59,6 +60,7 @@
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-generated": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/select-stage-cv": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/branded/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/candidates/stages/{stage_id}/cv/original/download-after-generator": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/original/refresh": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/original/upload": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/stages/{stage_id}/cv/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"

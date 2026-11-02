@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type CandidateDocument,
   FilePreviewModal,
 } from "@/components/v2/files/FilePreviewModal";
+import { useAuthStore } from "@/store/auth";
 
 function document(
   id: number,
@@ -124,5 +125,44 @@ describe("FilePreviewModal — lupa „Szukaj w CV”", () => {
     expect(onClose).not.toHaveBeenCalled();
 
     fetchMock.mockRestore();
+  });
+});
+
+describe("FilePreviewModal — sama rola rekrutera (02.11.2026)", () => {
+  afterEach(() => {
+    useAuthStore.setState({ user: null });
+  });
+
+  const header = (doc: CandidateDocument) =>
+    render(
+      <FilePreviewModal
+        documents={[doc]}
+        initialDocumentId={doc.id}
+        candidateId={7}
+        onClose={vi.fn()}
+        onDownload={vi.fn()}
+        loadDocumentBlob={() => new Promise(() => {})}
+      />,
+    );
+
+  it("nie ma „Pobierz” przy pliku z podglądem", () => {
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } as never });
+    header(document(1, "cv.pdf", { content_type: "application/pdf" }));
+    expect(screen.queryByTitle("Pobierz plik na dysk")).toBeNull();
+  });
+
+  it("zostawia pobranie przy pliku bez podglądu", () => {
+    useAuthStore.setState({ user: { id: 1, role: "recruiter", roles: ["recruiter"] } as never });
+    header(document(1, "cv.doc", { content_type: "application/msword" }));
+    expect(screen.getByTitle("Pobierz plik na dysk")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Pobierz plik$/ })).toBeInTheDocument();
+  });
+
+  it("rola dodatkowa zdejmuje ograniczenie", () => {
+    useAuthStore.setState({
+      user: { id: 1, role: "delivery_lead", roles: ["delivery_lead", "recruiter"] } as never,
+    });
+    header(document(1, "cv.pdf", { content_type: "application/pdf" }));
+    expect(screen.getByTitle("Pobierz plik na dysk")).toBeInTheDocument();
   });
 });

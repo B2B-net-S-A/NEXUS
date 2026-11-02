@@ -2922,6 +2922,14 @@
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {
+   "id": "cv-to-client.original-after-generator",
+   "area": "CV do klienta",
+   "opis": "„Generator źle zrobił CV? Pobierz oryginał” dla samej roli rekrutera: okno z powodami, potem plik",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-original-after-generator",
+   "v3_home": "panel osoby → CV → CV do klienta"
+  },
+  {
    "id": "screening-form.preview-cv-download",
    "area": "formularz screeningu",
    "opis": "„Pobierz CV” w pasku źródeł podglądu po „Rozwiń” — pobiera to, co widać (oryginał, zaznaczony plik, CV firmowe jako Word / PDF), i ramka „W profilu jest nowsze CV”",
