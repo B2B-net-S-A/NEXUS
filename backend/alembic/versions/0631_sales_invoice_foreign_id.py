@@ -1,4 +1,4 @@
-"""Faktury sprzedażowe: VAT UE nabywcy bez polskiego NIP-u.
+"""Faktury sprzedażowe: VAT UE nabywcy i metoda dopasowania „osoba i stawka”.
 
 Revision ID: 0631_sales_invoice_foreign_id
 Revises: 0628_sales_meeting_transcripts
@@ -19,9 +19,12 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute(schema.BUYER_FOREIGN_ID_DDL)
+    for stmt in schema.METHOD_CONSTRAINT_DDL:
+        op.execute(stmt)
 
 
 def downgrade() -> None:
+    # Ograniczenie metody zostaje: zapisane faktury mogą już mieć wartość ``person``.
     op.execute(
         "ALTER TABLE client_sales_invoices DROP COLUMN IF EXISTS buyer_foreign_id"
     )

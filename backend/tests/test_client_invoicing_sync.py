@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -289,6 +290,34 @@ async def test_eu_vat_buyer_goes_to_client_with_that_id(env):
     assert stored.buyer_nip is None
     assert stored.buyer_foreign_id == "FI12345678"
     assert stored.client_id == env.seed.other_client_id
+
+
+async def test_person_and_rate_link_invoice_with_real_hours(env):
+    """Faktura z rzeczywistymi godzinami: osoba i stawka wiążą, kwota nie musi być równa."""
+
+    xml = env.fake.xml[fx.KSEF_UNKNOWN].decode("utf-8")
+    body = re.sub(
+        r"<P_7>.*?</P_7>", "<P_7>ABCD:2026-111111, Ewa Przykładowa, usługa</P_7>", xml
+    )
+    body = re.sub(r"<P_9A>.*?</P_9A>", "<P_9A>1000.00</P_9A>", body)
+    env.fake.xml[fx.KSEF_UNKNOWN] = body.encode("utf-8")
+    async with AsyncSessionLocal() as db:
+        order_id = await fx.periodic_order(
+            db,
+            env.seed.other_client_id,
+            "PO-OSOBA",
+            rate="1000",
+            unit=RateUnit.hourly,
+            start=date(2026, 1, 1),
+        )
+        client = await db.get(Client, env.seed.other_client_id)
+        client.nip = fx.UNKNOWN_NIP
+        await db.commit()
+    await env.run()
+    stored = await fx.invoice(fx.KSEF_UNKNOWN)
+    assert (stored.match_status, stored.match_method) == ("matched", "person")
+    links = await _links(stored.id)
+    assert [link.order_id for link in links] == [order_id]
 
 
 async def test_simulate_mode_reads_the_sales_folder(env, monkeypatch):

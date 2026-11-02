@@ -62,7 +62,13 @@ INVOICE_KINDS: tuple[str, ...] = ("original", "correction")
 CURRENCIES: tuple[str, ...] = ("PLN", "EUR", "USD")
 PERIOD_SOURCES: tuple[str, ...] = ("invoice", "issue_date", "manual")
 MATCH_STATUSES: tuple[str, ...] = ("unmatched", "matched", "ignored")
-MATCH_METHODS: tuple[str, ...] = ("order_number", "amount", "correction", "manual")
+MATCH_METHODS: tuple[str, ...] = (
+    "order_number",
+    "amount",
+    "person",
+    "correction",
+    "manual",
+)
 PAYMENT_KINDS: tuple[str, ...] = ("statement_line", "manual")
 PAYMENT_MATCH_STATUSES: tuple[str, ...] = ("matched", "unmatched", "ignored")
 STATEMENT_FORMATS: tuple[str, ...] = ("mt940", "camt053")
@@ -285,7 +291,14 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_sales_invoice_payments (match_status, booked_on)",
 )
 
-CONSTRAINT_DDL: tuple[str, ...] = ()
+#: Metoda ``person`` (0631): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026.
+METHOD_CONSTRAINT_DDL: tuple[str, ...] = (
+    "ALTER TABLE client_sales_invoices "
+    "DROP CONSTRAINT IF EXISTS ck_client_sales_invoices_method",
+    "ALTER TABLE client_sales_invoices ADD CONSTRAINT "
+    f"ck_client_sales_invoices_method CHECK ({CK_INVOICE_METHOD})",
+)
+CONSTRAINT_DDL: tuple[str, ...] = METHOD_CONSTRAINT_DDL
 DATA_DDL: tuple[str, ...] = ()
 TABLES: tuple[str, ...] = (
     "client_sales_invoices",

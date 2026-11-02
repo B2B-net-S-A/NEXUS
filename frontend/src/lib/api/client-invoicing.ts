@@ -28,7 +28,7 @@ export type InvoiceCheck = "ok" | "accepted" | "difference" | "unknown" | "unmat
 /** `budget` — faktura zamówienia kosztowego porównana z resztą jego budżetu. */
 export type CheckBasis = "amount" | "budget";
 export type MatchStatus = "unmatched" | "matched" | "ignored";
-export type MatchMethod = "order_number" | "amount" | "correction" | "manual";
+export type MatchMethod = "order_number" | "amount" | "person" | "correction" | "manual";
 export type PaymentStatus = "paid" | "partial" | "unpaid" | "overpaid" | "none";
 export type ExportFormat = "csv" | "xlsx";
 
