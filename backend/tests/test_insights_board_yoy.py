@@ -661,12 +661,12 @@ def test_money_is_the_same_function_as_the_board_tiles_not_a_copy():
 async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     yoy_client: AsyncClient,
 ):
-    """Rok do roku: admin · finance · Rada z kwotami, HoR BEZ kwot (24.09.2026).
+    """Rok do roku: admin · Rada z kwotami, HoR i Finanse BEZ kwot (02.11.2026).
 
     Rada nadzorcza (0490) wchodzi rolą, bez modułu Finanse.
     """
     params = {"end_year": BASE_YEAR, "years": 2}
-    for role in (UserRole.admin, UserRole.finance, UserRole.board):
+    for role in (UserRole.admin, UserRole.board):
         email, password = await _seed_user(role)
         headers = await _login(yoy_client, email, password)
         resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
@@ -683,6 +683,12 @@ async def test_yoy_is_reachable_only_for_admin_finance_and_hor(
     assert {"placements", "hit_ratio_pct", "consultants", "departures"} <= keys
     assert not any(m["unit"] == "pln" for m in body["metrics"])
     assert "margin_pct" not in keys
+
+    email, password = await _seed_user(UserRole.finance)
+    headers = await _login(yoy_client, email, password)
+    resp = await yoy_client.get(YOY_URL, headers=headers, params=params)
+    assert resp.status_code == 200, resp.text
+    assert not any(m["unit"] == "pln" for m in resp.json()["metrics"])
     assert not {
         "margin_monthly_pln",
         "revenue_monthly_pln",

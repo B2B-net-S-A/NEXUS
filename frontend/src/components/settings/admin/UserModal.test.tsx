@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminUserPermissionsResponse } from "@/lib/admin-permissions";
@@ -229,75 +230,87 @@ describe("UserModal — odpięcie tożsamości Microsoft (audyt 24.09.2026)", ()
   });
 });
 
-describe("UserModal — dodatkowe uprawnienia osoby", () => {
+describe("UserModal — uprawnienia tej osoby", () => {
   const tcm = {
     id: 90,
     name: "Celina Wzorcowa",
     role: "talent_community_manager",
     roles: ["talent_community_manager"],
   };
+  const finance = { id: 7, role: "finance", roles: ["finance"] };
 
   /** Sekcja po wczytaniu — sama ramka pojawia się już w trakcie odczytu. */
-  async function extraPermissions() {
-    const group = await screen.findByRole("group", { name: "Dodatkowe uprawnienia" });
+  async function personPermissions() {
+    const group = await screen.findByRole("group", { name: "Uprawnienia tej osoby" });
     await waitFor(() =>
       expect(within(group).queryByRole("status")).not.toBeInTheDocument(),
     );
     return group;
   }
 
-  function labelsIn(group: HTMLElement) {
+  function row(group: HTMLElement, permission: string) {
+    return within(group).getByRole("radiogroup", { name: permission });
+  }
+
+  function option(group: HTMLElement, permission: string, name: string) {
+    return within(row(group, permission)).getByRole("radio", { name });
+  }
+
+  function namesIn(group: HTMLElement) {
     return within(group)
-      .getAllByRole("checkbox")
-      .map((box) => box.closest("label")?.textContent);
+      .getAllByRole("radiogroup")
+      .map((item) => item.getAttribute("aria-labelledby"))
+      .map((id) => document.getElementById(id as string)?.textContent);
   }
 
   it("nie pokazuje sekcji ani nie pyta o uprawnienia przy zakładaniu konta", () => {
     renderModal({ initial: null });
 
     expect(
-      screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+      screen.queryByRole("group", { name: "Uprawnienia tej osoby" }),
     ).not.toBeInTheDocument();
     expect(adminApi.getSectionPermissions).not.toHaveBeenCalled();
     expect(adminApi.getUserPermissions).not.toHaveBeenCalled();
   });
 
-  it("pokazuje tylko to, czego rola nie daje, z nadaniami tej osoby", async () => {
+  it("pokazuje cały katalog w kolejności grup i stan każdego wiersza", async () => {
     personIs(userPermissionsResponse({ grants: ["contracts_orders_edit"] }));
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    expect(labelsIn(group)).toEqual([
+    const group = await personPermissions();
+    expect(namesIn(group)).toEqual([
+      "Klienci, kontrakty i zamówienia: podgląd",
       "Klienci: dodawanie i edycja",
       "Kontrakty i zamówienia: tworzenie i edycja",
+      "Zakończenie współpracy, zmiana statusu kontraktu",
+      "Umowy B2B: oznaczanie jako podpisane",
       "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
-      // „Ludzie w NEXUSIE”: TCM ma domyślnie tylko „Sprawy”.
+      "Wyniki firmy: podsumowania przychodu i marży",
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Płace: stawki pracowników, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
+      "Sprawy: skrzynka administracja@",
       "Raporty godzin: akceptacja całej firmy",
       "Sprzedaż: podgląd firm, szans i kontaktów",
       "Sprzedaż: prowadzenie szans i kartoteki firm",
     ]);
+    // Rola daje: „Z roli” / „Odebrane”. Nie daje: „Brak” / „Nadane”.
+    expect(option(group, "Sprawy: skrzynka administracja@", "Z roli")).toBeChecked();
+    expect(option(group, "Sprawy: skrzynka administracja@", "Odebrane")).not.toBeChecked();
+    expect(option(group, "Klienci: dodawanie i edycja", "Brak")).toBeChecked();
     expect(
-      within(group).getByRole("checkbox", {
-        name: "Kontrakty i zamówienia: tworzenie i edycja",
-      }),
+      option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Nadane"),
     ).toBeChecked();
-    expect(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
-    ).not.toBeChecked();
     expect(group).toHaveTextContent(
-      "Lista pokazuje tylko to, czego rola Talent Community Manager nie daje. Zaznaczone działa wyłącznie dla tej osoby.",
+      "Rola daje punkt wyjścia. Tu możesz dla tej jednej osoby dodać uprawnienie albo je odebrać. Każda zmiana trafia do Historii zdarzeń i wylogowuje tę osobę.",
     );
     expect(adminApi.getUserPermissions).toHaveBeenCalledWith(90);
 
     // „Może usuwać klientów” zostaje osobnym polem pod listą.
     const deleteClients = screen.getByRole("checkbox", { name: "Może usuwać klientów" });
-    expect(within(group).queryByRole("checkbox", { name: "Może usuwać klientów" })).toBeNull();
     expect(
       group.compareDocumentPosition(deleteClients) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
@@ -308,19 +321,34 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ permissions: null }));
   });
 
-  it("zaznaczenie nadaje „manage”, odznaczenie wraca do „inherit”", async () => {
-    personIs(userPermissionsResponse({ grants: ["contracts_orders_edit"] }, 31));
+  it("przy wyłączonym programie nie pokazuje grupy „Ludzie”", async () => {
+    hrProgram.on = false;
+    try {
+      renderModal({ initial: tcm });
+      const group = await personPermissions();
+      expect(namesIn(group)).toHaveLength(12);
+      expect(namesIn(group)).not.toContain("Sprawy: skrzynka administracja@");
+    } finally {
+      hrProgram.on = true;
+    }
+  });
+
+  it("wysyła „manage”, „none” i „inherit” według przełączników", async () => {
+    personIs(
+      userPermissionsResponse(
+        { grants: ["contracts_orders_edit"], restrictions: ["cases"] },
+        31,
+      ),
+    );
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    fireEvent.click(
-      within(group).getByRole("checkbox", { name: "Klienci: dodawanie i edycja" }),
-    );
-    fireEvent.click(
-      within(group).getByRole("checkbox", {
-        name: "Kontrakty i zamówienia: tworzenie i edycja",
-      }),
-    );
+    const group = await personPermissions();
+    expect(option(group, "Sprawy: skrzynka administracja@", "Odebrane")).toBeChecked();
+
+    fireEvent.click(option(group, "Klienci: dodawanie i edycja", "Nadane"));
+    fireEvent.click(option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Brak"));
+    fireEvent.click(option(group, "Umowy B2B: oznaczanie jako podpisane", "Odebrane"));
+    fireEvent.click(option(group, "Sprawy: skrzynka administracja@", "Z roli"));
 
     expect(group).toHaveTextContent("Po zapisaniu ta osoba zostanie wylogowana.");
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -333,27 +361,88 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
           actionChanges: [
             { action: "clients_edit", access: "manage" },
             { action: "contracts_orders_edit", access: "inherit" },
+            { action: "b2b_signature_confirmation", access: "none" },
+            { action: "cases", access: "inherit" },
           ],
         },
       }),
     );
   });
 
-  it("uprawnienie wymagane przez zaznaczone jest zaznaczone i zablokowane", async () => {
+  it("odebranie jest w kolorze ostrzegawczym, reszta aktywnych w głównym", async () => {
+    renderModal({ initial: tcm });
+    const group = await personPermissions();
+    const fromRole = option(group, "Sprawy: skrzynka administracja@", "Z roli");
+    const none = option(group, "Klienci: dodawanie i edycja", "Brak");
+    expect(fromRole.className).toContain("bg-primary");
+    expect(none.className).toContain("bg-primary");
+
+    fireEvent.click(option(group, "Sprawy: skrzynka administracja@", "Odebrane"));
+    const revoked = option(group, "Sprawy: skrzynka administracja@", "Odebrane");
+    expect(revoked.className).toContain("bg-warning-muted");
+    expect(revoked.className).toContain("text-warning-muted-foreground");
+    expect(revoked.className).not.toContain("bg-primary");
+
+    fireEvent.click(option(group, "Klienci: dodawanie i edycja", "Nadane"));
+    expect(option(group, "Klienci: dodawanie i edycja", "Nadane").className).toContain(
+      "bg-primary",
+    );
+  });
+
+  it("strzałka przełącza wiersz z klawiatury", async () => {
+    const user = userEvent.setup();
+    const { onSave } = renderModal({ initial: tcm });
+    const group = await personPermissions();
+
+    option(group, "Sprawy: skrzynka administracja@", "Z roli").focus();
+    await user.keyboard("{ArrowRight}");
+
+    const revoked = option(group, "Sprawy: skrzynka administracja@", "Odebrane");
+    expect(revoked).toHaveFocus();
+    expect(revoked).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        permissions: expect.objectContaining({
+          actionChanges: [{ action: "cases", access: "none" }],
+        }),
+      }),
+    );
+  });
+
+  it("uprawnienie wymagane przez zachowane jest zablokowane z podpisem", async () => {
+    personIs(userPermissionsResponse({ roles: ["finance"] }));
+    renderModal({ initial: finance });
+
+    const group = await personPermissions();
+    const view = option(group, "Stawki i kwoty: podgląd", "Z roli");
+    expect(view).toBeChecked();
+    expect(view).toBeDisabled();
+    expect(option(group, "Stawki i kwoty: podgląd", "Odebrane")).toBeDisabled();
+    expect(view).toHaveAccessibleDescription(
+      "Wymagane przez: „Stawki i kwoty: zmiana”, „Moduł Finanse”",
+    );
+
+    // Odebranie obu, które go wymagają, zwalnia blokadę.
+    fireEvent.click(option(group, "Stawki i kwoty: zmiana", "Odebrane"));
+    expect(view).toBeDisabled();
+    fireEvent.click(option(group, "Moduł Finanse", "Odebrane"));
+    expect(option(group, "Stawki i kwoty: podgląd", "Odebrane")).toBeEnabled();
+  });
+
+  it("nadanie blokuje to, czego wymaga, i nie wysyła go osobno", async () => {
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    const view = within(group).getByRole("checkbox", { name: "Stawki i kwoty: podgląd" });
-    expect(view).not.toBeChecked();
+    const group = await personPermissions();
+    expect(option(group, "Stawki i kwoty: podgląd", "Brak")).toBeChecked();
 
-    fireEvent.click(within(group).getByRole("checkbox", { name: "Moduł Finanse" }));
+    fireEvent.click(option(group, "Moduł Finanse", "Nadane"));
 
+    const view = option(group, "Stawki i kwoty: podgląd", "Nadane");
     expect(view).toBeChecked();
     expect(view).toBeDisabled();
     expect(view).toHaveAccessibleDescription("Wymagane przez: „Moduł Finanse”");
-    expect(
-      within(group).getByRole("checkbox", { name: "Stawki i kwoty: zmiana" }),
-    ).not.toBeChecked();
+    expect(option(group, "Stawki i kwoty: zmiana", "Brak")).toBeChecked();
 
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenCalledWith(
@@ -367,31 +456,24 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     );
   });
 
-  it("lista idzie za rolą wybraną w formularzu, a zbędne nadanie wraca do „inherit”", async () => {
+  it("zmiana roli przelicza listę, a zbędne nadanie wraca do „inherit”", async () => {
     personIs(userPermissionsResponse({ grants: ["contracts_orders_edit"] }));
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    expect(labelsIn(group)).toHaveLength(12);
+    const group = await personPermissions();
+    expect(
+      option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Nadane"),
+    ).toBeChecked();
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
       target: { value: "delivery_lead" },
     });
 
-    expect(labelsIn(group)).toEqual([
-      "Stawki i kwoty: zmiana",
-      "Moduł Finanse",
-      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
-      "Płace: stawki pracowników, premie, rozliczenie miesiąca",
-      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
-      "Raporty godzin: akceptacja całej firmy",
-      "Sprzedaż: podgląd firm, szans i kontaktów",
-      "Sprzedaż: prowadzenie szans i kartoteki firm",
-    ]);
-    expect(group).toHaveTextContent(
-      "Lista pokazuje tylko to, czego role Delivery Lead, Talent Community Manager nie dają.",
-    );
-    // Delivery Lead daje już „Kontrakty i zamówienia” — nadanie jest zbędne.
+    // Delivery Lead daje już „Kontrakty i zamówienia”.
+    expect(
+      option(group, "Kontrakty i zamówienia: tworzenie i edycja", "Z roli"),
+    ).toBeChecked();
+    expect(option(group, "Moduł Finanse", "Brak")).toBeChecked();
     expect(group).toHaveTextContent("Po zapisaniu ta osoba zostanie wylogowana.");
 
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
@@ -407,7 +489,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     );
   });
 
-  it("administrator, viewer i praktykant nie dostają dodatkowych uprawnień", async () => {
+  it("administrator nie ma sekcji uprawnień", async () => {
     personIs(
       userPermissionsResponse({ roles: ["admin"], locked: true, grantable: false }),
     );
@@ -419,7 +501,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     await screen.findByRole("checkbox", { name: "Może usuwać klientów" });
     await waitFor(() =>
       expect(
-        screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+        screen.queryByRole("group", { name: "Uprawnienia tej osoby" }),
       ).not.toBeInTheDocument(),
     );
 
@@ -438,7 +520,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     await waitFor(() => expect(adminApi.getSectionPermissions).toHaveBeenCalled());
     await waitFor(() =>
       expect(
-        screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+        screen.queryByRole("group", { name: "Uprawnienia tej osoby" }),
       ).not.toBeInTheDocument(),
     );
   });
@@ -455,34 +537,14 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     await waitFor(() => expect(adminApi.getSectionPermissions).toHaveBeenCalled());
     await waitFor(() =>
       expect(
-        screen.queryByRole("group", { name: "Dodatkowe uprawnienia" }),
+        screen.queryByRole("group", { name: "Uprawnienia tej osoby" }),
       ).not.toBeInTheDocument(),
     );
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });
 
-  it("dla Finansów lista ma dziesięć pozycji, których ta rola nie daje", async () => {
-    personIs(userPermissionsResponse({ roles: ["finance"] }));
-    renderModal({ initial: { id: 7, role: "finance", roles: ["finance"] } });
-
-    const group = await extraPermissions();
-    expect(labelsIn(group)).toEqual([
-      "Klienci: dodawanie i edycja",
-      "Zakończenie współpracy, zmiana statusu kontraktu",
-      "Umowy B2B: oznaczanie jako podpisane",
-      "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
-      // „Ludzie w NEXUSIE”: Finanse mają domyślnie „Płace”.
-      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
-      "Sprzęt: ewidencja, wydania, zwroty i protokoły",
-      "Sprawy: skrzynka administracja@",
-      "Raporty godzin: akceptacja całej firmy",
-      "Sprzedaż: podgląd firm, szans i kontaktów",
-      "Sprzedaż: prowadzenie szans i kartoteki firm",
-    ]);
-  });
-
-  it("stare ograniczenia: nazywa je i usuwa dopiero po kliknięciu", async () => {
+  it("stare limity sekcji: nazywa je i usuwa dopiero po kliknięciu; odebrane to zwykłe wiersze", async () => {
     personIs(
       userPermissionsResponse({
         restrictions: ["contract_status"],
@@ -491,10 +553,11 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     );
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    expect(group).toHaveTextContent(
-      "Stare ograniczenia tej osoby: bez uprawnienia „Zakończenie współpracy, zmiana statusu kontraktu”; Delivery: tylko odczyt.",
-    );
+    const group = await personPermissions();
+    expect(
+      option(group, "Zakończenie współpracy, zmiana statusu kontraktu", "Odebrane"),
+    ).toBeChecked();
+    expect(group).toHaveTextContent("Stare ograniczenia tej osoby: Delivery: tylko odczyt.");
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenLastCalledWith(
       expect.objectContaining({ permissions: null }),
@@ -510,38 +573,47 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
         permissions: {
           revision: 12,
           changes: [{ section: "delivery", access: "inherit" }],
-          actionChanges: [{ action: "contract_status", access: "inherit" }],
+          actionChanges: [],
         },
       }),
     );
+  });
+
+  it("bez starych limitów sekcji nie ma przycisku, nawet gdy coś jest odebrane", async () => {
+    personIs(userPermissionsResponse({ restrictions: ["contract_status"] }));
+    renderModal({ initial: tcm });
+
+    const group = await personPermissions();
+    expect(within(group).queryByRole("button", { name: "Usuń ograniczenia" })).toBeNull();
+    expect(group).not.toHaveTextContent("Stare ograniczenia");
   });
 
   it("błąd odczytu to komunikat z „Ponów”, a zapis zmienia wtedy tylko dane konta", async () => {
     vi.mocked(adminApi.getUserPermissions).mockRejectedValueOnce(new Error("sieć"));
     const { onSave } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
+    const group = await personPermissions();
     expect(await within(group).findByRole("alert")).toHaveTextContent(
       "Nie udało się wczytać uprawnień tej osoby. Zapis zmieni tylko dane konta.",
     );
-    expect(within(group).queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(within(group).queryByRole("radiogroup")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
 
     fireEvent.click(within(group).getByRole("button", { name: "Ponów" }));
 
     expect(
-      await within(group).findByRole("checkbox", { name: "Moduł Finanse" }),
+      await within(group).findByRole("radiogroup", { name: "Moduł Finanse" }),
     ).toBeInTheDocument();
     expect(within(group).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("nowa wersja zasad porzuca zaznaczenia zamiast przenosić je po cichu", async () => {
+  it("nowa wersja zasad porzuca wybory zamiast przenosić je po cichu", async () => {
     const { onSave, queryClient } = renderModal({ initial: tcm });
 
-    const group = await extraPermissions();
-    fireEvent.click(within(group).getByRole("checkbox", { name: "Moduł Finanse" }));
-    expect(within(group).getByRole("checkbox", { name: "Moduł Finanse" })).toBeChecked();
+    const group = await personPermissions();
+    fireEvent.click(option(group, "Moduł Finanse", "Nadane"));
+    expect(option(group, "Moduł Finanse", "Nadane")).toBeChecked();
 
     act(() => {
       queryClient.setQueryData<AdminUserPermissionsResponse>(
@@ -553,7 +625,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(
       await within(group).findByText(/Zasady uprawnień zmieniły się w międzyczasie/),
     ).toBeInTheDocument();
-    expect(within(group).getByRole("checkbox", { name: "Moduł Finanse" })).not.toBeChecked();
+    expect(option(group, "Moduł Finanse", "Brak")).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ permissions: null }));
   });

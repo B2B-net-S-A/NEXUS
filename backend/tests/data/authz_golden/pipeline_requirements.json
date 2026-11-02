@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "GET /api/pipeline/client-acceptance/recipients": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/pipeline/move-requirements": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

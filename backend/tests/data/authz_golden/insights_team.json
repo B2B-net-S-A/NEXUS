@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/team-table": "PPPPPPPDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/team-table": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
  }
 }

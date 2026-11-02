@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
     AnalyticsCapability,
-    require_capability,
     user_has_capability,
 )
 from app.analytics.periods import Period, PeriodError, resolve_period
@@ -18,6 +17,7 @@ from app.api.section_access import (
     INSIGHTS_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
 )
+from app.api.permission_access import CompanyResultsUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
     ROLE_DENIED_DETAIL,
@@ -105,10 +105,6 @@ HeadOfRecruitmentDashboardUser = Annotated[
             UserRole.talent_community_manager,
         )
     ),
-]
-FinanceUser = Annotated[
-    User,
-    Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
 ]
 RecruitmentOperationsUser = Annotated[
     User,
@@ -445,9 +441,13 @@ async def recruitment_operations_favorite(
     )
 
 
-@router.get("/finance", response_model=FinanceDashboardResponse)
+@router.get(
+    "/finance",
+    response_model=FinanceDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def finance_dashboard(
-    current_user: FinanceUser,
+    current_user: CompanyResultsUser,
     db: Database,
     period: DashboardPeriod,
     tab: Literal["operations", "executive"] = Query("operations"),

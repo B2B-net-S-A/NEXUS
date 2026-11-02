@@ -25,19 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/owner-labels": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/registry": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/owner-labels/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/merge": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/owner-labels": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/registry": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/owner-labels/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/merge": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -286,6 +286,9 @@ async def check_forwards(
             "scanned": result.get("scanned", 0),
             "unreadable": len(result.get("unreadable", [])),
             "problems": sum(1 for item in result["items"] if item["health"] != "ok"),
+            "mailbox_alerts": sum(
+                1 for item in result["items"] if not item["mailbox_keeps_mail"]
+            ),
         },
     )
     await db.commit()

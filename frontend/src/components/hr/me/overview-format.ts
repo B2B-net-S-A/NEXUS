@@ -345,7 +345,7 @@ export function bonusItemFromRow(
     progress: null,
   };
   if (row.status === "cancelled") {
-    const reason = cancelReasonLabel(row.cancel_reason, requiredDays);
+    const reason = cancelReasonLabel(row.cancel_reason, requiredDays, row.cancel_ended_on);
     return {
       ...base,
       cancelled: true,

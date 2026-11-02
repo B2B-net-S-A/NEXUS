@@ -95,10 +95,10 @@ async def _authorized_builder(*_args: Any, **_kwargs: Any) -> None:
             "build_head_of_recruitment_dashboard",
         ),
         ("/my-work", UserRole.recruiter, "build_my_work_dashboard"),
-        ("/finance", UserRole.finance, "build_finance_dashboard"),
+        ("/finance", UserRole.admin, "build_finance_dashboard"),
         (
             "/finance?tab=executive",
-            UserRole.finance,
+            UserRole.admin,
             "build_finance_dashboard",
         ),
     ],
@@ -178,7 +178,7 @@ async def test_executive_tab_requires_separate_capability(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client, context = dashboard_client
-    context["user"] = _user(UserRole.finance)
+    context["user"] = _user(UserRole.admin)
     monkeypatch.setattr(
         dashboard_api,
         "user_has_capability",
@@ -203,7 +203,7 @@ async def test_finance_tab_is_a_closed_enum(
     dashboard_client: tuple[AsyncClient, dict[str, User]],
 ) -> None:
     client, context = dashboard_client
-    context["user"] = _user(UserRole.finance)
+    context["user"] = _user(UserRole.admin)
 
     response = await client.get("/api/dashboard/v2/finance?tab=unknown")
 

@@ -43,6 +43,7 @@ from app.models.recruitment_pipeline import (
 from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import candidate_claim, client_off_limits
+from app.services import sent_vs_system
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -820,6 +821,22 @@ async def add_candidates_to_job(
         and entry_source != candidate_claim.ENTRY_REASSIGN,
     )
 
+    # Gdzie osoba stała u systemu, zanim dodał ją człowiek (02.11.2026).
+    system_views = (
+        await sent_vs_system.snapshot_for_add(
+            db,
+            job,
+            [
+                candidates_by_id[cid]
+                for cid in lock_ordered_ids
+                if cid in candidates_by_id and cid not in already_in_job_set
+            ],
+            now=now,
+        )
+        if entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        else {}
+    )
+
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
     with milestone_counts_scope():
@@ -905,7 +922,9 @@ async def add_candidates_to_job(
                 ),
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
-                entry_meta=entry_meta,
+                entry_meta=sent_vs_system.with_system_view(
+                    entry_meta, system_views.get(candidate_id)
+                ),
                 # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
                 mark_proposals=False,
             )

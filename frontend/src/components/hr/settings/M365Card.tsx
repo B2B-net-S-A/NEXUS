@@ -43,7 +43,7 @@ const MODE_NOTE: Record<M365Mode, string> = {
   off: "Nic nie wychodzi do Microsoft 365. Operacje czekają w kolejce.",
   simulate:
     "Żądania są zapisywane, ale nie trafiają do skrzynek. Podgląd w zakładce „Zasymulowane”.",
-  live: "Autoodpowiedzi, wydarzenia i przekierowania trafiają do skrzynek.",
+  live: "Autoodpowiedzi, wydarzenia i reguły kopii poczty trafiają do skrzynek.",
 };
 
 const EMPTY_TEXT: Record<M365QueueTab, string> = {
@@ -162,7 +162,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
         {secret.days_left === 0
           ? `Sekret aplikacji wygasa dziś (${day}).`
           : `Sekret aplikacji wygasł ${day}.`}{" "}
-        Autoodpowiedzi, przekierowania i czytnik administracja@ przestają działać — potrzebny
+        Autoodpowiedzi, kopie poczty i czytnik administracja@ przestają działać — potrzebny
         nowy sekret.
       </p>
     );
@@ -172,7 +172,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
     return (
       <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
         Sekret aplikacji wygasa {when} ({day}). Po tym terminie staną autoodpowiedzi,
-        przekierowania i czytnik administracja@ — admin ustawia nowy sekret i datę przez
+        kopie poczty i czytnik administracja@ — admin ustawia nowy sekret i datę przez
         „Coolify set env”.
       </p>
     );
@@ -414,7 +414,7 @@ export function M365Card() {
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-foreground">Microsoft 365 — urlopy</h2>
           <p className="text-sm text-muted-foreground">
-            Autoodpowiedź, wydarzenie „Poza biurem” i przekierowanie poczty do zastępcy.
+            Autoodpowiedź, wydarzenie „Poza biurem” i kopia poczty do zastępcy.
             Uzgadnianie ze skrzynkami codziennie o 7:00.
           </p>
         </div>

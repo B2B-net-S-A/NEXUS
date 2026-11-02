@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/public/career/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/career/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/career/p/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/career/r/{slug}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/career/apply": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -616,6 +616,16 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
         must = eligible_must
     must_ignored = tuple(m for m in declared_must if m not in set(must))
     evidence_labels = _evidence_labels(job, eligible_must)
+    # Słowa wszystkich wierszy „musi mieć” do oceny (02.11.2026). Bramka czyta
+    # dalej tylko swoje: etykiety z `must` mają wyłącznie `critical_options`.
+    critical_options = {
+        **{
+            label: words
+            for label, words in _must_evidence_options(job).items()
+            if label not in set(must)
+        },
+        **critical_options,
+    }
 
     days = getattr(job, "onsite_days_per_week", None)
     office_location = getattr(job, "office_location", None) or getattr(
@@ -671,6 +681,15 @@ def dealbreaker_inputs_for_job(job) -> DealbreakerInputs:
     )
 
 
+def _must_evidence_options(job) -> dict[str, tuple[str, ...]]:
+    from app.services.critical_skills import must_evidence_options
+
+    try:
+        return must_evidence_options(job)
+    except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        return {}
+
+
 def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
     """Technologie must i nice oferty, które da się sprawdzić w CV i notatkach.
 
@@ -682,11 +701,18 @@ def _evidence_labels(job, eligible_must: Sequence[str]) -> tuple[str, ...]:
 
     try:
         reqs = job_skill_requirements(job)
-        scored = list(reqs.get("must") or []) + list(reqs.get("nice") or [])
+        must_scored = list(reqs.get("must") or [])
+        scored = must_scored + list(reqs.get("nice") or [])
     except Exception:  # noqa: BLE001 — obiekt bez pól oferty (radar, atrapa)
+        must_scored = []
         scored = []
     out = list(eligible_must)
     for label in gate_eligible_must_skills(scored):
+        if label not in out:
+            out.append(label)
+    # „Musi mieć” spoza słownika też ma dowód (02.11.2026): szuka własnych słów
+    # (`must_evidence_options`), a bramka i tak czyta wyłącznie swoje etykiety.
+    for label in must_scored:
         if label not in out:
             out.append(label)
     return tuple(out)

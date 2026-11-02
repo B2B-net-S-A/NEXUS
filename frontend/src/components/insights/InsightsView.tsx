@@ -53,20 +53,19 @@ type TabDef = {
 
 /**
  * Uprawnienie, które otwiera widok Firma (pieniądze firmy: przychód, marża,
- * ranking klientów z kwotami): „Moduł Finanse”.
+ * ranking klientów z kwotami): „Wyniki firmy”.
  *
- * Domyślnie mają je administrator i Finanse. Decyzja Artura z 24.09.2026:
- * Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy — rola
- * sama z siebie tego uprawnienia nie daje, ale administrator może je nadać
+ * Domyślnie ma je tylko administrator (decyzja Artura z 02.11.2026: Finanse
+ * pracują na pojedynczych rekordach). Administrator może je nadać osobie
  * w panelu „Osoby i role”. Lustro po stronie API to `BoardReader`
  * (`backend/app/api/deps.py`) na `/api/insights/board` i `/clients/ranking`,
  * który pyta o to samo uprawnienie; bez tej zgodności front chowałby widok,
  * którego API i tak by nie odmówiło (split-brain z #1215).
  */
-export const FIRMA_PERMISSION: Permission = "finance_module";
+export const FIRMA_PERMISSION: Permission = "company_results";
 
 /**
- * Role, które widzą widok Firma bez „Modułu Finanse”: Rada nadzorcza (0490,
+ * Role, które widzą widok Firma bez tego uprawnienia: Rada nadzorcza (0490,
  * decyzja Artura 21.10.2026) — kwoty kokpitu tak, faktury i zgody modułu
  * Finanse nie. Lustro `_require_board_reader` w `backend/app/api/deps.py`.
  */

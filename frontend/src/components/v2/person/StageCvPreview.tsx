@@ -32,10 +32,11 @@ import {
 } from "@/components/v2/files/DocumentSearchBar";
 import type { DocumentSearchRequest } from "@/components/v2/files/FilePreviewModal";
 import "@/components/v2/files/pdf-viewer.css";
-import api from "@/lib/api";
+import api, { type CVBrandedState } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { downloadBlob } from "@/lib/authenticated-files";
 import { alignB2bLetterheadPreview } from "@/lib/cv-docx-preview";
+import { stageBrandedQueryKey, stageCvOrigin } from "@/lib/cv-to-client";
 import { observeDocxFit } from "@/lib/docx-fit";
 import { renderDocxSafely } from "@/lib/docx-preview-safe";
 import { withDownloadIntent } from "@/lib/cv-download-intent";
@@ -142,6 +143,19 @@ export function StageCvPreview({
   // Runda 7 (R7-X4-2): CV firmowe etapu (po poprawkach QC) ma pierwszeństwo
   // przed surowym plikiem z generatora — DL wysyła klientowi to, co ogląda.
   const fromStage = cvStageId != null && cvStageId > 0;
+  const brandedQuery = useQuery({
+    queryKey: stageBrandedQueryKey(fromStage ? (cvStageId as number) : null),
+    queryFn: () =>
+      api.get<CVBrandedState>(`/api/candidates/stages/${cvStageId}/cv/branded`).then((r) => r.data),
+    enabled: fromStage,
+  });
+  const branded = fromStage ? brandedQuery.data : undefined;
+  // Odznaki generacji tylko nad tą generacją. Podgląd pokazuje CV etapu, a `cv`
+  // to najnowszy wiersz pary: przed 02.11.2026 plik wgrany ręcznie dostawał
+  // „Wygenerowane automatycznie”. Póki CV etapu nieznane — bez odznaki.
+  const showsCvRow =
+    !fromStage || (branded?.from_generator === true && branded.generated_document_id === cv?.id);
+  const origin = stageCvOrigin(branded);
   // Bez zgody RODO serwer odmawia pobrania pliku (409) — nie próbujemy go
   // renderować, tylko prosimy o zrzut.
   const consentMissing = !fromStage && cv?.status === "ready" && cv.consent_missing === true;
@@ -294,14 +308,19 @@ export function StageCvPreview({
             className="min-w-0 flex-1"
           />
         ) : null}
-        {cv?.origin === "auto" ? (
+        {showsCvRow && cv?.origin === "auto" ? (
           <Badge size="sm" variant="soft">
             Wygenerowane automatycznie
           </Badge>
         ) : null}
-        {cv?.needs_review ? (
+        {showsCvRow && cv?.needs_review ? (
           <Badge size="sm" variant="warning">
             Do przeglądu
+          </Badge>
+        ) : null}
+        {origin ? (
+          <Badge size="sm" variant={origin.tone === "warning" ? "warning" : "soft"} title={origin.sentence}>
+            {origin.badge}
           </Badge>
         ) : null}
         {!hideDownload && (fromStage || (cv?.status === "ready" && !consentMissing)) ? (

@@ -33,7 +33,9 @@ export type Permission =
   | "sales_view"
   | "sales_edit"
   // Raporty godzin (28.10.2026): akceptacja timesheetów całej firmy bez Kadr.
-  | "timesheets";
+  | "timesheets"
+  // Wyniki firmy (02.11.2026): zbiorcze kwoty, bez Modułu Finanse.
+  | "company_results";
 
 export type PermissionGroupKey =
   | "clients_contracts"

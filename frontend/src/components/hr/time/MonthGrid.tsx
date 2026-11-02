@@ -36,6 +36,8 @@ export interface MonthGridProps {
   onQuickSave?: (day: MonthDay, input: QuickEntryInput) => Promise<unknown>;
   /** Opis wpisywany, gdy pole opisu zostanie puste (domyślny opis roli). */
   defaultDescription?: string;
+  /** Akcje przy dniu nieobecności (podgląd akceptującego); `null` = brak. */
+  leaveAction?: (day: MonthDay) => React.ReactNode;
 }
 
 const LOCATION_OPTIONS = [
@@ -164,6 +166,7 @@ export function MonthGrid({
   locationPending,
   onQuickSave,
   defaultDescription,
+  leaveAction,
 }: MonthGridProps) {
   const standardDescription = employmentTerms(view.employment_type).standard_description;
   const normPerDay = view.totals.working_days > 0 ? view.totals.norm_hours / view.totals.working_days : 8;
@@ -258,6 +261,7 @@ export function MonthGrid({
                           ))}
                         </td>
                         <td className="px-2 py-1.5">
+                          {day.leave && leaveAction ? leaveAction(day) : null}
                           {day.entries.length === 0 && day.leave?.paid_work ? (
                             <span className="text-xs text-muted-foreground">
                               {standardDescription} · wpisze się{" "}

@@ -1171,3 +1171,7 @@ async def test_ended_terminated_contract_still_returns_with_a_new_order():
     status, end_date = await _contract_state(contract_id)
     assert status == ContractStatus.active
     assert end_date is None
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.terminated_at is None
+        assert contract.termination_reason is None

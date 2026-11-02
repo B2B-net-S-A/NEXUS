@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/placement-exclusions": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }
