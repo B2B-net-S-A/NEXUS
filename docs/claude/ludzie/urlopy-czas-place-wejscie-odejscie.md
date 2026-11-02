@@ -583,6 +583,18 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odpowiedzi `GET /api/hr/time/team/{rok}/{miesiąc}` (kalendarz firmy × 8 h, ta
   sama co w „Moim miesiącu”). Lista zwinięta do 5 wierszy (najpierw brak
   raportu, potem do akceptacji, szkice, zaakceptowane) z „Pokaż wszystkie (N)”.
+  Nad tabelą chipy statusu z liczbami (decyzja Artura 02.11.2026, po prośbie HoR):
+  wybrany status pokazuje wszystkich, bez zwijania. Zastąpiły pasek podsumowania,
+  który po strzałce miesiąca dalej pokazywał miesiąc z adresu.
+- **Cofnięcie nieobecności z podglądu raportu** (decyzja Artura 02.11.2026): osoba
+  od pierwszego dnia sama terminu nie anuluje, a droga przez „Zdecydowane” była
+  niewidoczna z chipu „Raporty godzin”. W podglądzie przy pierwszym dniu terminu
+  w miesiącu stoją „Cofnij …” i „Zmień daty”: te same okna i trasy co w historii
+  (`CancelLeaveDialog`, `EditLeaveDialog`), te same reguły (`canEditRow`, D5).
+  Termin bierzemy z `useLeaveHistory` po osobie, bez nowego API. Zapytanie idzie
+  tylko przy `can_decide` i `me.leave_approver`, więc same „Raporty godzin” i
+  zastępca nieobecnego przełożonego przycisku nie mają. Cofnięcie zostawia dni
+  puste: godzin nie wpisuje samo, bo potwierdza je osoba albo akceptujący.
 
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 
