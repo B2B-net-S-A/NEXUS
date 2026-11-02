@@ -35,12 +35,13 @@ from fastapi import (
 )
 from pydantic import EmailStr
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import limiter
-from app.core.scheduling import business_date
-from app.models.invite_link import CandidateInviteLink
+from app.core.scheduling import business_date, business_today
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.job import Job
 from app.models.job_public_profile import JobPublicProfile
 from app.models.user import User
@@ -128,6 +129,15 @@ async def _bump_visits(
         update(CandidateInviteLink)
         .where(CandidateInviteLink.token == link.token)
         .values(visit_count=CandidateInviteLink.visit_count + 1)
+    )
+    day_row = pg_insert(CandidateInviteLinkVisitDay).values(
+        link_token=link.token, day=business_today(), visits=1
+    )
+    await db.execute(
+        day_row.on_conflict_do_update(
+            index_elements=["link_token", "day"],
+            set_={"visits": CandidateInviteLinkVisitDay.visits + 1},
+        )
     )
     await db.commit()
 

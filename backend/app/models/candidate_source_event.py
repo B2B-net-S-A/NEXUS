@@ -55,6 +55,8 @@ class SourceChannel(str, enum.Enum):
     posting = "posting"  # Application via published job ad
     referral = "referral"  # Referral from another person
     import_csv = "import_csv"  # Bulk import (Traffit / TalentRadar)
+    career_link_general = "career_link_general"  # Stały link rekrutera
+    career_link_job = "career_link_job"  # Link do rekrutacji
 
 
 # Źródło z Traffita bez daty dostaje przy imporcie `captured_at` = początek
@@ -83,6 +85,8 @@ CHANNEL_LABELS: dict[SourceChannel, str] = {
     SourceChannel.posting: "Ogłoszenie o pracy",
     SourceChannel.referral: "Polecenie",
     SourceChannel.import_csv: "Import danych",
+    SourceChannel.career_link_general: "Link ogólny rekrutera",
+    SourceChannel.career_link_job: "Link do rekrutacji",
 }
 
 

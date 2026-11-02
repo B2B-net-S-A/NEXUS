@@ -17,7 +17,7 @@ import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
 import { hasPermission } from "@/lib/permissions";
-import { useAuthStore } from "@/store/auth";
+import { mayExportFiles, useAuthStore } from "@/store/auth";
 import { StatusDot, type StatusDotTone } from "@/components/ds/StatusDot";
 import { CALM_EMPTY, CALM_SUBLINE } from "@/lib/calm-table";
 import { Button } from "@/components/ui/button";
@@ -677,15 +677,17 @@ export function ClientContractRegister({
           </>
         }
         actions={
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={doExport}
-            disabled={exporting}
-          >
-            <Download className="h-4 w-4" />
-            {exporting ? "Eksportuję…" : "Eksportuj do Excela"}
-          </Button>
+          mayExportFiles(user) ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={doExport}
+              disabled={exporting}
+            >
+              <Download className="h-4 w-4" />
+              {exporting ? "Eksportuję…" : "Eksportuj do Excela"}
+            </Button>
+          ) : undefined
         }
       />
 

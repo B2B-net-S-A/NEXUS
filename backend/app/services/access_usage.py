@@ -129,6 +129,7 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "auth",
         "cv",
         "engagement",
+        "k",
         "kariera",
         "login",
         "microsoft365",

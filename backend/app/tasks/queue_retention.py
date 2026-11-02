@@ -31,6 +31,9 @@ zostaje, bo ``request_allocation`` czyta istnienie ``full_base`` jako dowód,
 Kasujemy paczkami po ``BATCH_SIZE`` z commitem po każdej, najwyżej
 ``MAX_BATCHES`` paczek na tabelę w jednym cyklu — zaległość po wdrożeniu
 schodzi w kilka cykli zamiast jednej wielominutowej transakcji.
+
+Od 02.11.2026 (0639) pętla kasuje wiersze dziennika wejść panelu klienta
+(``client_panel_views``) starsze niż 180 dni.
 """
 
 from __future__ import annotations
@@ -100,6 +103,22 @@ _PRUNE_INDEX_OUTBOX = text(
 )
 
 
+# Dziennik wejść panelu klienta (0639): wie, kto i kiedy otworzył link.
+CLIENT_PANEL_VIEWS_RETENTION_DAYS = 180
+_PRUNE_CLIENT_PANEL_VIEWS = text(
+    """
+    DELETE FROM client_panel_views
+     WHERE id IN (
+        SELECT id
+          FROM client_panel_views
+         WHERE created_at < :cutoff
+         ORDER BY created_at
+         LIMIT :batch
+     )
+    """
+)
+
+
 def _outbox_days() -> int:
     """Nie krócej niż okno zdarzeń nocnego przeglądu + zapas."""
     floor = int(getattr(settings, "AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS", 14)) + 1
@@ -139,6 +158,10 @@ async def prune_once(*, now: datetime | None = None) -> dict[str, int]:
         "expired_proposal_evidence": await _prune(
             job_proposals.PRUNE_EXPIRED_EVIDENCE,
             cutoff=now - timedelta(days=job_proposals.EXPIRED_EVIDENCE_RETENTION_DAYS),
+        ),
+        "client_panel_views": await _prune(
+            _PRUNE_CLIENT_PANEL_VIEWS,
+            cutoff=now - timedelta(days=CLIENT_PANEL_VIEWS_RETENTION_DAYS),
         ),
         # 0428: pliki formularza, który autor usunął albo który zniknął wyżej
         # po 30 dniach — wiersz i plik na dysku (dlatego nie surowy DELETE).

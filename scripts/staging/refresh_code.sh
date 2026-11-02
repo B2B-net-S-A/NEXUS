@@ -8,7 +8,9 @@
 # na bazie z STAGING_DATABASE_NAME.
 #
 # Użycie: scripts/staging/refresh_code.sh
-# Kod wyjścia: 0 = staging na origin/main, 3 = kod nowy, schemat bazy nieaktualny.
+# Kod wyjścia: 0 = staging na origin/main, 3 = kod nowy, schemat bazy nieaktualny,
+# 4 = kod nowy, ale ranking liczy co innego niż produkcja (flagi albo stary Qdrant),
+# 5 = nocna kopia danych (`nightly_sync.py`) nie skończyła się w 3 godziny.
 set -euo pipefail
 
 REPO="${NEXUS_REPO:-$HOME/NEXUS}"
@@ -19,12 +21,32 @@ FRONT="http://localhost:3100"
 
 [ -f "$ENV_FILE" ] || { echo "Brak pliku $ENV_FILE (wzór: scripts/staging/env.staging.example)." >&2; exit 2; }
 
+# Nocna kopia wyrównuje wtedy Qdrant w backendzie: odtworzenie kontenera przerwałoby ją.
+LOCK="${STAGING_SYNC_LOCK:-$HOME/.nexus-staging/nightly-sync.pid}"
+for _ in $(seq 1 360); do
+  [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK")" 2>/dev/null || break
+  sleep 30
+done
+if [ -f "$LOCK" ] && kill -0 "$(cat "$LOCK")" 2>/dev/null; then
+  echo "Nocna kopia danych wciąż trwa ($LOCK)." >&2
+  exit 5
+fi
+
+# Staging z innym rankingiem działa normalnie, a wnioski z niego idą do decyzji Artura.
+check_ranking_parity() {
+  docker exec nexus-staging-backend-1 python -m scripts.staging_ranking_parity 2>&1 \
+    | grep -E '^(ranker_version=|UWAGA:)' && return 0
+  echo "Ranking na stagingu nie zgadza się z produkcją (docs/claude/podstawy/staging-na-laptopie.md)." >&2
+  exit 4
+}
+
 git -C "$REPO" fetch --quiet origin main
 SHA="$(git -C "$REPO" rev-parse origin/main)"
 
 running="$(curl -fsS --max-time 10 "$API/api/health" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))' || true)"
 if [ "$running" = "$SHA" ]; then
   echo "Staging już jest na $SHA."
+  check_ranking_parity
   exit 0
 fi
 
@@ -42,6 +64,9 @@ BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export BUILT_AT
 compose=(docker compose -p nexus-staging --project-directory "$CODE"
   -f "$CODE/docker-compose.staging.yml" --env-file "$ENV_FILE")
+# Flagi z produkcji zapisuje `nightly_sync.py`; bez pliku zostają wartości domyślne.
+FLAGS_FILE="$(dirname "$ENV_FILE")/.env.staging-flags.local"
+[ ! -f "$FLAGS_FILE" ] || compose+=(--env-file "$FLAGS_FILE")
 
 # Najpierw build: gdy padnie, stare kontenery działają dalej.
 "${compose[@]}" build backend frontend
@@ -58,6 +83,7 @@ for _ in $(seq 1 60); do
       unhealthy*) echo "Staging na $SHA, ale schemat bazy jest nieaktualny: $migrations" >&2; exit 3 ;;
     esac
     echo "Staging na $SHA."
+    check_ranking_parity
     exit 0
   fi
   sleep 15

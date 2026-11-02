@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ClientMdImportsTab } from "@/components/client-profile/orders/ClientMdImportsTab";
 import { ToastProvider } from "@/components/Toast";
 import type { ClientMdImportDetail, ClientMdImportSummary } from "@/lib/api/orderGroups";
+import { useAuthStore } from "@/store/auth";
 
 vi.mock("@/lib/api/orderGroups", () => ({
   orderGroupsApi: { listClientMdImports: vi.fn(), getClientMdImport: vi.fn() },
@@ -132,6 +133,17 @@ describe("ClientMdImportsTab — zakładka „Importy MD”", () => {
 
     await userEvent.click(screen.getByRole("button", { name: /Wszystkie importy/ }));
     expect(onSelect).toHaveBeenCalledWith(null);
+  });
+
+  it("Automatyzacje czytają import, ale nie pobierają go plikiem", async () => {
+    useAuthStore.setState({ user: { role: "automation" } as never });
+    try {
+      renderTab(2);
+      expect(await screen.findByText("Wymaga przypisania")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Pobierz do Excela" })).toBeNull();
+    } finally {
+      useAuthStore.setState({ user: null });
+    }
   });
 
   it("otwarty import: „Pobierz do Excela” pobiera plik z nazwą z serwera", async () => {

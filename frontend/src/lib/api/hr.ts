@@ -134,6 +134,7 @@ export interface PersonFull extends PersonCard {
   last_working_day: string | null;
   timesheet_required: boolean;
   can_log_overtime: boolean;
+  no_hours_limit?: boolean;
   division?: Division | null;
   /** Uczeń/student na zleceniu bez składek ZUS do `contribution_exempt_until` (D8). */
   student_contribution_exempt?: boolean;
@@ -179,6 +180,7 @@ export interface ProfileFields {
   default_location?: WorkLocation;
   timesheet_required?: boolean;
   can_log_overtime?: boolean;
+  no_hours_limit?: boolean;
   job_title?: string | null;
   department?: string | null;
   phone?: string | null;

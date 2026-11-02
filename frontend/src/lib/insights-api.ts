@@ -245,6 +245,36 @@ export interface InviteLinkChannel {
   last_used_at: string | null;
 }
 
+/** Linki na osobę: `visits` w okresie (zapis dzienny), `visits_total` od początku. */
+export interface LinkPeopleRow {
+  user_id: number;
+  name: string;
+  general_link: boolean;
+  job_links: number;
+  visits: number;
+  visits_total: number;
+  applications_general: number;
+  applications_job: number;
+  new_candidates: number;
+  in_process: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export interface LinkPeopleResponse {
+  period: InsightsPeriod;
+  rows: LinkPeopleRow[];
+  totals: {
+    links: number;
+    links_without_visits: number;
+    visits_total: number;
+    visits: number;
+    applications: number;
+  };
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from: string | null;
+}
+
 export interface InviteLinksResponse {
   period: InsightsPeriod;
   channels: InviteLinkChannel[];
@@ -517,6 +547,14 @@ export const insightsApi = {
           ...periodQuery(p),
           ...(p.limit ? { limit: p.limit } : {}),
         },
+      })
+      .then((r) => r.data),
+
+  /** Kto co przyniósł z linków. Trasa dla admina, Head of Recruitment i Delivery Leada. */
+  linkPeople: (p: InsightsPeriodParams) =>
+    api
+      .get<LinkPeopleResponse>("/api/insights/recruitment/link-people", {
+        params: periodQuery(p),
       })
       .then((r) => r.data),
 
@@ -1069,6 +1107,8 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
   inviteLinks: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "invite-links", p] as const,
+  linkPeople: (p: InsightsPeriodParams) =>
+    ["insights", "recruitment", "link-people", p] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata

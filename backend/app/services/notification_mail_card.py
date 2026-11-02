@@ -115,6 +115,10 @@ SPECS: dict[str, _Spec] = {
         label="Wybierz termin z kandydatem",
         cycle_step="pick",
     ),
+    # Treść wpisał klient, niezweryfikowany: mail mówi tylko, co czeka w panelu.
+    "client_panel_request": _Spec(
+        "Odpowiedz klientowi w panelu", label="Otwórz panel klienta"
+    ),
     "interview_slot_chosen": _Spec(
         "Potwierdź termin u klienta", label="Potwierdź termin", cycle_step="confirm"
     ),
@@ -498,6 +502,7 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.client_panel import ClientPanelRequest
     from app.models.contract import Contract
     from app.models.job import Job
     from app.models.user import User
@@ -516,6 +521,12 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
             )
             values["duration_minutes"] = req.duration_minutes
             values["chosen_index"] = req.chosen_index
+    if entity == "client_panel_request" and entity_id:
+        panel_request = await db.get(ClientPanelRequest, entity_id)
+        if panel_request is not None:
+            if panel_request.candidate_id:
+                refs.setdefault("candidate", panel_request.candidate_id)
+            refs.setdefault("job", panel_request.job_id)
     if entity == "contract" and entity_id:
         contract = await db.get(Contract, entity_id)
         if contract is not None:

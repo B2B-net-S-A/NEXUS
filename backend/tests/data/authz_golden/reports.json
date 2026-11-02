@@ -35,7 +35,7 @@
   "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDDDDDDDDDP",
   "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDDDDDDDDDP",
   "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDDDDDDDDDP",
-  "GET /api/reports/my-delivery-lead": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/reports/my-delivery-lead": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/reports/sales": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

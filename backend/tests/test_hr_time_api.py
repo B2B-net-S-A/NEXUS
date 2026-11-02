@@ -15,6 +15,7 @@ from sqlalchemy import select, text
 from app.core.database import AsyncSessionLocal
 from app.models.hr_ops import HrAuditEvent
 from app.models.hr_time import Timesheet, TimesheetEntry
+from app.services.hr.time_entries import NO_LIMIT_REASON
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
 from tests.test_hr_time_support import (  # noqa: F401 — fikstury
     add_leave,
@@ -148,6 +149,112 @@ async def test_overtime_with_right_requires_reason_and_caps_at_16(app_client) ->
     assert day["hours"] == 10
     assert day["overtime_hours"] == 2
     assert month["totals"]["overtime_hours"] == 2
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_no_hours_limit_skips_ceiling_and_reason(app_client) -> None:
+    # Osoba na wielu projektach: bez sufitu 16 h i bez opisu godzin ponad 8 h.
+    _, worker = await _team(no_hours_limit=True)
+    h = headers(worker)
+    first = await app_client.post(f"{BASE}/entries", json=entry(4, 8), headers=h)
+    assert first.status_code == 201, first.text
+    assert first.json()["is_overtime"] is False
+    second = await app_client.post(f"{BASE}/entries", json=entry(4, 6), headers=h)
+    assert second.status_code == 201, second.text
+    assert second.json()["is_overtime"] is True
+    assert second.json()["overtime_reason"] == NO_LIMIT_REASON
+    third = await app_client.post(f"{BASE}/entries", json=entry(4, 7.5), headers=h)
+    assert third.status_code == 201, third.text
+    single = await app_client.post(f"{BASE}/entries", json=entry(5, 20), headers=h)
+    assert single.status_code == 201, single.text
+    month = (await app_client.get(BASE, headers=h)).json()
+    assert month["no_hours_limit"] is True
+    day = next(d for d in month["days"] if d["date"] == "2031-03-04")
+    assert day["hours"] == 21.5
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_no_hours_limit_keeps_own_reason_and_entry_maximum(app_client) -> None:
+    _, worker = await _team(no_hours_limit=True)
+    h = headers(worker)
+    own = await app_client.post(
+        f"{BASE}/entries",
+        json=entry(4, 10, overtime_reason="Wdrożenie u klienta"),
+        headers=h,
+    )
+    assert own.status_code == 201, own.text
+    assert own.json()["overtime_reason"] == "Wdrożenie u klienta"
+    over_entry = await app_client.post(
+        f"{BASE}/entries", json=entry(5, 24.5), headers=h
+    )
+    assert over_entry.status_code == 422
+    assert "24 h" in over_entry.json()["detail"]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_no_hours_limit_still_blocks_full_day_of_leave(app_client) -> None:
+    _, worker = await _team(no_hours_limit=True)
+    async with AsyncSessionLocal() as db:
+        await add_leave(db, worker.id, [date(Y, M, 4)])
+        await db.commit()
+    blocked = await app_client.post(
+        f"{BASE}/entries", json=entry(4, 9), headers=headers(worker)
+    )
+    assert blocked.status_code == 422
+    assert "urlopu" in blocked.json()["detail"]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_single_entry_over_16_stays_refused_without_the_setting(
+    app_client,
+) -> None:
+    # Limit jednego wpisu poszedł w górę tylko dla kartoteki bez limitu.
+    _, worker = await _team(can_log_overtime=True)
+    too_much = await app_client.post(
+        f"{BASE}/entries",
+        json=entry(4, 17, overtime_reason="Migracja danych"),
+        headers=headers(worker),
+    )
+    assert too_much.status_code == 422
+    assert "16 h" in too_much.json()["detail"]
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_no_hours_limit_is_set_in_profile_and_needs_people_admin(
+    app_client,
+) -> None:
+    async with AsyncSessionLocal() as db:
+        admin = await make_user(db, "admin")
+        worker = await make_user(db, "employee")
+        await db.commit()
+    denied = await app_client.patch(
+        f"/api/hr/admin/profiles/{worker.id}",
+        json={"no_hours_limit": True},
+        headers=headers(worker),
+    )
+    assert denied.status_code == 403
+    saved = await app_client.patch(
+        f"/api/hr/admin/profiles/{worker.id}",
+        json={"no_hours_limit": True},
+        headers=headers(admin),
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["no_hours_limit"] is True
+    async with AsyncSessionLocal() as db:
+        fields = await db.scalar(
+            select(HrAuditEvent.details)
+            .where(
+                HrAuditEvent.subject_user_id == worker.id,
+                HrAuditEvent.action == "profile_updated",
+            )
+            .order_by(HrAuditEvent.id.desc())
+        )
+    assert fields == {"fields": ["no_hours_limit"]}
 
 
 @pytest.mark.usefixtures("time_on")

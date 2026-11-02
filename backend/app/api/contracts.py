@@ -27,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
@@ -2856,7 +2857,7 @@ def _register_export_row(c: Contract) -> list:
     ]
 
 
-@router.get("/register/export")
+@router.get("/register/export", dependencies=NOT_READ_ONLY)
 async def export_client_register(
     current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),

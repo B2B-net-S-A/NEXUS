@@ -110,6 +110,11 @@ CK_DIVISION = f"division IS NULL OR division IN ({quoted(DIVISIONS)})"
 # lub studenta; że znacznik jest tylko na zleceniu, pilnuje serwis (zmiana formy
 # nie może się wywrócić na CHECK-u).
 CK_EXEMPT_UNTIL = "contribution_exempt_until IS NULL OR student_contribution_exempt"
+#: Raport godzin bez sufitu dnia i bez opisu godzin ponad 8 h (02.11.2026).
+NO_HOURS_LIMIT_DDL = (
+    "ALTER TABLE employee_profiles ADD COLUMN IF NOT EXISTS "
+    "no_hours_limit BOOLEAN NOT NULL DEFAULT false"
+)
 # Etap 2 (D9): staż do urlopu na umowie o pracę (lata, z zaświadczeniem ZUS).
 CK_LEAVE_SENIORITY = (
     "leave_seniority_years IS NULL OR leave_seniority_years BETWEEN 0 AND 60"
@@ -146,6 +151,7 @@ TABLE_DDL: tuple[str, ...] = (
     default_location VARCHAR(16) NOT NULL DEFAULT 'onsite',
     timesheet_required BOOLEAN NOT NULL DEFAULT TRUE,
     can_log_overtime BOOLEAN NOT NULL DEFAULT FALSE,
+    no_hours_limit BOOLEAN NOT NULL DEFAULT FALSE,
     job_title VARCHAR(200) NULL,
     department VARCHAR(200) NULL,
     phone VARCHAR(64) NULL,
@@ -223,6 +229,7 @@ TABLE_DDL: tuple[str, ...] = (
                 CHECK ({CK_LEAVE_SENIORITY});
         END IF;
     END $$""",
+    NO_HOURS_LIMIT_DDL,
     f"""CREATE TABLE IF NOT EXISTS leave_entitlements (
     id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,

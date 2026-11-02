@@ -160,6 +160,7 @@ export function TimesheetPreviewDialog({
           day={editor.day}
           entry={editor.entry}
           allowOvertime={allowOvertime}
+          noHoursLimit={view.no_hours_limit}
           form={view.employment_type}
           onSave={(payload) => save.mutateAsync(payload)}
           onDelete={(id) => remove.mutateAsync(id)}

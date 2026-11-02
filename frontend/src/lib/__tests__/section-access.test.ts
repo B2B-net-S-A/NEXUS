@@ -149,10 +149,11 @@ describe("central section access matrix", () => {
     expect(hasCapability(financeModule, "nav.finance")).toBe(true);
   });
 
-  it("preserves the legacy viewer's existing Pipeline and Insights reads", () => {
+  it("wycofywany Viewer (0637) nie ma żadnej sekcji", () => {
     const viewer = { role: "user" as const };
-    expect(sectionAccessForUser(viewer, "pipeline")).toBe("read");
-    expect(sectionAccessForUser(viewer, "insights")).toBe("read");
+    expect(sectionAccessForUser(viewer, "sourcing")).toBe("none");
+    expect(sectionAccessForUser(viewer, "pipeline")).toBe("none");
+    expect(sectionAccessForUser(viewer, "insights")).toBe("none");
     expect(sectionAccessForUser(viewer, "delivery")).toBe("none");
   });
 

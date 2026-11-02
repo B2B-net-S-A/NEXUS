@@ -375,9 +375,11 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
       hint: full
         ? [
             full.timesheet_required ? (words?.timesheet ?? "raport godzin").toLowerCase() : "bez raportu godzin",
-            full.can_log_overtime
-              ? `z ${payWords.overtime_instrumental}`
-              : `bez ${payWords.overtime_genitive}`,
+            full.no_hours_limit
+              ? "godziny bez limitu"
+              : full.can_log_overtime
+                ? `z ${payWords.overtime_instrumental}`
+                : `bez ${payWords.overtime_genitive}`,
           ].join(" · ")
         : undefined,
     });
@@ -809,6 +811,7 @@ export function PersonProfile({ userId, config }: { userId: number; config: HrCo
               {full.timesheet_required ? "tak" : "nie"}
             </Fact>
             <Fact label={capitalize(payWords.overtime)}>{full.can_log_overtime ? "tak" : "nie"}</Fact>
+            <Fact label="Godziny bez limitu">{full.no_hours_limit ? "tak" : "nie"}</Fact>
             {/* Daty Kadr (koniec zwolnienia, „składki od”, staż, ZUS) przełożony
                 dostaje bez kluczy (przegląd 17.10.2026): brak pola w odpowiedzi
                 = brak wiersza, `null` = „brak”. */}

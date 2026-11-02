@@ -21,7 +21,7 @@ from app.schemas.candidate_source_event import (
 
 
 class TestSourceChannelVocabulary:
-    def test_seven_channels(self):
+    def test_channels(self):
         keys = {c.value for c in SourceChannel}
         assert keys == {
             "manual",
@@ -31,6 +31,8 @@ class TestSourceChannelVocabulary:
             "posting",
             "referral",
             "import_csv",
+            "career_link_general",
+            "career_link_job",
         }
 
     def test_polish_labels_exist_for_every_channel(self):

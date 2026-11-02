@@ -96,10 +96,13 @@ function PlaceCell({
 function QuickEntry({
   day,
   defaultDescription,
+  noHoursLimit = false,
   onSave,
 }: {
   day: MonthDay;
   defaultDescription: string;
+  /** Kartoteka: wpis ponad limit dnia — serwer pilnuje 24 h na jeden wpis. */
+  noHoursLimit?: boolean;
   onSave: (input: QuickEntryInput) => Promise<unknown>;
 }) {
   const capacity = day.capacity ?? 8;
@@ -111,8 +114,9 @@ function QuickEntry({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const value = parseHours(hours);
-    if (value === null || value <= 0 || value > capacity) {
-      setError(`Godziny od 0 do ${formatHours(capacity)}`);
+    const max = noHoursLimit ? 24 : capacity;
+    if (value === null || value <= 0 || value > max) {
+      setError(`Godziny od 0 do ${formatHours(max)}`);
       return;
     }
     setError(null);
@@ -236,6 +240,7 @@ export function MonthGrid({
                     {quick && onQuickSave ? (
                       <td colSpan={3} className="px-2 py-1">
                         <QuickEntry
+                          noHoursLimit={view.no_hours_limit}
                           day={day}
                           defaultDescription={defaultDescription ?? standardDescription}
                           onSave={(input) => onQuickSave(day, input)}

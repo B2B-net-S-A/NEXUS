@@ -44,7 +44,8 @@ from app.services import cv_consent_gate as consent_gate
 from app.services import cv_generated_editor as generated_editor
 from app.services.candidate_stage_cv_service import render_stage_editor_docx
 from app.services.cv_document_versions import check_revision
-from app.services.cv_download_log import log_cv_download
+from app.services.client_panel import stamp_for_download
+from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_pdf_preview import (
     MSG_UNAVAILABLE,
     PdfPreviewUnavailable,
@@ -70,6 +71,21 @@ async def _pdf(db: AsyncSession, docx: bytes) -> bytes:
         return await pdf_from_docx(docx)
     except PdfPreviewUnavailable as error:
         raise HTTPException(status_code=503, detail=MSG_UNAVAILABLE) from error
+
+
+async def _download_copy(
+    db: AsyncSession, csv, docx: bytes, intent: Optional[str]
+) -> bytes:
+    """Plik dla klienta niesie ramkę panelu rekrutacji; podgląd w NEXUSIE nie."""
+    if intent != DOWNLOAD_INTENT:
+        return docx
+    return await stamp_for_download(
+        db,
+        job_id=csv.job_id,
+        candidate_id=csv.candidate_id,
+        docx=docx,
+        language=csv.branded_language,
+    )
 
 
 def _pdf_name(docx_name: Optional[str], fallback: str) -> str:
@@ -114,7 +130,7 @@ async def preview_stage_cv_pdf(
         )
     consent_gate.ensure_copy_downloadable(await _generated_for_stage_cv(db, csv), csv)
     docx, _ = await render_stage_editor_docx(csv, payload.content_html)
-    pdf = await _pdf(db, docx)
+    pdf = await _pdf(db, await _download_copy(db, csv, docx, intent))
     await log_cv_download(
         db,
         intent=intent,
@@ -165,7 +181,7 @@ async def approved_stage_cv_pdf(
             409,
             "Ta historyczna wersja nie ma zatwierdzonego DOCX. Utwórz i zatwierdź nową wersję.",
         )
-    pdf = await _pdf(db, version.docx_content)
+    pdf = await _pdf(db, await _download_copy(db, csv, version.docx_content, intent))
     await log_cv_download(
         db,
         intent=intent,

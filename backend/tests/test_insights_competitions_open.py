@@ -34,7 +34,6 @@ _READ_ONLY_ROLES = [
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.admin,
-    UserRole.user,
 ]
 
 

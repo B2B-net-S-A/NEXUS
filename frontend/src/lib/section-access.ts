@@ -140,10 +140,10 @@ export const ROLE_SECTION_ACCESS: Record<
     system_admin: "none",
   },
   user: {
-    sourcing: "read",
-    pipeline: "read",
+    sourcing: "none",
+    pipeline: "none",
     delivery: "none",
-    insights: "read",
+    insights: "none",
     finance: "none",
     system_admin: "none",
   },

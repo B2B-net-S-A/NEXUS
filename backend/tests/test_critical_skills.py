@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -301,3 +302,21 @@ def test_seed_file_is_readable_and_has_only_numbers():
     assert payload["labels"]["java"]["jobs"] > 100
     for entry in payload["labels"].values():
         assert set(entry) <= {"rate", "jobs", "pairs"}
+
+
+def test_stats_count_only_people_sent_to_the_client():
+    """Rozmowa wewnętrzna (`interview`) to jeszcze nie wysyłka, jak w analityce."""
+    from app.api.jobs import SENT_TO_CLIENT_STAGES
+
+    captured: dict = {}
+
+    class _Db:
+        async def execute(self, _statement, params):
+            captured.update(params)
+            return SimpleNamespace(all=lambda: [])
+
+    payload = asyncio.run(critical_skills.compute_stats(_Db()))
+
+    assert payload["jobs"] == 0
+    assert "interview" not in captured["stages"]
+    assert set(captured["stages"]) == {s.value for s in SENT_TO_CLIENT_STAGES}

@@ -576,6 +576,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
 BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "client_interview": (
         "interview_slots_requested",
+        "client_panel_request",
         "interview_slot_chosen",
         "interview_slot_confirmed",
         "interview_changed",

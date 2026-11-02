@@ -666,6 +666,17 @@ BoardTrendReader = Annotated[User, Depends(_require_board_trend_reader)]
 # Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji
 # (macierze sourcer×kategoria, TAC→DL, DL→klienci), edycja targetów KPI,
 # zamykanie kwartałów Liga Mistrzów.
+# Cudze wyniki linków aplikacyjnych (decyzja Artura 02.11.2026). Rekruter widzi tylko
+# swoje przez ``/me/career-link/*``.
+LinkResultsManager = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin, UserRole.head_of_recruitment, UserRole.delivery_lead
+        )
+    ),
+]
+
 HeadOfRecruitmentPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.head_of_recruitment)),

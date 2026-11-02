@@ -273,13 +273,13 @@ const EXPECTED: Record<
   },
   // Radar dla KAŻDEJ zalogowanej roli (decyzja produktowa Artura 19.08 —
   // poszła po zrzucie 403 od Head of Recruitment). Backend lustrzanie na
-  // CurrentUser, middleware bez wpisu.
+  // CurrentUser, middleware bez wpisu. Viewer odpada na sekcji Sourcing (0637).
   "nav.talent_radar": {
     admin: true,
     head_of_recruitment: true,
     delivery_lead: true,
     recruiter: true,
-    user: true,
+    user: false,
   },
   "nav.sourcing": {
     admin: true,
@@ -619,14 +619,12 @@ describe("hasCapability — przypadki brzegowe", () => {
     }
   });
 
-  it("rola `user` (read-only viewer) ma WYŁĄCZNIE Talent Radar", () => {
-    // Jedyny wyjątek od „viewer nie ma niczego": radar jest dla każdej
-    // zalogowanej roli (decyzja produktowa 19.08). Pętla nadal domyka
-    // resztę katalogu — nowa capability przyznana viewerowi przypadkiem
-    // dalej robi czerwono.
+  it("rola `user` (wycofywany viewer) nie ma żadnej capability", () => {
+    // Od 0637 nie ma żadnej sekcji, więc odpadł też radar. Pętla domyka
+    // cały katalog — nowa capability przyznana viewerowi przypadkiem robi
+    // czerwono.
     for (const capability of ALL_CAPABILITIES) {
-      const expected = capability === "nav.talent_radar";
-      expect(hasCapability(mkUser("user"), capability)).toBe(expected);
+      expect(hasCapability(mkUser("user"), capability)).toBe(false);
     }
   });
 
@@ -876,8 +874,22 @@ describe("regresja C6: teczka plików \u2260 fakty profilowe (granica po viewerz
 
   it("radar jest szerszy ni\u017c dost\u0119p do kandydat\u00f3w", () => {
     // Zapobiega powrotowi r\u0119cznej listy r\u00f3l z `app/talent-radar/page.tsx`.
-    expect(hasCapability(mkUser("user"), "nav.talent_radar")).toBe(true);
-    expect(hasCapability(mkUser("user"), "nav.candidates")).toBe(false);
+    // Lista ról radaru nie zawęża: viewer z nadaną osobno sekcją Sourcing ma
+    // radar, ale /candidates dalej nie.
+    const viewerWithSourcing = {
+      ...mkUser("user"),
+      effective_section_access: {
+        sourcing: "read" as const,
+        pipeline: "none" as const,
+        delivery: "none" as const,
+        insights: "none" as const,
+        finance: "none" as const,
+        system_admin: "none" as const,
+      },
+    };
+    expect(hasCapability(viewerWithSourcing, "nav.talent_radar")).toBe(true);
+    expect(hasCapability(viewerWithSourcing, "nav.candidates")).toBe(false);
+    expect(hasCapability(mkUser("user"), "nav.talent_radar")).toBe(false);
     expect(
       hasCapability(mkUser("head_of_recruitment"), "nav.talent_radar"),
     ).toBe(true);
@@ -1507,8 +1519,14 @@ describe("kontrakt backend ↔ rejestr capability", () => {
  */
 // Praktykant, „Pracownik” (0456) i „Rada nadzorcza” (0490) mają własną, wąską
 // powłokę — ich pozycje menu nie wynikają z capability ani sekcji produktu.
+// Wycofywany viewer `user` (0637) bez sekcji widzi tylko Pomoc i Ustawienia,
+// więc też robiłby „bramkowaną” z każdej pozycji.
 const SIDEBAR_ROLES = ALL_ROLES.filter(
-  (role) => role !== "trainee" && role !== "employee" && role !== "board",
+  (role) =>
+    role !== "trainee" &&
+    role !== "employee" &&
+    role !== "board" &&
+    role !== "user",
 );
 
 /** Role, dla których `visibleNavSections` pokazuje daną pozycję menu. */

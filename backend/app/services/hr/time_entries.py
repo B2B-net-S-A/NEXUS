@@ -4,7 +4,8 @@ Reguły (Compass, faza 27a/45 + audyt 22.09) i naprawy:
 
 * limit dnia 8 h liczony na SUMĘ wpisów dnia; ponad 8 h (do 16 h) to
   nadgodziny — tylko z prawem (``can_log_overtime`` z kartoteki albo
-  Kadry/admin) i z uzasadnieniem ≥ 5 znaków,
+  Kadry/admin) i z uzasadnieniem ≥ 5 znaków; ``no_hours_limit`` z kartoteki
+  osoby zdejmuje sufit 16 h i obowiązek opisu (jeden wpis nadal ≤ 24 h),
 * nadgodziną jest wpis, który przekracza 8 h SUMY dnia (w Compassie flagę
   liczono z godzin jednego wpisu, więc 5 h + 5 h przechodziło bez
   uzasadnienia),
@@ -38,6 +39,7 @@ from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
 from app.services.hr_time_schema import (
+    ENTRY_MAX_HOURS,
     OVERTIME_MAX_HOURS,
     OVERTIME_REASON_MIN_LENGTH,
     STANDARD_DAY_HOURS,
@@ -45,6 +47,9 @@ from app.services.hr_time_schema import (
 
 STANDARD = Decimal(STANDARD_DAY_HOURS)
 OVERTIME_MAX = Decimal(OVERTIME_MAX_HOURS)
+ENTRY_MAX = Decimal(ENTRY_MAX_HOURS)
+#: Wpis ponad 8 h osoby bez limitu, gdy nic nie dopisała (CHECK wymaga tekstu).
+NO_LIMIT_REASON = "Bez limitu godzin (ustawienie w kartotece)"
 MAX_DESCRIPTION = 2000
 MAX_PROJECT = 200
 MAX_OVERTIME_REASON = 1000
@@ -288,8 +293,8 @@ def clean_hours(raw: Any) -> Decimal:
         raise TimeError("Godziny muszą być liczbą.") from None
     if not hours.is_finite() or hours <= 0:
         raise TimeError("Godziny muszą być większe od zera.")
-    if hours > OVERTIME_MAX:
-        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
+    if hours > ENTRY_MAX:
+        raise TimeError(f"Jeden wpis to najwyżej {ENTRY_MAX_HOURS} h.")
     if hours != hours.quantize(Decimal("0.01")):
         raise TimeError("Godziny podaje się z dokładnością do 0,01 h.")
     return hours.quantize(Decimal("0.01"))
@@ -368,11 +373,19 @@ def _decide_overtime(
     reason: Optional[str],
     work_date: date,
     form: Optional[str],
+    no_limit: bool = False,
 ) -> OvertimeDecision:
     total = other_hours + hours + occupied
     words = terms(form)
     if total <= STANDARD:
         return OvertimeDecision(False, None)
+    if no_limit:
+        text = (reason or "").strip()
+        if len(text) < OVERTIME_REASON_MIN_LENGTH:
+            text = NO_LIMIT_REASON
+        return OvertimeDecision(True, text)
+    if hours > OVERTIME_MAX:
+        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
     if not actor.overtime_allowed:
         if occupied > 0:
             raise TimeError(
@@ -472,6 +485,7 @@ async def add_entry(
         reason=data.overtime_reason,
         work_date=data.work_date,
         form=subject.employment_type,
+        no_limit=subject.no_hours_limit,
     )
     entry = TimesheetEntry(
         timesheet_id=timesheet.id,
@@ -534,6 +548,7 @@ async def update_entry(
             reason=changes.get("overtime_reason", entry.overtime_reason),
             work_date=work_date,
             form=subject.employment_type,
+            no_limit=subject.no_hours_limit,
         )
     entry.work_date = work_date
     entry.hours = hours

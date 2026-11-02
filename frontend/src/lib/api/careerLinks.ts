@@ -171,6 +171,8 @@ export interface CareerLinkState {
 
 /** Lejek linku w oknie (etap 4 linków). `visits` = od początku istnienia linku. */
 export interface LinkResultCounts {
+  /** W wybranym okresie, z dziennych wejść; `null` = od początku. */
+  visits_in_period?: number | null;
   visits: number;
   applications: number;
   new_candidates: number;
@@ -196,6 +198,8 @@ export interface LinkResultRow extends LinkResultCounts {
 export interface LinkResults {
   /** `null` = od początku. */
   days: number | null;
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from?: string | null;
   totals: LinkResultCounts;
   links: LinkResultRow[];
 }

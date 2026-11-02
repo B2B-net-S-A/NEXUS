@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClientsListV2 } from "@/components/v2/pages/ClientsListV2";
 import type { ClientDirectoryResponse } from "@/lib/api";
+import { useAuthStore } from "@/store/auth";
 
 const mocks = vi.hoisted(() => ({
   currentSearch: "",
@@ -104,6 +105,17 @@ describe("ClientsListV2 — eksport katalogu klientów", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("Automatyzacje czytają listę bez menu eksportu", async () => {
+    useAuthStore.setState({ user: { role: "automation" } as never });
+    try {
+      renderList();
+      await screen.findByText("Nordea ABP");
+      expect(screen.queryByRole("button", { name: /eksport/i })).toBeNull();
+    } finally {
+      useAuthStore.setState({ user: null });
+    }
   });
 
   it("Excel trafia w endpoint eksportu z aktualną kategorią i tokenem", async () => {

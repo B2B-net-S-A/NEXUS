@@ -34,7 +34,7 @@
   "DELETE /api/team-structure/tac-delivery-leads/{tac_user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
   "DELETE /api/team-structure/tac-linkedin-farming/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
   "GET /api/team-structure/dl-clients": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/team-structure/my-team": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/team-structure/my-team": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/team-structure/sourcer-categories": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/team-structure/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/team-structure/tac-delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",

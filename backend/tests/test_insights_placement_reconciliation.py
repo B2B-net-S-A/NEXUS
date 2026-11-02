@@ -277,17 +277,17 @@ async def test_definition_codes_are_the_shared_constants(app_client, app_auth_he
     assert body["definitions"]["verifier_anchored"] == VERIFIER_ANCHORED_MILESTONES
 
 
-async def _viewer_headers() -> dict[str, str]:
-    """Read-only `user` — widzi /insights (D7), ale nie dane kandydatów."""
+async def _board_headers() -> dict[str, str]:
+    """Rada nadzorcza — widzi /insights (D7), ale nie dane kandydatów."""
     from app.core.security import create_access_token
 
     async with AsyncSessionLocal() as db:
         viewer = User(
-            email=f"recon-viewer-{uuid.uuid4().hex[:8]}@example.com",
+            email=f"recon-board-{uuid.uuid4().hex[:8]}@example.com",
             password_hash=hash_password("x"),
-            name="Recon Viewer",
-            role=UserRole.user,
-            roles=["user"],
+            name="Recon Board",
+            role=UserRole.board,
+            roles=["board"],
             is_active=True,
             profile_completed=True,
         )
@@ -299,10 +299,10 @@ async def _viewer_headers() -> dict[str, str]:
 
 
 @pytest.mark.asyncio
-async def test_viewer_without_candidate_access_gets_no_candidate_names(
+async def test_reader_without_candidate_access_gets_no_candidate_names(
     app_client, app_auth_headers
 ):
-    """Nazwiska kandydatów to PII — rola `user` jest od nich odcięta.
+    """Nazwiska kandydatów to PII — rola `board` jest od nich odcięta.
 
     Raport nadal uzgadnia wiersze (``candidate_id`` zostaje), ale nie niesie
     imion i nazwisk, a flaga mówi, że to redakcja, nie brak danych.
@@ -310,7 +310,7 @@ async def test_viewer_without_candidate_access_gets_no_candidate_names(
     async with AsyncSessionLocal() as db:
         seeded = await _seed_placement(db, kpi_eligible=True, tag="pii")
 
-    body = await _report(app_client, await _viewer_headers())
+    body = await _report(app_client, await _board_headers())
     assert body["candidate_names_redacted"] is True
     row = next(
         i

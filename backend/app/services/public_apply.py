@@ -62,6 +62,7 @@ from app.models.candidate_consent import (
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
+from app.models.candidate_source_event import SourceChannel
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -231,6 +232,15 @@ def parse_optional_fields(
             raise field_error("work_mode", "Wybierz tryb pracy z listy.", work_mode)
         out["work_mode"] = raw_mode
     return out
+
+
+def _link_channel(link: CandidateInviteLink) -> SourceChannel:
+    """Kanał zdarzenia źródła: link ogólny albo link do rekrutacji, osobno od portali."""
+    return (
+        SourceChannel.career_link_job
+        if link.job_id is not None
+        else SourceChannel.career_link_general
+    )
 
 
 def link_key(link: CandidateInviteLink) -> str:
@@ -453,10 +463,7 @@ async def _record_duplicate_application(
     zamiast procesu wiersz ``application_screenings`` (``pending``); bramki
     twarde (czarna lista, weto HM) sprawdza pętla przy decyzji.
     """
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
@@ -601,7 +608,7 @@ async def _record_duplicate_application(
     db.add(
         CandidateSourceEvent(
             candidate_id=existing.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -625,10 +632,7 @@ async def _create_candidate(
     screening: bool = False,
 ) -> Candidate:
     from app.api import public_share
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
     from app.services.candidate_claim import link_claim_kwargs
@@ -798,7 +802,7 @@ async def _create_candidate(
     db.add(
         CandidateSourceEvent(
             candidate_id=candidate.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),

@@ -19,6 +19,7 @@ import io
 import json
 import re
 import uuid
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -27,12 +28,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.application_submission import ApplicationSubmission
 from app.models.candidate import Candidate
 from app.models.candidate_consent import CandidateConsent
-from app.models.candidate_source_event import CandidateSourceEvent
-from app.models.invite_link import CandidateInviteLink
+from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.job import Job, JobStatus, RecruitmentType, RemotePolicy
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import Notification, NotificationType
@@ -755,6 +757,136 @@ async def test_job_team_links_open_for_delivery_lead_across_clients(api):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json() == []
+
+
+async def test_visits_count_per_day_and_show_in_the_period(api):
+    """0640: wejście zapisuje się w dniu i w liczniku; okres czyta dzienne."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+
+    for _ in range(2):
+        page = await api.get(f"/api/public/career/r/{link['slug']}")
+        assert page.status_code == 200, page.text
+    # Grafika OG nie jest wejściem kandydata.
+    await api.get(
+        f"/api/public/career/r/{link['slug']}", headers={"x-nexus-count-visit": "0"}
+    )
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(CandidateInviteLinkVisitDay)
+                .join(
+                    CandidateInviteLink,
+                    CandidateInviteLink.token == CandidateInviteLinkVisitDay.link_token,
+                )
+                .where(CandidateInviteLink.slug == link["slug"])
+            )
+        ).all()
+    assert [(row.day, row.visits) for row in rows] == [(business_today(), 2)]
+
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits"] == 2 and row["visits_in_period"] == 2
+    assert period["totals"]["visits_in_period"] == 2
+    assert period["visits_tracked_from"] is not None
+
+    # Od początku liczy licznik linku, bo dzienne nie sięgają wstecz.
+    everything = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert everything["totals"]["visits_in_period"] is None
+    assert everything["totals"]["visits"] == 2
+
+
+async def test_old_visits_stay_outside_the_period(api):
+    """Odmowa: wejście sprzed okresu nie wpada do liczby okresu."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        token = await db.scalar(
+            select(CandidateInviteLink.token).where(
+                CandidateInviteLink.slug == link["slug"]
+            )
+        )
+        db.add(
+            CandidateInviteLinkVisitDay(
+                link_token=token,
+                day=business_today() - timedelta(days=40),
+                visits=5,
+            )
+        )
+        await db.commit()
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits_in_period"] == 0
+
+
+async def test_link_applications_get_their_own_source_channels(api):
+    """0641: link ogólny i link do rekrutacji nie lądują w kanale portali."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    slug = f"kanal-{uuid.uuid4().hex[:8]}"
+    assert (
+        await api.put("/api/me/career-link", headers=headers, json={"slug": slug})
+    ).status_code == 200
+    job_email = f"kanal-job-{uuid.uuid4().hex[:8]}@example.com"
+    general_email = f"kanal-og-{uuid.uuid4().hex[:8]}@example.com"
+    for form in (_form(link["slug"], job_email), _form(slug, general_email)):
+        resp = await api.post("/api/public/career/apply", data=form, files=_cv())
+        assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        channels = dict(
+            (
+                await db.execute(
+                    select(Candidate.email, CandidateSourceEvent.channel)
+                    .join(
+                        CandidateSourceEvent,
+                        CandidateSourceEvent.candidate_id == Candidate.id,
+                    )
+                    .where(Candidate.email.in_([job_email, general_email]))
+                )
+            ).all()
+        )
+    assert channels[job_email] is SourceChannel.career_link_job
+    assert channels[general_email] is SourceChannel.career_link_general
+
+
+async def test_link_people_report_counts_per_person_for_managers_only(api):
+    """Makieta D: tabela na osobę z podziałem na rodzaj linku; rekruter dostaje 403."""
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"raport-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 200
+
+    denied = await api.get("/api/insights/recruitment/link-people", headers=headers)
+    assert denied.status_code == 403
+
+    body = (
+        await api.get(
+            "/api/insights/recruitment/link-people",
+            headers=await _headers_with_role(api, UserRole.head_of_recruitment),
+        )
+    ).json()
+    row = next(r for r in body["rows"] if r["user_id"] == uid)
+    assert row["applications_job"] == 1 and row["applications_general"] == 0
+    assert row["new_candidates"] == 1 and row["in_process"] == 1
+    assert row["job_links"] == 1 and row["general_link"] is False
+    assert row["visits"] == 1 and row["visits_total"] == 1
+    assert body["visits_tracked_from"] is not None
+    assert body["totals"]["applications"] >= 1
 
 
 async def test_link_results_hide_dead_links_without_applications(api):

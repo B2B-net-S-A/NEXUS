@@ -44,6 +44,7 @@ export interface ProfileFormState {
   default_location: WorkLocation;
   timesheet_required: boolean;
   can_log_overtime: boolean;
+  no_hours_limit: boolean;
   job_title: string;
   department: string;
   phone: string;
@@ -74,6 +75,7 @@ export const EMPTY_PROFILE_FORM: ProfileFormState = {
   default_location: "onsite",
   timesheet_required: true,
   can_log_overtime: false,
+  no_hours_limit: false,
   job_title: "",
   department: "",
   phone: "",
@@ -93,6 +95,7 @@ export function profileFormToPayload(form: ProfileFormState): ProfileFields {
     default_location: form.default_location,
     timesheet_required: form.timesheet_required,
     can_log_overtime: form.can_log_overtime,
+    no_hours_limit: form.no_hours_limit,
     job_title: text(form.job_title),
     department: text(form.department),
     phone: text(form.phone),
@@ -436,6 +439,19 @@ export function ProfileFieldsForm({
             checked={form.can_log_overtime}
             onCheckedChange={(checked) => set("can_log_overtime", checked)}
             aria-label={`Może wpisywać ${words.overtime}`}
+          />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>
+            Godziny bez limitu
+            <span className="block text-xs text-muted-foreground">
+              Dzień może mieć ponad 16 h, a godziny ponad 8 h nie wymagają opisu.
+            </span>
+          </span>
+          <Switch
+            checked={form.no_hours_limit}
+            onCheckedChange={(checked) => set("no_hours_limit", checked)}
+            aria-label="Godziny bez limitu"
           />
         </label>
       </div>

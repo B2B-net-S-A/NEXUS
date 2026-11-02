@@ -378,6 +378,24 @@ describe("MyMonthTab", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
+  it("godziny bez limitu: wpis w wierszu przechodzi ponad 8 h, a ponad 24 h nie", async () => {
+    routeGet({ ...month(), no_hours_limit: true });
+    mocks.post.mockResolvedValue({ data: {} });
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    const hours = within(row).getByLabelText("Godziny 2031-03-05");
+    fireEvent.change(hours, { target: { value: "25" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    expect(await within(row).findByRole("alert")).toHaveTextContent("Godziny od 0 do 24");
+    expect(mocks.post).not.toHaveBeenCalled();
+
+    fireEvent.change(hours, { target: { value: "20" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({ hours: 20 });
+  });
+
   it("tydzień ma nagłówek z sumą godzin wobec normy, a nad siatką baner braków", async () => {
     routeGet(month());
     renderTab();

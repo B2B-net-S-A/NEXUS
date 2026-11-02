@@ -347,8 +347,11 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    # 0641: linki we własnych kanałach źródeł, osobno od portali.
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
-    # 0638: podsumowanie rozmowy z portalu konsultanta.
+    # 0643: podsumowanie rozmowy z portalu konsultanta.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
@@ -856,6 +859,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
     # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
+    # 0639: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1258,6 +1263,16 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# Panel klienta pod linkiem z CV (0639) — JEDNO źródło z migracją
+# (`app/services/client_panel_schema.py`, pilnuje test_migration_and_entrypoint_share_one_ddl_source).
+try:
+    from app.services import client_panel_schema as _client_panel_schema
+
+    _CLIENT_PANEL_DDL = list(_client_panel_schema.TABLE_DDL)
+except Exception as _client_panel_schema_err:  # noqa: BLE001
+    print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
+    _CLIENT_PANEL_DDL = []
+
 # Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
 # i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
 try:
@@ -1284,6 +1299,26 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     print(f"sales schema unavailable: {_sales_schema_err!r}")
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
+
+# Kanały linków w źródłach (0641): przepięcie starych zdarzeń — JEDNO źródło
+# z migracją (`app/services/career_link_channels_schema.py`).
+try:
+    from app.services import career_link_channels_schema as _career_link_channels_schema
+
+    _CAREER_LINK_CHANNELS_BACKFILL = list(_career_link_channels_schema.BACKFILL_DDL)
+except Exception as _career_link_channels_schema_err:  # noqa: BLE001
+    print(f"career link channels schema unavailable: {_career_link_channels_schema_err!r}")
+    _CAREER_LINK_CHANNELS_BACKFILL = []
+
+# Dzienne wejścia na linki aplikacyjne (0640): JEDNO źródło z migracją
+# (`app/services/invite_link_visits_schema.py`).
+try:
+    from app.services import invite_link_visits_schema as _invite_link_visits_schema
+
+    _INVITE_LINK_VISITS_DDL = list(_invite_link_visits_schema.TABLE_DDL)
+except Exception as _invite_link_visits_schema_err:  # noqa: BLE001
+    print(f"invite link visits schema unavailable: {_invite_link_visits_schema_err!r}")
+    _INVITE_LINK_VISITS_DDL = []
 
 # Dziennik zdarzeń z maili CPro (0635) — JEDNO źródło z migracją
 # (`app/services/cpro_mail_schema.py`).
@@ -6960,12 +6995,15 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_HR_COLUMN_DDL,
     # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
     *_SALES_TABLE_DDL,
+    *_CLIENT_PANEL_DDL,
     *_CPRO_MAIL_DDL,
     # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
     # (`app/services/new_person_setup_schema.py`).
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
     # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
     *_ANNOUNCEMENTS_DDL,
+    # 0640: dzienne wejścia na linki (po `candidate_invite_links`).
+    *_INVITE_LINK_VISITS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
     # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
@@ -7359,10 +7397,10 @@ _DATA_STATEMENTS = [
            ('recruiter', 'insights', 'read'),
            ('recruiter', 'finance', 'none'),
            ('recruiter', 'system_admin', 'none'),
-           ('user', 'sourcing', 'read'),
-           ('user', 'pipeline', 'read'),
+           ('user', 'sourcing', 'none'),
+           ('user', 'pipeline', 'none'),
            ('user', 'delivery', 'none'),
-           ('user', 'insights', 'read'),
+           ('user', 'insights', 'none'),
            ('user', 'finance', 'none'),
            ('user', 'system_admin', 'none'),
            ('trainee', 'sourcing', 'none'),
@@ -7773,6 +7811,8 @@ _DATA_STATEMENTS = [
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
+    # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
+    *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

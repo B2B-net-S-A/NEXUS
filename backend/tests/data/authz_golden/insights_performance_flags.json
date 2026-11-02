@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/performance-flags": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
