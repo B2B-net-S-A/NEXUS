@@ -60,9 +60,21 @@ class FakeMailboxOps:
     def set_oof(self, upn: str, setting: dict[str, Any]) -> None:
         self.auto_replies[upn.lower()] = copy.deepcopy(setting)
 
-    def add_rule(self, upn: str, display_name: str) -> str:
+    def add_rule(
+        self,
+        upn: str,
+        display_name: str,
+        *,
+        actions: dict[str, Any] | None = None,
+        enabled: bool = True,
+    ) -> str:
         rule_id = f"rule-{next(self._ids)}"
-        self.rules[upn.lower()][rule_id] = {"id": rule_id, "displayName": display_name}
+        self.rules[upn.lower()][rule_id] = {
+            "id": rule_id,
+            "displayName": display_name,
+            "isEnabled": enabled,
+            "actions": actions or {},
+        }
         return rule_id
 
     def add_event(
