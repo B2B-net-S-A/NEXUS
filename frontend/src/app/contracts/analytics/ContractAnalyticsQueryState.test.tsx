@@ -40,8 +40,8 @@ vi.mock("@/lib/api", () => ({
 }));
 
 // Bramka sekcji strony nie jest przedmiotem tego testu.
-vi.mock("@/components/RequireSectionAccess", () => ({
-  RequireSectionAccess: ({ children }: { children: React.ReactNode }) => (
+vi.mock("@/components/RequirePermission", () => ({
+  RequirePermission: ({ children }: { children: React.ReactNode }) => (
     <>{children}</>
   ),
 }));
