@@ -35,9 +35,9 @@ from app.models.sales import (
 from app.models.user import User
 from app.services import sales_schema as schema
 from app.services.polish_ilike import polish_folded_ilike
-from app.services.sales import company_dates, history
+from app.services.sales import company_dates, decision_map, history
 from app.services.sales.lifecycle import apply_stage, deal_value
-from app.services.sales.motion import build_atlas_motion
+from app.services.sales.motion import build_atlas_motion, entry_keys
 from app.services.sales.summary import Period, build_summary
 from app.services.sales_schema import OpportunityEventKind
 
@@ -48,6 +48,9 @@ summary_router = APIRouter()
 NOT_FOUND_DETAIL = "Nie ma takiej szansy."
 COMPANY_MISSING_DETAIL = "Wybierz firmę z kartoteki sprzedaży."
 STAGE_MISMATCH_DETAIL = "Ten etap nie należy do lejka tej szansy."
+DECISION_PERSON_STALE = (
+    "Ktoś właśnie zmienił tę osobę na mapie. Zamknij okno i otwórz ją ponownie."
+)
 
 #: Etapy, na których szansa ma wysłaną ofertę — ekran Sprzedaż → Oferty.
 OFFER_STAGE_KEYS = ("offer-sent", "tender-submitted")
@@ -236,7 +239,7 @@ class OpportunityOut(BaseModel):
 
 
 class AtlasMotion(BaseModel):
-    """„Sales Motion” z Atlasa (Fabryki IT, MEDDIC, produkty) — tylko do odczytu."""
+    """„Sales Motion” z Atlasa (Fabryki IT, MEDDIC, produkty); mapę da się poprawiać."""
 
     it_factory: Optional[dict[str, Any]]
     meddic: Optional[dict[str, Any]]
@@ -247,6 +250,8 @@ class AtlasMotion(BaseModel):
 class OpportunityDetail(OpportunityOut):
     contacts: list[OpportunityContactOut]
     atlas_motion: Optional[AtlasMotion] = None
+    #: Lejek Fabryki IT albo szansa, która ma już mapę: można dodawać osoby.
+    decision_map_enabled: bool = False
 
 
 class OpportunityList(BaseModel):
@@ -325,6 +330,15 @@ async def _get(db: AsyncSession, opportunity_id: int) -> SalesOpportunity:
     return opp
 
 
+async def _decision_map_enabled(db: AsyncSession, opp: SalesOpportunity) -> bool:
+    if decision_map.decision_entries(opp.custom_fields):
+        return True
+    key = await db.scalar(
+        select(SalesPipeline.key).where(SalesPipeline.id == opp.pipeline_id)
+    )
+    return key == decision_map.IT_FACTORIES_PIPELINE_KEY
+
+
 async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
     row = (
         await db.execute(_base_query().where(SalesOpportunity.id == opportunity_id))
@@ -349,6 +363,7 @@ async def _detail(db: AsyncSession, opportunity_id: int) -> OpportunityDetail:
     return OpportunityDetail(
         **_out(row).model_dump(),
         atlas_motion=AtlasMotion(**motion) if motion is not None else None,
+        decision_map_enabled=await _decision_map_enabled(db, opp),
         contacts=[
             OpportunityContactOut(
                 id=contact.id,
@@ -791,6 +806,167 @@ async def unlink_contact(
         if opp.primary_contact_id == contact_id:
             opp.primary_contact_id = None
         await db.commit()
+    return await _detail(db, opportunity_id)
+
+
+# ── Mapa decyzyjna ────────────────────────────────────────────────────────
+
+
+async def _get_locked(db: AsyncSession, opportunity_id: int) -> SalesOpportunity:
+    """Zapis to odczyt listy z JSON-a, zmiana i nadpisanie: bez blokady wiersza
+    jeden z dwóch równoległych zapisów by przepadł."""
+
+    opp = await db.scalar(
+        select(SalesOpportunity)
+        .where(SalesOpportunity.id == opportunity_id)
+        .with_for_update()
+    )
+    if opp is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=NOT_FOUND_DETAIL)
+    return opp
+
+
+def _person_index(entries: list[dict[str, Any]], key: str) -> int:
+    keys = entry_keys(entries)
+    if key not in keys:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=DECISION_PERSON_STALE)
+    return keys.index(key)
+
+
+def _record_decision_map(
+    db: AsyncSession,
+    opportunity_id: int,
+    user_id: int,
+    *,
+    field: str = "decision_map",
+    old_value: Optional[str] = None,
+    new_value: Optional[str] = None,
+) -> None:
+    history.record(
+        db,
+        opportunity_id=opportunity_id,
+        user_id=user_id,
+        kind=OpportunityEventKind.updated,
+        field=field,
+        old_value=old_value,
+        new_value=new_value,
+    )
+
+
+async def _fill_person_contact(
+    db: AsyncSession,
+    opp: SalesOpportunity,
+    entry: dict[str, Any],
+    fields: list[str],
+    user_id: int,
+) -> None:
+    filled = await decision_map.fill_contact(db, opp.company_id, entry, fields)
+    if filled:
+        _record_decision_map(
+            db,
+            opp.id,
+            user_id,
+            field="decision_map_contact",
+            new_value=f"{entry.get('name')}: {', '.join(filled)}",
+        )
+
+
+@router.post(
+    "/{opportunity_id}/decision-map",
+    response_model=OpportunityDetail,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_decision_person(
+    opportunity_id: int,
+    payload: decision_map.DecisionPersonCreate,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    opp = await _get_locked(db, opportunity_id)
+    if not await _decision_map_enabled(db, opp):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="Mapa decyzyjna jest tylko w lejku Fabryki IT.",
+        )
+    entry = payload.model_dump(mode="json")
+    entries = [*decision_map.decision_entries(opp.custom_fields), entry]
+    opp.custom_fields = decision_map.with_entries(
+        opp.custom_fields,
+        entries,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    _record_decision_map(
+        db,
+        opp.id,
+        current_user.id,
+        new_value=decision_map.describe_person(entry),
+    )
+    await _fill_person_contact(db, opp, entry, list(entry), current_user.id)
+    await db.commit()
+    return await _detail(db, opportunity_id)
+
+
+@router.patch(
+    "/{opportunity_id}/decision-map/{person_key}", response_model=OpportunityDetail
+)
+async def update_decision_person(
+    opportunity_id: int,
+    person_key: str,
+    payload: decision_map.DecisionPersonUpdate,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    opp = await _get_locked(db, opportunity_id)
+    entries = decision_map.decision_entries(opp.custom_fields)
+    index = _person_index(entries, person_key)
+    before = entries[index]
+    fields = payload.model_dump(mode="json", exclude_unset=True)
+    changed = [field for field, value in fields.items() if before.get(field) != value]
+    if changed:
+        # Klucze spoza formularza (``contact_id`` z Atlasa) zostają we wpisie.
+        after = {**before, **fields}
+        entries[index] = after
+        opp.custom_fields = decision_map.with_entries(
+            opp.custom_fields,
+            entries,
+            user_id=current_user.id,
+            now=datetime.now(timezone.utc),
+        )
+        old_value, new_value = decision_map.describe_change(before, after, changed)
+        _record_decision_map(
+            db, opp.id, current_user.id, old_value=old_value, new_value=new_value
+        )
+        await _fill_person_contact(db, opp, after, changed, current_user.id)
+        await db.commit()
+    return await _detail(db, opportunity_id)
+
+
+@router.delete(
+    "/{opportunity_id}/decision-map/{person_key}", response_model=OpportunityDetail
+)
+async def remove_decision_person(
+    opportunity_id: int,
+    person_key: str,
+    current_user: SalesEditUser,
+    db: AsyncSession = Depends(get_db),
+) -> OpportunityDetail:
+    opp = await _get_locked(db, opportunity_id)
+    entries = decision_map.decision_entries(opp.custom_fields)
+    removed = entries.pop(_person_index(entries, person_key))
+    opp.custom_fields = decision_map.with_entries(
+        opp.custom_fields,
+        entries,
+        user_id=current_user.id,
+        now=datetime.now(timezone.utc),
+    )
+    _record_decision_map(
+        db,
+        opp.id,
+        current_user.id,
+        old_value=decision_map.describe_person(removed),
+    )
+    await db.commit()
     return await _detail(db, opportunity_id)
 
 

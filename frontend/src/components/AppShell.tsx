@@ -37,6 +37,7 @@ import type {
 } from "@/lib/api";
 import { useCapability } from "@/hooks/useCapability";
 import { editableTagText, structuredTagLabels } from "@/lib/candidate-tags";
+import { formatDeadlineTime } from "@/lib/job-deadline";
 import { changedCandidateFields, tagChanges } from "@/lib/candidate-edit-diff";
 import { useClickOutside } from "@/lib/use-click-outside";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
@@ -1595,6 +1596,7 @@ interface JobFormData {
   rate_budget_hourly_min: string;
   priority: string;
   deadline: string;
+  deadline_time: string;
   recruiter_id: string;
   // Owner requestu (TAC) + Delivery Lead. Jedyny TAC klienta może być
   // podpowiedziany; przy kilku równorzędnych TAC-ach wybór musi być jawny.
@@ -1631,6 +1633,7 @@ function jobToForm(j: any): JobFormData {
     rate_budget_hourly_min: j.rate_budget_hourly_min ? String(j.rate_budget_hourly_min) : "",
     priority: j.priority ?? "medium",
     deadline: j.deadline ? j.deadline.slice(0, 10) : "",
+    deadline_time: formatDeadlineTime(j.deadline_time) ?? "",
     // „Poprzedni rekruter” (14.10.2026) nie prowadzi — pole zostaje puste.
     recruiter_id: j.recruiter_id && !ownerIsPrevious(j) ? String(j.recruiter_id) : "",
     tac_id: j.tac_id ? String(j.tac_id) : "",
@@ -1790,7 +1793,23 @@ function JobFormFields({
           onRequestPublish={onRequestPublish}
         />
         <FieldGroup label="Deadline">
-          <Input type="date" value={form.deadline} onChange={e => onChange("deadline", e.target.value)} />
+          <div className="flex gap-2">
+            <Input
+              type="date"
+              aria-label="Deadline"
+              value={form.deadline}
+              onChange={e => onChange("deadline", e.target.value)}
+              className="w-0 min-w-0 flex-1"
+            />
+            <Input
+              type="time"
+              aria-label="Godzina terminu"
+              disabled={!form.deadline}
+              value={form.deadline ? form.deadline_time : ""}
+              onChange={e => onChange("deadline_time", e.target.value)}
+              className="w-28 shrink-0"
+            />
+          </div>
         </FieldGroup>
       </div>
       <FieldGroup label="Opis">
@@ -2123,6 +2142,9 @@ export function EditJobModal({
         rate_budget_hourly: form.rate_budget_hourly ? Number(form.rate_budget_hourly) : null,
         rate_budget_hourly_min: form.rate_budget_hourly_min ? Number(form.rate_budget_hourly_min) : null,
         deadline: form.deadline || undefined,
+        // Godzina istnieje tylko przy dacie (422 bez niej). Pusta data w tym
+        // oknie niczego nie czyści (`undefined` wyżej), więc godzina też milczy.
+        ...(form.deadline ? { deadline_time: form.deadline_time || null } : {}),
         // „— bez rekrutera —” przy rekrutacji, która miała rekrutera = jawny
         // `null`: serwer zdejmuje go jak „Zdejmij”. Do 14.10.2026 szło
         // `undefined`, pole wypadało z PATCH-a i rekruter wracał po odświeżeniu.

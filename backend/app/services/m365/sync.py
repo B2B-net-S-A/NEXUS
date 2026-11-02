@@ -70,6 +70,7 @@ from app.services.m365.graph_client import GraphClient, GraphRequestError
 from app.services.m365.html_sanitize import html_to_text, sanitize_html
 from app.services.m365.matcher import IncomingMessage
 from app.services.candidate_contact_hooks import maybe_remove_calendar_handoff
+from app.services.sales import meeting_transcripts as sales_transcripts
 from app.services.sales import outlook_activities as sales_outlook
 
 logger = logging.getLogger(__name__)
@@ -240,6 +241,8 @@ async def _sync_connection_locked(
             async with GraphClient(conn, db, sales_ok=True) as gc:
                 await _sync_messages(db, gc, conn, result, scope=scope)
                 await _sync_events(db, gc, conn, result, scope=scope)
+                if scope.sales:
+                    await sales_transcripts.resolve_join_urls(db, gc, conn.user_id)
             if scope.sales:
                 await _sales_catch_up(db, conn)
 
@@ -1615,7 +1618,7 @@ async def _record_sales_meeting(
         addresses = [a for a in (organizer, *attendees) if a]
         if skip_candidates and await _has_candidate_attendee(db, conn, addresses):
             return
-        await sales_outlook.record(
+        recorded = await sales_outlook.record(
             db,
             sales_outlook.OutlookItem(
                 source=sales_outlook.EVENT_SOURCE,
@@ -1630,6 +1633,24 @@ async def _record_sales_meeting(
                 duration_minutes=duration,
             ),
         )
+        # Transkrypt jest tylko u organizatora, a aplikacja widzi wyłącznie jego
+        # spotkania — to, gdzie handlowiec jest gościem, nie ma czego pobrać.
+        if (
+            recorded
+            and end is not None
+            and not ev.get("isAllDay")
+            and organizer
+            and organizer.strip().lower() == (conn.mailbox_upn or "").strip().lower()
+        ):
+            await sales_transcripts.enqueue(
+                db,
+                ical_uid=ical_uid,
+                graph_event_id=str(ev.get("id")),
+                organizer_user_id=conn.user_id,
+                organizer_upn=conn.mailbox_upn,
+                starts_at=start,
+                ends_at=end,
+            )
 
 
 async def _has_candidate_attendee(

@@ -28,12 +28,13 @@ import { ContactCreateDialog } from "../ContactCreateDialog";
 import { SalesMotionPanel } from "../SalesMotionPanel";
 
 const motion = (entry: Record<string, unknown>): AtlasMotion =>
-  ({ it_factory: { decision_map: [{ decision_level: 1, ...entry }] }, products: [] }) as unknown as AtlasMotion;
+  ({ it_factory: { decision_map: [{ key: "k1", decision_level: 1, ...entry }] }, products: [] }) as unknown as AtlasMotion;
 
 describe("mapa decyzyjna", () => {
   it("pokazuje telefon, mail, LinkedIn i notatkę osoby", () => {
     render(
       <SalesMotionPanel
+        opportunityId={1}
         motion={motion({
           name: "Osoba",
           phone: "+48 600 100 200",
@@ -50,7 +51,7 @@ describe("mapa decyzyjna", () => {
   });
 
   it("nie robi linku z adresu LinkedIn innego niż http(s)", () => {
-    render(<SalesMotionPanel motion={motion({ name: "Osoba", linkedin_url: "javascript:alert(1)" })} />);
+    render(<SalesMotionPanel opportunityId={1} motion={motion({ name: "Osoba", linkedin_url: "javascript:alert(1)" })} />);
     expect(screen.queryByRole("link", { name: /LinkedIn/ })).toBeNull();
   });
 });
