@@ -145,6 +145,78 @@ async def back_office_sync_loop() -> None:
     )
 
 
+# ── Portal konsultanta (02.11.2026) ──────────────────────────────────────────
+CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS = 10 * 60
+CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS = 10 * 60
+CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS = 15 * 60
+
+
+async def consultant_portal_transcripts_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.transcripts import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_transcripts_loop() -> None:
+    if not loops_enabled("consultant_portal_transcripts"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_transcripts",
+        max_silence_seconds=CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_transcripts",
+        beat,
+        CONSULTANT_PORTAL_TRANSCRIPTS_INTERVAL_SECONDS,
+        consultant_portal_transcripts_job,
+    )
+
+
+async def consultant_portal_ratings_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.ratings import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_ratings_loop() -> None:
+    if not loops_enabled("consultant_portal_ratings"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_ratings",
+        max_silence_seconds=CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_ratings",
+        beat,
+        CONSULTANT_PORTAL_RATINGS_INTERVAL_SECONDS,
+        consultant_portal_ratings_job,
+    )
+
+
+async def consultant_portal_mailbox_job(db: AsyncSession) -> dict[str, Any] | None:
+    from app.services.consultant_portal.mailbox import run_once
+
+    result = await run_once(db)
+    return None if result.get("status") == "disabled" else result
+
+
+async def consultant_portal_mailbox_loop() -> None:
+    if not loops_enabled("consultant_portal_mailbox"):
+        return
+    beat = loop_heartbeat.register(
+        "consultant_portal_mailbox",
+        max_silence_seconds=CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS + 1800,
+    )
+    await run_periodic(
+        "consultant_portal_mailbox",
+        beat,
+        CONSULTANT_PORTAL_MAILBOX_INTERVAL_SECONDS,
+        consultant_portal_mailbox_job,
+    )
+
+
 # ── Zgody: odpowiedź „approved” mailem (etap 2, 20.10.2026) ─────────────────
 HR_APPROVAL_MAIL_INTERVAL_SECONDS = 2 * 60
 

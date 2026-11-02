@@ -246,6 +246,8 @@ from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
 from app.api import back_office as back_office_api
+from app.api import consultant_portal as consultant_portal_api
+from app.api import consultant_portal_staff as consultant_portal_staff_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
 from app.api import sales_company_people as sales_company_people_api
@@ -1088,6 +1090,15 @@ async def lifespan(app: FastAPI):
             hr_loops.equipment_intune_sync_loop()
         ),
         "back_office_sync": asyncio.create_task(hr_loops.back_office_sync_loop()),
+        "consultant_portal_transcripts": asyncio.create_task(
+            hr_loops.consultant_portal_transcripts_loop()
+        ),
+        "consultant_portal_ratings": asyncio.create_task(
+            hr_loops.consultant_portal_ratings_loop()
+        ),
+        "consultant_portal_mailbox": asyncio.create_task(
+            hr_loops.consultant_portal_mailbox_loop()
+        ),
         "admin_cases_mail_ingest": asyncio.create_task(
             hr_loops.admin_cases_mail_ingest_loop()
         ),
@@ -1277,6 +1288,8 @@ app.add_middleware(
         # Ekran dla licznika użycia (`services/access_usage`). Front wysyła go
         # dopiero, gdy `/api/health` niesie `usageCounter: true`.
         "X-Nexus-Screen",
+        # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
+        "X-Portal-Session",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -2131,6 +2144,19 @@ app.include_router(
 app.include_router(
     equipment_intune_api.router,
     prefix="/api/equipment/intune",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Portal konsultanta: publiczne trasy z własnym wyłącznikiem i sesją (opis w module).
+app.include_router(
+    consultant_portal_api.router,
+    prefix="/api/public/consultant-portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    consultant_portal_staff_api.router,
+    prefix="/api/back-office/portal",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )
