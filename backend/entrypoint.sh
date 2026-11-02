@@ -11570,6 +11570,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Cofnięte zakończenia na aktywnych kontraktach (decyzja Artura 02.11.2026) —
+# jednorazowo: współpraca trwa, a data i powód czytały się jak wypowiedzenie.
+# Logika w `app/services/contract_stale_termination_repair.py`, przypięta do
+# trójki ID i starych wartości. Marker w `app_settings` + advisory lock; porażka
+# nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-stale-termination"
+echo "Contracts: stale termination data from 02.11 decision (one-shot)..."
+python - <<'PY' || echo "stale termination repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_stale_termination_repair import (
+    run_stale_termination_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_stale_termination_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"stale termination repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"stale termination repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Zamówienie z odwróconym okresem (Alior, zgłoszenie 28.09.2026) — jednorazowo:
 # drugie zamówienie tej samej osoby o tym samym numerze, 01.01.2027 → 31.12.2026,
 # założone oknem przedłużenia. Ta sama droga co usunięcie z zakładki
