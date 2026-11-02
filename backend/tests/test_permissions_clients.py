@@ -458,8 +458,15 @@ async def test_my_clients_amounts_follow_the_amounts_view_permission(
         assert "active_revenue" not in row
         assert "total_revenue_all_time" not in row
 
-        # Nadany podgląd kwot działa u każdego klienta (konto bez roli DL).
+        # Sam podgląd kwot bez roli DL nie daje przychodów wszystkich klientów
+        # na jednej liście (decyzja Artura 02.11.2026).
         await grant_permissions(reader_id, "amounts_view")
+        row = await my_client_row(reader_headers)
+        assert "active_revenue" not in row
+        assert "total_revenue_all_time" not in row
+
+        # „Wyniki firmy” dokładają je u każdego klienta.
+        await grant_permissions(reader_id, "amounts_view", "company_results")
         row = await my_client_row(reader_headers)
         assert Decimal(str(row["active_revenue"])) == Decimal("25000.00")
         assert Decimal(str(row["total_revenue_all_time"])) == Decimal("25000.00")
