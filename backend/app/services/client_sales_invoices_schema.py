@@ -248,7 +248,7 @@ TABLE_DDL: tuple[str, ...] = (
 )""",
 )
 
-#: Nabywca z UE bez polskiego NIP-u (0631): pierwsza produkcyjna próba 02.11.2026
+#: Nabywca z UE bez polskiego NIP-u (0630): pierwsza produkcyjna próba 02.11.2026
 #: pokazała 48% faktur sprzedażowych z ``KodUE`` + ``NrVatUE``.
 BUYER_FOREIGN_ID_DDL = (
     "ALTER TABLE client_sales_invoices "
@@ -291,7 +291,7 @@ INDEX_DDL: tuple[str, ...] = (
     "ON client_sales_invoice_payments (match_status, booked_on)",
 )
 
-#: Metoda ``person`` (0631): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026.
+#: Metoda ``person`` (0630): osoba i stawka z pozycji faktury, decyzja Artura z 02.11.2026.
 METHOD_CONSTRAINT_DDL: tuple[str, ...] = (
     "ALTER TABLE client_sales_invoices "
     "DROP CONSTRAINT IF EXISTS ck_client_sales_invoices_method",

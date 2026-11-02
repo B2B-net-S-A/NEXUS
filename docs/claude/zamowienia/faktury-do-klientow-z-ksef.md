@@ -45,7 +45,7 @@
   z powodem `budget` nie nalicza próby: inaczej po 24 przebiegach faktury wypadały z kolejki
   (`pending_expired`), a znacznik był już za nimi. Budżet przekazujemy do `_Run` jawnie, bo domyślna
   wartość pola dataclass zapisuje się przy definicji i `monkeypatch` stałej jej nie zmienia.
-- **Nabywca z UE ma VAT UE zamiast NIP-u** (`KodUE` + `NrVatUE`, kolumna `buyer_foreign_id`, 0631):
+- **Nabywca z UE ma VAT UE zamiast NIP-u** (`KodUE` + `NrVatUE`, kolumna `buyer_foreign_id`, 0630):
   to ok. 48% faktur sprzedażowych. Klucz rejestru `clients.nip_registry` to 10 cyfr albo prefiks
   kraju z cyframi, porównanie w postaci `normalize_registry_id`.
 - **Osoba i stawka wiążą bez numeru zamówienia** (metoda `person`, decyzja Artura z 02.11.2026, uzupełnia
