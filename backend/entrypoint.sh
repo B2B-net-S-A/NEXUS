@@ -835,7 +835,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # 0510: osoby, których kalendarza nie widzi aplikacja prepów (do adminów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
-    # 0632: skrzynki poza zakresem aplikacji „NEXUS Kadry” (do adminów).
+    # 0633: skrzynki poza zakresem aplikacji „NEXUS Kadry” (do adminów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_m365_scope_missing'",
     # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",

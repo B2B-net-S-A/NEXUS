@@ -171,7 +171,7 @@ class NotificationType(str, enum.Enum):
     # dzienna lista do dopisania, tylko admini, mail od razu
     # (`services/teams_prep_scope.py`).
     teams_prep_scope_missing = "teams_prep_scope_missing"
-    # 0632: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
+    # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
     # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
     # mail od razu (`services/hr/m365/scope_alerts.py`).
     hr_m365_scope_missing = "hr_m365_scope_missing"
