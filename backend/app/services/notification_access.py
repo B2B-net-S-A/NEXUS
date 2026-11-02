@@ -182,7 +182,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_idle_reminder: ProductSection.pipeline,
     # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
     NotificationType.job_closed_people_waiting: ProductSection.pipeline,
-    # 0630: zdarzenia CPro — link prowadzi na Tablicę rekrutacji.
+    # 0631: zdarzenia CPro — link prowadzi na Tablicę rekrutacji.
     NotificationType.cpro_candidate_rejected: ProductSection.pipeline,
     NotificationType.cpro_interview_change: ProductSection.pipeline,
     NotificationType.cpro_close_needs_decision: ProductSection.pipeline,
