@@ -238,6 +238,7 @@ async def month_view(
         "employment_type": subject.employment_type,
         "default_location": subject.default_location,
         "can_log_overtime": subject.can_log_overtime,
+        "no_hours_limit": subject.no_hours_limit,
         "approver_name": None
         if supervisor.kind == "people_admin"
         else supervisor.label,

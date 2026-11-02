@@ -30,6 +30,7 @@ export function formFrom(person: PersonFull): ProfileFormState {
     default_location: person.default_location,
     timesheet_required: person.timesheet_required,
     can_log_overtime: person.can_log_overtime,
+    no_hours_limit: person.no_hours_limit ?? false,
     job_title: person.job_title ?? "",
     department: person.department ?? "",
     phone: person.phone ?? "",
