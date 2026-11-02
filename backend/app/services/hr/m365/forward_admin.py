@@ -10,8 +10,9 @@ Karta pokazuje więc Kadrom dwa widoki:
   a urlop już nie trwa albo zgodę wyłączono),
 * ``check_mailboxes`` — „Sprawdź skrzynki”: odczyt reguł na żywo ze skrzynek
   w zakresie (lista próbna), bez zapisu. Pokazuje też reguły NEXUSA albo
-  Compassa, o których baza nie wie (sierota bez wniosku), i urlopy, które
-  powinny przekierowywać, a reguły nie mają. Przy trybie innym niż ``live``
+  Compassa, o których baza nie wie (sierota bez wniosku), urlopy, które
+  powinny przekierowywać, a reguły nie mają, i sygnał, że reguły w skrzynce
+  osoby mogą zabierać jej pocztę (``forward_rules.mailbox_state``). Przy trybie innym niż ``live``
   odczytu nie ma — wynik mówi to zdaniem, zamiast udawać „czysto”.
 
 ``close_rule`` zamyka regułę przez kolejkę (``forward_rule_close``) — także
@@ -279,7 +280,7 @@ async def check_mailboxes(
     items: list[dict[str, Any]] = []
     unreadable: list[dict[str, Any]] = []
     scanned = 0
-    read_users: set[int] = set()
+    states: dict[int, dict[str, Any]] = {}
     try:
         for user in await mailbox_users(db, set(), user_ids):
             upn = mailbox_address(user)
@@ -293,7 +294,7 @@ async def check_mailboxes(
                 )
                 continue
             scanned += 1
-            read_users.add(user.id)
+            states[user.id] = forward_rules.mailbox_state(found)
             for rule in found:
                 leave_id = forward_rules.parse_leave_id(rule.get("displayName"))
                 if not leave_id or not rule.get("id"):
@@ -328,6 +329,7 @@ async def check_mailboxes(
                         else None,
                         "health": health,
                         "reason": None if health == "ok" else _reason(leave, today),
+                        **states[user.id],
                     }
                 )
     finally:
@@ -347,7 +349,7 @@ async def check_mailboxes(
     for item in items:
         item["substitute_name"] = names.get(item.pop("substitute_user_id") or 0)
     for leave_id, leave in leaves.items():
-        if leave_id in seen or leave.user_id not in read_users:
+        if leave_id in seen or leave.user_id not in states:
             continue
         if not forward_should_be_active(leave, today):
             continue
@@ -366,10 +368,17 @@ async def check_mailboxes(
                 "health": "missing",
                 "reason": "Nieobecność trwa i ma zgodę, ale w skrzynce nie ma reguły — "
                 "poczta nie trafia do zastępcy.",
+                **states[leave.user_id],
             }
         )
     order = {"orphan": 0, "unknown": 0, "missing": 1, "ok": 2, "waiting": 3}
-    items.sort(key=lambda item: (order[item["health"]], item["user_name"] or ""))
+    items.sort(
+        key=lambda item: (
+            item["mailbox_keeps_mail"],
+            order[item["health"]],
+            item["user_name"] or "",
+        )
+    )
     return {
         "available": True,
         "mode": mode,
