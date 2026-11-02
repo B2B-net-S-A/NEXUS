@@ -147,7 +147,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
     # zadanie (daj im znać), nie do wyciszenia jak przydział.
     _T.job_closed_people_waiting: _C.mentions,
-    # 0631: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
+    # 0632: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
     # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
     _T.cpro_candidate_rejected: _C.mentions,
     _T.cpro_interview_change: _C.mentions,

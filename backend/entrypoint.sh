@@ -797,7 +797,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
     # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
-    # 0631: zdarzenia z maili CPro (services/cpro_mail.py).
+    # 0632: zdarzenia z maili CPro (services/cpro_mail.py).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_candidate_rejected'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_interview_change'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_close_needs_decision'",
@@ -1264,7 +1264,7 @@ except Exception as _sales_schema_err:  # noqa: BLE001
     _SALES_TABLE_DDL = []
     _SALES_DATA_DDL = []
 
-# Dziennik zdarzeń z maili CPro (0631) — JEDNO źródło z migracją
+# Dziennik zdarzeń z maili CPro (0632) — JEDNO źródło z migracją
 # (`app/services/cpro_mail_schema.py`).
 try:
     from app.services import cpro_mail_schema as _cpro_mail_schema

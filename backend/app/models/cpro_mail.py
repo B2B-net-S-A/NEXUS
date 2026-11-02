@@ -1,4 +1,4 @@
-"""Dziennik zdarzeń z maili CPro (0631, ``services/cpro_mail.py``)."""
+"""Dziennik zdarzeń z maili CPro (0632, ``services/cpro_mail.py``)."""
 
 from __future__ import annotations
 
