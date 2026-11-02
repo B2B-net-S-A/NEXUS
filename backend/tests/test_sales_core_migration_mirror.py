@@ -23,6 +23,7 @@ from app.models.sales import (
     SalesOpportunityEvent,
     SalesPipeline,
     SalesPipelineStage,
+    SalesMeetingTranscript,
     SalesTarget,
 )
 from app.services import sales_schema as schema
@@ -42,6 +43,7 @@ MODELS = {
     "sales_company_contacts": SalesCompanyContact,
     "sales_opportunity_events": SalesOpportunityEvent,
     "sales_targets": SalesTarget,
+    "sales_meeting_transcripts": SalesMeetingTranscript,
 }
 
 
@@ -63,6 +65,7 @@ def _ddl_for(table: str) -> str:
         *schema.GAPS_DDL,
         *schema.HISTORY_DDL,
         *schema.TARGETS_DDL,
+        *schema.TRANSCRIPTS_DDL,
     ):
         if f"CREATE TABLE IF NOT EXISTS {table} (" in ddl:
             return ddl
@@ -92,6 +95,11 @@ def test_migration_reads_the_shared_module() -> None:
     assert "*_sales_schema.GAPS_DDL," in entry
     assert "*_sales_schema.HISTORY_DDL," in entry
     assert "*_sales_schema.TARGETS_DDL," in entry
+    transcripts = (
+        ROOT / "alembic/versions/0628_sales_meeting_transcripts.py"
+    ).read_text(encoding="utf-8")
+    assert "for stmt in schema.TRANSCRIPTS_DDL:" in transcripts
+    assert "*_sales_schema.TRANSCRIPTS_DDL," in entry
 
 
 def test_entrypoint_splices_tables_before_data() -> None:
@@ -111,6 +119,7 @@ def test_models_match_migration_columns_and_constraints() -> None:
         "sales_company_contacts",
         "sales_opportunity_events",
         "sales_targets",
+        "sales_meeting_transcripts",
     }
     for table, model in MODELS.items():
         ddl = _ddl_for(table)
@@ -129,7 +138,12 @@ def test_models_match_migration_columns_and_constraints() -> None:
         assert in_ddl <= named, (table, in_ddl - named)
     gap_indexes = tuple(
         s
-        for s in (*schema.GAPS_DDL, *schema.HISTORY_DDL, *schema.TARGETS_DDL)
+        for s in (
+            *schema.GAPS_DDL,
+            *schema.HISTORY_DDL,
+            *schema.TARGETS_DDL,
+            *schema.TRANSCRIPTS_DDL,
+        )
         if s.startswith(("CREATE INDEX", "CREATE UNIQUE INDEX"))
     )
     for statement in (*schema.INDEX_DDL, *schema.LEAD_INDEX_DDL, *gap_indexes):
@@ -160,6 +174,7 @@ def test_tables_are_probed_by_deep_health_and_registered() -> None:
         "sales_opportunities",
         "sales_activities",
         "sales_targets",
+        "sales_meeting_transcripts",
     ):
         assert re.search(rf'\("{table}",\s*\w+\)', block), table
     models_init = (ROOT / "app/models/__init__.py").read_text(encoding="utf-8")
