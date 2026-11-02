@@ -40,7 +40,9 @@ logger = logging.getLogger(__name__)
 
 SUBDIR = "consultant_portal"
 MONTHS_BACK = 24
-OVERVIEW_MONTHS = 6
+#: Starsze miesiące pokazujemy tylko wtedy, gdy mają dokument: rozliczenia sprzed portalu
+#: szły mailem i nie mogą wyglądać jak zaległości.
+OVERVIEW_MONTHS = 3
 MAX_FILE_BYTES = documents_store.MAX_FILE_BYTES
 NOT_FOUND = "Nie ma takiego dokumentu."
 BAD_PERIOD = "Wybierz miesiąc z ostatnich dwóch lat, najpóźniej bieżący."
@@ -284,8 +286,12 @@ async def overview(
             .order_by(CpDocument.period_year.desc(), CpDocument.period_month.desc())
         )
     ).all()
+    contract = await db.get(Contract, context.consultant.contract_id)
+    start = contract.start_date if contract else None
     by_month: dict[tuple[int, int], list[CpDocument]] = {
-        key: [] for key in _months_back(today, OVERVIEW_MONTHS)
+        key: []
+        for key in _months_back(today, OVERVIEW_MONTHS)
+        if start is None or key >= (start.year, start.month)
     }
     for row in rows:
         by_month.setdefault((row.period_year, row.period_month), []).append(row)

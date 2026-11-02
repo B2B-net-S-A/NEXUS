@@ -37,7 +37,7 @@ class LogSmsSender:
     available = True
 
     async def send(self, *, to: str, text: str) -> bool:
-        logger.info("consultant_portal_sms to=***%s text=%s", to[-3:], text)
+        logger.warning("consultant_portal_sms to=***%s text=%s", to[-3:], text)
         return True
 
 

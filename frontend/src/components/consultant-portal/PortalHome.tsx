@@ -43,7 +43,7 @@ function FaqSection({ me }: { me: PortalMe }) {
         <Search aria-hidden className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           aria-label="Szukaj w pytaniach"
-          placeholder="W czym możemy pomóc? Np. „faktura po aneksie”"
+          placeholder="W czym możemy pomóc?"
           className="pl-9"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
