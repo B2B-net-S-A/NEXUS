@@ -56,3 +56,13 @@ Poprzednie wartości trafiają do wpisu `termination_data_cleared` w historii.
   datę razem z `end_date` jak wypowiedzenie.
 - Test: `tests/test_contract_termination_form_sync.py`,
   `tests/test_contract_reopen_single_source.py`.
+
+## Czyszczenie 7 aktywnych kontraktów (decyzja Artura 02.11.2026)
+
+Kontrakty z cofniętym zakończeniem niosły datę i powód, a współpraca trwa.
+`contract_stale_termination_repair.py` (blok `repair-stale-termination`
+w entrypoincie) czyści je jednorazowo po trójkach ID i starych wartościach, a
+przy dwóch umowach także datę końca 31.12.2026 z dawnego wskrzeszenia. Inny
+stan = pominięcie z kodem powodu. Stare wartości są w historii
+(`termination_data_cleared`), paragon pod markerem
+`stale_termination_cleanup_2026_11_02`. Aneksy `early_termination` zostają.
