@@ -1027,6 +1027,11 @@ class Settings(BaseSettings):
     # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
     # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
     JOB_IDLE_ENABLED: bool = True
+    # Maile CPro od Nordei (02.11.2026, `services/cpro_mail.py`): zamknięcia,
+    # odrzucenia i dzwonki. Kill-switch całości bez redeploya; pojedyncze reguły
+    # wyłącza się w Ustawieniach → CPro. Maile starsze niż data nie są czytane.
+    CPRO_MAIL_ENABLED: bool = True
+    CPRO_MAIL_SINCE: str = "2026-10-12"
 
     # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
     # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin

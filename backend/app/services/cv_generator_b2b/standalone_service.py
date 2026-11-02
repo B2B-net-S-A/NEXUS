@@ -49,6 +49,7 @@ from app.services import note_kinds
 from app.services import recommendation_cards
 from app.services.money_text import strip_rates_and_availability
 from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
@@ -1808,6 +1809,7 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    restore_experience_dates(candidate_data, cv_text)
     # Stanowiska od najnowszego ustawia kod, nie model — jak w legacy_v7 (16.10.2026).
     if sort_experience(candidate_data):
         logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
@@ -2621,6 +2623,8 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
+    from app.services.cv_source import current_cv_ordering
+
     rows = (
         await db.scalars(
             select(CandidateDocument)
@@ -2628,11 +2632,7 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     return [

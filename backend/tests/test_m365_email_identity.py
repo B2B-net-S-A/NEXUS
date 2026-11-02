@@ -20,6 +20,7 @@ from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.app_setting import AppSetting
 from app.models.candidate import Candidate, CandidateStatus
+from app.models.cpro_mail import CproMailEvent
 from app.models.m365 import Email, EmailAttachment, EmailDirection
 from app.models.user import User, UserRole
 from app.services import m365_email_dedupe_repair as repair
@@ -147,6 +148,16 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
                 size_bytes=10,
             )
         )
+        db.add(
+            CproMailEvent(
+                message_key=imid,
+                email_id=synced.id,
+                kind="closed",
+                received_at=datetime.now(timezone.utc),
+                outcome="manual",
+                outcome_text="test",
+            )
+        )
         await db.commit()
         sent_id, synced_id, solo_id = sent.id, synced.id, solo.id
 
@@ -172,6 +183,10 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
                     select(EmailAttachment).where(EmailAttachment.email_id == sent_id)
                 )
             ).all()
+            cpro_email_id = await db.scalar(
+                select(CproMailEvent.email_id).where(CproMailEvent.message_key == imid)
+            )
+        assert cpro_email_id == sent_id
         assert set(rows) == {sent_id, solo_id}
         assert synced_id not in rows
         kept = rows[sent_id]
@@ -185,6 +200,9 @@ async def test_dedupe_repair_keeps_send_row_and_moves_children(owner):
     finally:
         async with AsyncSessionLocal() as db:
             await db.execute(delete(AppSetting).where(AppSetting.key == marker))
+            await db.execute(
+                delete(CproMailEvent).where(CproMailEvent.message_key == imid)
+            )
             await db.commit()
 
 

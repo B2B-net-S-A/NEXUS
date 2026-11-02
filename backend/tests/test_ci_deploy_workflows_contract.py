@@ -1036,7 +1036,7 @@ def test_rechain_parks_the_lane_before_pushing() -> None:
     steps = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
     copy = _step(steps, "Skrypty z maina do katalogu tymczasowego")
     assert ".github/scripts/queue_migration_lane.py" in copy["run"]
-    lane = _step(steps, "Pas migracji (jeden PR z migracją w kolejce)")
+    lane = _step(steps, "Pas migracji przed przepięciem")
     assert lane["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
     assert '"$RUNNER_TEMP/queue_migration_lane.py"' in lane["run"]
     assert steps.index(lane) < steps.index(_step(steps, "Przepnij")), (
@@ -1049,6 +1049,53 @@ def test_rechain_parks_the_lane_before_pushing() -> None:
     assert after["env"]["GH_TOKEN"] == "${{ secrets.QUEUE_BOT_TOKEN }}"
     assert '"$RUNNER_TEMP/queue_migration_lane.py"' in after["run"]
     assert "!cancelled()" in after["if"], "Błąd przepięcia jednego PR-a nie wstrzymuje pasa."
+
+
+def test_lane_asks_for_rechain_with_the_actions_token() -> None:
+    """PR wypadł z kolejki, a main się nie zmienił: bez tego nic nie przepnie
+    PR-a, który stał na jego migracji. `QUEUE_BOT_TOKEN` nie ma „Actions”."""
+    job = _load("queue-migration-lane.yml")["jobs"]["lane"]
+    assert job["permissions"]["actions"] == "write"
+    lane = _step(job["steps"], "Pilnuj pasa migracji")
+    step = _step(job["steps"], "Przepnij po wypadnięciu z pasa")
+    assert job["steps"].index(lane) < job["steps"].index(step)
+    assert lane["id"] == "lane"
+    assert step["if"] == "steps.lane.outputs.rechain == 'true'"
+    assert step["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "migration-rechain.yml" in step["run"] and "dry_run=false" in step["run"], (
+        "Ręczny bieg ma domyślnie dry_run=true, czyli nie przepiąłby niczego."
+    )
+    # Bieg przepięcia sam nie woła kolejnego: `enforce` po nim nie czyta `rechain`.
+    rechain = _load("migration-rechain.yml")["jobs"]["rechain"]["steps"]
+    assert not any("gh workflow run" in s.get("run", "") for s in rechain)
+
+
+def test_missing_parent_stub_runs_only_on_pull_requests() -> None:
+    """Drugi PR w pasie ma rodzica w PR-ze przed nim. W kolejce zaślepki być nie
+    może: gdy pierwszy wypadnie, czerwona „Jedna głowa” trzyma sierotę poza mainem."""
+    name = "Zaślepka rodzica z PR-a przed tym w pasie"
+    gate = _load("ci-gate.yml")["jobs"]["backend-fast"]["steps"]
+    stub = _step(gate, name)
+    assert stub["if"] == "${{ github.event_name == 'pull_request' }}"
+    assert "--stub-missing-parent" in stub["run"]
+    assert gate.index(stub) < gate.index(_step(gate, "Jedna głowa Alembica"))
+
+    job = _load("ci.yml")["jobs"]["backend-pr-tests"]
+    assert job["if"] == "${{ github.event_name == 'pull_request' }}"
+    sieve = job["steps"]
+    stub = _step(sieve, name)
+    assert "--stub-missing-parent" in stub["run"]
+    assert sieve.index(stub) < sieve.index(_step(sieve, "Apply migrations"))
+
+    for wf in ("ci-gate.yml", "ci.yml"):
+        for job_name, job in _load(wf)["jobs"].items():
+            for step in job.get("steps", []):
+                if "--stub-missing-parent" not in step.get("run", ""):
+                    continue
+                on_pr_only = "pull_request" in step.get("if", "") or (
+                    "== 'pull_request'" in job.get("if", "")
+                )
+                assert on_pr_only, (wf, job_name, step.get("name"))
 
 
 def test_two_heads_in_the_queue_cancel_the_groups_full_ci() -> None:

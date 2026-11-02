@@ -56,8 +56,8 @@ async def test_quarantined_document_is_never_the_current_cv():
 async def test_outdated_files_are_not_a_successor():
     sql = await _current_cv_sql()
     assert "candidate_documents.outdated_at IS NULL" in sql
-    # Bez heurystyki po nazwie: plik „…B2B…” bywa jedynym CV osoby.
-    assert "b2b" not in sql.lower()
+    # Nazwa „…B2B…” tylko w kolejności, nigdy w filtrze: plik bywa jedynym CV osoby.
+    assert "b2b" not in sql.lower().split("order by")[0]
 
 
 async def test_generator_default_source_follows_the_same_rule():

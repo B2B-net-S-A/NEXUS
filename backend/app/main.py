@@ -279,6 +279,7 @@ from app.api import dl_review as dl_review_api
 from app.api import job_similar as job_similar_api
 from app.api import job_twins as job_twins_api
 from app.api import job_champions as job_champions_api
+from app.api import cpro_mail as cpro_mail_api
 from app.api import job_idle as job_idle_api
 from app.api import job_p0 as job_p0_api
 from app.api import plain_brief as plain_brief_api
@@ -828,6 +829,7 @@ async def lifespan(app: FastAPI):
         insights_seniority_journal_loop,
     )
     from app.tasks.job_deadline_alerts import job_deadline_alerts_loop
+    from app.tasks.cpro_mail import cpro_mail_loop
     from app.tasks.job_idle import job_idle_loop
     from app.tasks.kpi_email_reports import kpi_email_reports_loop
     from app.tasks.daily_digest_email import daily_digest_email_loop
@@ -982,6 +984,8 @@ async def lifespan(app: FastAPI):
         "job_deadline_alerts": asyncio.create_task(job_deadline_alerts_loop()),
         # 28.10.2026: rekrutacje bez ruchu — przypomnienia DL/HoR, zamknięcie po 28 dniach.
         "job_idle": asyncio.create_task(job_idle_loop()),
+        # 02.11.2026: maile CPro od Nordei — zamknięcia, odrzucenia, dzwonki.
+        "cpro_mail": asyncio.create_task(cpro_mail_loop()),
         # Raporty KPI mailem (plan PR3): poniedziałek 8:00 i 1. dzień roboczy.
         # Rodzaje domyślnie OFF w Ustawieniach → Powiadomienia; znacznik w bazie.
         "kpi_email_reports": asyncio.create_task(kpi_email_reports_loop()),
@@ -2185,6 +2189,7 @@ app.include_router(job_twins_api.router, prefix="/api", tags=["job-twins"])
 app.include_router(job_champions_api.router, prefix="/api", tags=["job-champions"])
 app.include_router(job_p0_api.router, prefix="/api", tags=["job-p0"])
 app.include_router(job_idle_api.router, prefix="/api", tags=["job-idle"])
+app.include_router(cpro_mail_api.router, prefix="/api", tags=["cpro-mail"])
 app.include_router(plain_brief_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(plain_brief_refresh_api.router, prefix="/api", tags=["plain-brief"])
 app.include_router(role_profiles_api.router, prefix="/api", tags=["role-profiles"])

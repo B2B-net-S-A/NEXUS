@@ -697,9 +697,10 @@ async def _upload_client_cv(
       nieprzejrzane auto-CV podmieniamy bez pytania (D2).
 
     W profilu plik zostaje jako „CV dla klientów” (niegłówny, bez odczytu AI)
-    tylko wtedy, gdy osoba ma główne CV. Bez niego najnowszy plik CV staje
-    się „bieżącym CV” (`cv_source.current_cv_ordering`) — źródłem generatora
-    i kopii oryginału — tak jak plik z dysku w karcie (12.10.2026).
+    tylko wtedy, gdy osoba ma główne CV. Bez niego plik może zostać „bieżącym
+    CV” (`cv_source.current_cv_ordering`) — źródłem generatora i kopii
+    oryginału — tak jak plik z dysku w karcie (12.10.2026); od 02.11.2026 tylko
+    gdy osoba nie ma innego pliku rodzaju „cv”.
     """
     import os
 

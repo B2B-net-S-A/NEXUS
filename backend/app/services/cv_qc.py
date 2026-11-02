@@ -52,8 +52,8 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_role_order
-from app.services.cv_rewrite_merge import roles_newest_first
+from app.services import cv_role_order, cv_source_dates
+from app.services.cv_rewrite_merge import restore_role_dates_html, roles_newest_first
 from app.services import dz_review as dz
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
@@ -138,6 +138,7 @@ WARNING_KEYS = (
     "title_matches_role",
     "bold_unsupported",
     "role_order",
+    "role_dates",
     "consent_matches",
 )
 
@@ -156,6 +157,7 @@ LABELS = {
     "title_matches_role": "Tytuł CV zgodny ze stanowiskiem",
     "bold_unsupported": "Pogrubienia mają pokrycie w oryginale",
     "role_order": "Stanowiska od najnowszego",
+    "role_dates": "Daty stanowisk jak w oryginale",
     "consent_matches": "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
 }
 
@@ -1435,6 +1437,34 @@ def _role_order_check(blocks: list[Block], roles: list[CvRole]) -> dict:
     return _check("role_order", "fail", "Do ułożenia", [item])
 
 
+def _role_dates_check(blocks: list[Block], roles: list[CvRole], original: str) -> dict:
+    """„Daty stanowisk jak w oryginale”: reguła `cv_source_dates` (02.11.2026)."""
+    if not original.strip():
+        return _check("role_dates", "skip", "Brak tekstu oryginalnego CV")
+    if not roles or any(
+        not r.blocks or blocks[r.blocks[0]].section != "role" for r in roles
+    ):
+        return _check("role_dates", "skip", "Nie rozpoznano stanowisk w CV")
+    items: list[dict] = []
+    for index, role in enumerate(roles):
+        head = blocks[role.blocks[0]]
+        employer = blocks[role.blocks[1]].text if len(role.blocks) > 1 else ""
+        fix = cv_source_dates.date_fix(
+            head.text, original, f"{head.text} {employer} {role.role.company or ''}"
+        )
+        if fix is not None:
+            items.append(
+                _item(
+                    role=role.role.label,
+                    detail=f"W CV: „{fix.current}”. W oryginale: „{fix.expected}”.",
+                    fix="restore_dates",
+                    role_index=index,
+                )
+            )
+    summary = f"{len(items)} do sprawdzenia" if items else "OK"
+    return _check("role_dates", _status(items), summary, items)
+
+
 def compute_checks(data: QcInput) -> list[dict]:
     """Wszystkie sprawdzenia QC w kolejności kontraktu. Czysta funkcja."""
 
@@ -1898,6 +1928,7 @@ def compute_checks(data: QcInput) -> list[dict]:
     # stanowisk (CV wklejone) role są zgadywane po nazwach firm — tam nie
     # zgłaszamy nic (D5), a rola bez dat zostaje na miejscu (D4).
     checks.append(_role_order_check(blocks, roles))
+    checks.append(_role_dates_check(blocks, roles, original))
 
     # 8. Reguły klienta.
     rule_items: list[dict] = []
@@ -5450,6 +5481,7 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # do „Popraw wszystkie”. Usunięcia treści (termin, stawka i kontakt, linia
 # z kontroli AI) i kolejność stanowisk rekruter zatwierdza pojedynczo.
 BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix", "years", "title"})
+ROLE_DATES_NOTHING = "Daty stanowisk zgadzają się z oryginałem."
 ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
 ROLE_ORDER_UNKNOWN = (
     "Nie umiem bezpiecznie przestawić stanowisk w tym CV — przestaw je ręcznie: "
@@ -5460,6 +5492,7 @@ ROLE_ORDER_UNKNOWN = (
 _ACTIONS = BULK_ACTIONS | {
     "remove_term",
     "role_order",
+    "restore_dates",
     "strip_client_rules",
     "remove_line",
 }
@@ -5484,6 +5517,7 @@ def transform_html(
     today: Optional[date] = None,
     history: Any = None,
     candidate_name: Optional[str] = None,
+    original_text: str = "",
 ) -> tuple[str, list[dict], list[dict]]:
     """Nałóż poprawki QC na podaną treść — bez bazy i bez zapisu.
 
@@ -5517,7 +5551,7 @@ def transform_html(
             action,
             *(
                 str(payload.get(name) or "")
-                for name in ("fix_id", "text", "scope", "term")
+                for name in ("fix_id", "text", "scope", "term", "role_index")
             ),
         )
         if key in seen:
@@ -5573,6 +5607,13 @@ def transform_html(
                 ordered = roles_newest_first(current)
                 changed, count = ordered or (current, 0)
                 nothing = ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN
+                done = {"action": action}
+            elif action == "restore_dates":
+                restored = restore_role_dates_html(
+                    current, original_text, payload.get("role_index")
+                )
+                changed, count = restored or (current, 0)
+                nothing = ROLE_DATES_NOTHING if restored else ROLE_ORDER_UNKNOWN
                 done = {"action": action}
             elif action == "years":
                 # Ta sama historia co uwaga QC (`candidate.experience`), nie
@@ -5683,6 +5724,7 @@ async def transform_for_editor(
             candidate_name=" ".join(
                 p for p in (src.candidate.name, src.candidate.lastname) if p
             ),
+            original_text=src.original.get("text") or "",
         )
 
     # Sam procesor (do 500 KB treści od klienta razy kilka poprawek) — w wątku,
@@ -5847,7 +5889,13 @@ async def apply_action(
         fix = await load_fix(db, stage.id, str(payload.get("fix_id") or ""))
         if fix is None:
             raise ApplyError("Nie ma takiej propozycji — odśwież propozycje poprawek.")
-    elif action not in ("bold_all", "remove_term", "spelling", "role_order"):
+    elif action not in (
+        "bold_all",
+        "remove_term",
+        "spelling",
+        "role_order",
+        "restore_dates",
+    ):
         raise ApplyError("Nieznana poprawka.")
 
     csv = await _editable_csv(
@@ -5903,6 +5951,14 @@ async def apply_action(
         new_html, count = ordered or (html, 0)
         if not count:
             raise ApplyError(ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN)
+        details.update({"count": count})
+    elif action == "restore_dates":
+        restored = restore_role_dates_html(
+            html, src.original.get("text") or "", payload.get("role_index")
+        )
+        new_html, count = restored or (html, 0)
+        if not count:
+            raise ApplyError(ROLE_DATES_NOTHING if restored else ROLE_ORDER_UNKNOWN)
         details.update({"count": count})
     else:
         new_html, count = fix_spelling_html(html)

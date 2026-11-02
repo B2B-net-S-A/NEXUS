@@ -778,7 +778,21 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
   let sub: ReactNode = item.detail && name ? item.detail : check.label;
   let action: ReactNode = null;
   let extra: ReactNode = null;
-  if (item.fix === "role_order") {
+  if (item.fix === "restore_dates") {
+    title = "Daty stanowiska inne niż w oryginale";
+    sub = item.detail;
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        onClick={() => qc.apply({ action: "restore_dates", role_index: item.role_index ?? undefined }, "Przywrócono daty z oryginału.")}
+      >
+        Przywróć daty z oryginału
+      </Button>
+    );
+  } else if (item.fix === "role_order") {
     title = "Stanowiska nie od najnowszego";
     sub = item.detail;
     action = (

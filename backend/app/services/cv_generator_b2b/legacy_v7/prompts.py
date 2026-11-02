@@ -70,7 +70,7 @@ EXTRACTION_PROMPT_PL = """Jesteś ekspertem w analizie CV. Przeanalizuj dostarcz
 
 KRYTYCZNE ZASADY:
 1. Zwróć TYLKO poprawny JSON, bez żadnego dodatkowego tekstu
-2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Dla trwającego stanowiska użyj słowa "obecnie" (NIE "currently", "present" ani "now")
+2. Format dat: MM.YYYY dla zakresów (np. 03.2020 – 11.2023), YYYY dla pojedynczych lat. Słowa "obecnie" (NIE "currently", "present" ani "now") użyj tylko wtedy, gdy źródło podaje stanowisko jako trwające. Datę końca ze źródła przepisz bez zmian, także niedawną
 3. Sekcja "why_points" jest rzeczowa: każdy punkt to fakt ze źródła, bez języka sprzedażowego - NIE używaj edukacji jako argumentu w why_points!
 4. Wyodrębnij tyle kategorii umiejętności, ile realnie wynika ze źródła — NIE dziel jednej kategorii sztucznie na kilka ani nie dodawaj kategorii dla objętości. Jeśli źródło daje jedną sensowną kategorię, zwróć jedną
 5. Jeśli brak certyfikatów, zwróć pustą listę []. NIE wymyślaj certyfikatów ani szkoleń których kandydat nie posiada
@@ -432,7 +432,7 @@ EXTRACTION_PROMPT_EN = """You are an expert in CV analysis. Analyze the provided
 
 CRITICAL RULES:
 1. Return ONLY valid JSON, without any additional text
-2. Date format: MM.YYYY for ranges (e.g., 03.2020 – 11.2023), YYYY for single years
+2. Date format: MM.YYYY for ranges (e.g., 03.2020 – 11.2023), YYYY for single years. Use "currently" only when the source gives the role as ongoing. Copy an end date from the source unchanged, even a recent one
 3. The "why_points" section is factual: every point is a fact from the source, no sales language - NEVER use education as an argument in why_points!
 4. Extract as many skill categories as genuinely follow from the source — do NOT split one category artificially into several and do NOT add categories for volume. If the source yields one sensible category, return one
 5. If no certifications, return an empty list []. DO NOT fabricate certifications or training the candidate does not have
