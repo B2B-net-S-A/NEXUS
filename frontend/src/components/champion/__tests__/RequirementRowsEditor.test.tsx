@@ -38,6 +38,7 @@ import {
   OUTSIDE_DICTIONARY_NOTE,
   RequirementRowsEditor,
   type RequirementRowsEditorProps,
+  type RequirementSentGaps,
 } from "@/components/champion/RequirementRowsEditor";
 import { clearSearchMemory, pushRecentSearch } from "@/lib/search-memory";
 import { useAuthStore } from "@/store/auth";
@@ -691,6 +692,98 @@ describe("RequirementRowsEditor — audyt 06.10.2026", () => {
     );
     // Jedna podpowiedź na wiersz z problemem — „płatności” (120) jej nie ma.
     expect(screen.getAllByText(/Słowo bardzo ogólne|nikt w bazie/)).toHaveLength(2);
+  });
+
+  describe("wiersz bez nikogo z wysłanych (02.11.2026)", () => {
+    const gaps = (over: Partial<RequirementSentGaps> = {}): RequirementSentGaps => ({
+      sent: 8,
+      rows: [{ label: "płatności", words: ["płatności"] }],
+      wordsFor: () => null,
+      canAsk: true,
+      asking: false,
+      askError: null,
+      onAsk: vi.fn(),
+      ...over,
+    });
+
+    it("mówi, że to CV i notatki, i pozwala poprosić o słowa", () => {
+      const onAsk = vi.fn();
+      renderEditor({ sentGaps: gaps({ onAsk }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("„płatności” nie ma nikt z 8 wysłanych.");
+      expect(note).toHaveTextContent("Ani w CV, ani w notatkach.");
+      fireEvent.click(within(note).getByRole("button", { name: "Podpowiedz słowa" }));
+      expect(onAsk).toHaveBeenCalledTimes(1);
+    });
+
+    it("bez prawa decyzji nie ma przycisku słów, reszta zostaje", () => {
+      renderEditor({ sentGaps: gaps({ canAsk: false }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(within(note).queryByRole("button", { name: "Podpowiedz słowa" })).toBeNull();
+      expect(within(note).getByRole("button", { name: "Do rozmowy" })).toBeInTheDocument();
+    });
+
+    it("słowo dopisuje wariant do tego wiersza", () => {
+      const { onRowsChange } = renderEditor({
+        sentGaps: gaps({ wordsFor: () => [{ word: "payment", hits: 6 }] }),
+      });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("W ich CV stoi to innymi słowami:");
+      expect(note).toHaveTextContent("+ lub payment · 6 z 8");
+      fireEvent.click(within(note).getByRole("button", { name: /lub payment/ }));
+      const rows = onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[];
+      expect(rows.find((row) => row.key === "pay")?.words).toEqual(["płatności", "payment"]);
+    });
+
+    it("model nic nie znalazł: pyta o sens wymagania, bez przycisku słów", () => {
+      renderEditor({ sentGaps: gaps({ wordsFor: () => [] }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(note).toHaveTextContent("W ich CV nie ma wspólnego słowa.");
+      expect(within(note).queryByRole("button", { name: "Podpowiedz słowa" })).toBeNull();
+    });
+
+    it("awaria podpowiedzi nie zabiera ostrzeżenia", () => {
+      renderEditor({ sentGaps: gaps({ askError: "Nie udało się przeczytać CV." }) });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      expect(within(note).getByRole("alert")).toHaveTextContent("Nie udało się przeczytać CV.");
+      expect(within(note).getByRole("button", { name: "Do rozmowy" })).toBeInTheDocument();
+    });
+
+    it("„Do rozmowy” przenosi wiersz, „Zostaw” chowa ostrzeżenie", () => {
+      const onMoveToTalk = vi.fn();
+      const { onRowsChange } = renderEditor({ sentGaps: gaps(), onMoveToTalk });
+      const note = screen.getByTestId("requirement-row-sent-gap");
+      fireEvent.click(within(note).getByRole("button", { name: "Do rozmowy" }));
+      expect(onMoveToTalk).toHaveBeenCalledWith({
+        name: "płatności",
+        kind: "skills",
+        level: "must",
+      });
+      expect(
+        (onRowsChange.mock.calls.at(-1)![0] as RequirementRowForm[]).map((row) => row.key),
+      ).not.toContain("pay");
+      fireEvent.click(within(note).getByRole("button", { name: "Zostaw" }));
+      expect(screen.queryByTestId("requirement-row-sent-gap")).toBeNull();
+    });
+
+    it("zastępuje ostrzeżenie o rzadkim słowie, jedno na wiersz", () => {
+      mocks.counts = {
+        perRow: { java: 9_000, kafka: 900, pay: 3 },
+        required: 3,
+        critical: undefined,
+        failed: false,
+      };
+      renderEditor({ countEnabled: true, sentGaps: gaps() });
+      expect(screen.getByTestId("requirement-row-sent-gap")).toBeInTheDocument();
+      expect(screen.queryByTestId("requirement-row-rare")).toBeNull();
+    });
+
+    it("mile widziane nie ostrzega", () => {
+      renderEditor({
+        sentGaps: gaps({ rows: [{ label: "kubernetes", words: ["Kubernetes"] }] }),
+      });
+      expect(screen.queryByTestId("requirement-row-sent-gap")).toBeNull();
+    });
   });
 
   it("rzadkie „musi mieć”: do rozmowy, zostaw, a przy zerze razem — które zawężają", () => {

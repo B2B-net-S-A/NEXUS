@@ -42,6 +42,12 @@ export interface RequirementProposalRareRow {
   parts: string[] | null;
 }
 
+/** Wiersz, którego nie ma nikt z wysłanych (02.11.2026, `no_sent_match`): idzie do rozmowy. */
+export interface RequirementProposalSentGapRow {
+  words: string[];
+  sent: number;
+}
+
 export interface RequirementProposal {
   job_id: number;
   reasons: RequirementProposalReason[];
@@ -55,6 +61,7 @@ export interface RequirementProposal {
     /** Słowa ponad limit wierszy — trafią do opisu wymagań (jak przy zapisie). */
     overflow?: string[];
     rare?: RequirementProposalRareRow[];
+    sent_gap?: RequirementProposalSentGapRow[];
   };
   profile_hash: string;
   /** Wymagania sprawdził wcześniej człowiek — zatwierdzenie je zastąpi. */

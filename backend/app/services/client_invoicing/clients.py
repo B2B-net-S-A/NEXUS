@@ -1,8 +1,8 @@
 """NIP nabywcy → klient NEXUSA (``clients.nip``) i rodzina klienta po scaleniu.
 
 Klucz to polski NIP (10 cyfr) albo identyfikator obcy z prefiksem kraju
-(„FI12345678”): klient z UE ma go w tym samym polu, a faktura niesie go jako
-``KodUE`` + ``NrVatUE``.
+(„FI12345678”, „FR1A123456789”): klient z UE ma go w tym samym polu, a faktura
+niesie go jako ``KodUE`` + ``NrVatUE``.
 
 Numer prowadzi do klienta KANONICZNEGO: scalenie duplikatu nie przepisuje
 danych, więc NIP bywa na scalonym wierszu (``merged_into_client_id``). Ten sam
@@ -26,13 +26,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
 from app.services.client_identity import client_display_name
-from app.services.order_client_identity import normalize_registry_id
+from app.services.order_client_identity import normalize_buyer_number
 
 #: Bezpiecznik łańcucha scaleń (API nie pozwala scalić do scalonego).
 _MERGE_CHAIN_LIMIT = 5
-# Co najmniej 5 cyfr: VAT z literą w środku („FR1A…”, „IE9S…”) normalizacja ucina
-# do jednej cyfry, a taki klucz mają różne firmy.
-_REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}\d{5,}")
+# Co najmniej 5 cyfr: faktury zapisane przed pełnym numerem mają VAT z literą ucięty
+# do jednej cyfry („FR1”, „IE9”), a taki klucz mają różne firmy.
+_REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}(?=(?:[A-Z+*]*\d){5})[A-Z0-9+*]+")
 
 BuyerNumberState = Literal["add", "same", "differs", "taken", "none"]
 
@@ -78,7 +78,7 @@ async def nip_registry(db: AsyncSession) -> NipRegistry:
 
     targets: dict[str, set[int]] = {}
     for client_id, raw_nip, _merged, _deleted in rows:
-        nip = normalize_registry_id(raw_nip or "")
+        nip = normalize_buyer_number(raw_nip or "")
         if not _REGISTRY_KEY.fullmatch(nip):
             continue
         target = canonical(int(client_id))
@@ -145,7 +145,7 @@ async def check_buyer_number(
 ) -> BuyerNumber:
     """Stan numeru względem klienta kanonicznego i jego scalonych duplikatów."""
 
-    key = normalize_registry_id(number or "")
+    key = normalize_buyer_number(number or "")
     client = await _canonical(db, client_id) if client_id is not None else None
     if client is None or not _REGISTRY_KEY.fullmatch(key):
         return BuyerNumber("none", number=key or None)
@@ -155,7 +155,7 @@ async def check_buyer_number(
         for raw in await db.scalars(select(Client.nip).where(Client.id.in_(members)))
         if raw and raw.strip()
     ]
-    if any(normalize_registry_id(raw) == key for raw in existing):
+    if any(normalize_buyer_number(raw) == key for raw in existing):
         return BuyerNumber("same", number=key, client_id=client.id)
     if existing:
         return BuyerNumber(

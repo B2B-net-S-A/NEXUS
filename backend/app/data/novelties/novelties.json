@@ -1,5 +1,18 @@
 [
   {
+    "id": "wiersz-bez-nikogo-z-wyslanych",
+    "title": "Wymaganie, którego nie ma nikt z wysłanych",
+    "why": "Profil Championa pokazuje „musi mieć”, którego nie ma żadna z wysłanych osób. Możesz dopisać słowo z ich CV albo przenieść wymaganie do rozmowy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2925,
+    "audience": {"roles": ["delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → Profil Championa → Edytuj wymagania",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "champion.sent-gap.hints"
+  },
+  {
     "id": "wybieram-i-powrot-do-wynikow",
     "title": "„Wybieram” na profilu i powrót do wyników",
     "why": "Przeglądasz osoby z „Szukaj ręcznie” bez gubienia listy — wybrane wracają zaznaczone, a „Dodaj do Nowych” dodaje je jednym kliknięciem.",
@@ -698,6 +711,7 @@
     "dot_anchor": "my-people.from-links"
   },
   {
+<<<<<<< HEAD
     "id": "oryginal-cv-po-generatorze",
     "title": "Oryginał CV pobierzesz po próbie z generatorem",
     "why": "Z samą rolą rekrutera pliki oglądasz w NEXUSIE. Oryginał CV pobierzesz z karty „CV do klienta”, gdy generator zrobi złe CV, i napiszesz, co było źle. Paczki ZIP już nie ma.",
@@ -727,5 +741,24 @@
         "ack": true
       }
     ]
+=======
+    "id": "zmiana-nazwy-pliku-cv",
+    "title": "Nazwa pliku CV: zmienisz ją bez pobierania",
+    "why": "Nazwa pliku CV do klienta stoi teraz na karcie CV i w panelu osoby. Zmienisz ją tam od razu, bez pobierania pliku, a treść CV zostaje bez zmian.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "head_of_recruitment",
+        "delivery_lead",
+        "admin"
+      ]
+    },
+    "where": "Panel osoby → CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.file-name"
+>>>>>>> 6df3fbd9a7055a6d083808266fdbb9ab34501f11
   }
 ]

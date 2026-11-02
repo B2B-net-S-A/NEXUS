@@ -18,7 +18,8 @@ wysyłki z NEXUSA), a bez niego najstarszy. Wiersz zachowany:
 * przejmuje powiązanie z kandydatem, gdy sam go nie ma;
 * przejmuje załączniki duplikatów, których jeszcze nie ma (ta sama nazwa
   i rozmiar = ten sam plik; powtórki giną razem z duplikatem, CASCADE);
-* przejmuje odwołania z ``scheduled_rejection_emails.email_id``.
+* przejmuje odwołania z ``scheduled_rejection_emails.email_id``
+  i ``cpro_mail_events.email_id``.
 
 Katalog kluczy obcych do ``emails`` jest czytany z bazy: tabela spoza znanej
 listy zatrzymuje sprzątanie bez zapisu (marker nie powstaje, log mówi dlaczego).
@@ -44,6 +45,7 @@ REPAIR_MARKER = "0342_m365_email_dedupe"
 # Klucze obce do ``emails.id`` obsłużone przez sprzątanie (tabela, kolumna).
 KNOWN_EMAIL_FKS = frozenset(
     {
+        ("cpro_mail_events", "email_id"),
         ("email_attachments", "email_id"),
         ("scheduled_rejection_emails", "email_id"),
     }
@@ -115,6 +117,12 @@ async def _merge_group(db: AsyncSession, ids: list[int]) -> dict[str, Any]:
         text(
             "UPDATE scheduled_rejection_emails SET email_id = :keep "
             "WHERE email_id = ANY(:drop)"
+        ),
+        {"keep": keep_id, "drop": drop_ids},
+    )
+    await db.execute(
+        text(
+            "UPDATE cpro_mail_events SET email_id = :keep WHERE email_id = ANY(:drop)"
         ),
         {"keep": keep_id, "drop": drop_ids},
     )

@@ -200,6 +200,12 @@ jobs:
       # #2520 wypadł tak 6× jednego dnia). Ten krok (stdlib, przed instalacją
       # zależności) czerwieni wymagany kontekst po ~1 min. Push na maina
       # (bramka deployu) pomijamy — tam dwie głowy nie mają jak trafić.
+      # 02.11.2026: drugi PR w pasie migracji ma rodzica w PR-ze przed nim, więc
+      # na samym PR-ze go nie ma. Zaślepka tylko na `pull_request`: w kolejce
+      # brak rodzica ma czerwienić grupę, bo to on trzyma sierotę poza mainem.
+      - name: Zaślepka rodzica z PR-a przed tym w pasie
+        if: ${{ github.event_name == 'pull_request' }}
+        run: python3 scripts/rechain_migration.py --stub-missing-parent
       - name: Jedna głowa Alembica
         id: heads
         if: ${{ github.event_name != 'push' }}

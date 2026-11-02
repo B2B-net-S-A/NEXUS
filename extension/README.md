@@ -229,3 +229,7 @@ wszystkie widoczne umiejętności i „Informacje” bez „… more”.
 
 Wersja **1.0.5** (decyzja właściciela 02.11.2026): pasek „Pracuję nad”, czyli tryb
 pracy na requeście. Reguły: `docs/claude/integracje/wtyczka-linkedin.md`.
+
+Wersja **1.0.6**: pill procesu na karcie osoby pokazuje prawdziwy stan (zatrudniony,
+wycofany, odrzucony z powodem, zamknięta rekrutacja). Wcześniej każdy zamknięty proces
+miał napis „Odrzucona”.

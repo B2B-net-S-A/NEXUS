@@ -54,6 +54,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import mimetypes
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
@@ -127,6 +128,8 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User
 from app.schemas.candidate_stage_cv import (
+    CVFilenameResponse,
+    CVFilenameUpdate,
     CVBrandedConsentAttach,
     CVBrandedFinalize,
     CVBrandedReview,
@@ -178,6 +181,10 @@ from app.services.stage_cv_copy import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Nazwa pliku CV ustawiona ręcznie i nazwa ze wzoru klienta, w metadanych szkicu.
+CV_CUSTOM_FILENAME_KEY = "custom_filename"
+CV_PATTERN_FILENAME_KEY = "pattern_filename"
 router = APIRouter()
 
 
@@ -854,9 +861,10 @@ async def _upload_client_cv(
       nieprzejrzane auto-CV podmieniamy bez pytania (D2).
 
     W profilu plik zostaje jako „CV dla klientów” (niegłówny, bez odczytu AI)
-    tylko wtedy, gdy osoba ma główne CV. Bez niego najnowszy plik CV staje
-    się „bieżącym CV” (`cv_source.current_cv_ordering`) — źródłem generatora
-    i kopii oryginału — tak jak plik z dysku w karcie (12.10.2026).
+    tylko wtedy, gdy osoba ma główne CV. Bez niego plik może zostać „bieżącym
+    CV” (`cv_source.current_cv_ordering`) — źródłem generatora i kopii
+    oryginału — tak jak plik z dysku w karcie (12.10.2026); od 02.11.2026 tylko
+    gdy osoba nie ma innego pliku rodzaju „cv”.
     """
     import os
 
@@ -1180,6 +1188,8 @@ def _build_branded_response(
         docx_filename=csv.branded_docx_filename
         if csv.branded_status == "finalized"
         else None,
+        current_filename=csv.branded_docx_filename,
+        pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY),
         edit_revision=csv.edit_revision or 0,
         version=csv.branded_version or 1,
         status=csv.branded_status,  # type: ignore[arg-type]
@@ -1549,6 +1559,16 @@ async def _write_stage_draft(
     if csv.branded_status == "finalized":
         await freeze_approved_version(db, csv)
         csv.branded_version += 1
+    # Nazwa ustawiona ręcznie zostaje przy nowej wersji CV, a wzór klienta idzie
+    # dalej, żeby dało się do niego wrócić (02.11.2026).
+    custom_filename = (csv.branded_render_metadata or {}).get(CV_CUSTOM_FILENAME_KEY)
+    if custom_filename and filename:
+        metadata = {
+            **metadata,
+            CV_CUSTOM_FILENAME_KEY: custom_filename,
+            CV_PATTERN_FILENAME_KEY: filename,
+        }
+        filename = custom_filename
     csv.generated_document_id = generated_document_id
     csv.branded_from_generator = from_generator
     csv.branded_template_content = template
@@ -2421,6 +2441,79 @@ _render_editor_docx = render_stage_editor_docx
 DOCX_MEDIA_TYPE = (
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 )
+
+
+# Znaki, których nie ma w nazwie pliku na Windowsie, i znaki sterujące.
+_CV_FILENAME_FORBIDDEN = re.compile(r'[\x00-\x1f\x7f\\/:*?"<>|]')
+
+
+def clean_cv_filename(raw: str) -> Optional[str]:
+    """Nazwa pliku CV wpisana przez człowieka: ``nazwa.docx`` albo ``None``."""
+    stem = _CV_FILENAME_FORBIDDEN.sub("", raw)
+    stem = " ".join(stem.split())
+    stem = re.sub(r"\.docx$", "", stem, flags=re.IGNORECASE).strip(" .")
+    return f"{stem}.docx" if stem else None
+
+
+@router.patch(
+    "/candidates/stages/{stage_id}/cv/branded/filename",
+    response_model=CVFilenameResponse,
+)
+async def rename_branded_cv(
+    stage_id: int,
+    payload: CVFilenameUpdate,
+    current_user: CandidateWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> CVFilenameResponse:
+    """Zmień nazwę pliku CV do klienta bez pobierania go (02.11.2026).
+
+    Treść i numer zapisu edytora się nie zmieniają, więc otwarty edytor nie dostaje
+    konfliktu. Przy zatwierdzonym CV nazwa idzie też na bieżącą wersję, bo z niej
+    biorą pobranie i pakiet CV.
+    """
+    csv = await _load_csv_for_stage(db, stage_id, current_user, lock=True)
+    if csv.branded_status == "none" or not csv.branded_docx_filename:
+        raise HTTPException(409, NO_GENERATED_CV_MESSAGE)
+    filename = clean_cv_filename(payload.filename)
+    if filename is None:
+        raise HTTPException(422, "Podaj nazwę pliku.")
+    previous = csv.branded_docx_filename
+    metadata = dict(csv.branded_render_metadata or {})
+    pattern = metadata.get(CV_PATTERN_FILENAME_KEY) or previous
+    if filename == pattern:
+        metadata.pop(CV_CUSTOM_FILENAME_KEY, None)
+        metadata.pop(CV_PATTERN_FILENAME_KEY, None)
+    else:
+        metadata[CV_CUSTOM_FILENAME_KEY] = filename
+        metadata[CV_PATTERN_FILENAME_KEY] = pattern
+    csv.branded_docx_filename = filename
+    csv.branded_render_metadata = metadata
+    if csv.branded_status == "finalized":
+        version = await db.scalar(
+            select(CvDocumentVersion).where(
+                CvDocumentVersion.candidate_stage_cv_id == csv.id,
+                CvDocumentVersion.version == csv.branded_version,
+            )
+        )
+        if version is not None:
+            version.docx_filename = filename
+    db.add(
+        Activity(
+            entity_type="candidate_stage_cv",
+            entity_id=csv.id,
+            action="branded_cv_filename_changed",
+            user_id=current_user.id,
+            details={
+                "candidate_stage_id": csv.candidate_stage_id,
+                "from": previous,
+                "to": filename,
+            },
+        )
+    )
+    await db.commit()
+    return CVFilenameResponse(
+        filename=filename, pattern_filename=metadata.get(CV_PATTERN_FILENAME_KEY)
+    )
 
 
 def draft_docx_filename(csv: CandidateStageCV) -> str:

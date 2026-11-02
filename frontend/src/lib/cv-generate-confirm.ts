@@ -10,7 +10,7 @@
  * Tu tylko czyste reguły i zdania; panel `CvGeneratePanel` je rysuje.
  */
 
-import { isClientCvFilename } from "@/lib/candidate-files";
+import { isClientCvFilename, isClientCvWordFile } from "@/lib/candidate-files";
 import type { CvAiSourceFile, CvAiSources } from "@/lib/cv-ai-sources";
 
 export type CvConfirmStep = "file" | "answers" | "notes";
@@ -85,6 +85,8 @@ function shortDate(iso: string | null): string | null {
 /** Czym jest plik: „Oryginał CV w tej rekrutacji · główne CV profilu · 14.10.2026”. */
 export function cvFileDetail(file: CvAiSourceFile): string {
   const parts: string[] = [];
+  // 02.11.2026: 12 z 14 CV z firmowego pliku rekruter wybrał sam z tej listy.
+  if (isClientCvWordFile(file.filename)) parts.push("CV dla klienta, nie CV kandydata");
   if (file.stage_original) parts.push("Oryginał CV w tej rekrutacji");
   if (file.is_primary) parts.push("główne CV profilu");
   if (file.outdated) parts.push("nieaktualne");
@@ -112,7 +114,10 @@ export function sourceCvWarning(
   if (used.removed) return `CV powstało z pliku ${name}, którego nie ma już w profilu.${tail}`;
   if (used.outdated) return `CV powstało z pliku ${name}, oznaczonego jako nieaktualny.${tail}`;
   if (isClientCvFilename(used.filename)) return `CV powstało z ${name} — to „CV dla klienta”, nie CV kandydata.${tail}`;
-  if (original && !used.stage_original) return `CV powstało z ${name}, a nie z Oryginału CV tej rekrutacji.${tail}`;
+  // Kopia etapu z firmowego CV nie jest wzorem: CV kandydata to właściwe źródło.
+  if (original && !used.stage_original && !isClientCvWordFile(original.filename)) {
+    return `CV powstało z ${name}, a nie z Oryginału CV tej rekrutacji.${tail}`;
+  }
   return null;
 }
 

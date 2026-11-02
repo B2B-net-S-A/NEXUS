@@ -224,6 +224,7 @@ from app.models.interview_feedback import (
     InterviewFeedback,
     NextStepPreference,
 )
+from app.models.cpro_mail import CproMailEvent  # noqa: F401
 from app.models.m365 import (
     Email,
     EmailAttachment,

@@ -49,6 +49,7 @@ export type SettingsItemId =
   | "prep-review"
   | "kpi-targets"
   | "twin-rules"
+  | "cpro"
   | "novelties"
   | "cv-generator-quality"
   | "mail"
@@ -268,6 +269,18 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     keywords: "bliźniak bliźniaki twin podobne rekrutacje zasady krytyczne lokalizacja budżet tryb pracy",
     route: "/settings/twin-rules",
     // Odczyt DL, HoR, admin w sekcji Pipeline; zapis (HoR, admin) — serwer.
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
+      required: "read",
+    },
+  },
+  {
+    id: "cpro", area: "rec", title: "CPro (Nordea)", group: "Proces",
+    description: "Zmiany z maili CPro: dziennik, sprawy do ręcznego i wyłączniki automatu.",
+    keywords: "cpro cipro nordea onevms maile zamknięcie odrzucenie automat dziennik",
+    route: "/settings/cpro",
+    // Odczyt DL, HoR, admin w sekcji Pipeline; wyłączniki (HoR, admin) — serwer.
     gate: {
       roles: ["admin", "delivery_lead", "head_of_recruitment"],
       section: "pipeline",
