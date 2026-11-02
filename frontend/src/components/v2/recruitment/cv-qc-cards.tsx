@@ -86,6 +86,7 @@ import {
   taskTitle,
   type IssueTarget,
   type QcTask,
+  QC_CONFIRM_TEXT_MIN,
 } from "@/lib/cv-qc";
 import { consentTarget } from "@/lib/cv-editor-issues";
 import { cn, formatDate } from "@/lib/utils";
@@ -125,6 +126,8 @@ export interface ActionContext {
   /** „Potwierdzone z kandydatem” — działa także, gdy CV nie da się edytować. */
   confirm: (body: QcConfirmBody, onSaved?: () => void) => void;
   confirming: boolean;
+  /** Firmy z ról osoby do pola „W której roli?”. */
+  confirmRoles?: string[];
   /** Przewija do sekcji „Propozycje AI” (propozycje ładują się same). */
   requestAiFixes: () => void;
   copyQuestion: (item: QcItem) => void;
@@ -407,31 +410,61 @@ function InfoItems({ items }: { items: QcItem[] }) {
 
 const CONFIRM_TEXT_MAX = 1000;
 
-/** Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału. */
+/**
+ * Formularz „Potwierdzone z kandydatem” w karcie treści spoza oryginału.
+ *
+ * Słowa kandydata są obowiązkowe (decyzja Artura 02.11.2026): 101 ze 153 wpisów
+ * było samym kliknięciem, więc Delivery Lead nie miał czego sprawdzić. Rola jest
+ * opcjonalna; dopiero z nią generator opisze fakt przy tej firmie.
+ */
 function ConfirmForm({ term, ctx, onClose }: { term: string; ctx: ActionContext; onClose: () => void }) {
   const [text, setText] = useState("");
+  const [role, setRole] = useState("");
   const fieldId = useId();
+  const roleId = useId();
+  const said = text.trim();
+  const roles = ctx.confirmRoles ?? [];
   return (
     <form
       className="space-y-1.5"
       onSubmit={(event) => {
         event.preventDefault();
-        const said = text.trim();
-        ctx.confirm(said ? { term, text: said } : { term }, onClose);
+        ctx.confirm(role ? { term, text: said, role } : { term, text: said }, onClose);
       }}
     >
       <label htmlFor={fieldId} className="block text-xs font-medium">
-        Co powiedział kandydat? (opcjonalnie)
+        Co dokładnie powiedział kandydat? (wymagane)
       </label>
       <textarea
         id={fieldId}
         className="min-h-16 w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
         maxLength={CONFIRM_TEXT_MAX}
+        placeholder="Jego słowami: co robił, gdzie i jak długo. To zdanie zobaczy Delivery Lead."
         value={text}
         onChange={(event) => setText(event.target.value)}
       />
+      {roles.length > 0 ? (
+        <div>
+          <label htmlFor={roleId} className="block text-xs font-medium">
+            W której roli?
+          </label>
+          <select
+            id={roleId}
+            className="mt-1 h-8 w-full rounded-md border border-input bg-background px-2 text-xs"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+          >
+            <option value="">Nie w konkretnej roli (tylko umiejętności)</option>
+            {roles.map((company) => (
+              <option key={company} value={company}>
+                {company}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" size="sm" disabled={ctx.confirming}>
+        <Button type="submit" size="sm" disabled={ctx.confirming || said.length < QC_CONFIRM_TEXT_MIN}>
           {ctx.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
           Zapisz potwierdzenie
         </Button>

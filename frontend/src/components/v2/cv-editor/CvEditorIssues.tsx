@@ -85,6 +85,7 @@ import {
   type QcFixAction,
   type QcFixesResponse,
   type QcItem,
+  type QcConfirmBody,
   type QcResult,
   type QcTransformSkipped,
 } from "@/lib/api/cvQc";
@@ -550,7 +551,7 @@ export function CvEditorIssues({
   };
   const storeIssues = (data: CvEditorIssuesData) => queryClient.setQueryData(cvEditorIssuesQueryKey(stageKey), data);
   const confirm = useMutation({
-    mutationFn: (body: { term: string; text?: string }) => api.confirm(stageKey, body),
+    mutationFn: (body: QcConfirmBody) => api.confirm(stageKey, body),
     onSuccess: storeQc,
   });
   const dismissQc = useMutation({
@@ -621,6 +622,7 @@ export function CvEditorIssues({
                 showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
             }),
           confirming: confirm.isPending,
+          confirmRoles: qc?.confirm_roles ?? [],
           // Zdanie AI stoi w wierszu swojej uwagi (17.10.2026) — nie ma dokąd przewijać.
           requestAiFixes: () => undefined,
           copyQuestion: (item) => {

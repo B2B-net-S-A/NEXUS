@@ -4188,6 +4188,19 @@ async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
         assert unknown.status_code == 422
         assert unknown.json()["detail"]["code"] == "CV_QC_CONFIRM_FAILED"
 
+        # Samo kliknięcie nic nie dowodzi (02.11.2026): bez słów kandydata 422.
+        with hydrated_taxonomy():
+            bare = await api_client.post(
+                f"{qc_url}/confirm", headers=rec, json={"term": "spring"}
+            )
+            short = await api_client.post(
+                f"{qc_url}/confirm",
+                headers=rec,
+                json={"term": "spring", "text": "potwierdził"},
+            )
+        assert bare.status_code == 422 and short.status_code == 422
+        assert "co dokładnie powiedział" in bare.json()["detail"]["message"]
+
         with hydrated_taxonomy():
             ok = await api_client.post(
                 f"{qc_url}/confirm",
@@ -5473,3 +5486,122 @@ def test_public_cv_link_never_carries_the_consent_screenshot() -> None:
         }
     )
     assert "consent" not in json.dumps(public, default=str)
+
+
+# ── Potwierdzenie z treścią i rolą (02.11.2026) ─────────────────────────────
+
+
+def _role_src(experience: list[dict]) -> SimpleNamespace:
+    return SimpleNamespace(
+        candidate=SimpleNamespace(
+            experience=experience, cv_extracted_data=None, has_rich_profile=False
+        ),
+        original={"text": ""},
+    )
+
+
+@pytest.mark.parametrize(
+    "text", [None, "", "   ", "potwierdził", "ma doświadczenie"[:14]]
+)
+def test_confirmation_needs_the_candidates_words(text) -> None:
+    with pytest.raises(qc.ApplyError, match="co dokładnie powiedział"):
+        qc.check_confirmation_text(text)
+
+
+def test_confirmation_counts_words_not_whitespace() -> None:
+    with pytest.raises(qc.ApplyError):
+        qc.check_confirmation_text("  a     b     c     d   \n  e   ")
+    qc.check_confirmation_text("Używał Kafki w projekcie płatności")
+
+
+def test_confirm_roles_are_the_candidates_companies_once() -> None:
+    src = _role_src(
+        [
+            {"company": "Firma A", "position": "Dev"},
+            {"company": "firma a", "position": "Senior Dev"},
+            {"company": "  Firma   B ", "position": "Dev"},
+            {"company": "", "position": "Bez firmy"},
+        ]
+    )
+    assert qc.confirm_roles(src) == ["Firma A", "Firma B"]
+
+
+def test_checked_role_accepts_only_the_candidates_company() -> None:
+    src = _role_src([{"company": "Firma A", "position": "Dev"}])
+    assert qc.checked_role(src, None) is None
+    assert qc.checked_role(src, "   ") is None
+    assert qc.checked_role(src, "firma a") == "Firma A"
+    with pytest.raises(qc.ApplyError, match="historii kandydata"):
+        qc.checked_role(src, "Obca Firma")
+
+
+async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Słowo tylko w pytaniu nie jest faktem; odpowiedź z wymaganiem spoza
+    oryginału jest, a po wskazaniu roli zostaje notatką z nazwą firmy."""
+    from app.models.candidate import Candidate
+    from app.models.job import Job
+    from app.models.note import Note
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services import note_kinds
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["Kafka", "Terraform"]
+        candidate = await db.get(Candidate, world["candidate_id"])
+        candidate.experience = [{"company": "Firma Testowa", "position": "Dev"}]
+        stage = await db.get(CandidateStage, stage_id)
+        stage.screening_answers = {
+            "answers": [
+                {
+                    "question_id": "q1",
+                    "question_text": "Czy znasz Terraform?",
+                    "response": "Pracowałem z Kafka od 2023 w projekcie płatności.",
+                }
+            ]
+        }
+        await db.commit()
+    url = f"/api/pipeline/stages/{stage_id}/qc/role-facts"
+    try:
+        with hydrated_taxonomy():
+            body = (await api_client.get(url, headers=rec)).json()
+        assert [fact["term"] for fact in body["facts"]] == ["Kafka"]
+        assert "projekcie płatności" in body["facts"][0]["quote"]
+        assert body["roles"] == ["Firma Testowa"]
+
+        with hydrated_taxonomy():
+            refused = await api_client.post(
+                url, headers=rec, json={"term": "Kafka", "role": "Obca Firma"}
+            )
+            ghost = await api_client.post(
+                url, headers=rec, json={"term": "Terraform", "role": "Firma Testowa"}
+            )
+        assert refused.status_code == 422 and ghost.status_code == 422
+
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                url, headers=rec, json={"term": "Kafka", "role": "Firma Testowa"}
+            )
+        assert ok.status_code == 200, ok.text
+        assert ok.json()["facts"] == []
+        async with AsyncSessionLocal() as db:
+            note = await db.scalar(
+                select(Note).where(
+                    Note.candidate_id == world["candidate_id"],
+                    Note.external_source == note_kinds.QC_CONFIRM_SOURCE,
+                )
+            )
+        assert note.content.startswith(
+            "Potwierdzone z kandydatem: Kafka (Firma Testowa) — "
+        )
+        assert note.author_id == rec_id
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
