@@ -90,6 +90,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   - „N lat doświadczenia jako X” = `min(cała kariera, max(liczba modelu,
     role X))` — kod nigdy nie dopisuje lat z cudzych ról („3 lata jako Data
     Engineer” przy latach w sklepie nie staje się „13 lat”);
+  - **od 02.11.2026 bez zaokrąglania w górę** (decyzja Artura po audycie CV
+    wgrywanych ręcznie, 19 z 67 plików zmieniało tę liczbę, najczęściej w dół):
+    `_tenure_text` pisze pełne lata w dół, a od 3 dodatkowych miesięcy „Ponad N
+    lat” / „Over N years”. To odwraca zasadę „staż nie może być zaniżany”
+    i starą uwagę „5 lat ma być 5, nie ponad 4”. Bezpiecznik fabrykacji dalej
+    czyta zaokrąglone `_total_experience_years` (±1);
   - cała reszta („2 lata w SQL”, „2.5 years combined …”) zostaje, jak
     napisał model.
 - **Notatki dla modelu** (`collect_screening_notes_text`):
@@ -258,3 +264,28 @@ czytają odpowiedzi bez linii `P:` (reguła „pytanie ≠ fakt” wyżej), wię
   „tak/nie” albo zaślepce (`lib/screening-answer-hint.ts`).
 - Testy: `test_cv_generator_b2b_pipeline.py` (sekcja „Odpowiedź, która odsyła
   do pytania”).
+
+## Reguły promptu po audycie CV wgrywanych ręcznie (02.11.2026)
+
+Pomiar: 87 z 319 CV do klienta to pliki przerobione poza NEXUSEM, 79 z nich po
+generacji; raport https://claude.ai/artifact/8GYHqERnTEipVcEVBwdPym (prywatny).
+Zmiany tylko w `legacy_v7/prompts.py` (PL i EN), kod v10 bez zmian:
+
+- **Punkt „Dlaczego nasz kandydat”**: pełne zdanie do ~30 słów pod jedno
+  z najważniejszych wymagań, zamiast „jedna linijka do ~18 słów”. Zakaz punktu
+  wyliczającego wymagania zostaje.
+- **Limity punktów**: starsze role 6 zamiast 4, role sprzed ponad 10 lat 3
+  zamiast 2. W 136 z 331 ról pliki miały więcej punktów niż generator.
+- **Fakt o obecnej pracy** („aktualnie”, „w obecnym projekcie”) wolno przypisać
+  do najnowszej roli. Reszta faktów z rozmowy dalej wymaga nazwy firmy albo
+  projektu w odpowiedzi.
+- **Umiejętności**: pierwsze kategorie nazwane obszarami z wymagań klienta.
+- **Posiadany must-have w opisie roli**: gdy źródło pokazuje użycie w tej roli,
+  punkt ma go nazwać wprost, także gdy stoi już w umiejętnościach.
+- **Bez zmian:** generator nie dopisuje tego, czego nie ma w źródłach.
+
+Pomiar na prawdziwym generatorze (20 par, stare i nowe reguły, bez zapisu):
+słowa w punkcie „Dlaczego” 13,9 → 18,9 (pliki 21), wymagania bez źródła 5 → 5,
+wymagania w całym CV 109 → 110 na 175. Wymagania w opisach ról 76 → 70 (pliki
+85): prompt tego nie podnosi, różnica mieści się w rozrzucie modelu. Od tego
+jest pytanie o rolę przy potwierdzeniu i przed generacją.
