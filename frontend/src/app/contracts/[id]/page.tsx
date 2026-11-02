@@ -51,6 +51,7 @@ import {
 } from "@/lib/api";
 import { documentsHref } from "@/lib/b2b-documents";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
+import { contractProjectEnd } from "@/lib/contract-termination";
 import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
@@ -1569,8 +1570,8 @@ export default function ContractDetailPage() {
                         newType: "termination_agreement",
                         contractId: contract.id,
                         values: {
-                          termination_date: contract.terminated_at ?? contract.end_date ?? "",
-                          last_service_date: contract.terminated_at ?? contract.end_date ?? "",
+                          termination_date: contractProjectEnd(contract) ?? "",
+                          last_service_date: contractProjectEnd(contract) ?? "",
                         },
                       })}
                       className="font-medium text-primary underline-offset-4 hover:underline"
@@ -1604,7 +1605,7 @@ export default function ContractDetailPage() {
                   <ContractAgreementRecordDialog
                     contractId={contract.id}
                     candidateName={contract.candidate_name}
-                    projectEnd={contract.terminated_at ?? contract.end_date ?? null}
+                    projectEnd={contractProjectEnd(contract)}
                     onClose={() => setRecordAgreementOpen(false)}
                   />
                 )}

@@ -54,6 +54,13 @@ Poprzednie wartości trafiają do wpisu `termination_data_cleared` w historii.
   inwentarz `terminated_at_survived_reopen` je pokazuje. Czytniki bez statusu
   (`order_mail_signature`, `order_facts`, `b2b_contract_end_date`) traktują
   datę razem z `end_date` jak wypowiedzenie.
+- **Dzień końca to `end_date`, potem `terminated_at`** (R8-N13-1), także
+  w eksporcie „Placementy”, kafelku zastępstwa, zamknięciu umowy w Generatorze
+  i na karcie kontraktu (`contractProjectEnd` na froncie). Kafelek zastępstwa
+  i karta bieżącej umowy na profilu nie czytają `terminated_at` żywego kontraktu
+  bez daty końca. Wyjątek: plan „Cofnij zakończenie” bez migawki
+  (`contract_termination_reversal`) bierze najpierw `terminated_at`, bo tą datą
+  ucięto zamówienia i po niej ich szuka.
 - Test: `tests/test_contract_termination_form_sync.py`,
   `tests/test_contract_reopen_single_source.py`.
 

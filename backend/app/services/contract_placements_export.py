@@ -197,7 +197,8 @@ def placement_notes(contract: Contract, facts: PlacementFacts) -> str:
     notes: list[str] = []
     status = getattr(contract.status, "value", contract.status)
     if status in (ContractStatus.ended.value, ContractStatus.ending.value):
-        end = contract.terminated_at or contract.end_date
+        # R8-N13-1: `terminated_at` przeżywa przedłużenie (pierwsze zakończenie).
+        end = contract.end_date or contract.terminated_at
         if end is not None:
             text = f"Koniec {end:%d.%m.%Y}"
             reason = getattr(

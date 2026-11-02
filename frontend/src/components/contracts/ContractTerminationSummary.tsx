@@ -2,6 +2,7 @@ import { formatIsoDatePl as formatDate } from "@/lib/date-pl";
 import {
   agreementModeLabel,
   agreementPartyLabel,
+  contractProjectEnd,
   signedOnLabel,
 } from "@/lib/contract-termination";
 import type { AgreementTerminationMode } from "@/lib/api";
@@ -29,7 +30,7 @@ export function ContractTerminationSummary({
   contract: ContractTerminationFacts;
   compact?: boolean;
 }) {
-  const projectEnd = contract.terminated_at ?? contract.end_date ?? null;
+  const projectEnd = contractProjectEnd(contract);
   const mode = contract.agreement_termination_mode ?? null;
   const rows: { label: string; value: string }[] = [];
   if (projectEnd) rows.push({ label: "Koniec zamówienia", value: formatDate(projectEnd) });
