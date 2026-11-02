@@ -52,12 +52,20 @@ class QcDismissalInfo(BaseModel):
     at: datetime
 
 
+class QcSimilar(BaseModel):
+    """Fragment oryginału z tą samą rzeczą pod inną nazwą (02.11.2026)."""
+
+    term: str
+    quote: str
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
     requirement: Optional[str] = None
     role: Optional[str] = None
     detail: Optional[str] = None
+    similar: Optional[QcSimilar] = None
     fix: Optional[str] = None
     term: Optional[str] = None
     role_index: Optional[int] = None
@@ -124,10 +132,17 @@ class QcCv(BaseModel):
     blocks: list[QcBlock]
 
 
+class QcNewerProfileCv(BaseModel):
+    filename: str
+    uploaded_at: datetime
+
+
 class QcOriginal(BaseModel):
     source: Optional[Literal["snapshot", "profile_text"]] = None
     filename: Optional[str] = None
     text: Optional[str] = None
+    snapshot_at: Optional[datetime] = None
+    newer_profile_cv: Optional[QcNewerProfileCv] = None
 
 
 class QcClientRequest(BaseModel):

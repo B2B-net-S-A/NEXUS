@@ -8,6 +8,9 @@
   ],
   "groups": [
     ["warsztaty", "warsztatów", "workshops", "workshop"],
+    ["analiza systemowa", "analizy systemowej", "analizę systemową", "system analysis", "systems analysis"],
+    ["testy regresyjne", "testów regresyjnych", "testach regresyjnych", "regression testing", "regression tests"],
+    ["UX Research", "UX Researcher"],
     ["badania jakościowe", "badań jakościowych", "qualitative research"],
     ["badania ilościowe", "badań ilościowych", "quantitative research"],
     ["testy użyteczności", "badania użyteczności", "usability testing"],

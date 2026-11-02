@@ -501,6 +501,13 @@ def found_in(
         for other in _equivalents(name, loose=mode == "presence"):
             if _found(text, Requirement(label=other, alternatives=(other,))):
                 return "translation"
+    for name in names:
+        # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
+        # („Teams” to nie „team”). Ten sam skrót, więc także w ostrym dopasowaniu.
+        bare = name.strip()
+        if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
+            if _found(text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))):
+                return "translation"
     if mode == "presence":
         tokens: Optional[list[str]] = None
         for name in names:
@@ -511,14 +518,6 @@ def found_in(
                 if any(
                     found_in(text, Requirement(label=h, alternatives=(h,)))
                     for h in halves
-                ):
-                    return "translation"
-            # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
-            # („Teams” to nie „team”).
-            bare = name.strip()
-            if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
-                if _found(
-                    text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))
                 ):
                     return "translation"
             parts = _FOLD_WORD.findall(_fold(name))
@@ -1404,6 +1403,7 @@ async def _original_cv(
             "source": "snapshot",
             "stage_id": csv.candidate_stage_id,
             "filename": csv.original_cv_filename,
+            "snapshot_at": csv.original_snapshot_at,
             "text": text[:ORIGINAL_TEXT_MAX] or None,
         }
     profile_text = (candidate.raw_cv_text or "").strip()

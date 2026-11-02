@@ -87,7 +87,10 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # „qc-truth-3” (02.11.2026): zdanie z przecinkami nie jest listą technologii
 # (`is_tech_list`), „C” nie trafia w „C++” (`dz._patterns`). Pomiar na stagingu,
 # 814 par: zaliczone 685 → 688, `must_in_roles` 65 → 39, krytyczne 73 → 64 pozycji.
-QC_VERSION = "qc-truth-3"
+# „qc-truth-4” (02.11.2026): „REST APIs” i słownik także w ostrym dopasowaniu, skan
+# idzie do sprawdzenia ręcznego. Pomiar na stagingu, 865 par: zaliczone 712 → 717,
+# `no_unsupported` 104 → 97 pozycji.
+QC_VERSION = "qc-truth-4"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -934,6 +937,8 @@ class QcInput:
     critical: list[Requirement] = field(default_factory=list)
     # Wpisy ról z odczytu CV (`dz.role_entries`); None = `experience`.
     role_entries: Any = None
+    # Z pliku oryginału odczytano bardzo mało (skan): QC nie twierdzi, że czegoś nie ma.
+    original_partial: bool = False
     # Odpowiedzi kandydata ze screeningu (bez pytań i bez zdań przeczących) —
     # to samo źródło, z którego pisze generator (13.10.2026).
     answers_text: str = ""
@@ -1232,6 +1237,87 @@ def _snippet(text: str, needle: str) -> Optional[str]:
     end = min(len(text), at + len(needle) + half)
     quote = " ".join(text[start:end].split())
     return ("…" if start else "") + quote + ("…" if end < len(text) else "")
+
+
+# Poniżej tylu znaków odczyt pliku to raczej skan albo grafika niż całe CV.
+ORIGINAL_PARTIAL_MAX = 500
+# Słowa z wielu wymagań: samo ich trafienie o niczym nie mówi.
+_SIMILAR_GENERIC = frozenset(
+    dz._fold(word)
+    for word in (
+        "project projekt projekty management zarządzanie manager data dane danych "
+        "system systems systemy systemowa analysis analiza analytics testing testy "
+        "service services usługi developer engineer engineering inżynier programista "
+        "experience doświadczenie support wsparcie business biznes access control "
+        "product security research integration integrations integracje integracja "
+        "architecture architektura"
+    ).split()
+)
+# Nazwa ogólna i konkretne odmiany tego samego narzędzia. GitHub to nie „Git”
+# dosłownie, ale rekruter widzi go w CV i uwaga „nie ma Gita” brzmi jak błąd QC.
+_TERM_FAMILIES = {
+    "git": ("github", "gitlab", "bitbucket"),
+    "sql": ("mysql", "postgresql", "postgres", "mssql", "t-sql", "pl/sql", "sqlite"),
+}
+_SIMILAR_WORD_MIN = 5
+_SIMILAR_CONTEXT = 50
+
+
+def similar_in_original(
+    term: str, original: str, *, stems: bool = True
+) -> Optional[dict]:
+    """Coś podobnego do ``term`` w oryginale: pytanie zamiast „nie ma” (02.11.2026).
+
+    Zgłoszenie: QC pisało, że kandydat nie ma technologii, którą oryginał nazywa
+    inaczej („System analysis” przy „Analiza systemowa”, „AML” przy „AML/CTF”).
+    Pomiar na 124 uwagach: 36 ma w oryginale pokrewne słowo, 61 to prawdziwe braki.
+    Nie zmienia wyniku QC: decyduje rekruter, a jego wybór liczy się do „Jakości QC”.
+    ``stems=False`` to tylko rodzina nazw i człon „A/B”: przy lukach rdzeń słowa
+    dawał 342 trafienia na 1195 prawdziwych luk.
+    Cytat stoi w oryginale dosłownie, bez wielokropka, bo sprawdza go pominięcie.
+    """
+    folded = dz._fold(original or "")
+    name = dz._fold(term or "").strip()
+    if not folded or not name:
+        return None
+    patterns = [
+        rf"(?<![\w+#/-]){re.escape(word)}(?![\w+#-])"
+        for word in _TERM_FAMILIES.get(name, ())
+    ]
+    pieces = [piece.strip() for piece in name.split("/")]
+    if len(pieces) > 1:
+        patterns += [
+            rf"(?<![\w+#/-]){re.escape(piece)}(?![\w+#-])"
+            for piece in pieces
+            if len(piece) >= 2
+        ]
+    for word in re.findall(r"[\w+#-]+", name) if stems else ():
+        if len(word) >= _SIMILAR_WORD_MIN and word not in _SIMILAR_GENERIC:
+            patterns.append(
+                rf"(?<![\w+#/-]){re.escape(word[: max(5, len(word) - 2)])}\w*"
+            )
+    for pattern in patterns:
+        match = re.search(pattern, folded)
+        if match is None:
+            continue
+        start = max(0, match.start() - _SIMILAR_CONTEXT)
+        end = min(len(original), match.end() + _SIMILAR_CONTEXT)
+        # Cytat od pełnego słowa do pełnego słowa.
+        while start > 0 and not original[start - 1].isspace():
+            start += 1
+            if start >= match.start():
+                start = match.start()
+                break
+        while end < len(original) and not original[end].isspace():
+            end -= 1
+            if end <= match.end():
+                end = match.end()
+                break
+        return {
+            "term": original[match.start() : match.end()],
+            "quote": " ".join(original[start:end].split()),
+        }
+    return None
 
 
 def _searched(
@@ -1548,6 +1634,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             if in_cv[req.label] or req.label in with_role:
                 continue
             in_sources = dz.found_in(sources, req) is not None
+            similar = None if in_sources else similar_in_original(req.label, original)
             critical_items.append(
                 {
                     **_item(
@@ -1556,12 +1643,16 @@ def compute_checks(data: QcInput) -> list[dict]:
                             "Brak w CV — jest w oryginale albo w rozmowie, dopisz "
                             "w edytorze CV."
                             if in_sources
+                            else f"Brak tej nazwy w CV. W oryginale jest „{similar['term']}” "
+                            "— sprawdź, czy to ta sama rzecz."
+                            if similar
                             else "Brak w CV, w oryginale i w rozmowie — zapytaj "
                             "kandydata."
                         ),
                         fix=None if in_sources else "ask_candidate",
                     ),
                     "searched": searched(req),
+                    **({"similar": similar} if similar else {}),
                 }
             )
         # Pozycja roli krytycznej nieobecnej w całym CV — jej pominięcie
@@ -1611,16 +1702,24 @@ def compute_checks(data: QcInput) -> list[dict]:
         in_talk = dz.found_in("\n".join((notes, answers)), req) is not None
         if not in_original and not in_talk:
             descriptive = word_count(req.label) >= 4
+            similar = (
+                None
+                if descriptive
+                else similar_in_original(req.label, original, stems=False)
+            )
             missing_info.append(
                 _item(
                     requirement=req.label,
                     detail=(
                         "Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje."
                         if descriptive
+                        else f"Nie ma tej nazwy, ale oryginał ma „{similar['term']}” "
+                        "— sprawdź, czy to ta sama rzecz."
+                        if similar
                         else "Luka kandydata — nie ma tego w CV, w oryginale ani "
                         "w rozmowie. Do rozmowy, nie do poprawy w CV."
                     ),
-                    fix=None if descriptive else "ask_candidate",
+                    fix=None if descriptive or similar else "ask_candidate",
                 )
             )
             continue
@@ -1727,6 +1826,15 @@ def compute_checks(data: QcInput) -> list[dict]:
                 "Brak tekstu oryginalnego CV — sprawdź ręcznie",
             )
         )
+    elif data.original_partial:
+        checks.append(
+            _check(
+                "no_unsupported",
+                "manual",
+                f"Z oryginału odczytano tylko {len(original.strip())} znaków "
+                "(np. skan) — sprawdź ręcznie",
+            )
+        )
     else:
         unsupported: list[dict] = []
         must_labels = {r.label for r in data.must}
@@ -1744,12 +1852,16 @@ def compute_checks(data: QcInput) -> list[dict]:
             elif dz.found_in(sources, req, mode="support") is not None:
                 continue
             is_must = req.label in must_labels
+            similar = similar_in_original(term, original)
             unsupported.append(
                 {
                     **_item(
                         requirement=req.label,
                         detail=(
-                            "Jest w CV, a nie ma tego w oryginale, notatkach ani "
+                            f"Dosłownie tego nie ma, ale oryginał ma „{similar['term']}” "
+                            "— sprawdź, czy to ta sama rzecz."
+                            if similar
+                            else "Jest w CV, a nie ma tego w oryginale, notatkach ani "
                             "odpowiedziach — "
                             + (
                                 "zapytaj kandydata."
@@ -1761,6 +1873,7 @@ def compute_checks(data: QcInput) -> list[dict]:
                         term=term,
                     ),
                     "searched": searched(versioned or req, mode="support"),
+                    **({"similar": similar} if similar else {}),
                 }
             )
         if data.bold_known:
@@ -2048,6 +2161,38 @@ def compute_checks(data: QcInput) -> list[dict]:
     order = {key: n for n, key in enumerate((*BLOCKING_KEYS, *WARNING_KEYS))}
     checks.sort(key=lambda check: order[check["key"]])
     return checks
+
+
+async def _newer_profile_cv(db: AsyncSession, src: dz.ReviewSources) -> Optional[dict]:
+    """Nowsze CV kandydata w profilu niż kopia etapu, którą czyta QC (02.11.2026).
+
+    Lustro `newerProfileCv` z panelu osoby. Firmowe CV wgrane jako główne się nie
+    liczy: to nie jest nowszy oryginał, a QC ma rację, że czegoś w oryginale nie ma.
+    """
+    from app.models.candidate_document import CandidateDocument
+    from app.services.client_cv_upload import looks_like_client_cv
+    from app.services.cv_source import current_cv_filters, current_cv_ordering
+
+    snapshot_at = src.original.get("snapshot_at")
+    if src.original.get("source") != "snapshot" or snapshot_at is None:
+        return None
+    doc = (
+        await db.execute(
+            select(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == src.candidate.id,
+                *current_cv_filters(),
+            )
+            .order_by(*current_cv_ordering())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if doc is None or looks_like_client_cv(doc.filename):
+        return None
+    uploaded_at = doc.uploaded_at or doc.created_at
+    if uploaded_at is None or (uploaded_at - snapshot_at).total_seconds() < 60:
+        return None
+    return {"filename": doc.filename, "uploaded_at": uploaded_at}
 
 
 def _consent_matches_check(data: QcInput) -> dict:
@@ -2415,6 +2560,10 @@ def _qc_input(
         has_cv=src.generated is not None,
         bold_known=src.bold_known,
         original_text=(src.original.get("text") or ""),
+        original_partial=(
+            src.original.get("source") == "snapshot"
+            and len((src.original.get("text") or "").strip()) < ORIGINAL_PARTIAL_MAX
+        ),
         experience=src.candidate.experience,
         role_entries=dz.role_entries(src.candidate, src.original.get("text") or ""),
         notes_text=notes,
@@ -2891,6 +3040,8 @@ async def run_qc(
             "source": src.original.get("source"),
             "filename": src.original.get("filename"),
             "text": src.original.get("text"),
+            "snapshot_at": src.original.get("snapshot_at"),
+            "newer_profile_cv": await _newer_profile_cv(db, src),
         },
         "client_request": {
             "must": [r.label for r in src.must],
