@@ -92,3 +92,45 @@ zostaje: inna rola nie wchodzi, ale jej miejsce zajmują kolejni, paczkami
   były poniżej dawnego ucięcia, dostają teraz miejsce w puli zamiast „Poniżej
   puli 150”. Pule odświeżają się z przeglądami (48 na noc), więc przez pierwsze
   noce po wdrożeniu migawki mieszają obie głębokości.
+
+## Dopisek 03.11.2026 — tytuł mieszany nazywający też rolę rekrutacji
+
+`family_of` zwraca jedną rodzinę, więc „UX Designer / Business Analyst” przy
+rekrutacji UX wychodził jako analityk, a „Junior Python Developer / Junior QA
+Automation Tester” przy Pythonie jako tester. `role_mismatch` nie oznacza już
+osoby, której tytuł z CV nazywa rolę rekrutacji osobną częścią.
+
+- **Części** rozdzielają `/ | & , + ;` i spójniki. Myślnik nie rozdziela
+  („Software Engineer - QA Automation” to jedna rola).
+- **Nie liczy się jako rola:** część z jednego słowa („Senior Test
+  Engineer/Developer”, „Manual Tester, UX”), część ze słowem „test” przy innej
+  rodzinie niż tester („Test Developer”, „Test Platform Engineer”) i programista
+  bez nazwy roli („Tech Lead”, „Backend Quality”).
+- **Bez zmian:** `family_of` dla rekrutacji i historii. Wyraźna historia dalej
+  wygrywa z CV także przy tytule mieszanym („Tester manualny | UX/UI Designer”
+  z 9 z 10 rekrutacji testerskich zostaje oznaczony).
+- **Cena:** kilka osób z „QA Engineer / Software Engineer” przy programiście traci
+  oznaczenie, bo tytuł nazywa obie role. Zasada ta sama co wyżej: lepiej brak
+  znaku niż zły znak.
+- **Pomiar przed i po (kopia z 02.11.2026):** otwarte propozycje 1 264 → 1 253
+  z 50 442 oznaczonych, w tym z ≥ 80% must 422 → 418; historia 154 → 153 z 13 815
+  par „zweryfikowany / wysłany / zatrudniony”; pule 59 rekrutacji: 12 nowych osób
+  (UX Designer 6, UX Researcher 2, Python Developer 4), 3 nowe osoby w 20 kartach.
+  Żadne oznaczenie nie doszło.
+
+## Rola nieznana w 20 kartach „Nowych” (pomiar 03.11.2026)
+
+Reguła „nieznana rola = bez oznaczenia” zostaje. Po sięgnięciu puli głębiej
+(02.11) sprawdzone, ile takich osób dochodzi do kart: `ranked_picks` + `_by_rules`
++ `_allowed`, 36 rekrutacji w pracy z rozpoznaną rolą.
+
+- **Udział:** 111 z 720 kart (15,4%), przy dawnej puli 114 z 706 (16,1%). Na
+  prawdziwych kartach z 23.10–02.11 tyle samo: 312 z 1 977 (15,8%). Głębsza pula
+  nie podniosła udziału, ale skupia się on w kilku rekrutacjach („Ferryt Developer”
+  14 z 20, „Python Developer” 7 z 20 wobec 3).
+- **Kto to:** większość pasuje, tylko klasyfikator nie zna tytułu („Senior Android
+  Engineer”, „Python Engineer”, „Release Manager” przy PM). Wyraźnie nie ta rola:
+  ok. 25 ze 112 (ręczna ocena tytułów).
+- **Los kart:** z tkniętych przez rekrutera dalej poszło 37 z 200 przy tej samej lub
+  pokrewnej roli (18,5%), 5 z 41 przy nieznanej (12,2%), 0 z 9 przy innej. 88% kart
+  nietkniętych, więc to dane z 10 dni, nie wyrok.

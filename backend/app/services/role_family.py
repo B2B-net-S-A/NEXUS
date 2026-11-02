@@ -17,7 +17,9 @@ zmienia Head of Recruitment w panelu, po pomiarze):
   a gdy historia w NEXUSIE mówi wyraźnie co innego — historia (np. CV z 2023
   „Junior Full Stack Developer”, a 14 rekrutacji u nas, wszystkie testerskie);
 * nieznana rola po którejkolwiek stronie = brak oznaczenia. Pary pokrewne
-  (programista ↔ DevOps / dane, analityk ↔ dane / PM) nie są „inną rolą”.
+  (programista ↔ DevOps / dane, analityk ↔ dane / PM) nie są „inną rolą”;
+* tytuł mieszany w CV nazywający też rolę rekrutacji („UX Designer / Business
+  Analyst” przy UX) = brak oznaczenia, chyba że historia mówi wyraźnie co innego.
 
 Inna rola nie usuwa osoby z list ręcznych: przejście z QA do programowania
 bywa prawdziwe. Okno ją oznacza i stawia na końcu, a nocny przegląd nie
@@ -123,6 +125,16 @@ KEEP_MUST_SHARE = 0.8
 
 _POSITION_MAX = 60
 
+# Części tytułu mieszanego. Myślnik nie rozdziela: „Software Engineer - QA
+# Automation” to jedna rola.
+_PART_SEPARATOR = re.compile(r"\s*[/|&,+;]\s*|\s+(?:and|i|oraz)\s+", re.IGNORECASE)
+_TEST_WORD = re.compile(r"\btest", re.IGNORECASE)
+# „Tech Lead” i „Backend Quality” pasują do reguły programisty, ale jako część
+# tytułu testera nie mówią, że osoba programuje.
+_DEVELOPER_ROLE = re.compile(
+    r"developer|deweloper|programist|engineer|inżynier", re.IGNORECASE
+)
+
 
 def family_of(title: Optional[str]) -> Optional[Family]:
     """Rodzina roli z tytułu stanowiska albo rekrutacji; ``None`` = nie wiadomo."""
@@ -141,6 +153,24 @@ def family_of(title: Optional[str]) -> Optional[Family]:
         if "design" in matched:
             matched.remove("design")
     return matched[0] if matched else None
+
+
+def _part_names_family(part: str, family: Family) -> bool:
+    # Jedno słowo to dopisek do sąsiedniej części: „Senior Test Engineer/Developer”,
+    # „Manual Tester, UX”.
+    if len(part.split()) < 2 or family_of(part) != family:
+        return False
+    if family != "qa" and _TEST_WORD.search(part):
+        return False  # „Test Developer”, „Test Platform Engineer”
+    return family != "developer" or bool(_DEVELOPER_ROLE.search(part))
+
+
+def _names_family(title: str, family: Family) -> bool:
+    """Czy tytuł mieszany nazywa tę rolę osobną częścią (02.11.2026: „UX Designer /
+    Business Analyst” przy rekrutacji UX). ``family_of`` zwraca jedną rodzinę,
+    więc druga rola ginęła."""
+    parts = _PART_SEPARATOR.split(title)
+    return len(parts) > 1 and any(_part_names_family(p, family) for p in parts)
 
 
 def history_family(
@@ -195,6 +225,13 @@ def role_mismatch(
     if family is None or family == job_family:
         return None
     if frozenset({family, job_family}) in _RELATED:
+        return None
+    # Wyraźna historia dalej wygrywa z CV, także z tytułem nazywającym obie role.
+    if (
+        hist is None
+        and current_position
+        and _names_family(current_position, job_family)
+    ):
         return None
     label = LABELS[family]
     if hist is not None:
