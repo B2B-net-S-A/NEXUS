@@ -136,6 +136,13 @@ function AllList({
     return labels;
   }, [board.teams]);
   const teamLabel = (id: string) => board.teams.find((team) => team.id === id)?.label ?? id;
+  if (cards.length === 0) {
+    return (
+      <p className="rounded-lg border border-dashed bg-card p-3 text-sm text-muted-foreground">
+        Nic tu teraz nie czeka.
+      </p>
+    );
+  }
   return (
     <div className="max-h-[calc(100dvh-300px)] min-h-48 overflow-y-auto rounded-xl border bg-card">
       <table className="w-full text-sm">

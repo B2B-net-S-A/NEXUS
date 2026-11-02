@@ -6,6 +6,7 @@ nie eskalują. Dzień roboczy liczy kalendarz firmy (święta i dni wolne).
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -19,6 +20,8 @@ from app.models.notification import NotificationType
 from app.services.back_office import access
 from app.services.hr.calendar import WorkCalendar, load_calendar
 from app.services.hr.notify import notify_each
+
+logger = logging.getLogger(__name__)
 
 #: Karty, które zamyka akcept, a nie osoba prowadząca.
 NO_ESCALATION_KINDS = frozenset({"timesheet", "bonus", "changes"})
@@ -73,11 +76,16 @@ async def run(
         )
     if escalated:
         await db.flush()
+        leads = await access.lead_user_ids(db)
+        if not leads:
+            # Bez kierownika karta i tak stoi w „Do przydzielenia”, ale nikt nie dostanie
+            # dzwonka; w logu, bo to brakująca konfiguracja, a nie brak pracy.
+            logger.warning("back_office_escalation: brak head back office i zastępcy")
         # Jeden dzwonek zbiorczy na przebieg; dobowy dedup ``emit`` chroni przed
         # zalewem, gdy kilka przebiegów tego samego dnia coś dołoży.
         await notify_each(
             db,
-            await access.lead_user_ids(db),
+            leads,
             title="Sprawy do przydzielenia",
             message=f"Bez osoby po dniu roboczym: {len(escalated)}.",
             ntype=NotificationType.back_office_escalated,
