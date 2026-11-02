@@ -882,6 +882,23 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
     assert titles == ("IT Developer expert",)
 
 
+async def test_service_title_header_does_not_confirm_itself() -> None:
+    """02.11.2026: CV „usługi programistyczne – …” przechodziło QC, bo nagłówek
+    z payloadu potwierdzał sam siebie. Oczekujemy roli z Championa."""
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="ZOB-3103 usługi programistyczne - .Net",
+            client_reference="ZOB-3103",
+            client_id=None,
+            champion_profile={"basics": {"role_name": "Senior .NET Developer"}},
+        )
+    )
+    titles = await qc.expected_titles(
+        None, src, {"presentation_position": "usługi programistyczne - .Net"}
+    )
+    assert titles == ("Senior .NET Developer",)
+
+
 @pytest.mark.parametrize(
     ("head", "expected", "matches"),
     [
