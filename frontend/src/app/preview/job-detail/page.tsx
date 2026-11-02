@@ -28,6 +28,7 @@
  * „Zmień powód zamknięcia” (21.10.2026),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
+ * `?panel=1` — otwarte okno „Panel klienta” z menu „⋯” (02.11.2026),
  * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026),
  * `?close=1` — otwarte okno „Zamknij rekrutację z powodem”; pierwsze
  * zamknięcie dostaje fikcyjne ostrzeżenie o osobach w toku (13.10.2026).
@@ -85,6 +86,8 @@ import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { fictionalAdminTransport } from "@/app/preview/client-panel/fixtures";
+import { ClientPanelSlideOver } from "@/components/v2/recruitment/slideovers/ClientPanelSlideOver";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import type { JobFilesResponse } from "@/lib/api/jobFiles";
 import { CANDIDATE_WINDOW_TABS, type CandidateWindowTab } from "@/components/v2/recruitment/types";
@@ -1648,6 +1651,8 @@ function JobDetailHarness() {
   const closed = reopenOnStart || params.get("closed") === "1";
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
+  const [clientPanelOpen, setClientPanelOpen] = useState(params.get("panel") === "1");
+  const [clientPanelTransport] = useState(() => fictionalAdminTransport());
   const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
   const [changeOpen, setChangeOpen] = useState(params.get("change") === "1");
   const reasonParam = params.get("reason");
@@ -2073,6 +2078,7 @@ function JobDetailHarness() {
                         onOpenHistoryChat={noop}
                         onOpenFiles={() => setFilesOpen(true)}
                         filesCount={PREVIEW_FILES.items.length}
+                        onOpenClientPanel={readOnlyRole ? undefined : () => setClientPanelOpen(true)}
                         onAddByName={noop}
                         onAddFromCv={noop}
                         onStartFullReview={() => setSourceTab("base")}
@@ -2138,6 +2144,12 @@ function JobDetailHarness() {
                           isSuccess: true,
                           refetch: noop,
                         }}
+                      />
+                      <ClientPanelSlideOver
+                        open={clientPanelOpen}
+                        onOpenChange={setClientPanelOpen}
+                        jobId={JOB_ID}
+                        transport={clientPanelTransport}
                       />
                       <JobFilesSlideOver
                         open={filesOpen}

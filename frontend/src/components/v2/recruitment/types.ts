@@ -43,6 +43,8 @@ export type RecruitmentSlideOver =
   | "questions"
   // Pliki rekrutacji: request klienta i załączniki (0428, 09.10.2026).
   | "files"
+  // Panel klienta pod linkiem z CV: ustawienia i sprawy od klienta (02.11.2026).
+  | "client-panel"
   | "history-chat"
   // Od 14.10.2026 zakładka „Szukaj ręcznie” okna „Kandydaci do dodania”;
   // adres zostaje czytany (stare linki), stan strony zna już tylko `add`.

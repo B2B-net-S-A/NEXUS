@@ -89,7 +89,8 @@ from sqlalchemy.orm import defer, selectinload
 
 from app.services.html_sanitizer import sanitize_cv_html
 from app.services import candidate_audit, cv_download_policy, cv_editor_issues
-from app.services.cv_download_log import log_cv_download
+from app.services.client_panel import stamp_for_download
+from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_rodo_clause import keep_rodo_clause
 from app.services.cv_rewrite_merge import MergeResult, merge_rewrite
 from app.services.cv_draft_snapshots import (
@@ -2568,6 +2569,14 @@ async def preview_branded_docx(
         state="draft",
         version=csv.branded_version,
     )
+    if intent == DOWNLOAD_INTENT:
+        docx = await stamp_for_download(
+            db,
+            job_id=csv.job_id,
+            candidate_id=csv.candidate_id,
+            docx=docx,
+            language=csv.branded_language,
+        )
     return Response(
         content=docx,
         media_type=DOCX_MEDIA_TYPE,
@@ -2785,10 +2794,23 @@ async def download_approved_docx(
         state="approved",
         version=version.version,
     )
+    content = version.docx_content
+    headers = approved_docx_headers(version)
+    if intent == DOWNLOAD_INTENT:
+        content = await stamp_for_download(
+            db,
+            job_id=csv.job_id,
+            candidate_id=csv.candidate_id,
+            docx=content,
+            language=csv.branded_language,
+        )
+        # ETag opisuje zamrożone bajty wersji, a ramka je zmienia.
+        if content is not version.docx_content:
+            headers.pop("ETag", None)
     return Response(
-        content=version.docx_content,
+        content=content,
         media_type=DOCX_MEDIA_TYPE,
-        headers=approved_docx_headers(version),
+        headers=headers,
     )
 
 
