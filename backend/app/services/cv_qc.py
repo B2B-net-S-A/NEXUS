@@ -104,6 +104,7 @@ CONFIRM_TEXT_MIN = 15
 ROLE_COMPANY_MAX = 80
 _COMPANY_LIST = re.compile(r"\b\d+\.\s+\S+.*\b\d+\.\s+\S")
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+_RATE_PAIR = re.compile(r"\b\d{2,4}\s*/\s*\d{2,4}\b")
 _DENIAL = re.compile(r"\b(?:nie|bez|brak|nigdy|not|no|never|without)\b", re.IGNORECASE)
 CONFIRMATIONS_MAX = 20
 DESCRIPTIVE_MIN_WORDS = 6
@@ -3134,6 +3135,30 @@ def checked_role(src: dz.ReviewSources, role: Optional[str]) -> Optional[str]:
     raise ApplyError("Tej firmy nie ma w historii kandydata — odśwież okno.")
 
 
+def _answer_quote(answers: str, term: Optional[str]) -> Optional[str]:
+    """Cytat z jednej odpowiedzi; bez przeczenia i bez pieniędzy.
+
+    Cytat trafia do notatki widocznej w profilu i w innych rekrutacjach, więc nie
+    może przejść przez granicę odpowiedzi ani nieść kwoty czy pary „150/120”,
+    która z notatki Delivery Leada zrobiłaby wpis o stawce do klienta.
+    """
+    if not term:
+        return None
+    from app.services.client_rate_notes import parse_dl_pair
+    from app.services.cv_command_ai import has_amount
+
+    wanted = term.casefold()
+    for line in answers.splitlines():
+        if wanted not in line.casefold() or _sentence_denies(line, term):
+            continue
+        quote = _snippet(line, term)
+        if quote and not (
+            has_amount(line) or parse_dl_pair(line) or _RATE_PAIR.search(line)
+        ):
+            return quote
+    return None
+
+
 async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
     """Wymagania, o których kandydat mówił w rozmowie, a oryginał milczy.
 
@@ -3159,9 +3184,8 @@ async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
         label = _norm(req.label)
         if any(label in text for text in known):
             continue
-        term = match_in(answers, req)
-        quote = _snippet(answers, term) if term else None
-        if quote and not _sentence_denies(answers, term):
+        quote = _answer_quote(answers, match_in(answers, req))
+        if quote:
             facts.append({"term": req.label, "quote": quote})
     return {"facts": facts, "roles": confirm_roles(src)}
 

@@ -5566,6 +5566,27 @@ def test_sentence_about_the_requirement_stays_a_fact(answer: str) -> None:
     assert not qc._sentence_denies(answer, "Customer 360")
 
 
+def test_quote_stays_inside_one_answer() -> None:
+    answers = (
+        "Kilka lat w innej firmie.\nBudowałem kolejki na Kafce w projekcie płatności."
+    )
+    quote = qc._answer_quote(answers, "Kafce")
+    assert quote and "płatności" in quote and "innej firmie" not in quote
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        "Znam Kafkę 150/120",
+        "Kafka, oczekuję 150 zł/h",
+        "Kafka 800 za dzień",
+        "Samej Kafki nie",
+    ],
+)
+def test_quote_never_carries_money_or_a_denial(answers: str) -> None:
+    assert qc._answer_quote(answers, "Kaf") is None
+
+
 def test_checked_role_accepts_only_the_candidates_company() -> None:
     src = _role_src([{"company": "Firma A", "position": "Dev"}])
     assert qc.checked_role(src, None) is None
