@@ -22,6 +22,8 @@ from app.models.activity import Activity
 logger = logging.getLogger(__name__)
 
 ACTION = "cv_file_downloaded"
+# Wartość ``intent`` żądania, które jest pobraniem pliku, a nie podglądem.
+DOWNLOAD_INTENT = "download"
 # Lustro `CvDownloadSurface` z frontendu; wszystko inne zapisujemy jako „other”.
 SURFACES = frozenset({"editor", "card", "dock", "preview", "cpro", "result", "files"})
 
@@ -43,7 +45,7 @@ async def log_cv_download(
     Wołaj tuż przed oddaniem pliku — po bramkach dostępu i zgody, żeby
     odmowa nie liczyła się jako pobranie. Commit robi sesja żądania.
     """
-    if intent != "download":
+    if intent != DOWNLOAD_INTENT:
         return
     try:
         async with db.begin_nested():

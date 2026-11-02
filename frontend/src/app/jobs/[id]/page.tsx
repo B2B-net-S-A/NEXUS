@@ -126,6 +126,7 @@ import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlid
 import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
 import { copyClientReference } from "@/components/v2/jobs/ClientReferenceChip";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
+import { ClientPanelSlideOver } from "@/components/v2/recruitment/slideovers/ClientPanelSlideOver";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
@@ -1018,6 +1019,9 @@ export default function JobDetailPage() {
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenFiles={() => openSlideOver("files")}
         filesCount={jobFiles?.items.length}
+        // Ta sama bramka co zamknięcie rekrutacji: serwer wymaga prawa do jej
+        // prowadzenia i dostępu do tej rekrutacji, a bez niego odda 403.
+        onOpenClientPanel={canCloseJob ? () => openSlideOver("client-panel") : undefined}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
         onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
@@ -1226,6 +1230,11 @@ export default function JobDetailPage() {
         onOpenChange={slideOverOpenChange("files")}
         jobId={jobId}
         readOnly={!canEditJobContentFields}
+      />
+      <ClientPanelSlideOver
+        open={slideOver === "client-panel" && canCloseJob}
+        onOpenChange={slideOverOpenChange("client-panel")}
+        jobId={jobId}
       />
       <HistoryChatSlideOver
         open={slideOver === "history-chat"}

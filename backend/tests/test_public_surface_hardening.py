@@ -76,6 +76,8 @@ _RATE_LIMITED_MODULES = (
     "api/dashboard_metrics.py",
     # Strona kariery (0339): publiczne GET-y i formularz multipart.
     "api/public_career.py",
+    # Panel klienta (0629): dane kandydatów pod samym linkiem, bez logowania.
+    "api/public_client_panel.py",
     # Odczyt requestu klienta na /jobs/new: każde wywołanie to płatny model.
     "api/job_request_intake.py",
     # Przepięcie (Pipeline v4): podpowiedzi Luny — każde wywołanie to płatny model.
@@ -103,7 +105,12 @@ _RATE_LIMITED_MODULES = (
 
 # Moduły, których docstringi tras trafiają do publicznego /openapi.json.
 # v1: docstringi tras trafiają do publikowanej specyfikacji integratora.
-_DOCSTRING_MODULES = ("api/auth.py", "api/candidates.py", *_V1_MODULES)
+_DOCSTRING_MODULES = (
+    "api/auth.py",
+    "api/candidates.py",
+    "api/public_client_panel.py",
+    *_V1_MODULES,
+)
 
 _FORBIDDEN_IN_PUBLIC_DOCSTRING = re.compile(
     r"break[\s_-]?glass|no .{0,20}rate limit|znany brak|bez sprawdzenia HMAC",

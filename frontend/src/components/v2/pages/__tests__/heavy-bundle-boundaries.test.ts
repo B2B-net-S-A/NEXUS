@@ -96,6 +96,16 @@ const CASES: Array<{
       "otwiera się przy każdym kliknięciu karty na Tablicy.",
   },
   {
+    // Panel klienta (02.11.2026): lista kandydatów nie potrzebuje pdf.js.
+    label: "Panel klienta → podgląd CV przy wymaganiach",
+    file: "components/v2/client-panel/EvidenceTab.tsx",
+    heavy: /^pdfjs-dist|PdfDocumentViewer$/,
+    lazyModule: "@/components/v2/files/PdfDocumentViewer",
+    why:
+      "Przeglądarka PDF wraca do paczki publicznego linku, a klient na liście " +
+      "kandydatów CV jeszcze nie otworzył.",
+  },
+  {
     // D9 (08.10.2026): przegląd DL — oryginał CV obok wymagań i decyzji.
     label: "Przegląd DL → podgląd oryginalnego CV",
     file: "components/v2/recruitment/dl-review/CvColumn.tsx",

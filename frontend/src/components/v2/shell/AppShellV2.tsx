@@ -51,6 +51,9 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // `/cv/{token}` — public CV preview. `startsWith("/cv/")` (trailing slash) żeby
   // NIE złapać authed `/cv-generator`.
   const isCvPreviewPage = pathname?.startsWith("/cv/") ?? false;
+  // `/k/{token}` — panel klienta pod linkiem z CV. Ukośnik na końcu, żeby nie
+  // złapać `/kariera`, `/klienci` i podobnych.
+  const isClientPanelPage = pathname?.startsWith("/k/") ?? false;
   // `/engagement/{token}` — public magic-link engagement page, no internal shell.
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
@@ -157,6 +160,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   // for unauthenticated visitors.
   if (isRegisterPage) return <>{children}</>;
   if (isCvPreviewPage) return <>{children}</>;
+  if (isClientPanelPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
   if (isExtensionPrivacyPage) return <>{children}</>;

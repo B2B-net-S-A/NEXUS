@@ -198,6 +198,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.post_interview_t45: _C.interviews,
     _T.post_interview_t2h_escalation: _C.interviews,
     _T.interview_slots_requested: _C.interviews,
+    _T.client_panel_request: _C.interviews,
     _T.interview_slot_chosen: _C.interviews,
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,

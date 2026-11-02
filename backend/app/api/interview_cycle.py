@@ -57,7 +57,6 @@ from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.calendar_event import CalendarEvent, EventType
 from app.models.client_interview_slot_request import (
-    OPEN_SLOT_STATUSES,
     ClientInterviewSlotRequest,
 )
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
@@ -69,7 +68,6 @@ from app.models.interview_question import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
-from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
 from app.services import (
     client_interview_entry,
@@ -79,9 +77,12 @@ from app.services import (
 )
 from app.services.candidate_claim import is_integration_request
 from app.services.interview_cycle import load_overview
+from app.services.interview_slot_requests import (
+    SlotsAlreadyOpen,
+    after_slot_request_commit,
+    create_slot_request_for_pair,
+)
 from app.services.debrief_gate import interview_not_started_message
-from app.services.pipeline_auto_move import auto_advance, run_after_commit
-from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
 
 logger = logging.getLogger(__name__)
@@ -746,38 +747,22 @@ async def create_slot_request(
             )
         interview_slots.cancel(replaced)
         await db.flush()
-    recruiter_id = (
-        body.recruiter_id
-        or (replaced.recruiter_id if replaced is not None else None)
-        or await interview_slots.default_recruiter_id(
-            db, candidate_id=body.candidate_id, job_id=body.job_id
-        )
-    )
-    req = ClientInterviewSlotRequest(
-        candidate_id=body.candidate_id,
-        job_id=body.job_id,
-        client_id=job.client_id,
-        created_by=current_user.id,
-        recruiter_id=recruiter_id,
-        slots=slots,
-        duration_minutes=body.duration_minutes,
-        respond_by=body.respond_by,
-        note=(body.note or "").strip() or None,
-    )
-    db.add(req)
     try:
-        await db.flush()
-    except IntegrityError as exc:
-        await db.rollback()
+        created = await create_slot_request_for_pair(
+            db,
+            job=job,
+            candidate_id=body.candidate_id,
+            slots=slots,
+            duration_minutes=body.duration_minutes,
+            respond_by=body.respond_by,
+            note=body.note,
+            recruiter_id=body.recruiter_id,
+            replaced=replaced,
+            actor=current_user,
+        )
+    except SlotsAlreadyOpen as exc:
         # Id otwartego wniosku: okno proponuje „Zastąp otwarte terminy” bez
         # przepisywania tego, co DL już wpisał.
-        open_id = await db.scalar(
-            select(ClientInterviewSlotRequest.id).where(
-                ClientInterviewSlotRequest.candidate_id == body.candidate_id,
-                ClientInterviewSlotRequest.job_id == body.job_id,
-                ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
-            )
-        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -786,79 +771,15 @@ async def create_slot_request(
                     "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji. "
                     "Możesz je zastąpić tymi z formularza."
                 ),
-                "open_request_id": open_id,
+                "open_request_id": exc.open_request_id,
             },
         ) from exc
-    # Pipeline v4 (23.09.2026): terminy od klienta = kandydat JEST w rozmowie
-    # u klienta. Karta jedzie tam sama — wyłącznie do przodu; proces zamknięty
-    # albo karta już dalej zostają bez zmian.
-    # Ruch jest dodatkiem do wniosku: jego awaria (savepoint) zostawia kartę
-    # na miejscu i nie cofa terminów, które DL właśnie wpisał.
-    # Runda 10 (F09): automat nie przeskakuje „CV wysłane” — para bez
-    # wysłanego CV zostaje na miejscu (bramki QC CV i stawki DL sprawdza tylko
-    # `/pipeline/move`), a terminy i tak się zapisują.
-    actor_id = current_user.id
-    moved = None
-    skip_reasons: list[str] = []
-    try:
-        async with db.begin_nested():
-            moved = await auto_advance(
-                db,
-                candidate_id=body.candidate_id,
-                job_id=body.job_id,
-                target=PipelineStage.client_interview,
-                actor_user_id=actor_id,
-                source="interview_slots",
-                note="Auto: terminy od klienta",
-                skip_reasons=skip_reasons,
-            )
-    except Exception:  # noqa: BLE001 — ruch karty nie może wywrócić wniosku
-        moved = None
-        skip_reasons = []
-        logger.exception(
-            "interview slots: auto move to client_interview failed "
-            "(candidate %s, job %s)",
-            body.candidate_id,
-            body.job_id,
-        )
-    await interview_slots.notify(
-        db,
-        user_id=recruiter_id,
-        ntype=NotificationType.interview_slots_requested,
-        req=req,
-        title=(
-            "Zmienione terminy rozmowy od klienta"
-            if replaced is not None
-            else "Terminy rozmowy od klienta"
-        ),
-        message=(
-            f"{len(slots)} terminy rozmowy u klienta do ustalenia z kandydatem "
-            f"({job.title})."
-        ),
-        actor_id=actor_id,
-        # Zmiana może przyjść tego samego dnia co pierwszy dzwonek.
-        daily_dedup=replaced is None,
-    )
-    # 0371: terminy od klienta = klient się odezwał → „Klient milczy” wraca
-    # do „Szukamy kandydatów”. Nigdy nie rzuca.
-    from app.services.request_work_state import (  # noqa: PLC0415
-        wake_on_client_response,
-    )
-
-    await wake_on_client_response(
-        db, job_id=body.job_id, stage=None, reason="client_slots"
-    )
     await db.commit()
-    await db.refresh(req)
-    out = _slot_out(req)
-    if moved is not None:
-        # Live kanban: reszta zespołu odświeża tablicę (best-effort).
-        await broadcast_pipeline_changed(db, body.job_id, actor_id)
-        # Runda 7 (N7-4): powiadomienia o etapie i profil ryzyka — jak po
-        # `/move`. Po commicie, nigdy nie rzuca.
-        await run_after_commit(db, stage_id=moved.id, mover=current_user)
-    out.moved_to_client_interview = moved is not None
-    out.move_skipped_reason = skip_reasons[0] if skip_reasons else None
+    await db.refresh(created.request)
+    out = _slot_out(created.request)
+    await after_slot_request_commit(db, created)
+    out.moved_to_client_interview = created.moved is not None
+    out.move_skipped_reason = created.skip_reasons[0] if created.skip_reasons else None
     return out
 
 

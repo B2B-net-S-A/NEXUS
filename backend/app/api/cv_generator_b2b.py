@@ -96,7 +96,7 @@ from app.services.ai_quota import (
 )
 from app.services import cv_consent_check as consent_check
 from app.services import cv_consent_gate as consent_gate
-from app.services.cv_download_log import log_cv_download
+from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
@@ -3474,6 +3474,23 @@ async def _log_generated_download(
     )
 
 
+async def _with_client_panel_frame(
+    db: AsyncSession, row: CvGeneratedDocument, docx: bytes, intent: Optional[str]
+) -> bytes:
+    """Plik do klienta niesie ramkę panelu rekrutacji; podgląd w NEXUSIE nie."""
+    if intent != DOWNLOAD_INTENT:
+        return docx
+    from app.services.client_panel import stamp_for_download
+
+    return await stamp_for_download(
+        db,
+        job_id=row.job_id,
+        candidate_id=row.candidate_id,
+        docx=docx,
+        language=row.language,
+    )
+
+
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_cv(
     generated_id: int,
@@ -3505,7 +3522,7 @@ async def download_generated_cv(
             db, generated_id, current_user, intent, surface, "docx", "generated"
         )
         return _build_docx_response(
-            docx_bytes=stored,
+            docx_bytes=await _with_client_panel_frame(db, row, stored, intent),
             filename=row.filename,
             candidate_name=row.candidate_name,
             warnings=[],
@@ -3533,7 +3550,7 @@ async def download_generated_cv(
         db, generated_id, current_user, intent, surface, "docx", "generated"
     )
     return _build_docx_response(
-        docx_bytes=docx_bytes,
+        docx_bytes=await _with_client_panel_frame(db, row, docx_bytes, intent),
         filename=row.filename,
         candidate_name=row.candidate_name,
         warnings=[],

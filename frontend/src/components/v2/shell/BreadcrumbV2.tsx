@@ -18,6 +18,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   contacts: "Kontakty",
   contracts: "Kontrakty",
   wypis: "Wypis",
+  k: "Panel klienta",
   talents: "Talenty",
   analytics: "Analityka",
   reports: "Raporty",

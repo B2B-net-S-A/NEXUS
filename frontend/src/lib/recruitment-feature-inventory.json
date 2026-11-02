@@ -455,6 +455,14 @@
    "v3_home": "menu „⋯” → Pliki"
   },
   {
+   "id": "header.menu-client-panel",
+   "area": "naglowek",
+   "opis": "Panel klienta pod linkiem z CV: włącznik, link, dowody, sprawy od klienta (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-client-panel",
+   "v3_home": "menu „⋯” → Panel klienta"
+  },
+  {
    "id": "questions.bank",
    "area": "pytania",
    "opis": "Baza pytań: przypinanie, kolejność, oceny",
