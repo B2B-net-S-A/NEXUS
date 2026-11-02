@@ -25,22 +25,23 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/extension/connections": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/extension/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/extension/me": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/contacts": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/profile-pdf": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/candidates/{candidate_id}/refresh": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/connect": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/extension/connections/{key_id}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/extension/draft-message": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/lookup": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/extension/lookup-batch": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/extension/connections": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/extension/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/extension/me": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/contacts": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/jobs": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/profile-pdf": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/candidates/{candidate_id}/refresh": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/connect": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/extension/connections/{key_id}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/extension/draft-message": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/lookup": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/extension/lookup-batch": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

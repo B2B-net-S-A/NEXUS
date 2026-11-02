@@ -32,8 +32,8 @@ def termination_allows(contract, *, order_start, order_end) -> bool:
     aktywować. Zamówienie wychodzące poza tę datę wskrzesiłoby umowę
     (``sync_contract_to_live_order``, potem dobowy skaner), czyli mail cofnąłby
     decyzję człowieka — zostaje szkicem. Wypowiedziana umowa bez daty końca to
-    umowa przywrócona przez człowieka bezterminowo (``terminated_at`` nie jest
-    czyszczone przy przywróceniu) — wtedy wypowiedzenie już nie obowiązuje.
+    wiersz sprzed 02.11.2026, przywrócony bezterminowo bez czyszczenia
+    ``terminated_at`` — wtedy wypowiedzenie już nie obowiązuje.
     """
     if not contract_was_terminated(contract) or contract.end_date is None:
         return True

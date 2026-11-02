@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/hr/counts": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "GET /api/hr/counts": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

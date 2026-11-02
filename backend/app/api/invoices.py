@@ -15,6 +15,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.financial_access import FinanceManageUser, FinanceReadUser
+from app.api.permission_access import CompanyResultsUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.export_safety import safe_row
 from app.models.client import Client
@@ -243,9 +245,13 @@ async def create_invoice(
     return inv
 
 
-@router.get("/dso", response_model=List[DsoRow])
+@router.get(
+    "/dso",
+    response_model=List[DsoRow],
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def dso_by_client(
-    current_user: FinanceReadUser,
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Per-client Days Sales Outstanding aggregates (client-facing invoices).

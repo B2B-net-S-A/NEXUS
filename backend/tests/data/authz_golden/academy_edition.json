@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
+  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
  }
 }

@@ -619,7 +619,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
                         row.forward_mail_consent &&
                         forwardStillAhead(row.end_date) ? (
                           <Button size="sm" variant="quiet" onClick={() => setForwardOff(row)}>
-                            Wyłącz przekierowanie
+                            Wyłącz kopię poczty
                           </Button>
                         ) : null}
                         <Button
@@ -666,7 +666,7 @@ function LeaveHistory({ viewerIsHr }: { viewerIsHr: boolean }) {
         target={forwardOff}
         onClose={(done) => {
           setForwardOff(null);
-          if (done) showToast("Przekierowanie wyłączone — reguła zostanie zamknięta", "success");
+          if (done) showToast("Kopia poczty wyłączona, reguła zostanie zamknięta", "success");
         }}
       />
     </div>

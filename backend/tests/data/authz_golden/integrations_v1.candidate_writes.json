@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "POST /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

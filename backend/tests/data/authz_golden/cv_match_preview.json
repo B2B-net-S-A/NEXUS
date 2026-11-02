@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "POST /api/recommendations/cv-upload-preview": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "POST /api/recommendations/cv-upload-preview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

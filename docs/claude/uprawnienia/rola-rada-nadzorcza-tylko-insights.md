@@ -11,7 +11,7 @@ powodu. Powstała osobna rola `board`, na ekranie „Rada nadzorcza”.
   Raporty z rankingiem klientów i tabelami rok do roku z kwotami, mail
   `board_monthly_report`. „Mój miesiąc” nie (nie ma własnych KPI).
 - **Kwoty wpuszcza rola, nie uprawnienie.** `deps.BoardReader` =
-  „Moduł Finanse” albo rola `board`; `BoardTrendReader` dokłada `board`, a
+  „Wyniki firmy” (od 02.11.2026, wcześniej „Moduł Finanse”) albo rola `board`; `BoardTrendReader` dokłada `board`, a
   redakcję kwot decyduje `action_permissions.reads_board_money` (HoR dalej bez
   kwot). Rada **nie** ma `VIEW_FINANCE` ani `VIEW_EXECUTIVE` — te capability
   otwierają stawki konsultantów na 40+ trasach poza Insights. Nie dokładaj

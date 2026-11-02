@@ -571,7 +571,7 @@ def approver_cancel_refusal(
 
 
 FORWARD_OUTSIDE_COMPANY = (
-    "Przekierowanie poczty działa tylko na adres w domenie firmy — "
+    "Kopia poczty działa tylko na adres w domenie firmy — "
     "wybrany zastępca ma adres spoza niej."
 )
 

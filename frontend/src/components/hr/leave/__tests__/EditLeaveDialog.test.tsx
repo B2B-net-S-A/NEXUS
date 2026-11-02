@@ -73,7 +73,7 @@ describe("EditLeaveDialog", () => {
     const onClose = renderDialog(ROW);
     const save = await screen.findByRole("button", { name: "Zapisz zmiany" });
     expect(save).toBeDisabled(); // bez zmian nie ma czego zapisać
-    expect(screen.getByText(/inny zastępca albo jego brak wyłączy przekierowanie/)).toBeInTheDocument();
+    expect(screen.getByText(/inny zastępca albo jego brak wyłączy kopię/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Do"), { target: { value: "2026-11-04" } });
     await userEvent.click(save);

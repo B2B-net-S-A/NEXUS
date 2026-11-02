@@ -1535,8 +1535,8 @@ export default function ContractDetailPage() {
             {!editing &&
               ((contract.status === "ended" && contract.termination_reason) ||
                 // `end_date` odróżnia zakończenie zaplanowane od umowy
-                // przywróconej: wskrzeszenie zostawia `terminated_at`, ale
-                // czyści datę końca (umowa znów bezterminowa).
+                // przywróconej przed 02.11.2026: tamte niosą `terminated_at`
+                // bez daty końca (umowa znów bezterminowa).
                 (contract.terminated_at && contract.end_date)) && (
               <div className="rounded-lg border border-destructive/20 bg-destructive-muted p-4">
                 <h2 className="text-sm font-semibold text-destructive-muted-foreground mb-2">

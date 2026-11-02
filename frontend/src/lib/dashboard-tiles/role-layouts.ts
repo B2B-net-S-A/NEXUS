@@ -37,7 +37,6 @@ const ROLE_LAYOUTS: Partial<Record<UserRole, Entry[]>> = {
   finance: [
     { key: "orders_ending", w: 6, h: 4 },
     { key: "active_contracts", w: 6, h: 2 },
-    { key: "margin_monthly", w: 12, h: 3 },
   ],
   head_of_recruitment: [
     { key: "team_results", w: 8, h: 6 },

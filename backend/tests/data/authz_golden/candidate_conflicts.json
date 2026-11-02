@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
-  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/conflicts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PATCH /api/conflicts/{conflict_id}/deactivate": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
+  "POST /api/candidates/{candidate_id}/conflicts": "PDDPDDDDPPPDDDDDDDDDDDDDDDD"
  }
 }

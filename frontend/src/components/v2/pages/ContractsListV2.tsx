@@ -592,13 +592,15 @@ export function ContractsListV2({
 }: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
  const impersonating = useAuthStore((state) => state.realUser !== null);
- // Analityka i raport „Kontrakty bez zamówienia" = uprawnienie „Moduł
- // Finanse" (strona i trasa raportu pytają o to samo).
- const canSeeContractAnalytics = hasPermission(user, "finance_module");
+ // Analityka = zbiorcze kwoty firmy: uprawnienie „Wyniki firmy” (02.11.2026).
+ const canSeeContractAnalytics = hasPermission(user, "company_results");
+ // Raport „Kontrakty bez zamówienia" = uprawnienie „Moduł Finanse" (strona
+ // i trasa raportu pytają o to samo).
+ const canSeeOrderlessReport = hasPermission(user, "finance_module");
  // Eksport = trasa `FinanceReadUser`, czyli capability `view_finance`, którą
  // backend wyprowadza z „Modułu Finanse".
  const canExport =
- canSeeContractAnalytics || hasAnalyticsCapability(user, "view_finance");
+ canSeeOrderlessReport || hasAnalyticsCapability(user, "view_finance");
  // Kolumny stawek widzi też posiadacz „Stawki i kwoty: podgląd" — kwoty
  // klientów spoza jego zakresu serwer i tak redaguje wiersz po wierszu.
  const canSeeFinance = canExport || hasPermission(user, "amounts_view");
@@ -1140,7 +1142,7 @@ export function ContractsListV2({
  >
  Placementy (.xlsx)
  </button>
- {canSeeContractAnalytics && (
+ {canSeeOrderlessReport && (
  <>
  <div className="my-1 h-px bg-border" aria-hidden="true" />
  <button

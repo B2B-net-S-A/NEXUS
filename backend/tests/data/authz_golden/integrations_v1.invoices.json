@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/dso": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "PATCH /api/integrations/v1/invoices/{invoice_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/invoices/{invoice_id}/cancel": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

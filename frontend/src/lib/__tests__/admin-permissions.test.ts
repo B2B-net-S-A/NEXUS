@@ -8,23 +8,27 @@ import {
 import {
   changedRows,
   changesCountLabel,
-  extraPermissionRows,
   extraPermissionsLabel,
   extraPermissionsTitle,
   grantableRoles,
+  grantedByRoles,
   grantedPermissions,
   legacyLimits,
   logoutSentence,
   peopleCountLabel,
   permissionsOfRoles,
+  personPermissionRows,
   requiredByCaption,
   rolePermissionChanges,
   rolePermissionGroups,
   rolesAcceptGrants,
+  setPersonPermission,
   snapshotIsUsable,
+  storedPersonOverrides,
   togglePermission,
   userPermissionsSave,
   type AdminPermissionsSnapshot,
+  type PersonOverride,
 } from "@/lib/admin-permissions";
 import { closePermissions, PERMISSION_KEYS, type Permission } from "@/lib/permissions";
 
@@ -82,6 +86,7 @@ describe("przełączniki roli", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      "Wyniki firmy: podsumowania przychodu i marży",
     ]);
   });
 
@@ -166,6 +171,7 @@ describe("przełączniki roli", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "company_results",
     ];
     const subsets = Array.from({ length: 2 ** keys.length }, (_, mask) =>
       keys.filter((_key, index) => mask & (1 << index)),
@@ -241,7 +247,7 @@ describe("zdania ekranu", () => {
   });
 });
 
-describe("dodatkowe uprawnienia osoby", () => {
+describe("uprawnienia jednej osoby", () => {
   const tcm = ["talent_community_manager"];
 
   it("nadanie przyjmują tylko konta, których każda rola jest do nadania", () => {
@@ -269,193 +275,265 @@ describe("dodatkowe uprawnienia osoby", () => {
     ]);
   });
 
-  it("lista pokazuje wyłącznie to, czego role nie dają", () => {
-    const rows = extraPermissionRows(snapshot, permissionsOfRoles(snapshot, tcm), new Set());
-    expect(rows.map((row) => row.key)).toEqual([
-      "clients_edit",
-      "contracts_orders_edit",
-      "recruitment_manage",
-      "amounts_view",
-      "amounts_edit",
-      "finance_module",
-      "people_admin",
-      "payroll",
-      "equipment",
-      "timesheets",
-      "sales_view",
-      "sales_edit",
+  const overrides = (entries: Partial<Record<Permission, PersonOverride>>) =>
+    new Map(Object.entries(entries) as [Permission, PersonOverride][]);
+  const rowOf = (rows: ReturnType<typeof personPermissionRows>, key: Permission) => {
+    const row = rows.find((candidate) => candidate.key === key);
+    if (!row) throw new Error(`brak wiersza ${key}`);
+    return row;
+  };
+
+  it("lista to cały katalog w kolejności grup, z tym, co daje rola", () => {
+    const rows = personPermissionRows(snapshot, grantedByRoles(snapshot, tcm), new Map());
+    expect(rows.map((row) => row.key)).toEqual(
+      snapshot.permission_groups.flatMap((group) => group.permissions),
+    );
+    expect(rows).toHaveLength(17);
+    expect(rows.filter((row) => row.fromRole).map((row) => row.key)).toEqual([
+      "delivery_view",
+      "contract_status",
+      "b2b_signature_confirmation",
+      "cases",
     ]);
-    expect(rows.every((row) => !row.checked)).toBe(true);
+    expect(rows.every((row) => row.on === row.fromRole)).toBe(true);
     // Wyłączony program „Ludzie w NEXUSIE” (18.10.2026): bez grupy „people”.
-    const hidden = extraPermissionRows(
+    const hidden = personPermissionRows(
       snapshot,
-      permissionsOfRoles(snapshot, tcm),
-      new Set(),
+      grantedByRoles(snapshot, tcm),
+      new Map(),
       new Set(["people"]),
     );
-    expect(hidden.map((row) => row.key)).toEqual([
-      "clients_edit",
-      "contracts_orders_edit",
-      "recruitment_manage",
-      "amounts_view",
-      "amounts_edit",
-      "finance_module",
-      "sales_view",
-      "sales_edit",
-    ]);
-    // Delivery Lead dostaje z roli prawie wszystko z Delivery i pieniędzy —
-    // zostają dwie pozycje plus pięć z grupy „Ludzie”.
-    expect(
-      extraPermissionRows(
-        snapshot,
-        permissionsOfRoles(snapshot, ["delivery_lead"]),
-        new Set(),
-      ).map((row) => row.key),
-    ).toEqual([
-      "amounts_edit",
-      "finance_module",
-      "people_admin",
-      "payroll",
-      "equipment",
-      "cases",
-      "timesheets",
-      "sales_view",
-      "sales_edit",
-    ]);
+    expect(hidden).toHaveLength(12);
+    expect(hidden.map((row) => row.key)).not.toContain("cases");
   });
 
-  it("uprawnienie wymagane przez zaznaczone jest zaznaczone i zablokowane", () => {
-    const rows = extraPermissionRows(
+  it("nadanie włącza wiersz i blokuje to, czego wymaga", () => {
+    const rows = personPermissionRows(
       snapshot,
-      permissionsOfRoles(snapshot, tcm),
-      new Set<Permission>(["finance_module"]),
+      grantedByRoles(snapshot, tcm),
+      overrides({ finance_module: "manage" }),
     );
-    expect(rows.find((row) => row.key === "amounts_view")).toMatchObject({
-      checked: true,
+    expect(rowOf(rows, "finance_module")).toMatchObject({ on: true, fromRole: false });
+    expect(rowOf(rows, "amounts_view")).toMatchObject({
+      on: true,
+      fromRole: false,
       requiredBy: ["finance_module"],
     });
-    expect(rows.find((row) => row.key === "amounts_edit")).toMatchObject({
-      checked: false,
+    expect(rowOf(rows, "amounts_edit")).toMatchObject({ on: false, requiredBy: [] });
+  });
+
+  it("odebranie wyłącza wiersz z roli, a wymagane zostaje zablokowane do końca", () => {
+    const granted = grantedByRoles(snapshot, ["finance"]);
+    const before = personPermissionRows(snapshot, granted, new Map());
+    expect(rowOf(before, "amounts_view")).toMatchObject({
+      on: true,
+      fromRole: true,
+      requiredBy: ["amounts_edit", "finance_module"],
+    });
+
+    const one = personPermissionRows(
+      snapshot,
+      granted,
+      overrides({ finance_module: "none" }),
+    );
+    expect(rowOf(one, "finance_module")).toMatchObject({ on: false, fromRole: true });
+    expect(rowOf(one, "amounts_view").requiredBy).toEqual(["amounts_edit"]);
+
+    const both = personPermissionRows(
+      snapshot,
+      granted,
+      overrides({ finance_module: "none", amounts_edit: "none" }),
+    );
+    expect(rowOf(both, "amounts_view")).toMatchObject({ on: true, requiredBy: [] });
+  });
+
+  it("uprawnienie tylko wynikające z roli znika razem z tym, co je wymuszało", () => {
+    // Rola z samą „zmianą kwot”: podgląd ma tylko przez zależność — tak jak
+    // liczy to resolver, odebranie zmiany zabiera też podgląd.
+    const custom = permissionsSnapshot({
+      roles: [roleEntry("recruiter", ["amounts_edit"])],
+    });
+    const granted = grantedByRoles(custom, ["recruiter"]);
+    expect(rowOf(personPermissionRows(custom, granted, new Map()), "amounts_view")).toMatchObject({
+      on: true,
+      fromRole: true,
+      requiredBy: ["amounts_edit"],
+    });
+
+    const revoked = overrides({ amounts_edit: "none" });
+    expect(rowOf(personPermissionRows(custom, granted, revoked), "amounts_view")).toMatchObject({
+      on: false,
+      fromRole: true,
       requiredBy: [],
     });
+    // Powrót na „Z roli” musi je nadać, bo rola nie ma tego wiersza.
+    expect(setPersonPermission(revoked, granted, "amounts_view", true).get("amounts_view")).toBe(
+      "manage",
+    );
   });
+
+  it("wyjątek powstaje tylko wtedy, gdy wybór różni się od wierszy ról", () => {
+    const granted = grantedByRoles(snapshot, tcm);
+    expect(setPersonPermission(new Map(), granted, "contract_status", false)).toEqual(
+      overrides({ contract_status: "none" }),
+    );
+    expect(
+      setPersonPermission(overrides({ contract_status: "none" }), granted, "contract_status", true),
+    ).toEqual(new Map());
+    expect(setPersonPermission(new Map(), granted, "clients_edit", true)).toEqual(
+      overrides({ clients_edit: "manage" }),
+    );
+    expect(
+      setPersonPermission(overrides({ clients_edit: "manage" }), granted, "clients_edit", false),
+    ).toEqual(new Map());
+  });
+
+  it("zapisane nadania i odebrania czyta z odpowiedzi serwera", () => {
+    expect(
+      storedPersonOverrides(
+        userPermissionsResponse({ grants: ["clients_edit"], restrictions: ["contract_status"] })
+          .user,
+      ),
+    ).toEqual(overrides({ clients_edit: "manage", contract_status: "none" }));
+  });
+
+  const save = (
+    response: ReturnType<typeof userPermissionsResponse>,
+    draft: ReadonlyMap<Permission, PersonOverride>,
+    {
+      roles = tcm,
+      rolesChanged = false,
+      removeLegacy = false,
+    }: { roles?: string[]; rolesChanged?: boolean; removeLegacy?: boolean } = {},
+  ) =>
+    userPermissionsSave({
+      response,
+      draft,
+      roleGranted: grantedByRoles(snapshot, roles),
+      rolesChanged,
+      removeLegacy,
+    });
 
   it("nic nie wysyła, gdy administrator niczego nie ruszył", () => {
-    const response = userPermissionsResponse({ grants: ["contracts_orders_edit"] });
-    expect(
-      userPermissionsSave({
-        response,
-        draft: new Set<Permission>(["contracts_orders_edit"]),
-        roleGiven: permissionsOfRoles(snapshot, tcm),
-        rolesChanged: false,
-        removeLegacy: false,
-      }),
-    ).toBeNull();
+    const response = userPermissionsResponse({
+      grants: ["contracts_orders_edit"],
+      restrictions: ["contract_status"],
+    });
+    expect(save(response, storedPersonOverrides(response.user))).toBeNull();
   });
 
-  it("zbędne nadanie nie wylogowuje osoby przy zwykłej poprawce konta", () => {
-    // Rola dostała to uprawnienie już po nadaniu go osobie — porządki
-    // poczekają na zapis, w którym administrator naprawdę coś zmienia.
-    const response = userPermissionsResponse({ grants: ["contract_status"] });
+  it("zbędne wyjątki nie wylogowują osoby przy zwykłej poprawce konta", () => {
+    // Rola dostała to uprawnienie już po nadaniu; odebrane, którego rola nie
+    // daje; odebrane, które i tak trzyma zależność. Porządki poczekają na zapis,
+    // w którym administrator naprawdę coś zmienia.
+    const response = userPermissionsResponse({
+      grants: ["contract_status"],
+      restrictions: ["clients_edit"],
+    });
+    expect(save(response, storedPersonOverrides(response.user))).toBeNull();
+    const held = userPermissionsResponse({ roles: ["finance"], restrictions: ["amounts_view"] });
     expect(
-      userPermissionsSave({
-        response,
-        draft: new Set<Permission>(["contract_status"]),
-        roleGiven: permissionsOfRoles(snapshot, tcm),
-        rolesChanged: false,
-        removeLegacy: false,
-      }),
+      save(held, storedPersonOverrides(held.user), { roles: ["finance"] }),
     ).toBeNull();
+    // Przełączenie tam i z powrotem to też brak zmiany.
+    const granted = grantedByRoles(snapshot, tcm);
+    const stale = userPermissionsResponse({ restrictions: ["clients_edit"] });
+    const back = setPersonPermission(
+      setPersonPermission(storedPersonOverrides(stale.user), granted, "clients_edit", true),
+      granted,
+      "clients_edit",
+      false,
+    );
+    expect(save(stale, back)).toBeNull();
   });
 
-  it("zaznaczenie wysyła „manage”, odznaczenie „inherit”, z rewizją odczytu", () => {
-    const response = userPermissionsResponse({ grants: ["contracts_orders_edit"] }, 31);
+  it("wysyła „manage”, „none” albo „inherit”, z rewizją odczytu", () => {
+    const response = userPermissionsResponse(
+      { grants: ["contracts_orders_edit"], restrictions: ["cases"] },
+      31,
+    );
     expect(
-      userPermissionsSave({
-        response,
-        draft: new Set<Permission>(["clients_edit"]),
-        roleGiven: permissionsOfRoles(snapshot, tcm),
-        rolesChanged: false,
-        removeLegacy: false,
-      }),
+      save(response, overrides({ clients_edit: "manage", contract_status: "none" })),
     ).toEqual({
       revision: 31,
       changes: [],
       actionChanges: [
         { action: "clients_edit", access: "manage" },
         { action: "contracts_orders_edit", access: "inherit" },
+        { action: "contract_status", access: "none" },
+        { action: "cases", access: "inherit" },
       ],
     });
   });
 
-  it("nadanie, które dają nowo wybrane role, wraca do „inherit”", () => {
-    const response = userPermissionsResponse({
-      grants: ["contracts_orders_edit", "finance_module"],
-    });
+  it("odebrane, którego wymaga zachowane z tego samego okna, nie idzie na serwer", () => {
+    // Administrator odebrał zmianę i podgląd kwot, potem przywrócił zmianę:
+    // podgląd jest znów włączony i zablokowany, a serwer odmówiłby zapisu.
+    const response = userPermissionsResponse({ roles: ["finance"] });
     expect(
-      userPermissionsSave({
-        response,
-        draft: new Set<Permission>(["contracts_orders_edit", "finance_module"]),
-        roleGiven: permissionsOfRoles(snapshot, ["delivery_lead"]),
-        rolesChanged: true,
-        removeLegacy: false,
+      save(response, overrides({ amounts_view: "none", finance_module: "none" }), {
+        roles: ["finance"],
       }),
     ).toEqual({
       revision: 12,
       changes: [],
-      actionChanges: [{ action: "contracts_orders_edit", access: "inherit" }],
+      actionChanges: [{ action: "finance_module", access: "none" }],
     });
   });
 
-  it("zmiana ról bez zbędnych nadań niczego nie wysyła", () => {
+  it("wyjątek, który po zmianie ról niczego nie zmienia, wraca do „inherit”", () => {
+    const response = userPermissionsResponse({
+      grants: ["contracts_orders_edit", "finance_module"],
+      restrictions: ["cases"],
+    });
+    // Delivery Lead daje kontrakty, a nie daje „Spraw”, więc odebrania nie ma czego trzymać.
+    expect(
+      save(response, storedPersonOverrides(response.user), {
+        roles: ["delivery_lead"],
+        rolesChanged: true,
+      }),
+    ).toEqual({
+      revision: 12,
+      changes: [],
+      actionChanges: [
+        { action: "contracts_orders_edit", access: "inherit" },
+        { action: "cases", access: "inherit" },
+      ],
+    });
+  });
+
+  it("zmiana ról bez zbędnych wyjątków niczego nie wysyła", () => {
     const response = userPermissionsResponse({ grants: ["finance_module"] });
     expect(
-      userPermissionsSave({
-        response,
-        draft: new Set<Permission>(["finance_module"]),
-        roleGiven: permissionsOfRoles(snapshot, ["delivery_lead"]),
+      save(response, storedPersonOverrides(response.user), {
+        roles: ["delivery_lead"],
         rolesChanged: true,
-        removeLegacy: false,
       }),
     ).toBeNull();
   });
 
-  it("stare ograniczenia: nazywa je i usuwa przez „inherit”, bez dubli", () => {
+  it("stare limity sekcji: nazywa je i usuwa przez „inherit”, odebrane zostają", () => {
     const response = userPermissionsResponse({
-      restrictions: ["contract_status", "clients_edit"],
+      restrictions: ["contract_status"],
       legacy_section_caps: { delivery: "read", finance: "none" },
     });
     expect(legacyLimits(response.user)).toEqual([
-      "bez uprawnienia „Zakończenie współpracy, zmiana statusu kontraktu”",
-      "bez uprawnienia „Klienci: dodawanie i edycja”",
       "Delivery: tylko odczyt",
       "Finanse: brak dostępu",
     ]);
-    expect(legacyLimits(userPermissionsResponse().user)).toEqual([]);
+    expect(legacyLimits(userPermissionsResponse({ restrictions: ["cases"] }).user)).toEqual([]);
 
-    expect(
-      userPermissionsSave({
-        response,
-        // Administrator jednocześnie nadaje uprawnienie, które było odebrane.
-        draft: new Set<Permission>(["clients_edit"]),
-        roleGiven: permissionsOfRoles(snapshot, tcm),
-        rolesChanged: false,
-        removeLegacy: true,
-      }),
-    ).toEqual({
+    expect(save(response, storedPersonOverrides(response.user), { removeLegacy: true })).toEqual({
       revision: 12,
       changes: [
         { section: "delivery", access: "inherit" },
         { section: "finance", access: "inherit" },
       ],
-      actionChanges: [
-        { action: "clients_edit", access: "manage" },
-        { action: "contract_status", access: "inherit" },
-      ],
+      actionChanges: [],
     });
   });
 
-  it("zna wszystkie szesnaście uprawnień (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(16);
+  it("zna wszystkie siedemnaście uprawnień (dziesięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(17);
   });
 });

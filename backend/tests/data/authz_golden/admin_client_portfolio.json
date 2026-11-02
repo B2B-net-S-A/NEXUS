@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
+  "GET /api/admin/client-portfolio/import-preview": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
+  "GET /api/admin/client-portfolio/import-runs/{run_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDD"
  }
 }

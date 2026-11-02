@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}/override": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "PUT /api/candidates/{candidate_id}/identity-quarantine/{source_kind}/{source_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

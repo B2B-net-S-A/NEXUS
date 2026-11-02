@@ -100,8 +100,8 @@ export const M365_KIND_LABELS: Record<M365OperationKind, string> = {
   clear_oof: "Zdjęcie autoodpowiedzi",
   calendar_event_upsert: "Wydarzenie „Poza biurem”",
   calendar_event_delete: "Usunięcie wydarzenia",
-  forward_rule_open: "Przekierowanie poczty",
-  forward_rule_close: "Zamknięcie przekierowania",
+  forward_rule_open: "Kopia poczty do zastępcy",
+  forward_rule_close: "Zamknięcie kopii poczty",
 };
 
 const REASON_LABELS: Record<string, string> = {
