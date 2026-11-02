@@ -227,22 +227,23 @@ def _with_policy(role: UserRole, *permissions: str, insights: str = "read") -> U
     return user
 
 
-def test_board_report_never_goes_to_head_of_recruitment() -> None:
-    """Mail zarządu niesie przychód i marżę — HoR ich nie widzi (24.09.2026).
+def test_board_report_goes_only_to_the_board_and_admins() -> None:
+    """Zbiorczy przychód i marża firmy: tylko Rada i admin (decyzja Artura 02.11.2026).
 
-    Odbiorców wyznacza uprawnienie „Moduł Finanse”, nie lista ról: sama rola
-    Head of Recruitment (z pełnym Insights) nie wystarcza, a konto, któremu
-    admin nadał to uprawnienie, raport dostaje.
+    Finanse pracują na pojedynczych kontraktach, więc ani rola Finanse, ani
+    uprawnienie „Moduł Finanse” nadane osobie nie otwierają tego maila.
     """
+    board = _with_policy(UserRole.board)
+    admin = _with_policy(UserRole.admin, "finance_module", insights="write")
     finance = _with_policy(UserRole.finance, "finance_module")
     hor = _with_policy(UserRole.head_of_recruitment, insights="write")
     hor_with_grant = _with_policy(
         UserRole.head_of_recruitment, "finance_module", insights="write"
     )
 
-    assert reports._board_readers([finance, hor, hor_with_grant]) == [
-        finance,
-        hor_with_grant,
+    assert reports._board_readers([board, admin, finance, hor, hor_with_grant]) == [
+        board,
+        admin,
     ]
 
 

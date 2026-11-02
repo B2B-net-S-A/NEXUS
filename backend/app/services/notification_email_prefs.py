@@ -40,7 +40,7 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import (
     ProductAction,
     has_permission,
-    reads_board_money,
+    receives_company_results,
 )
 from app.services.hr.modules import load_modules, module_open_for
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
@@ -285,8 +285,10 @@ def _hire_documents(user: User, _: _Context) -> bool:
 
 
 def _board_monthly(user: User, _: _Context) -> bool:
-    # Lustro odbiorców `kpi_email_reports._board_readers` (rola Rada też).
-    return reads_board_money(user) and _section_read(user, ProductSection.insights)
+    # Lustro odbiorców `kpi_email_reports._board_readers`.
+    return receives_company_results(user) and _section_read(
+        user, ProductSection.insights
+    )
 
 
 def _board_placement(user: User, _: _Context) -> bool:

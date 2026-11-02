@@ -30,7 +30,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
   a HoR dostaje odpowiedź przez `without_money` (bez metryk `pln`,
   `margin_pct` i kwot w `component_series`, `money_redacted: true`). Mail
-  zarządu (`kpi_email_reports._BOARD_ROLES`) idzie tylko do admina i Finansów.
+  zarządu idzie tylko do Rady i adminów, bez Finansów (zmiana 02.11.2026:
+  `uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`).
   `/api/competitions/monthly-races` nie oddaje marży/h z rozstrzygania remisu
   (`_MARGIN_EXTRAS`) — do 24.09 widział ją każdy zalogowany.
 - **Tabele osób bez kont administracyjnych** (24.09.2026): Zespół → Ludzie,
