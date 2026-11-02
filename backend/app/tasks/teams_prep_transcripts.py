@@ -18,6 +18,7 @@ from app.services import loop_heartbeat
 from app.services import prep_meetings, prep_responses
 from app.services.prep_transcripts import run_once
 from app.services.followup_meetings import fetch_due as fetch_followup_transcripts
+from app.services.sales import meeting_transcripts as sales_transcripts
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,14 @@ async def teams_prep_transcripts_loop() -> None:
     )
     while True:
         beat.tick()
+        try:
+            if sales_transcripts.enabled():
+                async with AsyncSessionLocal() as db:
+                    await sales_transcripts.run_once(db)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("sales_transcripts: run failed; next tick retries")
         try:
             if settings.TEAMS_PREP_TRANSCRIPTS_ENABLED:
                 async with AsyncSessionLocal() as db:

@@ -334,6 +334,7 @@ async def _upload(
     from app.api import cv_generator_b2b as api
     from app.api import champion_intake as champion_api
     from app.models.user import User, UserRole
+    from app.services import job_public_profile as public_profile
     from app.services.cv_generator_b2b import durable_jobs
 
     monkeypatch.setattr(policies.settings, "CV_CENTRAL_POLICIES_ENABLED", True)
@@ -363,6 +364,12 @@ async def _upload(
         return _central_rule(client_id)
 
     monkeypatch.setattr(api, "resolve_client_rule", rule)
+
+    async def no_names(_db, _client_id):
+        return []
+
+    # Stanowisko z rekrutacji liczy `cv_role_title_for_job`; `db` to tu atrapa.
+    monkeypatch.setattr(public_profile, "_client_names", no_names)
 
     async def no_preview(*args, **kwargs):
         raise HTTPException(503, "model unavailable")
@@ -430,6 +437,7 @@ async def test_upload_client_cap_wins_over_the_uploaded_champion(monkeypatch):
         stage=True,
     )
     assert payload.content_mode == "basic"
+    assert payload.position == "QA"
 
 
 @pytest.mark.asyncio

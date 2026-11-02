@@ -11,7 +11,7 @@ Postgresa, ani async. Commit 3: testy behawioru wpiętego w zapis Championa
 from __future__ import annotations
 
 import uuid
-from datetime import date, timedelta
+from datetime import date, time, timedelta
 
 from httpx import AsyncClient
 
@@ -682,3 +682,80 @@ async def test_deadline_typed_in_the_champion_editor_closes_the_term_gap(
         job = await db.get(Job, job_id)
         assert job.deadline == upcoming
         assert job.deadline_not_provided is False
+
+
+# ── Godzina „Deadline na kandydatów” → `jobs.deadline_time` (02.11.2026) ─────
+#
+# Delivery Lead wpisuje w Championie termin na rekomendacje z godziną. Godzina
+# należy do daty: nowa data bez godziny nie dziedziczy starej.
+
+
+def test_edited_champion_deadline_carries_its_time():
+    job = Job()
+    changed = _edit_deadline(
+        job,
+        {"deadline": None},
+        {"deadline": "2026-11-15", "deadline_time": "12:30"},
+    )
+    assert set(changed) == {"deadline", "deadline_time"}
+    assert job.deadline == date(2026, 11, 15)
+    assert job.deadline_time == time(12, 30)
+
+
+def test_new_champion_deadline_without_time_drops_the_old_time():
+    job = Job()
+    job.deadline = date(2026, 10, 20)
+    job.deadline_time = time(16, 0)
+    _edit_deadline(job, {"deadline": "2026-10-20"}, {"deadline": "2026-11-15"})
+    assert job.deadline == date(2026, 11, 15)
+    assert job.deadline_time is None
+
+
+def test_champion_time_alone_changes_only_on_the_same_day():
+    job = Job()
+    job.deadline = date(2026, 11, 15)
+    same_day = {"deadline": "2026-11-15"}
+    assert _edit_deadline(job, same_day, {**same_day, "deadline_time": "09:15"}) == [
+        "deadline_time"
+    ]
+    assert job.deadline_time == time(9, 15)
+    # Wyczyszczona godzina schodzi z rekrutacji, data zostaje.
+    _edit_deadline(
+        job,
+        {**same_day, "deadline_time": "09:15"},
+        {**same_day, "deadline_time": None},
+    )
+    assert job.deadline_time is None
+    assert job.deadline == date(2026, 11, 15)
+
+
+def test_champion_time_for_another_day_does_not_touch_the_term():
+    job = Job()
+    job.deadline = date(2026, 12, 1)
+    job.deadline_time = time(16, 0)
+    stale = {"deadline": "2026-11-15"}
+    assert _edit_deadline(job, stale, {**stale, "deadline_time": "09:15"}) == []
+    assert job.deadline_time == time(16, 0)
+
+
+def test_champion_time_stays_in_the_profile_without_full_job_edit():
+    job = Job()
+    job.deadline = date(2026, 11, 15)
+    same_day = {"deadline": "2026-11-15"}
+    assert (
+        overwrite_edited_job_columns(
+            job, same_day, {**same_day, "deadline_time": "09:15"}
+        )
+        == []
+    )
+    assert job.deadline_time is None
+
+
+def test_fill_empty_takes_the_champion_time_with_the_date():
+    job = Job()
+    upcoming = (business_today() + timedelta(days=7)).isoformat()
+    filled = fill_job_columns_from_champion(
+        job, {"deadline": upcoming, "deadline_time": "12:30"}, set_deadline=True
+    )
+    assert filled == ["deadline"]
+    assert job.deadline_time == time(12, 30)

@@ -22,6 +22,8 @@ const FIELD_LABELS: Record<string, string> = {
   owner_user_id: "Opiekun",
   expected_close_date: "Planowane zamknięcie",
   company_id: "Firma",
+  decision_map: "Mapa decyzyjna",
+  decision_map_contact: "Kontakt uzupełniony z mapy",
 };
 const STATUS_WORDS: Record<string, string> = {
   open: "otwarta",

@@ -388,3 +388,45 @@ describe("EditJobModal — status bez szkiców (04.10.2026)", () => {
   });
 });
 
+
+describe("EditJobModal — godzina terminu", () => {
+  const timedJob = { ...job, deadline: "2026-11-15", deadline_time: "12:30:00" };
+
+  function renderTimed(value: Record<string, unknown>) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={qc}>
+        <EditJobModal job={value} onClose={() => {}} onSuccess={() => {}} scope="full" />
+      </QueryClientProvider>,
+    );
+  }
+
+  async function savedPatch() {
+    await userEvent.click(screen.getByRole("button", { name: "Zapisz zmiany" }));
+    await waitFor(() => expect(api.patch).toHaveBeenCalled());
+    return vi.mocked(api.patch).mock.calls[0][1] as Record<string, unknown>;
+  }
+
+  it("pokazuje zapisaną godzinę i wysyła ją razem z datą", async () => {
+    renderTimed(timedJob);
+    expect(screen.getByLabelText("Godzina terminu")).toHaveValue("12:30");
+    const body = await savedPatch();
+    expect(body.deadline).toBe("2026-11-15");
+    expect(body.deadline_time).toBe("12:30");
+  });
+
+  it("wyczyszczona godzina schodzi z rekrutacji, data zostaje", async () => {
+    renderTimed(timedJob);
+    await userEvent.clear(screen.getByLabelText("Godzina terminu"));
+    const body = await savedPatch();
+    expect(body.deadline).toBe("2026-11-15");
+    expect(body.deadline_time).toBeNull();
+  });
+
+  it("bez daty godzina jest zablokowana i nie jedzie w zapisie", async () => {
+    renderTimed(job);
+    expect(screen.getByLabelText("Godzina terminu")).toBeDisabled();
+    const body = await savedPatch();
+    expect(body).not.toHaveProperty("deadline_time");
+  });
+});

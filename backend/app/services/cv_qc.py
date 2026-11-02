@@ -2314,20 +2314,16 @@ async def expected_titles(
     """Nagłówki, które QC uznaje: rola od klienta bez kodów i dopisków (ta sama
     funkcja, z której pisze generator) oraz nagłówek wpisany przez generator
     albo rekrutera."""
-    from app.services.job_public_profile import _client_names
-    from app.services.job_working_title import cv_role_title
+    from app.services.job_working_title import cv_role_title_for_job, is_service_title
 
     out: list[str] = []
-    role = cv_role_title(
-        src.job.title,
-        getattr(src.job, "client_reference", None),
-        await _client_names(db, src.job.client_id),
-    )
+    role = await cv_role_title_for_job(db, src.job)
     if role:
         out.append(role)
     header = str((payload or {}).get("presentation_position") or "").strip()
     # 21.10.2026: nagłówek „(43020)” nie jest rolą — nie potwierdza sam siebie.
-    if not _HAS_LETTER.search(header):
+    # 02.11.2026: „usługi programistyczne” (PKO) też nie.
+    if not _HAS_LETTER.search(header) or is_service_title(header):
         header = ""
     if header and header.casefold() not in {t.casefold() for t in out}:
         out.append(header)

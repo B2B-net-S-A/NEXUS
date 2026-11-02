@@ -1,5 +1,5 @@
 # Sprzedaż w NEXUSIE (Atlas → NEXUS) — decyzje Artura 26–27.10.2026 i reguły modułu
-<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, cele i KPI tygodniowe (oferty = etap) -->
+<!-- indeks: sales_view/sales_edit, kartoteka firm osobna od clients, „Kogo znamy” z pełnym profilem, daty per firma, powiązanie z klientem zamiast automatu, leady bez silnika, import Atlasa, edycja osób na mapie decyzyjnej, cele i KPI tygodniowe (oferty = etap) -->
 
 Sekcja „Sprzedaż” zastępuje CRM Atlasa (D1 = budowa w NEXUSIE od nowa
 i import danych). Propozycja z makietami M0–M4:
@@ -54,7 +54,7 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   etapu/opiekuna/firmy; nazwy dokłada odczyt `GET …/{id}/history`). Każda nowa
   ścieżka, która zmienia szansę, woła `services/sales/history.py`
   (`record_created`, `snapshot` + `record_changes`, `record`); dziś: założenie,
-  zamiana leada, `/move`, PATCH, archiwum, przywrócenie, scalenie firm.
+  zamiana leada, `/move`, PATCH, archiwum, przywrócenie, scalenie firm, mapa decyzyjna.
   **Import z Atlasa nie zapisuje zdarzeń** — historia zaczyna się od pracy
   w NEXUSIE. Wejście na etap to `field = 'stage_id'` (także `kind='created'`);
   z tego samego źródła liczy się KPI ofert — nie zakładaj drugiej tabeli etapów.
@@ -119,9 +119,43 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 - **Leady z job boardów** (silnik odrzucony 27.10) nie są importowane.
 - **Historia bez utraty**: transkrypcje Fireflies przy szansach jako
   spotkania, oferty jako pliki w folderze „Oferty (Atlas)”, daty plików ze
-  źródła. Sales Motion (mapa decyzyjna, proces zakupowy) i produkty — tylko
-  odczyt na karcie szansy; edytor dopiero na prośbę zespołu.
+  źródła. Proces zakupowy i produkty — tylko odczyt na karcie szansy; osoby na
+  mapie decyzyjnej edytuje handlowiec (sekcja niżej).
 - **Scalanie firm** przenosi wszystko i archiwizuje źródło (nic nie kasuje).
+
+## Mapa decyzyjna: edycja osób (decyzja Artura 02.11.2026)
+
+Handlowcy zgłosili po przejściu z Atlasa, że na mapie brakuje notatek i kontaktu
+i nie mają jak tego uzupełnić. Propozycja z makietami:
+https://claude.ai/artifact/M6mS1dYC9DwcPe3BDBEv7j.
+
+- **Okno, nie wiersz** (`DecisionPersonDialog`, jak „Edytuj kontakt”): kolumna
+  osób przy 1280 px ma 280 px i formularz w wierszu obcinał pola.
+- **Trasy** za `SalesEditUser`: `POST /api/sales/opportunities/{id}/decision-map`,
+  `PATCH` i `DELETE …/decision-map/{key}`. Pola i limity jak w Atlasie
+  (`extra=forbid`), LinkedIn tylko http(s). Logika: `services/sales/decision_map.py`.
+- **Klucz osoby to skrót treści wpisu** (`motion.entry_keys`), bo wpisy z Atlasa
+  nie mają id. Każda zmiana zmienia klucz, więc poprawka ze starego ekranu dostaje
+  409 zamiast nadpisać cudzą. Zapis trzyma blokadę wiersza szansy: bez niej dwa
+  równoległe zapisy listy w JSON-ie gubią jeden z nich.
+- **Poprawka wysyła tylko zmienione pola**, bo część adresów LinkedIn z Atlasa
+  nie przechodzi walidacji i nie może blokować dopisania notatki.
+- **Mapa uzupełnia puste pola kontaktu** (telefon, mail, LinkedIn, notatka), nigdy
+  ich nie nadpisuje i nie zakłada nowego kontaktu; stanowiska nie przenosi.
+  Telefon jest pusty dopiero bez komórki. Wartość dłuższa niż kolumna kontaktu
+  i kontakt w archiwum: tylko mapa. Uzupełnienie to osobny wiersz historii
+  (`decision_map_contact`).
+- **Pole z kontaktu to podpowiedź w formularzu** (`from_contact`), nie wartość:
+  inaczej każdy zapis kopiowałby je na mapę.
+- **Historia**: jeden wiersz na operację, `field = 'decision_map'`, w starej
+  i nowej wartości nazwisko i zmienione pola. Dodanie ma pustą starą wartość,
+  usunięcie pustą nową.
+- **Ponowny import**: `custom_fields` szansy i `linkedin_url` kontaktu są
+  w `PROTECTED`. Szansa zmieniona w NEXUSIE z jakiegokolwiek powodu nie dostaje
+  więc z Atlasa także MEDDIC ani produktów.
+- **Panel w lejku Fabryki IT** (`atlas-it-factories`) pokazuje się też bez danych
+  z Atlasa, z „Dodaj osobę”. W innym lejku dodać można tylko, gdy szansa ma już
+  mapę (`decision_map_enabled`); nowa osoba w innym lejku to 409.
 
 ## Cele i KPI tygodniowe (decyzja Artura 28.10.2026: „Tak, bez Ofert”)
 
@@ -151,10 +185,49 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   ma w kodzie ani w testach.
 - Tygodnie (od poniedziałku) i miesiące w kalendarzu firmy, nie w UTC.
 
+## Uwagi handlowców (decyzje Artura 02.11.2026)
+
+- **Tablica szans ma wszystkie etapy**, zamknięte na końcu (`boardStages`), jak
+  w Atlasie. Liczby nad tablicą dalej liczą tylko otwarte. Fabryki IT nie mają
+  etapu „Niezakwalifikowany” — w Atlasie też go nie było.
+- **Oferty = lista szans na etapach `offer-sent` i `tender-submitted`**
+  (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
+- **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
+  `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
+  Nowe nagrania przychodzą z transkryptów Teams, nie z Fireflies (niżej).
+- **Filtry szans:** Model (`service_line`) i data utworzenia w kalendarzu firmy,
+  pod przyciskiem „Filtry”, bo przy 1280 × 720 kolejny rząd pól zabiera miejsce
+  tablicy. Szukanie po NIP tylko dla frazy z samych cyfr: „10CLOUDS” nie może
+  szukać po „10”.
+- **Mapa decyzyjna:** puste pola osoby uzupełnia jej kontakt, wpis z Atlasa ma
+  pierwszeństwo. Dalej tylko do odczytu; edytor to osobne zadanie.
+- **Kontakt z zakładki Kontakty:** firma obowiązkowa, jak w Atlasie.
+
+## Transkrypty Teams przy spotkaniach (decyzje Artura 02.11.2026)
+
+`services/sales/meeting_transcripts.py`, tabela `sales_meeting_transcripts` (0628),
+wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
+`docs/teams-prep-setup.md`.
+
+- **Osobna grupa handlowców, bez automatycznego nagrywania.** Nie dopisuj ich do
+  `NEXUS-Meetings-Scope`: tamta grupa nagrywa każde spotkanie i daje zapis do
+  kalendarza. Handlowiec sam włącza transkrypcję, więc brak transkryptu jest normą.
+- **Tylko spotkania, których handlowiec jest organizatorem,** i tylko nowe: bez
+  pobierania historii. Klucz to `iCalUId`, bo jedno spotkanie bywa przy kilku firmach.
+- **Adres spotkania czyta token handlowca podczas synchronizacji**, osobnym GET-em
+  dla wiersza z kolejki. Nie dokładaj `onlineMeeting` do `EVENT_SELECT`: nie jest
+  potrzebny do reszty, a zmiana wymusza pełny odczyt kalendarzy wszystkich skrzynek.
+- **Spotkanie cykliczne ma wspólną listę transkryptów**, więc do wystąpienia należą
+  tylko te utworzone w jego czasie (`within_meeting`).
+- **Spotkanie odwołane albo oznaczone jako prywatne** zabiera też transkrypt.
+- **Podsumowanie (F40) jest dodatkiem:** lista czyta je z wiersza, awaria modelu
+  zostawia sam transkrypt, najwyżej 3 próby na spotkanie.
+
 ## Poza zakresem (świadomie)
 
 Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
-poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo,
+poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo
+(nowe nagrania będą z transkryptów Teams),
 kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
 możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
 spotkaniach” z KPI Atlasa.

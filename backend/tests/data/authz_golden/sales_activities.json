@@ -31,7 +31,9 @@
  "routes": {
   "DELETE /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/{activity_id}/transcript": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities/tasks/complete": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",

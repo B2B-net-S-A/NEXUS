@@ -121,3 +121,20 @@ potwierdzał sam siebie.
 - `cv_role_title` nigdy nie zwraca nagłówka bez liter, gdy nazwa je ma —
   wtedy liczy rolę z pełnej nazwy, ignorując numer.
 - QC CV nie uznaje nagłówka bez liter za zgodny tytuł.
+
+## Nazwa usługi nie jest stanowiskiem (02.11.2026)
+
+PKO od 09.2026 nazywa zapytania przedmiotem usługi: „ZOB-3103 usługi
+programistyczne”, „usługa analizy systemowej”. CV dostawały nagłówek i nazwę pliku
+„usługi programistyczne – Imię Nazwisko”, a QC to przepuszczało, bo nagłówek
+z payloadu potwierdzał sam siebie. U Orlenu to samo: „RFX - Zakup usług Analityka IT”.
+
+- Nazwa od klienta zaczynająca się od „usługa/usługi/usług” (także po „Zakup”,
+  „RFX - Zakup”; `is_service_title`) ustępuje roli z Championa
+  w `cv_role_title_for_job`: generator, kopia CV etapu, plik wgrywany do rekrutacji i QC.
+  Sama `cv_role_title` Championa nie czyta.
+- Bez roli w Championie (albo gdy rola to też nazwa usługi lub kod) zostaje nazwa
+  od klienta. „Administrator usług IT” to stanowisko i nie zmienia się.
+- QC nie uznaje nagłówka będącego nazwą usługi za zgodny tytuł, więc CV sprzed
+  poprawki dostają uwagę „Tytuł CV zgodny ze stanowiskiem”.
+- `jobs.title` zostaje bez zmian: to dalej dosłowna nazwa od klienta.

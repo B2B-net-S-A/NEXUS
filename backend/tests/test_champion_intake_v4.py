@@ -1,7 +1,7 @@
 """Draft validation and gradual adoption contracts; no database or AI needed."""
 
 from copy import deepcopy
-from datetime import date
+from datetime import date, time
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
@@ -107,6 +107,8 @@ def test_order_merged_cells_and_empty_rows():
         ("work_mode", "remote / hybrydowo"),
         ("start_date", "2026-02-30"),
         ("deadline", "za tydzień"),
+        ("deadline_time", "po południu"),
+        ("deadline_time", "25:00"),
     ],
 )
 def test_ambiguous_values_stay_visible_and_null(field, value):
@@ -117,6 +119,18 @@ def test_ambiguous_values_stay_visible_and_null(field, value):
     assert cp["basics"][field] is None
     assert cp["intake"]["unresolved"][f"basics.{field}"] == str(value)
     assert "search" in validation(cp)["blocked_operations"]
+
+
+@pytest.mark.parametrize(
+    "value,stored",
+    [("12:30", "12:30"), ("9:05", "09:05"), ("12.30", "12:30"), ("12:30:00", "12:30")],
+)
+def test_deadline_time_is_stored_as_hour_and_minute(value, stored):
+    cp = filled()
+    cp["basics"]["deadline_time"] = value
+    cp = prepare_profile(cp)
+    assert cp["basics"]["deadline_time"] == stored
+    assert "basics.deadline_time" not in cp["intake"]["unresolved"]
 
 
 def test_legacy_dates_zero_and_missing_are_distinct():
@@ -239,6 +253,9 @@ def test_job_values_carry_role_deadline_and_office_location():
 
     assert job_values["role_name"] == "Senior Go Developer"
     assert job_values["deadline"] == "2026-11-30"
+    assert job_values["deadline_time"] is None
+    j.deadline_time = time(12, 30)
+    assert response_context(j)["job_values"]["deadline_time"] == "12:30"
     # `office_location` wins over the legacy `location` column, like the
     # `basics.candidate_location_pref` comparison in `validation()`.
     assert job_values["candidate_location_pref"] == "Kraków"

@@ -13,6 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
@@ -663,29 +664,29 @@ async def mark_read(
         )
     ).scalar()
 
-    state = (
-        await db.execute(
-            select(JobChatReadState).where(
-                and_(
-                    JobChatReadState.job_id == job_id,
-                    JobChatReadState.user_id == current_user.id,
-                )
-            )
-        )
-    ).scalar_one_or_none()
-
+    # Atomowy upsert zamiast SELECT + INSERT: równoległe PUT-y /chat/read
+    # (mount + załadowanie wiadomości + WS) wstawiały ten sam wiersz i
+    # wywracały się na uq_job_chat_read_state_job_user. GREATEST pilnuje,
+    # żeby spóźnione żądanie nie cofnęło znacznika przeczytania.
     now = datetime.now(timezone.utc)
-    if state is None:
-        state = JobChatReadState(
-            job_id=job_id,
-            user_id=current_user.id,
-            last_read_message_id=last_id,
-            last_read_at=now,
+    stmt = pg_insert(JobChatReadState).values(
+        job_id=job_id,
+        user_id=current_user.id,
+        last_read_message_id=last_id,
+        last_read_at=now,
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_job_chat_read_state_job_user",
+            set_={
+                "last_read_message_id": func.greatest(
+                    JobChatReadState.last_read_message_id,
+                    stmt.excluded.last_read_message_id,
+                ),
+                "last_read_at": stmt.excluded.last_read_at,
+            },
         )
-        db.add(state)
-    else:
-        state.last_read_message_id = last_id
-        state.last_read_at = now
+    )
 
     # Wejście do czatu gasi jego powiadomienia — do 09.10.2026 trzeba je było
     # odklikiwać osobno w dzwonku.

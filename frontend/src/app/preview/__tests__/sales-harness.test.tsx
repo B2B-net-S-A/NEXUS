@@ -30,13 +30,13 @@ afterEach(() => {
 });
 
 describe("/preview/sales", () => {
-  it("tablica: kolumny etapów bez przegranych, liczby lejka, ostrzeżenie o zaniedbanej szansie", async () => {
+  it("tablica: kolumny wszystkich etapów, liczby lejka, ostrzeżenie o zaniedbanej szansie", async () => {
     window.history.replaceState({}, "", "/preview/sales");
     render(<SalesPreviewPage />);
 
     expect(await screen.findByRole("button", { name: /Bank Przykładowy · Zespół QA/ })).toBeInTheDocument();
     expect(screen.getByText("Spotkanie kwalifikujące")).toBeInTheDocument();
-    expect(screen.queryByText("Przegrana")).toBeNull();
+    expect(screen.getByText("Przegrana")).toBeInTheDocument();
     expect(screen.getByText("otwartych szans")).toBeInTheDocument();
     expect(screen.getByText(/bez kontaktu 21 dni/)).toBeInTheDocument();
     expect(attempted()).toEqual([]);
