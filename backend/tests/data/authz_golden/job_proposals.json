@@ -29,11 +29,11 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/background-events": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/jobs/{job_id}/proposal-inbox/hidden-by-critical": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/background-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/proposal-inbox/hidden-by-critical": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",

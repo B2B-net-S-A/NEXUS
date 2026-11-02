@@ -632,10 +632,11 @@ describe("zawężenia ról nadal obowiązują", () => {
       validRecruiter,
       validHeadOfRecruitment,
       validTalentCommunityManager,
-      validViewer,
     ]) {
       expect(destination("/contracts/b2b-generator", token)).toBe("pass")
     }
+    // 0637: wycofywany Viewer nie ma już sekcji Sourcing.
+    expect(destination("/contracts/b2b-generator", validViewer)).toBe("/403")
   })
 
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {

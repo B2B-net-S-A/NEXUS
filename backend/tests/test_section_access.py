@@ -266,19 +266,9 @@ async def test_delivery_dependency_rejects_recruitment_roles_before_handler() ->
         assert getattr(exc_info.value, "status_code", None) == 403
 
 
-def test_legacy_viewer_keeps_existing_non_delivery_read_surfaces() -> None:
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.pipeline)
-        is SectionAccess.read
-    )
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.insights)
-        is SectionAccess.read
-    )
-    assert (
-        section_access_for_roles([UserRole.user], ProductSection.delivery)
-        is SectionAccess.none
-    )
+def test_legacy_viewer_has_no_section() -> None:
+    for section in ProductSection:
+        assert section_access_for_roles([UserRole.user], section) is SectionAccess.none
 
 
 def test_multi_role_policy_is_union_without_finance_side_effect() -> None:

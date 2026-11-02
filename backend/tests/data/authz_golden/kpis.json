@@ -29,9 +29,9 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/me/goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDDPP",
   "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",

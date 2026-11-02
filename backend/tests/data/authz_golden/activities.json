@@ -31,6 +31,6 @@
  "routes": {
   "GET /api/activities/feed": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "GET /api/activities/leaderboard": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/activities/stats": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/activities/stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

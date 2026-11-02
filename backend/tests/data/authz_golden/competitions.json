@@ -29,11 +29,11 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/competitions/current": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/history": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/monthly-races": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/my-league": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/competitions/my-position": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/current": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/history": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/monthly-races": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/my-league": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/competitions/my-position": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "GET /api/competitions/ties": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/competitions/freeze": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/competitions/{type}/{period}/resolve-tie": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"

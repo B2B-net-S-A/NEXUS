@@ -53,7 +53,7 @@ import {
   type ViewState,
 } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
-import { hasRole, useAuthStore } from "@/store/auth";
+import { hasRole, mayExportFiles, useAuthStore } from "@/store/auth";
 import {
   CLIENTS_MINE_ROLES,
   clientsMineToggleAvailable,
@@ -541,30 +541,32 @@ export function ClientsListV2({
               Czyszczenie listy
             </Button>
           ) : null}
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button size="sm" variant="outline" disabled={exporting}>
-                <Download className="h-4 w-4" aria-hidden="true" />
-                {exporting ? "Eksportuję…" : "Eksport"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-44 p-1">
-              <button
-                type="button"
-                onClick={() => void doExport("xlsx")}
-                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
-              >
-                Excel (.xlsx)
-              </button>
-              <button
-                type="button"
-                onClick={() => void doExport("csv")}
-                className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
-              >
-                CSV
-              </button>
-            </PopoverContent>
-          </Popover>
+          {mayExportFiles(user) ? (
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" disabled={exporting}>
+                  <Download className="h-4 w-4" aria-hidden="true" />
+                  {exporting ? "Eksportuję…" : "Eksport"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-1">
+                <button
+                  type="button"
+                  onClick={() => void doExport("xlsx")}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+                >
+                  Excel (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void doExport("csv")}
+                  className="block w-full rounded-md px-3 py-1.5 text-left text-sm hover:bg-primary/10"
+                >
+                  CSV
+                </button>
+              </PopoverContent>
+            </Popover>
+          ) : null}
           {canCreateClient ? (
             <Button
               size="sm"

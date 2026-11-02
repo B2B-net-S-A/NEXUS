@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/dashboard-metrics/catalog": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "POST /api/dashboard-metrics/evaluate": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

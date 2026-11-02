@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/charts/placement-analysis": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/insights/charts/yearly-stats": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/insights/charts/placement-analysis": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/charts/yearly-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

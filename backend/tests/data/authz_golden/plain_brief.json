@@ -29,7 +29,7 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

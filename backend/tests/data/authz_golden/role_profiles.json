@@ -29,8 +29,8 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/role-profiles": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/role-profiles/{role_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/role-profiles": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/role-profiles/{role_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

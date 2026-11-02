@@ -29,6 +29,6 @@
   "finance-finance_module"
  ],
  "routes": {
-  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPPDPPPPPPPPPPPPDPPPPDP"
+  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

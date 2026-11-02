@@ -31,7 +31,7 @@
  "routes": {
   "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns/active": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/campaigns/active": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
   "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }

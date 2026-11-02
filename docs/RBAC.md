@@ -78,7 +78,7 @@ imienne „Może usuwać klientów”.
 | Delivery Lead | RW | RW | R | — |
 | Talent Community Manager | RW | RW | R | — |
 | Rekruter | RW | RW | R | — |
-| Viewer `user` (legacy) | R | R | R | — |
+| Viewer `user` (legacy, od 0637 bez sekcji) | — | — | — | — |
 | Praktykant | — | — | — | — |
 | Automatyzacje (`automation`, 0446) | R | R | R | — |
 

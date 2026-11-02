@@ -29,6 +29,6 @@
   "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/team-table": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/insights/team-table": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
  }
 }

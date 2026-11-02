@@ -77,7 +77,8 @@ _SEEDED_PERMISSIONS = frozenset(ProductAction(key) for key in catalog.SEEDED_KEY
 # migracji 0273 i lustro w entrypoint.sh nadal zasiewają dla TCM „view", więc
 # świeże środowisko wymaga osobnej migracji danych (patrz
 # test_action_permissions_migration.SEED_DIVERGENCE_AFTER_0273). Legacy viewer
-# zostaje przy podglądzie, bo jego sufit Sourcing też jest tylko do odczytu.
+# zostaje przy wierszu „view” bez skutku: od 0637 nie ma sekcji Sourcing, za
+# którą stoi router Generatora.
 _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.admin: ActionAccess.manage,
     UserRole.finance: ActionAccess.manage,
