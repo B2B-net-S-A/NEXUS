@@ -709,6 +709,54 @@ async def test_link_people_show_only_own_links(api):
     assert body["total"] == 0 and body["people"] == []
 
 
+async def _headers_with_role(api: AsyncClient, role: UserRole) -> dict[str, str]:
+    uid, email, password = await _seed_user(f"rola-{role.value}")
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uid)
+        user.role = role
+        await db.commit()
+    return await _login(api, email, password)
+
+
+async def test_job_team_links_refuse_recruiter_and_open_for_managers(api):
+    """Makieta C: HoR i admin widzą linki zespołu, rekruter dostaje odmowę."""
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"zespol-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+
+    denied = await api.get(f"/api/jobs/{job_id}/link-results", headers=headers)
+    assert denied.status_code == 403
+
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        allowed = await api.get(
+            f"/api/jobs/{job_id}/link-results",
+            headers=await _headers_with_role(api, role),
+        )
+        assert allowed.status_code == 200, allowed.text
+        rows = allowed.json()
+        assert [r["owner_id"] for r in rows] == [uid]
+        assert rows[0]["applications"] == 1 and rows[0]["state"] == "active"
+        # Sekret linku nie wychodzi w odpowiedzi.
+        assert "token" not in rows[0]
+
+
+async def test_job_team_links_open_for_delivery_lead_across_clients(api):
+    """Rekrutacje są dla Delivery Leada org-wide (uprawnienia, 25.09.2026)."""
+    _, _, job_id = await _owner_with_job(api)
+    resp = await api.get(
+        f"/api/jobs/{job_id}/link-results",
+        headers=await _headers_with_role(api, UserRole.delivery_lead),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
 async def test_link_results_hide_dead_links_without_applications(api):
     _, headers, job_id = await _owner_with_job(api)
     link = await _create_job_link(api, headers, job_id)
