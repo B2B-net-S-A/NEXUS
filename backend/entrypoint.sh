@@ -335,7 +335,7 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
     # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
-    # 0632: słowa z CV wysłanych do wiersza „musi mieć” (Sonnet 5).
+    # 0634: słowa z CV wysłanych do wiersza „musi mieć” (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'requirement_word_hints'",
     # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
@@ -7715,7 +7715,7 @@ _DATA_STATEMENTS = [
     "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
-    # 0632: seed klucza AI słów z CV wysłanych do wiersza „musi mieć”.
+    # 0634: seed klucza AI słów z CV wysłanych do wiersza „musi mieć”.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'requirement_word_hints', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "

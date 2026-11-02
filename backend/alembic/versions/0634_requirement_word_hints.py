@@ -1,7 +1,7 @@
 """Klucz AI słów z CV wysłanych do wiersza „musi mieć” (F41).
 
-Revision ID: 0632_requirement_word_hints
-Revises: 0631_user_receives_board_report
+Revision ID: 0634_requirement_word_hints
+Revises: 0633_hr_m365_scope_alert
 
 Decyzja Artura z 02.11.2026: przy wierszu „musi mieć”, którego nie ma nikt
 z wysłanych, Delivery Lead może poprosić o słowa z ich CV. Wynik nie jest
@@ -11,8 +11,8 @@ w ``ai_features``; lustro w ``entrypoint.sh``.
 
 from alembic import op
 
-revision = "0632_requirement_word_hints"
-down_revision = "0631_user_receives_board_report"
+revision = "0634_requirement_word_hints"
+down_revision = "0633_hr_m365_scope_alert"
 branch_labels = None
 depends_on = None
 
@@ -35,7 +35,7 @@ def upgrade() -> None:
 REFUSE_WITH_LIVE_ROWS = f"""DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM ai_usage_log WHERE feature::text = '{_KEY}') THEN
-        RAISE EXCEPTION 'Downgrade 0632 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0634 odmawia: są wpisy {_KEY}, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 

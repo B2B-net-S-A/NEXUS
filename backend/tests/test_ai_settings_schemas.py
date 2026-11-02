@@ -114,7 +114,7 @@ class TestFeatureKeyEnum:
             # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
             "candidate_ai_assessment",
             "sales_meeting_summary",
-            # 0632: słowa z CV wysłanych do wiersza „musi mieć”.
+            # 0634: słowa z CV wysłanych do wiersza „musi mieć”.
             "requirement_word_hints",
         }
 
