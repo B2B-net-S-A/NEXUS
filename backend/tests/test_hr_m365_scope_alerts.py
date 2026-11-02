@@ -1,4 +1,4 @@
-"""Alarm o skrzynkach poza zakresem aplikacji „NEXUS Kadry” (0629). Dane fikcyjne.
+"""Alarm o skrzynkach poza zakresem aplikacji „NEXUS Kadry” (0630). Dane fikcyjne.
 
 02.11.2026 wszystkie konta założone 18–29.10 dostały 403 przy odczycie skrzynki
 i nikt nie dostał sygnału: osoba poza grupą wychodzi na urlop bez autoodpowiedzi,

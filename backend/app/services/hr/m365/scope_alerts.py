@@ -1,4 +1,4 @@
-"""Skrzynki poza zakresem aplikacji „NEXUS Kadry” — dzienny alarm dla adminów (0629).
+"""Skrzynki poza zakresem aplikacji „NEXUS Kadry” — dzienny alarm dla adminów (0630).
 
 Exchange wpuszcza aplikację tylko do skrzynek z grupy ``SCOPE_GROUP`` (RBAC for
 Applications), a grupę prowadzi się ręcznie. Na produkcji 02.11.2026 wszystkie
