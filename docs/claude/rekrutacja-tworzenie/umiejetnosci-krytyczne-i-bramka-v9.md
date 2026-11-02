@@ -254,8 +254,8 @@ czytający CV znajdował to w 31% przypadków.
 - **Chipy zamiast zdań** (`scoring_service.job_skill_requirements`): kolumna
   `must_skills` z wymaganiem od `PROSE_REQUIREMENT_WORDS` słów i Champion z `stack.must`
   = liczą się chipy. Nie dotyczy `requirements_reviewed` ani zapisanego kontraktu.
-- **Pomiar przed i po** na 198 wysłanych i próbce puli: fałszywe braki z 30,9% do
-  24,9%, fałszywe „jest” bez zmian (19,3% i 19,7%), bramka ukrywa tyle samo (15
-  wysłanych, 283 z puli), top 20 wysłanych z 32,4% do 33,1%. To poprawa odczytu,
-  nie kolejności.
+- **Pomiar przed i po** z flagami produkcji, na wysłanych i próbce puli: fałszywe
+  braki z 29,3% do 23,3%, fałszywe „jest” bez zmian (20,5% i 20,8%), bramka ukrywa
+  tyle samo (10 wysłanych, 7 z puli), top 20 wysłanych bez zmian (31,5%). To poprawa
+  odczytu, nie kolejności.
 
