@@ -20,8 +20,9 @@
   (`app_settings['client_sales_ksef_sync']`), pętla `sales_ksef_fetch`. Budżet przebiegu: 6 zapytań
   o metadane i 20 pobrań; blokada 429 z którejkolwiek ścieżki wstrzymuje obie (limit tokenu spółki).
 - Dopasowanie: NIP nabywcy → klient kanoniczny. Numer zamówienia w fakturze wiąże z zamówieniem,
-  różnicę kwoty sprawdzają Finanse. Bez numeru wiąże tylko kwota równa co do grosza jednemu
-  zamówieniu albo jednej osobie; reszta czeka na Finanse z powodem. Korekta idzie za fakturą
+  różnicę kwoty sprawdzają Finanse. Bez numeru wiąże kwota równa co do grosza jednemu
+  zamówieniu albo jednej osobie, a potem osoba i stawka z pozycji faktury (decyzja Artura z 02.11.2026,
+  niżej); reszta czeka na Finanse z powodem. Korekta idzie za fakturą
   pierwotną. Ręcznego przypisania automat nie nadpisuje. Brak `P_6` = okres z daty wystawienia.
 - Faktura z KSeF NIE schodzi z budżetów zamówień kosztowych (`client_order_invoice_consumptions`
   — import z arkusza Finansów zostaje jako zapas „wg arkusza Finansów”). Zmiana = decyzja Artura.
@@ -33,3 +34,22 @@
 - Kwoty widzą Finanse i Delivery Lead u swojego klienta (`can_read_client_finance`); rekruter nie.
   Moduł `app_settings['client_invoicing']` domyślnie wyłączony; zakładka „Faktury” u klienta
   i „Faktury do klientów” w Finansach.
+
+## Po pierwszej próbie na prawdziwych danych KSeF (02.11.2026)
+
+- Token spółki działa tylko na produkcji MF (`test` i `demo` odrzucają go kodem 450), ma wyłącznie
+  `InvoiceRead`. Wystawianie faktur z NEXUSA wymaga osobnego tokenu z `InvoiceWrite`.
+- Parser FA przeszedł 40 z 40 prawdziwych faktur FA(3), kwoty XML zgadzają się z metadanymi.
+- **Kolejka nie wygasa z powodu budżetu.** Sprzedaż ma ok. 600 faktur miesięcznie, pierwszy przebieg
+  od 3 miesięcy wstecz to ok. 1800 faktur przy 20 pobraniach na godzinę, czyli ok. 4 dni. `_defer`
+  z powodem `budget` nie nalicza próby: inaczej po 24 przebiegach faktury wypadały z kolejki
+  (`pending_expired`), a znacznik był już za nimi. Budżet przekazujemy do `_Run` jawnie, bo domyślna
+  wartość pola dataclass zapisuje się przy definicji i `monkeypatch` stałej jej nie zmienia.
+- **Nabywca z UE ma VAT UE zamiast NIP-u** (`KodUE` + `NrVatUE`, kolumna `buyer_foreign_id`, 0630):
+  to ok. 48% faktur sprzedażowych. Klucz rejestru `clients.nip_registry` to 10 cyfr albo prefiks
+  kraju z cyframi, porównanie w postaci `normalize_registry_id`.
+- **Osoba i stawka wiążą bez numeru zamówienia** (metoda `person`, decyzja Artura z 02.11.2026, uzupełnia
+  regułę kwoty z E8). Faktura godzinowa ma rzeczywiste godziny, a NEXUS szacunkowe, więc kwota nie będzie
+  równa: w próbie 20 faktur Nordei nazwisko wskazywało jedną osobę 20/20, cena była równa 20/20, godziny
+  różne 18/20. Warunek: pełne imię i nazwisko prowadzi do jednej pozycji zamówień miesiąca i cena równa
+  co do grosza; inaczej faktura czeka na Finanse. Numer zamówienia i równa kwota mają pierwszeństwo.

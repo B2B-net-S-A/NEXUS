@@ -105,6 +105,7 @@ def chain_payload(
         "client_name": (names or {}).get(head.client_id) if head.client_id else None,
         "buyer_name": head.buyer_name,
         "buyer_nip": head.buyer_nip,
+        "buyer_foreign_id": head.buyer_foreign_id,
         "corrections": [
             {
                 "id": c.id,

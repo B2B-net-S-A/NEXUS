@@ -191,6 +191,7 @@ class CommandRequest(BaseModel):
             "unify_sentences",
             "more_requirements",
             "proofread",
+            "tailor",
         ]
     ] = None
     command: Optional[str] = Field(default=None, max_length=cv_command_ai.COMMAND_MAX)
@@ -246,6 +247,9 @@ class CommandOperation(BaseModel):
     problem: Optional[str] = None
     # `bold` / `unbold`: terminy, które stoją w CV.
     terms: list[str] = []
+    # „Dopasuj pod rekrutację”: fragment źródła i to, skąd pochodzi.
+    quote: Optional[str] = None
+    source: Optional[Literal["oryginal", "rozmowa"]] = None
 
 
 class CommandDropped(BaseModel):

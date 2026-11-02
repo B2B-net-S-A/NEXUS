@@ -28,8 +28,8 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +38,7 @@ from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.services.client_invoicing import billing, clients
-from app.services.client_invoicing.billing import BillingRow, OrderRef
+from app.services.client_invoicing.billing import BillingLine, BillingRow, OrderRef
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
@@ -130,6 +130,51 @@ def numbers_found(texts: Iterable[str], refs: Sequence[OrderRef]) -> set[str]:
     return hits
 
 
+def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
+    try:
+        return Decimal(str(item.get("unit_price")))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _named_in(line: BillingLine, item_name: str) -> bool:
+    parts = line.consultant.split()
+    return len(parts) >= 2 and all(_pattern(part).search(item_name) for part in parts)
+
+
+def _person_and_price(
+    candidates: Sequence[BillingRow], items: Sequence[dict[str, Any]]
+) -> Optional[Target]:
+    """Osoba z pozycji faktury i jej cena jednostkowa, gdy godziny są inne niż w NEXUSIE.
+
+    Faktura rozliczana godzinowo ma rzeczywiste godziny, a NEXUS szacunkowe, więc
+    kwota nie będzie równa. Wiąże tylko pewne wskazanie: pełne imię i nazwisko
+    prowadzi do jednej pozycji zamówień tego miesiąca, a cena jest równa co do
+    grosza. Różnicę kwoty widzą Finanse, jak przy numerze zamówienia.
+    """
+
+    lines = [line for row in candidates for line in row.lines if line.unit_price]
+    current = [
+        item
+        for item in items
+        if isinstance(item, dict) and not item.get("before_correction")
+    ]
+    named = [
+        (line, item)
+        for line in lines
+        for item in current
+        if _named_in(line, str(item.get("name") or ""))
+    ]
+    if len({id(line) for line, _item in named}) != 1:
+        return None
+    line = named[0][0]
+    if line.order_id is None:
+        return None
+    if not any(_item_price(item) == line.unit_price for _line, item in named):
+        return None
+    return Target(order_id=line.order_id)
+
+
 def decide(
     *,
     net: Decimal,
@@ -137,6 +182,7 @@ def decide(
     texts: Iterable[str],
     rows: Sequence[BillingRow],
     refs: Sequence[OrderRef],
+    items: Sequence[dict[str, Any]] = (),
 ) -> Decision:
     """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
 
@@ -190,6 +236,9 @@ def decide(
         return Decision((Target(order_id=equal_people[0].order_id),), "amount")
     if len(equal_people) > 1:
         return Decision(reason="amount_ambiguous")
+    person = _person_and_price(candidates, items)
+    if person is not None:
+        return Decision((person,), "person")
     # Kosztowe nie czeka na zużycie MD — jego kwoty NEXUS nie liczy wcale.
     if any(row.expected_net is None and row.budget is None for row in candidates):
         return Decision(reason="expected_unknown")
@@ -301,7 +350,9 @@ async def auto_match(
         return Decision(reason=invoice.match_reason)
     registry = registry or await clients.nip_registry(db)
     if invoice.client_id is None:
-        client_id, reason = registry.resolve(invoice.buyer_nip)
+        client_id, reason = registry.resolve(
+            invoice.buyer_nip or invoice.buyer_foreign_id
+        )
         invoice.client_id = client_id
         if client_id is None:
             invoice.match_status = "unmatched"
@@ -333,6 +384,7 @@ async def auto_match(
         texts=invoice_texts(invoice),
         rows=rows,
         refs=refs,
+        items=invoice.items or [],
     )
     if decision.matched:
         await _replace_links(db, invoice, decision.targets, period, None)

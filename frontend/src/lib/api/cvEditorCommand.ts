@@ -31,7 +31,8 @@ export type CvCommandPreset =
   | "order_by_requirements"
   | "unify_sentences"
   | "more_requirements"
-  | "proofread";
+  | "proofread"
+  | "tailor";
 
 /** Gotowe polecenia — treść trzyma serwer, tu są nazwy dla rekrutera. */
 export const CV_COMMAND_PRESETS: ReadonlyArray<{ preset: CvCommandPreset; label: string }> = [
@@ -101,6 +102,9 @@ export interface CvPlanOperation {
   problem?: string | null;
   /** `bold` / `unbold`: terminy, które stoją w CV. */
   terms?: string[];
+  /** „Dopasuj pod rekrutację”: fragment źródła, który kod znalazł dosłownie. */
+  quote?: string | null;
+  source?: "oryginal" | "rozmowa" | null;
 }
 
 export interface CvPlanDropped {

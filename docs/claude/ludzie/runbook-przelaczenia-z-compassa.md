@@ -195,7 +195,8 @@ autoodpowiedzi i reguły `NEXUS · …` ręcznie.
 2. Biała lista: `WHITE_LIST_MODE=test` → sprawdzenie NIP-u spółki w „Danych do rozliczeń” → `live`.
 3. KSeF: najpierw środowisko TEST MF (certyfikat testowy, token z `InvoiceRead`, `KSEF_MODE=test`,
    `KSEF_CONTEXT_NIP`, `KSEF_TOKEN` przez „Coolify set env” z `value_from_secret`), „Pobierz teraz”,
-   potem token produkcyjny spółki i `KSEF_MODE=prod`.
+   potem token produkcyjny spółki i `KSEF_MODE=prod`. Stan z 02.11.2026: token spółki działa tylko
+   na produkcji MF, sekret repo `KSEF_TOKEN_PROD`; środowisko testowe wymagałoby osobnego tokenu.
 4. Płace uzupełniają dane do rozliczeń osób (NIP, rachunek z wykazu, identyfikator w Symfonii),
    ustawienia płatności i słowniki Symfonii; włączenie modułu `settlements`.
 5. Pierwszy miesiąc (październik 2026, `settlements_since=2026-10` — wcześniejsze miesiące płac
