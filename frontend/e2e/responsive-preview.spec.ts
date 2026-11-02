@@ -616,6 +616,9 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
   // zostawały 92 px; przy otwartej sprawie zmiany stawki przyciski i pole
   // notatki wypadały poza okno. Teraz w miejscu stoi tylko pasek osoby i pole
   // notatki, reszta przewija się razem — pomiar po zmianie: 393 px.
+  // 27.10.2026 (#2732): Tablica czyta rekrutację z zasianego `["job", id]`, więc
+  // harness zna budżet 95 zł/h i Bartek (125 zł/h) ma pigułkę „Ponad budżet”,
+  // jak na produkcji: rząd pigułek +16 px, 343,5 px to najwyższy pasek osoby.
   test("/preview/job-detail: wąski dok osoby przewija się w całości", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 650 });
     await page.goto("/preview/job-detail");
@@ -630,7 +633,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
       await expect(scroll.getByTestId("dock-facts")).toBeVisible();
       await expect(scroll.getByTestId("dock-sections")).toBeAttached();
       const area = await scroll.boundingBox();
-      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(350);
+      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(340);
       const note = await panel.locator('[data-help="jobs.person.note"]').boundingBox();
       expect((note?.y ?? 0) + (note?.height ?? 0), `pole notatki w oknie: ${name}`).toBeLessThanOrEqual(650);
       expect(await pageOverflowPx(page), `poziomy scroll strony: ${name}`).toBeLessThanOrEqual(1);
@@ -786,9 +789,18 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     await priority.scrollIntoViewIfNeeded();
     const before = await priority.boundingBox();
 
-    await priority.selectOption("p1");
+    // Od #2692 pole to przycisk z oknem zaznaczeń, nie `<select>`. Okno zostaje
+    // otwarte przy zaznaczaniu, Esc zwraca fokus na przycisk.
+    await priority.click();
+    const p1 = page.getByRole("checkbox", { name: "P1 Pilne", exact: true });
+    await p1.click();
     await expect(page).toHaveURL(/rb_prio=p1/);
-    await expect(priority).toHaveValue("p1");
+    await page.keyboard.press("Escape");
+    await expect(p1).toBeHidden();
+    // Radix oddaje fokus przyciskowi chwilę po zniknięciu okna. Pisanie przed tą
+    // chwilą oddałoby litery przyciskowi (człowiek nie zdąży, robot tak).
+    await expect(priority).toBeFocused();
+    await expect(priority).toHaveText("P1 Pilne");
     // Wartość pola idzie przez adres — szybkie pisanie nie może gubić liter.
     const position = tile.getByLabel("Stanowisko", { exact: true });
     await position.pressSequentially("Java Developer", { delay: 30 });
