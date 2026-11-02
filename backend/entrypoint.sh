@@ -5229,6 +5229,9 @@ END $$""",
     # bez FK: wpis ma przeżyć usunięcie obiektu i konta.
     """ALTER TABLE users
         ADD COLUMN IF NOT EXISTS can_delete_clients BOOLEAN NOT NULL DEFAULT false""",
+    # 0631: imienne prawo do maila „Podsumowanie Rady”; model `User` je deklaruje.
+    """ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS receives_board_report BOOLEAN NOT NULL DEFAULT false""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
     "REFERENCES users(id) ON DELETE SET NULL",
@@ -11573,6 +11576,40 @@ async def repair():
             )
             return
     print(f"termination reversal repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
+# Cofnięte zakończenia na aktywnych kontraktach (decyzja Artura 02.11.2026) —
+# jednorazowo: współpraca trwa, a data i powód czytały się jak wypowiedzenie.
+# Logika w `app/services/contract_stale_termination_repair.py`, przypięta do
+# trójki ID i starych wartości. Marker w `app_settings` + advisory lock; porażka
+# nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-stale-termination"
+echo "Contracts: stale termination data from 02.11 decision (one-shot)..."
+python - <<'PY' || echo "stale termination repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_stale_termination_repair import (
+    run_stale_termination_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_stale_termination_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"stale termination repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"stale termination repair: {summarize_for_log(summary)}")
 
 asyncio.run(repair())
 PY

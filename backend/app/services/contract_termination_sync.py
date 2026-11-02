@@ -538,7 +538,7 @@ async def sync_generator_after_contract_ended(
             # kto je zainicjował. Tryb, strona i data podpisu są już na wierszu.
             snapshot = _snapshot(row, contract, without_marker=True)
             row.contract_status = "closed"
-            ended_on = contract.terminated_at or project_end
+            ended_on = project_end
             # Runda 7 (R7-V4-1): dokument podpisany przy zaplanowanym końcu
             # projektu rozwiązuje umowę PÓŹNIEJ niż kończy się projekt —
             # umowa kończy się ostatnim dniem z dokumentu, a „Cofnij

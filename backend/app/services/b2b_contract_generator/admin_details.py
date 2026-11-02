@@ -22,7 +22,7 @@ from decimal import Decimal
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
@@ -49,6 +49,14 @@ REPLACEABLE_STATUSES: tuple[ContractStatus, ...] = (
     ContractStatus.active,
     ContractStatus.ending,
     ContractStatus.ended,
+)
+
+_CONTRACT_END_SQL = case(
+    (
+        Contract.status == ContractStatus.ended,
+        func.coalesce(Contract.end_date, Contract.terminated_at),
+    ),
+    else_=Contract.end_date,
 )
 
 # Etykiety źródła wartości przy polu — w kafelku i w kontrakcie.
@@ -146,7 +154,15 @@ async def placement_people(
 
 
 def _contract_end(contract: Contract) -> Optional[date]:
-    return contract.terminated_at or contract.end_date
+    """Koniec na kafelku: `end_date`, a `terminated_at` tylko u zakończonych.
+
+    R8-N13-1: `terminated_at` przeżywa przedłużenie i niesie pierwsze
+    zakończenie. Żywy kontrakt bez daty końca jest bezterminowy — lustro
+    w sortowaniu `_CONTRACT_END_SQL`.
+    """
+    if contract.status == ContractStatus.ended:
+        return contract.end_date or contract.terminated_at
+    return contract.end_date
 
 
 async def replaceable_contracts(
@@ -183,7 +199,7 @@ async def replaceable_contracts(
         stmt = stmt.where(polish_folded_ilike(full_name, needle))
     stmt = stmt.order_by(
         (Contract.status == ContractStatus.active).asc(),
-        func.coalesce(Contract.terminated_at, Contract.end_date).desc().nulls_last(),
+        _CONTRACT_END_SQL.desc().nulls_last(),
         Contract.id.desc(),
     ).limit(limit)
     rows = (await db.execute(stmt)).all()

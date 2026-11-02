@@ -213,6 +213,12 @@ class User(Base, TimestampMixin):
     can_delete_clients: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # 0631: imienne prawo do maila „Podsumowanie Rady” (decyzja Artura 02.11.2026).
+    # Rada dostaje go z tytułu roli, a rola admin już nie. Zmiana ląduje
+    # w Historii zdarzeń.
+    receives_board_report: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     # 0371: konto „Poza przydziałem” — automat przydziału requestów pomija
     # tę osobę (np. rola rekrutera na koncie kogoś, kto nie pracuje przy

@@ -2078,6 +2078,14 @@
    "v3_home": "Profil Championa → Brief (na górze)"
   },
   {
+   "id": "champion.client-questions-all",
+   "area": "zlecenie",
+   "opis": "Pytania klienta: domyślnie zadane w tej rekrutacji, w zakładce wszystkie pytania klienta po rekrutacjach z wyszukiwarką i archiwum po roli",
+   "file": "components/ChampionClientQuestionsPanel.tsx",
+   "marker": "AllClientQuestions",
+   "v3_home": "Profil Championa → Klient i historia → Pytania klienta"
+  },
+  {
    "id": "champion.client-tab",
    "area": "zlecenie",
    "opis": "Klient i historia: opis klienta, karta klienta i branże, pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agreementTerminationPayload,
+  contractProjectEnd,
   defaultNonCompetePlan,
   emptyTerminationForm,
   missingTerminationFields,
@@ -9,6 +10,26 @@ import {
   terminationFormError,
   terminationWarnings,
 } from "@/lib/contract-termination";
+
+describe("contractProjectEnd", () => {
+  // R8-N13-1: `terminated_at` przeżywa przedłużenie i niesie pierwsze zakończenie.
+  it("bierze datę końca przed datą zakończenia", () => {
+    expect(
+      contractProjectEnd({ end_date: "2026-10-07", terminated_at: "2026-09-30" }),
+    ).toBe("2026-10-07");
+    expect(
+      contractProjectEnd({ end_date: "2026-08-31", terminated_at: "2026-09-30" }),
+    ).toBe("2026-08-31");
+  });
+
+  it("bez daty końca zostaje data zakończenia, bez obu — nic", () => {
+    expect(contractProjectEnd({ end_date: null, terminated_at: "2026-09-30" })).toBe(
+      "2026-09-30",
+    );
+    expect(contractProjectEnd({ end_date: null, terminated_at: null })).toBeNull();
+    expect(contractProjectEnd({})).toBeNull();
+  });
+});
 
 describe("suggestedLastDay", () => {
   // Umowa 2026 (`notice_end_date` w backendzie): okres wypowiedzenia ze

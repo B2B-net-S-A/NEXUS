@@ -81,7 +81,7 @@ import {
 import { localTodayIso } from "@/lib/client-order-list";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
+import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
 
 // Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
 // lista bez otwartego panelu nie potrzebuje.
@@ -604,6 +604,10 @@ export function ContractsListV2({
  // Kolumny stawek widzi też posiadacz „Stawki i kwoty: podgląd" — kwoty
  // klientów spoza jego zakresu serwer i tak redaguje wiersz po wierszu.
  const canSeeFinance = canExport || hasPermission(user, "amounts_view");
+ // Marża przy każdym wierszu i plik z całą firmą to wynik firmy („Wyniki
+ // firmy”, decyzja Artura 02.11.2026). Delivery Lead widzi swój portfel.
+ const canSeeMargin =
+ canSeeFinance && (canSeeContractAnalytics || hasRole(user, "delivery_lead"));
  // Zaznaczanie i pasek akcji zbiorczych: przedłużenie („Kontrakty
  // i zamówienia: tworzenie i edycja") albo „Oznacz zakończone" („Zakończenie
  // współpracy…"). Sam odczyt Delivery nie dostaje martwych pól wyboru.
@@ -1124,6 +1128,8 @@ export function ContractsListV2({
  </Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-auto min-w-44 p-1">
+ {canSeeContractAnalytics && (
+ <>
  <button
  onClick={() => doExport("xlsx")}
  className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -1136,6 +1142,8 @@ export function ContractsListV2({
  >
  CSV
  </button>
+ </>
+ )}
  <button
  onClick={() => setPlacementsOpen(true)}
  className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -1479,6 +1487,7 @@ export function ContractsListV2({
  align="right"
  unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ {canSeeMargin && (
  <SortableHead
  label="Marża"
  sortKey="margin"
@@ -1487,6 +1496,7 @@ export function ContractsListV2({
  align="right"
  unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ )}
  </>
  )}
  <SortableHead label="Typ" sortKey="contract_type" sort={sort} onSort={onSort} />
@@ -1496,7 +1506,7 @@ export function ContractsListV2({
  {viewState === "loading" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
@@ -1504,7 +1514,7 @@ export function ContractsListV2({
  ) : failed ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="p-0 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -1521,7 +1531,7 @@ export function ContractsListV2({
  ) : viewState === "empty" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -1775,6 +1785,7 @@ export function ContractsListV2({
  <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
+ {canSeeMargin && (
  <TableCell
  data-label="Marża"
  className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
@@ -1805,6 +1816,7 @@ export function ContractsListV2({
  </span>
  )}
  </TableCell>
+ )}
  </>
  )}
 
