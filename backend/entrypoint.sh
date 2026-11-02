@@ -1298,7 +1298,7 @@ except Exception as _novelty_schema_err:  # noqa: BLE001
     print(f"novelty schema unavailable: {_novelty_schema_err!r}")
     _NOVELTY_TABLE_DDL = []
 
-# Licznik użycia obszarów (0629) — JEDNO źródło z migracją
+# Licznik użycia obszarów (0630) — JEDNO źródło z migracją
 # (`app/services/access_usage_schema.py`).
 try:
     from app.services import access_usage_schema as _access_usage_schema
@@ -6928,7 +6928,7 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     *_ANNOUNCEMENTS_DDL,
     # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
     *_NOVELTY_TABLE_DDL,
-    # 0629: licznik użycia obszarów (`app/services/access_usage_schema.py`).
+    # 0630: licznik użycia obszarów (`app/services/access_usage_schema.py`).
     *_ACCESS_USAGE_TABLE_DDL,
 ]
 
