@@ -5,8 +5,9 @@ zasymulowane z podglądem dokładnego żądania), „Ponów”, skrzynki, w któ
 zachowaliśmy własną autoodpowiedź osoby, ostatni odczyt profili z katalogu
 i termin sekretu rejestracji „NEXUS Kadry”. Przekierowania poczty: lista
 zapisanych w NEXUSIE, „Sprawdź skrzynki” (odczyt reguł na żywo, bez zapisu),
-„Uzgodnij teraz” (przebieg uzgadniania na żądanie) i „Zamknij regułę”
-(``forward_rule_close`` przez kolejkę). Każde działanie zostawia ślad
+„Uzgodnij teraz” (przebieg uzgadniania na żądanie), „Zamknij regułę”
+(``forward_rule_close`` przez kolejkę) i „Zostaw poza grupą” (skrzynka z 403,
+o której alarm ma nie mówić). Każde działanie zostawia ślad
 w ``hr_audit_events``. Za uprawnieniem „Kadry”
 (``people_admin``; admin ma wszystkie). Przełącznik modułu nie zamyka karty —
 Kadry przygotowują przełączenie, zanim moduł urlopów zostanie włączony.
@@ -32,7 +33,13 @@ from app.models.hr_ops import HrJobRun
 from app.models.user import User
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit
-from app.services.hr.m365 import executor, forward_admin, reconcile, secret_expiry
+from app.services.hr.m365 import (
+    executor,
+    forward_admin,
+    reconcile,
+    scope_alerts,
+    secret_expiry,
+)
 from app.services.hr.m365.auth import credentials_configured
 from app.services.hr.m365.profile_sync import JOB_KIND as PROFILE_SYNC_KIND
 from app.services.hr.m365.reconcile import JOB_KIND as RECONCILE_KIND
@@ -46,6 +53,10 @@ OPERATION_STATUSES: tuple[str, ...] = get_args(OperationStatus)
 RETRYABLE_STATUSES = ("failed", "pending")
 NOT_RETRYABLE_DETAIL = "Tę operację można ponowić tylko, gdy czeka albo się nie udała."
 NOT_FOUND_DETAIL = "Nie ma takiej operacji."
+MAILBOX_NOT_FOUND_DETAIL = "NEXUS nie ma jeszcze odczytu tej skrzynki."
+NOT_OUT_OF_SCOPE_DETAIL = (
+    "Ta skrzynka nie ma błędu braku dostępu (403) — grupa niczego tu nie zmieni."
+)
 RECONCILE_REFUSALS = {
     "disabled": "Microsoft 365 jest wyłączony (tryb „Wyłączone”) — uzgadniania nie ma z czym zrobić.",
     "no_credentials": "Aplikacja NEXUSA w Microsoft 365 nie ma poświadczeń — skrzynek nie da się odczytać.",
@@ -144,7 +155,12 @@ async def m365_status(
     ).all()
     error_rows = (
         await db.execute(
-            select(HrM365MailboxState.user_id, User.name, HrM365MailboxState.last_error)
+            select(
+                HrM365MailboxState.user_id,
+                User.name,
+                HrM365MailboxState.last_error,
+                HrM365MailboxState.state,
+            )
             .join(User, User.id == HrM365MailboxState.user_id)
             .where(HrM365MailboxState.last_error.is_not(None))
             .order_by(User.name)
@@ -164,8 +180,13 @@ async def m365_status(
             for uid, name, at in custom_rows
         ],
         "mailbox_errors": [
-            {"user_id": uid, "name": name, "last_error": error}
-            for uid, name, error in error_rows
+            {
+                "user_id": uid,
+                "name": name,
+                "last_error": error,
+                "scope_exempt": scope_alerts.is_exempt(state),
+            }
+            for uid, name, error, state in error_rows
         ],
     }
 
@@ -339,3 +360,39 @@ async def reconcile_now(
             "Uzgadnianie się nie udało — szczegóły w logach serwera.",
         )
     return result
+
+
+class ScopeExemptBody(BaseModel):
+    exempt: bool
+
+
+@router.post("/mailboxes/{user_id}/scope-exempt")
+async def set_scope_exempt(
+    user_id: int,
+    body: ScopeExemptBody,
+    current_user: HrM365Admin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """„Zostaw poza grupą” / „Cofnij” — czy alarm ma mówić o tej skrzynce."""
+
+    # Blokada wiersza: wykonawca zapisuje w tej samej kolumnie mapę wydarzeń.
+    row = await db.scalar(
+        select(HrM365MailboxState)
+        .where(HrM365MailboxState.user_id == user_id)
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, MAILBOX_NOT_FOUND_DETAIL)
+    if body.exempt and row.last_error != scope_alerts.FORBIDDEN:
+        raise HTTPException(status.HTTP_409_CONFLICT, NOT_OUT_OF_SCOPE_DETAIL)
+    scope_alerts.set_exempt(row, exempt=body.exempt)
+    audit.record(
+        db,
+        actor_user_id=current_user.id,
+        subject_user_id=user_id,
+        entity_type="hr_m365",
+        entity_id=user_id,
+        action="m365_scope_exempt_set" if body.exempt else "m365_scope_exempt_cleared",
+    )
+    await db.commit()
+    return {"user_id": user_id, "scope_exempt": body.exempt}

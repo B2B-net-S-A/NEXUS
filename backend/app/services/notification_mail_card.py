@@ -192,6 +192,9 @@ SPECS: dict[str, _Spec] = {
     "hire_missing_contract": _Spec("Dodaj umowę", label="Otwórz kandydata"),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
+    "hr_m365_scope_missing": _Spec(
+        "Dopisz osoby do grupy", chip="Awaria", label="Otwórz kartę"
+    ),
     "candidate_data_access_alert": _Spec(
         "Sprawdź alarm", chip="Bezpieczeństwo", label="Sprawdź konta"
     ),
