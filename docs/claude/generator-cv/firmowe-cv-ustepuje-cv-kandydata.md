@@ -6,7 +6,7 @@ czytała je jak oryginał, więc błędy i skróty firmowego CV szły dalej.
 
 - **Co jest firmowym CV:** Word „…B2B…” (`client_cv_file_clause`, lustro
   `looks_like_client_cv` bez wzoru klienta; na froncie `isClientCvWordFile`).
-  PDF z „B2B” w nazwie zostaje CV kandydata: z 114 sprawdzonych PDF-ów 15 miało
+  PDF z „B2B” w nazwie zostaje CV kandydata: ze 109 odczytanych PDF-ów 15 miało
   układ szablonu, a 5 PDF-ów użytych jako źródło w 30 dni nie miało go wcale.
 - **Kolejność (`current_cv_ordering`):** główne CV kandydata → plik rodzaju „cv”
   niefirmowy → główne → rodzaj „cv” → najnowsze. Trafia do generatora, kopii
