@@ -823,12 +823,12 @@
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” w szczególe sprawy albo w widoku „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; dni i pula liczą się od nowa. Przy zatwierdzonym NEXUS przesuwa autoodpowiedź i wydarzenie w Outlooku. Inny zastępca zdejmuje zgodę na przekierowanie poczty — osoba może ją włączyć sama.",
+        "a": "„Edytuj” w szczególe sprawy albo w „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; NEXUS przelicza dni i przesuwa autoodpowiedź. Inny zastępca zdejmuje zgodę na przekierowanie poczty. Termin wpisany przez pomyłkę cofniesz też z „Podglądu” raportu godzin, od pierwszego dnia z powodem; zgłoszenie z B2B i zlecenia cofają tylko Kadry.",
         "anchor": "hr.approvals.history"
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W „Raportach godzin” wybierz miesiąc strzałkami, otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Na górze braki i do akceptacji, reszta pod „Pokaż wszystkie”. Całą firmę przyjmują Kadry i „Raporty godzin”.",
+        "a": "W „Raportach godzin” wybierz miesiąc strzałkami, a chipem status, np. „Do akceptacji”. Otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Kadry i „Raporty godzin”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
@@ -857,7 +857,7 @@
       {
         "id": "hr.approvals.timesheets",
         "label": "Timesheety",
-        "describe": "Godziny zespołu za miesiąc wobec normy: podgląd, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
+        "describe": "Godziny zespołu za miesiąc wobec normy: filtr statusu, podgląd z cofnięciem nieobecności, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
       },
       {
         "id": "hr.approvals.history",

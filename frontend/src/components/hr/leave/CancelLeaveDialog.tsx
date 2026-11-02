@@ -16,6 +16,8 @@ interface CancelLeaveDialogProps {
   request: LeaveRequestRow | null;
   /** „Dziś” kalendarza firmy (`warsawToday()`). */
   today: string;
+  /** Dodatkowe zdanie pod polem: co dalej z godzinami (podgląd raportu). */
+  note?: string;
   /** Zapisany wiersz po cofnięciu, `null` — okno zamknięte bez zmian. */
   onClose: (saved: LeaveRequestRow | null) => void;
 }
@@ -29,7 +31,7 @@ const REASON_MAX = 500;
  * wymaga powodu: idzie do śladu HR i do powiadomienia osoby (w mailu go nie
  * ma). Termin w przyszłości anuluje się zwykłym potwierdzeniem, bez powodu.
  */
-export function CancelLeaveDialog({ request, today, onClose }: CancelLeaveDialogProps) {
+export function CancelLeaveDialog({ request, today, note, onClose }: CancelLeaveDialogProps) {
   const cancel = useCancelTeamLeave();
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +91,7 @@ export function CancelLeaveDialog({ request, today, onClose }: CancelLeaveDialog
           onChange={(event) => setReason(event.target.value)}
         />
       </FormField>
+      {note ? <p className="mt-3 text-sm text-muted-foreground">{note}</p> : null}
     </AppModal>
   );
 }
