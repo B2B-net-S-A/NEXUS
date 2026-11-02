@@ -236,6 +236,14 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Dziennik CPro (02.11.2026): odczyt DL, HoR, admin; wyłączniki — backend.
+    prefix: "/settings/cpro",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",

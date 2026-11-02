@@ -287,6 +287,10 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
+    # 0631: zdarzenia z maili CPro (`services/cpro_mail.py`).
+    cpro_candidate_rejected = "cpro_candidate_rejected"
+    cpro_interview_change = "cpro_interview_change"
+    cpro_close_needs_decision = "cpro_close_needs_decision"
     # 0621 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
     # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
     # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail

@@ -154,7 +154,8 @@ CATALOG = (
         module="Rekrutacje",
         trigger="Ktoś zamknął rekrutację, w której Twoje osoby stoją w „CV wysłane”, "
         "„Rozmowie u klienta” albo „Umowie”. Automaty (Traffit, scalanie, "
-        "stare szkice) nie wysyłają.",
+        "stare szkice) nie wysyłają. Gdy rekrutację zamknie mail CPro od Nordei, "
+        "mail dostaje każdy rekruter z kartą w toku.",
         recipient_rule="Rekruter osoby: ten, kto ją zweryfikował, a bez weryfikacji "
         "ten, kto ją dodał; bez osoby, która zamknęła. W mailu: rekrutacja, klient, "
         "powód zamknięcia i lista osób.",
