@@ -8,6 +8,7 @@
  */
 
 import type { ChampionProfile, CvGeneratePayload } from "@/lib/api";
+import { isClientCvWordFile } from "@/lib/candidate-files";
 import type { CvAiSourceToggles } from "@/lib/cv-ai-sources";
 import {
   clientRuleRequirementProblems,
@@ -27,6 +28,17 @@ export type CvProcessingMode = "polished" | "tailored";
  * w rekrutacji (decyzja Artura) — „Inny klient (bez procesu)” zniknął.
  */
 export const NO_RECRUITMENT_MISSING = "Rekrutacja — dodaj osobę do rekrutacji";
+
+/**
+ * Plik CV na start: główne CV kandydata, a bez niego pierwszy z listy serwera
+ * (firmowe CV dopiero bez innego CV — `cv_source.current_cv_ordering`).
+ */
+export function defaultCvSourceId(
+  sources: readonly { id: number; filename: string; is_primary: boolean }[],
+): number | null {
+  const primary = sources.find((source) => source.is_primary && !isClientCvWordFile(source.filename));
+  return primary?.id ?? sources[0]?.id ?? null;
+}
 
 /** Etykieta procesu w selekcie: „Stanowisko · Klient · Etap”. */
 export function processLabel(recruitment: RecruitmentOption): string {

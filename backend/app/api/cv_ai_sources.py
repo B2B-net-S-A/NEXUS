@@ -13,7 +13,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateDocumentAccess
@@ -116,13 +116,13 @@ async def get_stage_cv_ai_sources(
     job = await db.get(Job, stage.job_id)
     candidate_id = stage.candidate_id
 
-    cv_files, has_candidate_cv = await _cv_files(db, stage)
+    cv_files = await _cv_files(db, stage)
     stage_copy = next((f for f in cv_files if f.stage_original), None)
     # Kopia etapu sprzed 02.11.2026 bywa firmowym CV: wtedy domyślnie CV kandydata.
     if (
         stage_copy is not None
-        and has_candidate_cv
         and looks_like_client_cv(stage_copy.filename or "")
+        and await _has_candidate_cv(db, candidate_id)
     ):
         stage_copy = None
     default = stage_copy or next((f for f in cv_files if not f.outdated), None)
@@ -237,26 +237,44 @@ async def get_stage_cv_ai_sources(
     )
 
 
-async def _cv_files(
-    db: AsyncSession, stage: CandidateStage
-) -> tuple[list[AiSourceFile], bool]:
+async def _has_candidate_cv(db: AsyncSession, candidate_id: int) -> bool:
+    """Czy osoba ma plik rodzaju „cv”, który może zastąpić firmowe CV."""
+    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+    from app.services.cv_generator_b2b.standalone_service import (
+        _supported_cv_doc_filter,
+    )
+    from app.services.cv_source import client_cv_file_clause, current_cv_filters
+
+    return bool(
+        await db.scalar(
+            select(CandidateDocument.id)
+            .where(
+                CandidateDocument.candidate_id == candidate_id,
+                CandidateDocument.document_kind == CandidateDocumentKind.cv,
+                not_(client_cv_file_clause()),
+                _supported_cv_doc_filter(),
+                *current_cv_filters(),
+            )
+            .limit(1)
+        )
+    )
+
+
+async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFile]:
     """Pliki CV osoby, które generator umie przeczytać, w kolejności generatora.
 
     21.10.2026 (zgłoszenie zespołu „CV wygenerowało się z błędnego pliku”):
     karta pokazywała kopię „Oryginał CV” etapu, a generator brał główne albo
     najnowsze CV z profilu — także „nieaktualne” i z kwarantanny. Domyślnym
     plikiem jest teraz plik kopii etapu (po SHA, także sprzed ruchu karty).
-
-    Drugi wynik: czy osoba ma CV kandydata, które może zastąpić firmowe CV
-    (rodzaj „cv”, nie „…B2B….docx”, nie nieaktualne, nie z kwarantanny).
     """
-    from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
+    from app.models.candidate_document import CandidateDocument
     from app.models.candidate_stage_cv import CandidateStageCV
     from app.services.candidate_identity_quarantine import source_is_eligible_clause
     from app.services.cv_generator_b2b.standalone_service import (
         _supported_cv_doc_filter,
     )
-    from app.services.cv_source import client_cv_file_clause, current_cv_ordering
+    from app.services.cv_source import current_cv_ordering
 
     eligible = source_is_eligible_clause(
         candidate_id_column=CandidateDocument.candidate_id,
@@ -273,8 +291,6 @@ async def _cv_files(
                 CandidateDocument.content_sha256,
                 CandidateDocument.outdated_at.isnot(None),
                 eligible,
-                CandidateDocument.document_kind,
-                client_cv_file_clause(),
             )
             .where(
                 CandidateDocument.candidate_id == stage.candidate_id,
@@ -301,11 +317,7 @@ async def _cv_files(
     )
     files: list[AiSourceFile] = []
     marked = False
-    has_candidate_cv = False
-    for doc_id, filename, uploaded_at, primary, sha, outdated, ok, kind, firm in rows:
-        has_candidate_cv = has_candidate_cv or (
-            kind == CandidateDocumentKind.cv and ok and not outdated and not firm
-        )
+    for doc_id, filename, uploaded_at, primary, sha, outdated, ok in rows:
         is_original = bool(original_sha) and sha == original_sha and not marked
         marked = marked or is_original
         files.append(
@@ -318,7 +330,7 @@ async def _cv_files(
                 stage_original=is_original,
             )
         )
-    return files, has_candidate_cv
+    return files
 
 
 def _used_file(

@@ -9,6 +9,7 @@ import {
   autoProcessChoice,
   buildGeneratePayload,
   championImportPayload,
+  defaultCvSourceId,
   defaultLanguageChoice,
   defaultProcessingMode,
   languageOptionEnabled,
@@ -259,5 +260,22 @@ describe("zapis Championa z dokumentu", () => {
       intake: { template_version: "v5" },
       _source: "champion_upload",
     });
+  });
+});
+
+describe("defaultCvSourceId", () => {
+  const file = (id: number, filename: string, is_primary = false) => ({ id, filename, is_primary });
+
+  it("główne CV kandydata wygrywa z kolejnością listy", () => {
+    expect(defaultCvSourceId([file(1, "stare.docx"), file(2, "glowne.pdf", true)])).toBe(2);
+  });
+
+  it("firmowy Word jako główny ustępuje pierwszemu z listy serwera", () => {
+    expect(defaultCvSourceId([file(1, "cv.pdf"), file(2, "B2B_Jan.docx", true)])).toBe(1);
+  });
+
+  it("sam firmowy plik zostaje, a pusta lista to brak wyboru", () => {
+    expect(defaultCvSourceId([file(2, "B2B_Jan.docx", true)])).toBe(2);
+    expect(defaultCvSourceId([])).toBeNull();
   });
 });
