@@ -19,7 +19,9 @@ Kolejność, od najpewniejszego:
 
 Wszystko inne zostaje Finansom z powodem (``REASON_LABELS``) — system nie
 zgaduje. Korekta idzie za fakturą pierwotną (te same zamówienia). Ręczne
-przypisanie Finansów nie jest nadpisywane przez kolejne przebiegi.
+przypisanie Finansów nie jest nadpisywane przez kolejne przebiegi. Finanse mogą
+przy przypisaniu dopisać numer nabywcy do klienta (``save_buyer_number``): wtedy
+pozostałe faktury tego nabywcy dopasowują się od razu.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client_order import ClientOrder
@@ -512,6 +514,20 @@ async def reopen(
     await propagate_to_corrections(db, invoice)
 
 
+async def _retry(
+    db: AsyncSession, pending: Sequence[ClientSalesInvoice]
+) -> dict[str, int]:
+    registry = await clients.nip_registry(db) if pending else None
+    matched = 0
+    for invoice in pending:
+        if invoice.match_reason == "unknown_buyer":
+            invoice.client_id = None
+        decision = await auto_match(db, invoice, registry=registry)
+        if decision.matched or invoice.match_status == "matched":
+            matched += 1
+    return {"retried": len(pending), "matched": matched}
+
+
 async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, int]:
     """Kolejna próba dla faktur czekających z powodu, który mógł zniknąć."""
 
@@ -526,15 +542,68 @@ async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, in
             .limit(limit)
         )
     )
-    registry = await clients.nip_registry(db) if pending else None
-    matched = 0
-    for invoice in pending:
-        if invoice.match_reason == "unknown_buyer":
-            invoice.client_id = None
-        decision = await auto_match(db, invoice, registry=registry)
-        if decision.matched or invoice.match_status == "matched":
-            matched += 1
-    return {"retried": len(pending), "matched": matched}
+    return await _retry(db, pending)
+
+
+def buyer_number(invoice: ClientSalesInvoice) -> Optional[str]:
+    return invoice.buyer_nip or invoice.buyer_foreign_id
+
+
+def _waiting_for_number(number: str) -> list[Any]:
+    return [
+        ClientSalesInvoice.match_status == "unmatched",
+        ClientSalesInvoice.match_reason == "unknown_buyer",
+        or_(
+            ClientSalesInvoice.buyer_nip == number,
+            ClientSalesInvoice.buyer_foreign_id == number,
+        ),
+    ]
+
+
+async def waiting_for_number(db: AsyncSession, number: str) -> int:
+    """Ile faktur czeka na ten numer u klienta."""
+
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ClientSalesInvoice)
+            .where(*_waiting_for_number(number))
+        )
+        or 0
+    )
+
+
+async def save_buyer_number(
+    db: AsyncSession, invoice: ClientSalesInvoice, *, client_id: Optional[int] = None
+) -> dict[str, Any]:
+    """Numer nabywcy u klienta z faktury i od razu reszta faktur tego nabywcy.
+
+    Nie czekamy na ``rematch_pending``: bierze on 200 najnowszych czekających,
+    więc starsze faktury tego nabywcy mogłyby do niego nie dojść.
+    """
+
+    check = await clients.add_buyer_number(
+        db, invoice.client_id or client_id, buyer_number(invoice)
+    )
+    result: dict[str, Any] = {
+        "state": check.state,
+        "number": check.number,
+        "client_id": check.client_id,
+        "saved": check.state == "add",
+        "retried": 0,
+        "matched": 0,
+    }
+    if check.state == "add":
+        pending = list(
+            await db.scalars(
+                select(ClientSalesInvoice)
+                .where(*_waiting_for_number(check.number))
+                .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
+                .with_for_update()
+            )
+        )
+        result.update(await _retry(db, pending))
+    return result
 
 
 __all__ = [
@@ -544,6 +613,7 @@ __all__ = [
     "Target",
     "assign",
     "auto_match",
+    "buyer_number",
     "decide",
     "ignore",
     "invoice_texts",
@@ -551,4 +621,6 @@ __all__ = [
     "propagate_to_corrections",
     "rematch_pending",
     "reopen",
+    "save_buyer_number",
+    "waiting_for_number",
 ]
