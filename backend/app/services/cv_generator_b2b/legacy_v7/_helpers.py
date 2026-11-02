@@ -222,15 +222,12 @@ def _duration_bounds(dates: str) -> tuple[int, int] | None:
     return (start, end)
 
 
-def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
-    """Sum the candidate's actual time employed across all roles, in whole
-    years. Intervals are merged so overlapping/parallel contracts (common in
-    B2B) are counted once, and an ongoing role ("obecnie") is capped at the
-    current month. Returns ``None`` when no role carries parseable dates.
-
-    Claude is reliable at EXTRACTING dates but not at the arithmetic of summing
-    them — it tends to round down ("ponad 4" for a 5-year candidate). Computing
-    the figure here makes the why_points headline exact.
+def _total_experience_months(experience: list[dict[str, Any]]) -> int | None:
+    """Sum the candidate's actual time employed across all roles, in months.
+    Intervals are merged so overlapping/parallel contracts (common in B2B) are
+    counted once, gaps between jobs do not count, and an ongoing role
+    ("obecnie") is capped at the current month. Returns ``None`` when no role
+    carries parseable dates.
     """
     now = local_now()
     now_idx = now.year * 12 + (now.month - 1)
@@ -255,22 +252,43 @@ def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
         else:
             total_months += cur_end - cur_start + 1
             cur_start, cur_end = start, end
-    total_months += cur_end - cur_start + 1
+    return total_months + cur_end - cur_start + 1
 
-    # Połowa roku w górę: `round()` zaokrągla do parzystej i 54 miesiące
-    # dawały 4 lata (audyt 13.10.2026 — staż nie może być zaniżany).
-    years = (total_months + 6) // 12
+
+def _total_experience_years(experience: list[dict[str, Any]]) -> int | None:
+    """Zaokrąglona liczba lat dla bezpiecznika fabrykacji (`_derivable_years`).
+
+    Liczbę w CV pisze `_tenure_text` (pełne lata w dół, „Ponad N”).
+    """
+    months = _total_experience_months(experience)
+    if months is None:
+        return None
+    years = (months + 6) // 12
     return years if years >= 1 else None
 
 
-def _whole_years(value: float) -> int:
-    """Liczba lat po zaokrągleniu połowy w górę (jak ``_total_experience_years``)."""
-    return int(value + 0.5)
+# Od tylu dodatkowych miesięcy nagłówek mówi „Ponad N lat” zamiast „N lat”.
+OVER_YEARS_FROM_MONTHS = 3
+
+
+def _tenure_text(months: int, language: str, *, at_start: bool) -> str:
+    """„4 lata” albo „Ponad 4 lata”: pełne lata w dół (decyzja Artura 02.11.2026).
+
+    Do 02.11.2026 połowa roku szła w górę i rekruterzy poprawiali w plikach
+    „18 lat” na „Ponad 17 lat” (19 z 67 CV zmieniało tę liczbę).
+    """
+    whole = months // 12
+    text = _years_text(whole, language)
+    if months % 12 < OVER_YEARS_FROM_MONTHS:
+        return text
+    if language == "en":
+        return f"{'Over' if at_start else 'over'} {text}"
+    return f"{'Ponad' if at_start else 'ponad'} {text}"
 
 
 # A years-of-experience figure in a why_point ("Ponad 4 lata doświadczenia…").
-# The optional approximate prefix is swallowed so it gets replaced by the exact
-# figure (recruiter: "5 years must read 5, not 'over 4'"). A decimal figure
+# The optional approximate prefix is swallowed so it gets replaced by the figure
+# computed from the dates (`_tenure_text`). A decimal figure
 # ("4,5 roku") is matched whole: until 13.10.2026 the pattern took "5 roku" out
 # of "4.5 roku" and the fix wrote "4.4 lata" (22 CVs in 30 days on production).
 _YEARS_PHRASE_RE = re.compile(
@@ -280,6 +298,12 @@ _YEARS_PHRASE_RE = re.compile(
     r"(?:lata|lat|roku|rok|years|year|yrs|yr)\b",
     re.IGNORECASE,
 )
+
+
+def _fraction_matches(figure: float, months: int) -> bool:
+    """„4,5 roku” zgodne z datami: różnica mniejsza niż kwartał."""
+    return abs(figure * 12 - months) < OVER_YEARS_FROM_MONTHS
+
 
 # Staż ma najwyżej dwie cyfry. „Od 2023 roku" to data, nie staż — do 13.10.2026
 # poprawka zamieniała ją na „od13 lat".
@@ -357,8 +381,8 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
     experience = [
         job for job in candidate_data.get("experience") or [] if isinstance(job, dict)
     ]
-    total = _total_experience_years(experience)
-    if not total:
+    total = _total_experience_months(experience)
+    if not total or total < 12:
         return
 
     points = candidate_data.get("why_points") or []
@@ -379,18 +403,20 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
             continue
         tail = head[match.end() :]
         if _GENERIC_TENURE_TAIL_RE.fullmatch(tail):
-            years: float = total
+            months = total
         else:
             lead = _ROLE_TENURE_LEAD_RE.match(tail)
             scoped = (
-                _scoped_years(tail[lead.end() :], experience, _company_keys(experience))
+                _scoped_months(
+                    tail[lead.end() :], experience, _company_keys(experience)
+                )
                 if lead
                 else None
             )
             if not scoped:
                 continue
-            years = min(total, max(figure, scoped))
-        if figure != int(figure) and (years == figure or _whole_years(figure) == years):
+            months = min(total, max(int(figure * 12), scoped))
+        if figure != int(figure) and _fraction_matches(figure, months):
             break  # ułamek modelu jest zgodny z datami — zostaje
         lead_space = match.group(0)[
             : len(match.group(0)) - len(match.group(0).lstrip())
@@ -398,7 +424,9 @@ def _fix_experience_years(candidate_data: dict[str, Any], language: str) -> None
         points[i] = (
             point[: match.start()]
             + lead_space
-            + _years_text(_whole_years(years), language)
+            + _tenure_text(
+                months, language, at_start=not point[: match.start()].strip()
+            )
             + point[match.end() :]
         )
         break
@@ -432,10 +460,10 @@ def _company_keys(roles: list[dict[str, Any]]) -> list[str]:
     )
 
 
-def _scoped_years(
+def _scoped_months(
     tail: str, roles: list[dict[str, Any]], companies: list[str]
 ) -> int | None:
-    """Lata ról pasujących do frazy po liczbie: „jako X" (stanowisko zawiera X)
+    """Miesiące ról pasujących do frazy po liczbie: „jako X" (stanowisko zawiera X)
     albo „w/u/at Firma" (dokładnie ta firma). ``None`` = brak dopasowania albo
     niepełne daty — wtedy liczba zostaje, jak napisał model."""
     role = _SCOPED_ROLE_CONNECTOR_RE.match(tail)
@@ -464,7 +492,7 @@ def _scoped_years(
         _parse_date_range(str(job.get("dates") or "")) is None for job in matched
     ):
         return None
-    return _total_experience_years(matched)
+    return _total_experience_months(matched)
 
 
 def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
@@ -496,14 +524,17 @@ def _fix_scoped_years(candidate_data: dict[str, Any], language: str) -> None:
             figure = _tenure_figure(match)
             if figure is None:
                 return match.group(0)
-            years = _scoped_years(match.string[match.end() :], roles, companies)
-            if not years:
+            months = _scoped_months(match.string[match.end() :], roles, companies)
+            if not months or months < 12:
                 return match.group(0)
-            if figure != int(figure) and _whole_years(figure) == years:
+            if figure != int(figure) and _fraction_matches(figure, months):
                 return match.group(0)  # „4,5 roku w Acme” zgodne z datami
             text = match.group(0)
             lead = text[: len(text) - len(text.lstrip())]
-            return f"{lead}{_years_text(years, language)}"
+            before = match.string[: match.start()]
+            return (
+                f"{lead}{_tenure_text(months, language, at_start=not before.strip())}"
+            )
 
         points[i] = _YEARS_PHRASE_RE.sub(replace, point)
 

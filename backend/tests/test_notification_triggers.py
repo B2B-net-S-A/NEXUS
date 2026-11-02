@@ -568,6 +568,12 @@ class _NoRemindersYet:
     async def execute(self, statement):
         return []
 
+    # `availability_local.refresh_source` czyta przełącznik z bazy, gdy jego
+    # pamięć na proces jest pusta albo starsza niż minuta — bez tego wynik
+    # zależał od tego, co biegło wcześniej w tym samym shardzie.
+    async def scalar(self, statement):
+        return None
+
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
