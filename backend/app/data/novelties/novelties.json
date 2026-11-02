@@ -610,5 +610,16 @@
     "where": "Sprzedaż → zakładki",
     "href": "/sales",
     "dot_anchor": "sales.tabs"
+  },
+  {
+    "id": "raporty-godzin-filtr-i-cofniecie",
+    "title": "Raporty godzin: filtr statusu i cofnięcie nieobecności",
+    "why": "Chipem pokażesz same raporty do akceptacji, szkice albo zaakceptowane. A gdy ktoś wpisał nieobecność przez pomyłkę, cofniesz ją z podglądu raportu, podając powód.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
+    "where": "Ludzie → Akceptacje → Raporty godzin",
+    "href": "/people/approvals?tab=time",
+    "dot_anchor": "hr.timesheet-status"
   }
 ]
