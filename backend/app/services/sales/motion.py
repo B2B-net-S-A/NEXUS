@@ -118,6 +118,28 @@ async def _resolve_contacts(
     return resolved
 
 
+async def _fill_from_contacts(db: AsyncSession, entries: list[dict[str, Any]]) -> None:
+    """Puste dane osoby z mapy uzupełnia z jej kontaktu; wpis z Atlasa ma pierwszeństwo."""
+
+    ids = {entry["nexus_contact_id"] for entry in entries if entry["nexus_contact_id"]}
+    if not ids:
+        return
+    contacts = {
+        contact.id: contact
+        for contact in (
+            await db.execute(select(SalesContact).where(SalesContact.id.in_(ids)))
+        ).scalars()
+    }
+    for entry in entries:
+        contact = contacts.get(entry["nexus_contact_id"])
+        if contact is None:
+            continue
+        entry["email"] = entry.get("email") or contact.email
+        entry["phone"] = entry.get("phone") or contact.phone or contact.mobile_phone
+        entry["linkedin_url"] = entry.get("linkedin_url") or contact.linkedin_url
+        entry["notes"] = entry.get("notes") or contact.notes
+
+
 async def build_atlas_motion(
     db: AsyncSession, *, company_id: int, custom_fields: Optional[dict[str, Any]]
 ) -> Optional[dict[str, Any]]:
@@ -161,6 +183,7 @@ async def build_atlas_motion(
             entries, await _resolve_contacts(db, company_id, entries)
         ):
             entry["nexus_contact_id"] = contact_id
+        await _fill_from_contacts(db, entries)
         it_factory["decision_map"] = entries
         it_factory["decision_map_completeness"] = decision_map_completeness(it_factory)
         it_factory["decision_map_required"] = DECISION_MAP_REQUIRED

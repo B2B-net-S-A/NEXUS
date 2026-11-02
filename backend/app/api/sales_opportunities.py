@@ -9,6 +9,7 @@ wyłącznie przez ``POST /{id}/move`` — reguły cyklu życia są w
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Literal, Optional
@@ -21,7 +22,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, ensure_owner_or_admin
 from app.core.database import get_db
-from app.core.scheduling import business_today
+from app.core.scheduling import DEFAULT_TZ, business_today
 from app.models.sales import (
     SalesCompany,
     SalesContact,
@@ -47,6 +48,9 @@ summary_router = APIRouter()
 NOT_FOUND_DETAIL = "Nie ma takiej szansy."
 COMPANY_MISSING_DETAIL = "Wybierz firmę z kartoteki sprzedaży."
 STAGE_MISMATCH_DETAIL = "Ten etap nie należy do lejka tej szansy."
+
+#: Etapy, na których szansa ma wysłaną ofertę — ekran Sprzedaż → Oferty.
+OFFER_STAGE_KEYS = ("offer-sent", "tender-submitted")
 
 ServiceLine = Literal[schema.SERVICE_LINES]  # type: ignore[valid-type]
 StatusValue = Literal[schema.OPPORTUNITY_STATUSES]  # type: ignore[valid-type]
@@ -428,6 +432,10 @@ async def list_opportunities(
     owner_id: Optional[int] = None,
     opportunity_status: Optional[StatusValue] = Query(default=None, alias="status"),
     q: Optional[str] = Query(default=None, max_length=200),
+    service_line: Optional[ServiceLine] = None,
+    created_from: Optional[date] = None,
+    created_to: Optional[date] = None,
+    offers_only: bool = False,
     archived: bool = False,
     sort: Literal["updated", "value", "close", "activity", "created"] = "updated",
     # Atlas ma ~1,5 tys. szans — tablica wczytuje cały lejek naraz.
@@ -447,14 +455,28 @@ async def list_opportunities(
         query = query.where(SalesOpportunity.owner_user_id == owner_id)
     if opportunity_status:
         query = query.where(SalesOpportunity.status == opportunity_status)
+    if service_line:
+        query = query.where(SalesOpportunity.service_line == service_line)
+    if offers_only:
+        query = query.where(SalesPipelineStage.key.in_(OFFER_STAGE_KEYS))
+    # Daty w kalendarzu firmy, obie granice włącznie (jak filtr w Atlasie).
+    created_day = func.date(func.timezone(DEFAULT_TZ, SalesOpportunity.created_at))
+    if created_from is not None:
+        query = query.where(created_day >= created_from)
+    if created_to is not None:
+        query = query.where(created_day <= created_to)
     text = (q or "").strip()
     if text:
-        query = query.where(
-            or_(
-                polish_folded_ilike(SalesOpportunity.title, text),
-                polish_folded_ilike(SalesCompany.name, text),
-            )
-        )
+        conditions = [
+            polish_folded_ilike(SalesOpportunity.title, text),
+            polish_folded_ilike(SalesCompany.name, text),
+        ]
+        # NIP tylko dla frazy z samych cyfr: „10CLOUDS” nie może szukać po „10”.
+        digits = re.sub(r"\D", "", text)
+        if len(digits) >= 3 and re.fullmatch(r"[\d\s-]+", text):
+            nip = func.replace(func.replace(SalesCompany.nip, "-", ""), " ", "")
+            conditions.append(nip.like(f"%{digits}%"))
+        query = query.where(or_(*conditions))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (
         await db.execute(
