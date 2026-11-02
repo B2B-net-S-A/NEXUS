@@ -160,6 +160,8 @@ services:
       # Trzy pierwsze wchodzą do stempla `ranker_version`; bez nich wyniki różniły
       # się do 22 pkt. Reszta zmienia pulę i kolejność, a stempla nie, więc ich
       # rozjazdu strażnik `scripts/staging_ranking_parity.py` nie zobaczy.
+      # `MATCH_POOL_SIZE` to ta sama wartość co domyślna w `config.py`; wpis zostaje,
+      # żeby pomiar drugiej puli (`-e MATCH_POOL_SIZE=...`) miał jedno miejsce odniesienia.
       CHAMPION_MATCH_SIGNALS_ENABLED: ${CHAMPION_MATCH_SIGNALS_ENABLED:-true}
       CHAMPION_SENIORITY_PENALTY_ENABLED: ${CHAMPION_SENIORITY_PENALTY_ENABLED:-true}
       SKILL_ALIAS_EXTENDED_ENABLED: ${SKILL_ALIAS_EXTENDED_ENABLED:-true}
