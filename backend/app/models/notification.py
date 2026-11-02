@@ -287,7 +287,7 @@ class NotificationType(str, enum.Enum):
     # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
     # osoby czekają” (`services/job_closed_notices.py`).
     job_closed_people_waiting = "job_closed_people_waiting"
-    # 0633: zdarzenia z maili CPro (`services/cpro_mail.py`).
+    # 0634: zdarzenia z maili CPro (`services/cpro_mail.py`).
     cpro_candidate_rejected = "cpro_candidate_rejected"
     cpro_interview_change = "cpro_interview_change"
     cpro_close_needs_decision = "cpro_close_needs_decision"
