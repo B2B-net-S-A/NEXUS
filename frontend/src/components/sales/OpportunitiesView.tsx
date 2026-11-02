@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Plus, Target } from "lucide-react";
+import { ListFilter, Plus, Target } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/ds/EmptyState";
@@ -12,6 +12,9 @@ import { KanbanBoard, KanbanCard, KanbanColumn } from "@/components/ds/Kanban";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SegmentedRadio } from "@/components/ui/segmented-radio";
 import {
   Table,
@@ -27,6 +30,7 @@ import {
   usePipelines,
   type Opportunity,
   type OpportunityStatus,
+  type ServiceLine,
   type Stage,
   type OpportunitySort,
 } from "@/lib/api/sales";
@@ -83,9 +87,10 @@ export function summarize(items: readonly Opportunity[]): PipelineSummary {
   );
 }
 
-/** Kolumny tablicy: etapy otwarte i wygrana. Przegrane są na liście. */
+/** Kolumny tablicy: wszystkie etapy lejka, także przegrane (jak w Atlasie). */
 export function boardStages(stages: readonly Stage[]): Stage[] {
-  return stages.filter((stage) => stage.outcome !== "lost");
+  const closedLast = (stage: Stage) => (stage.outcome === "open" ? 0 : 1);
+  return [...stages].sort((a, b) => closedLast(a) - closedLast(b) || a.position - b.position);
 }
 
 function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => void }) {
@@ -96,7 +101,9 @@ function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => vo
       <p className="text-muted-foreground">{item.title}</p>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span className="tabular-nums text-foreground">{formatDealAmount(item.value, item.currency)}</span>
-        {item.status === "open" && idle !== null && idle > STALE_AFTER_DAYS ? (
+        {item.status === "lost" ? (
+          item.lost_reason ? <span className="truncate">{item.lost_reason}</span> : null
+        ) : item.status === "open" && idle !== null && idle > STALE_AFTER_DAYS ? (
           <span className="text-warning">bez kontaktu {daysLabel(idle)}</span>
         ) : item.expected_close_date ? (
           <span>zamknięcie {formatIsoDatePl(item.expected_close_date)}</span>
@@ -106,6 +113,11 @@ function OpportunityTile({ item, onOpen }: { item: Opportunity; onOpen: () => vo
     </KanbanCard>
   );
 }
+
+const MODEL_OPTIONS = (Object.keys(SERVICE_LINE_LABELS) as ServiceLine[]).map((value) => ({
+  value,
+  label: SERVICE_LINE_LABELS[value],
+}));
 
 const SORT_OPTIONS: { value: OpportunitySort; label: string }[] = [
   { value: "updated", label: "Ostatnio zmieniane" },
@@ -128,6 +140,10 @@ export function OpportunitiesView() {
   const ownerParam = Number(searchParams?.get("opiekun") ?? "") || null;
   const sort = (searchParams?.get("sort") ?? "updated") as OpportunitySort;
   const archived = searchParams?.get("archiwum") === "1";
+  const serviceLine = (searchParams?.get("model") as ServiceLine | null) ?? null;
+  const createdFrom = searchParams?.get("od") ?? "";
+  const createdTo = searchParams?.get("do") ?? "";
+  const extraFilters = [serviceLine, createdFrom, createdTo].filter(Boolean).length;
   const ownerOptions = useOwnerFilterOptions().filter((option) => option.value.startsWith("acct:"));
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
   const [creating, setCreating] = useState(false);
@@ -147,6 +163,9 @@ export function OpportunitiesView() {
       q,
       sort,
       archived,
+      service_line: serviceLine,
+      created_from: createdFrom || null,
+      created_to: createdTo || null,
     },
     Boolean(pipeline),
   );
@@ -187,15 +206,15 @@ export function OpportunitiesView() {
             setQ(value);
             writeParam("q", value.trim() || null);
           },
-          placeholder: "Szukaj szansy albo firmy…",
-          ariaLabel: "Szukaj szansy albo firmy",
+          placeholder: "Szukaj szansy, firmy albo NIP…",
+          ariaLabel: "Szukaj szansy, firmy albo NIP",
         }}
         filters={
           <div className="flex flex-wrap items-center gap-2">
             {(pipelines.data?.length ?? 0) > 1 && pipeline && (
               <SalesSelect
                 ariaLabel="Lejek"
-                className="w-44"
+                className="w-40"
                 value={String(pipeline.id)}
                 onValueChange={(value) => {
                   const chosen = pipelines.data?.find((p) => String(p.id) === value);
@@ -206,7 +225,7 @@ export function OpportunitiesView() {
             )}
             <SalesSelect
               ariaLabel="Opiekun"
-              className="w-48"
+              className="w-40"
               value={mine ? "me" : ownerParam ? `acct:${ownerParam}` : ""}
               onValueChange={(value) => {
                 const params = new URLSearchParams(window.location.search);
@@ -227,6 +246,48 @@ export function OpportunitiesView() {
               onValueChange={(value) => writeParam("sort", value && value !== "updated" ? value : null)}
               options={SORT_OPTIONS}
             />
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant={extraFilters ? "primary" : "outline"}>
+                  <ListFilter className="mr-1 h-4 w-4" aria-hidden />
+                  Filtry{extraFilters ? ` (${extraFilters})` : ""}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-72 space-y-3">
+                <div className="space-y-1">
+                  <Label htmlFor="sales-filter-model">Model</Label>
+                  <SalesSelect
+                    id="sales-filter-model"
+                    value={serviceLine ?? ""}
+                    onValueChange={(value) => writeParam("model", value || null)}
+                    options={MODEL_OPTIONS}
+                    anyLabel="Każdy model"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label htmlFor="sales-filter-from">Utworzona od</Label>
+                    <Input
+                      id="sales-filter-from"
+                      type="date"
+                      value={createdFrom}
+                      max={createdTo || undefined}
+                      onChange={(event) => writeParam("od", event.target.value || null)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="sales-filter-to">Utworzona do</Label>
+                    <Input
+                      id="sales-filter-to"
+                      type="date"
+                      value={createdTo}
+                      min={createdFrom || undefined}
+                      onChange={(event) => writeParam("do", event.target.value || null)}
+                    />
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
             <Button
               size="sm"
               variant={needsAction ? "primary" : "outline"}
@@ -262,6 +323,17 @@ export function OpportunitiesView() {
             </Button>
           ) : null
         }
+        chips={[
+          ...(serviceLine
+            ? [{ id: "model", label: `Model: ${SERVICE_LINE_LABELS[serviceLine]}`, onRemove: () => writeParam("model", null) }]
+            : []),
+          ...(createdFrom
+            ? [{ id: "od", label: `Utworzona od ${formatIsoDatePl(createdFrom)}`, onRemove: () => writeParam("od", null) }]
+            : []),
+          ...(createdTo
+            ? [{ id: "do", label: `Utworzona do ${formatIsoDatePl(createdTo)}`, onRemove: () => writeParam("do", null) }]
+            : []),
+        ]}
       />
       {state === "ready" && (opportunities.data?.total ?? 0) > (opportunities.data?.items.length ?? 0) && (
         <p role="status" className="text-xs text-warning">
@@ -292,9 +364,9 @@ export function OpportunitiesView() {
       ) : state === "empty" ? (
         <EmptyState
           icon={Target}
-          title={q || mine || ownerParam || archived || needsAction ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
+          title={q || mine || ownerParam || archived || needsAction || extraFilters ? "Nic nie pasuje do filtrów" : "Nie ma jeszcze szans"}
           description={
-            q || mine || ownerParam || archived
+            q || mine || ownerParam || archived || extraFilters
               ? "Zmień wyszukiwanie albo pokaż wszystkie szanse."
               : "Dodaj pierwszą szansę — zacznij od firmy w zakładce Firmy."
           }

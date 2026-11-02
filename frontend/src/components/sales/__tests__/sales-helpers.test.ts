@@ -7,6 +7,7 @@ import { duplicatesFromError } from "../CompanyFormDialog";
 import { daysLabel, daysSince, formatDealAmount, formatDealNumber, safeHref } from "../format";
 import { boardStages, summarize } from "../OpportunitiesView";
 import { describeEvent } from "../OpportunityHistory";
+import { meetingPreview } from "../MeetingsView";
 import { parseAmount, parseRoles, rolesToText } from "../OpportunityFormDialog";
 import { datesNote, period } from "../WhoWeKnowPanel";
 
@@ -48,6 +49,13 @@ describe("Sprzedaż — kwoty i dni", () => {
   });
 });
 
+describe("Sprzedaż — spotkania", () => {
+  it("podgląd notatki pomija kreskę z zaproszenia Outlooka i puste linie", () => {
+    expect(meetingPreview("____________\n\nSpotkanie w Teams\n  Dołącz")).toBe("Spotkanie w Teams Dołącz");
+    expect(meetingPreview(null)).toBe("");
+  });
+});
+
 describe("Sprzedaż — tablica szans", () => {
   it("liczy tylko otwarte do lejka, wygrane osobno", () => {
     expect(
@@ -55,8 +63,9 @@ describe("Sprzedaż — tablica szans", () => {
     ).toEqual({ open: 2, value: 100, weighted: 60, won: 1 });
   });
 
-  it("przegrane etapy nie są kolumnami tablicy", () => {
-    expect(boardStages([stage(1, "open"), stage(2, "lost"), stage(3, "won")]).map((s) => s.id)).toEqual([1, 3]);
+  it("tablica ma wszystkie etapy, a zamknięte stoją na końcu w kolejności lejka", () => {
+    const stages = [stage(1, "open"), stage(2, "lost"), stage(3, "won"), stage(4, "open"), stage(5, "lost")];
+    expect(boardStages(stages).map((s) => s.id)).toEqual([1, 4, 2, 3, 5]);
   });
 });
 

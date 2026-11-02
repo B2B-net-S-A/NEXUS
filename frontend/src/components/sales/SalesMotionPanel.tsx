@@ -1,5 +1,6 @@
 "use client";
 
+import { Linkedin, Mail, Phone } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -33,10 +34,14 @@ const MILESTONES: [string, string][] = [
 ];
 const LEVELS = ["Zarząd / C-level", "Dyrektorzy", "Kierownicy", "Zespół"];
 
+const CONTACT_LINK = "inline-flex min-w-0 items-center gap-1 text-primary hover:underline";
+
 function Person({ entry }: { entry: DecisionMapEntry }) {
   const status = entry.contact_status ? CONTACT_STATUS[entry.contact_status] : undefined;
+  // Adres z Atlasa to wolny tekst, więc link tylko dla http(s).
+  const linkedin = /^https?:\/\//i.test(entry.linkedin_url ?? "") ? entry.linkedin_url : null;
   return (
-    <li className="flex items-start justify-between gap-3 py-1.5 text-sm">
+    <li className="flex items-start justify-between gap-3 py-2 text-sm">
       <div className="min-w-0">
         <p className="font-medium text-foreground">
           {entry.name}
@@ -49,6 +54,28 @@ function Person({ entry }: { entry: DecisionMapEntry }) {
             .filter(Boolean)
             .join(" · ") || "—"}
         </p>
+        {(linkedin || entry.phone || entry.email) && (
+          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+            {linkedin && (
+              <a href={linkedin} target="_blank" rel="noreferrer" className={CONTACT_LINK}>
+                <Linkedin className="h-3 w-3 shrink-0" aria-hidden /> LinkedIn
+              </a>
+            )}
+            {entry.phone && (
+              <a href={`tel:${entry.phone.replace(/\s+/g, "")}`} className={CONTACT_LINK}>
+                <Phone className="h-3 w-3 shrink-0" aria-hidden /> {entry.phone}
+              </a>
+            )}
+            {entry.email && (
+              <a href={`mailto:${entry.email}`} className={CONTACT_LINK}>
+                <Mail className="h-3 w-3 shrink-0" aria-hidden /> <span className="truncate">{entry.email}</span>
+              </a>
+            )}
+          </p>
+        )}
+        {entry.notes && (
+          <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs text-muted-foreground">{entry.notes}</p>
+        )}
       </div>
       <div className="flex shrink-0 gap-1">
         {entry.our_role && <Badge variant="soft" size="sm">{OUR_ROLE[entry.our_role] ?? entry.our_role}</Badge>}

@@ -314,6 +314,10 @@ export interface OpportunityFilters {
   q?: string;
   archived?: boolean;
   sort?: OpportunitySort;
+  service_line?: ServiceLine | null;
+  created_from?: string | null;
+  created_to?: string | null;
+  offers_only?: boolean;
 }
 
 export interface OpportunityInput {
@@ -808,6 +812,24 @@ export function useSalesTasks(filters: TaskFilters) {
     queryKey: salesKeys.tasks(filters),
     queryFn: async () =>
       (await api.get<TaskList>("/api/sales/activities/tasks", { params: clean({ ...filters }) }))
+        .data,
+  });
+}
+
+export interface MeetingFilters {
+  q?: string;
+  linked?: "opportunity" | "company";
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export function useSalesMeetings(filters: MeetingFilters) {
+  return useQuery({
+    queryKey: ["sales", "meetings", filters] as const,
+    queryFn: async () =>
+      (await api.get<TaskList>("/api/sales/activities/meetings", { params: clean({ ...filters }) }))
         .data,
   });
 }

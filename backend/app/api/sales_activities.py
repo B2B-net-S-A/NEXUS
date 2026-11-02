@@ -14,7 +14,7 @@ w Atlasie: synchronizacja przypina je do firmy, nie do szansy.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,7 +25,7 @@ from sqlalchemy.orm import aliased
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
-from app.core.scheduling import local_day_bounds, local_now
+from app.core.scheduling import DEFAULT_TZ, local_day_bounds, local_now
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
@@ -34,6 +34,7 @@ from app.models.sales import (
 )
 from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.polish_ilike import polish_folded_ilike
 
 router = APIRouter()
 
@@ -42,6 +43,7 @@ AUTHOR_ONLY_DETAIL = "Aktywność usuwa jej autor albo administrator."
 EDIT_AUTHOR_ONLY_DETAIL = "Aktywność poprawia jej autor albo administrator."
 #: Maile i spotkania z Outlooka (Microsoft Graph) — ``external_source`` z Atlasa.
 COMPANY_MAIL_SOURCE_PATTERN = "msgraph-%"
+MEETING_PREVIEW_CHARS = 300
 
 Kind = Literal[schema.ACTIVITY_KINDS]  # type: ignore[valid-type]
 Priority = Literal[schema.PRIORITIES]  # type: ignore[valid-type]
@@ -333,6 +335,55 @@ async def list_tasks(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (await db.execute(query.order_by(*order).limit(limit).offset(offset))).all()
     return TaskList(items=[_out(row, now) for row in rows], total=int(total or 0))
+
+
+@router.get("/meetings", response_model=TaskList)
+async def list_meetings(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(default=None, max_length=200),
+    linked: Optional[Literal["opportunity", "company"]] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> TaskList:
+    """Wszystkie spotkania w jednym miejscu (ekran „Spotkania” z Atlasa)."""
+
+    held_at = func.coalesce(SalesActivity.occurred_at, SalesActivity.created_at)
+    held_day = func.date(func.timezone(DEFAULT_TZ, held_at))
+    query = _base_query().where(SalesActivity.kind == "meeting")
+    if linked == "opportunity":
+        query = query.where(SalesActivity.opportunity_id.is_not(None))
+    elif linked == "company":
+        query = query.where(SalesActivity.opportunity_id.is_(None))
+    if date_from is not None:
+        query = query.where(held_day >= date_from)
+    if date_to is not None:
+        query = query.where(held_day <= date_to)
+    text = (q or "").strip()
+    if text:
+        query = query.where(
+            or_(
+                polish_folded_ilike(func.coalesce(SalesActivity.subject, ""), text),
+                polish_folded_ilike(func.coalesce(SalesCompany.name, ""), text),
+                polish_folded_ilike(func.coalesce(SalesOpportunity.title, ""), text),
+            )
+        )
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (
+        await db.execute(
+            query.order_by(held_at.desc(), SalesActivity.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    items = [_out(row, now) for row in rows]
+    for item in items:
+        # Transkrypcja potrafi mieć setki kB, a lista pokazuje jedną linię.
+        item.body = item.body[:MEETING_PREVIEW_CHARS] if item.body else item.body
+    return TaskList(items=items, total=int(total or 0))
 
 
 @router.post("/tasks/complete", response_model=CompleteTasksOut)

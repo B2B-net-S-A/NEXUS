@@ -348,6 +348,51 @@ async def test_atlas_motion_resolves_decision_map_people(app_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_decision_map_fills_gaps_from_contact_and_keeps_atlas_values(
+    app_client,
+) -> None:
+    rep = await _user("sales_edit")
+    company_id = await _company(app_client, rep)
+    opp = await _opportunity(app_client, rep, company_id)
+    tag = _tag()
+    await _add(
+        SalesContact(
+            full_name=f"Osoba Mapa {tag}",
+            company_id=company_id,
+            email=f"kontakt-{tag}@example.com",
+            mobile_phone="+48 600 100 200",
+            linkedin_url="https://www.linkedin.com/in/kontakt",
+            notes="Notatka z kontaktu",
+        ),
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(SalesOpportunity, opp["id"])
+        row.custom_fields = {
+            "atlas": {
+                "it_factory": {
+                    "decision_map": [
+                        {"name": f"Osoba Mapa {tag}", "email": "z-atlasa@example.com"},
+                        {"name": "Osoba spoza kontaktow", "phone": "+48 1"},
+                    ]
+                }
+            }
+        }
+        await db.commit()
+
+    motion = (
+        await app_client.get(f"{OPPS}/{opp['id']}", headers=_headers(rep))
+    ).json()["atlas_motion"]
+    known, unknown = motion["it_factory"]["decision_map"]
+    assert known["email"] == "z-atlasa@example.com"
+    assert known["phone"] == "+48 600 100 200"
+    assert known["linkedin_url"] == "https://www.linkedin.com/in/kontakt"
+    assert known["notes"] == "Notatka z kontaktu"
+    assert unknown["nexus_contact_id"] is None
+    assert unknown["phone"] == "+48 1"
+    assert unknown.get("email") is None
+
+
+@pytest.mark.asyncio
 async def test_opportunity_list_sorts(app_client) -> None:
     rep = await _user("sales_edit")
     company_id = await _company(app_client, rep)

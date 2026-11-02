@@ -597,5 +597,18 @@
     "where": "Ludzie → Płace → Premie do decyzji",
     "href": "/people/payroll",
     "dot_anchor": "payroll.bonus-decisions"
+  },
+  {
+    "id": "sprzedaz-oferty-spotkania-filtry",
+    "title": "Sprzedaż: Oferty, Spotkania i nowe filtry",
+    "why": "Doszły zakładki Oferty i Spotkania. W Szansach przegrane są na tablicy, szukasz też po NIP i filtrujesz po modelu i dacie utworzenia. Kontakt dodasz prosto z zakładki Kontakty.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "permissions": ["sales_view"]
+    },
+    "where": "Sprzedaż → zakładki",
+    "href": "/sales",
+    "dot_anchor": "sales.tabs"
   }
 ]

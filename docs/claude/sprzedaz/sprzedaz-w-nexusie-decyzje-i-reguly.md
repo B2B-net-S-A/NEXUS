@@ -151,10 +151,30 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   ma w kodzie ani w testach.
 - Tygodnie (od poniedziałku) i miesiące w kalendarzu firmy, nie w UTC.
 
+## Uwagi handlowców (decyzje Artura 02.11.2026)
+
+- **Tablica szans ma wszystkie etapy**, zamknięte na końcu (`boardStages`), jak
+  w Atlasie. Liczby nad tablicą dalej liczą tylko otwarte. Fabryki IT nie mają
+  etapu „Niezakwalifikowany” — w Atlasie też go nie było.
+- **Oferty = lista szans na etapach `offer-sent` i `tender-submitted`**
+  (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
+- **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
+  `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
+  Nowe nagrania mają przychodzić z transkryptów Teams, nie z Fireflies — tego
+  połączenia jeszcze nie ma.
+- **Filtry szans:** Model (`service_line`) i data utworzenia w kalendarzu firmy,
+  pod przyciskiem „Filtry”, bo przy 1280 × 720 kolejny rząd pól zabiera miejsce
+  tablicy. Szukanie po NIP tylko dla frazy z samych cyfr: „10CLOUDS” nie może
+  szukać po „10”.
+- **Mapa decyzyjna:** puste pola osoby uzupełnia jej kontakt, wpis z Atlasa ma
+  pierwszeństwo. Dalej tylko do odczytu; edytor to osobne zadanie.
+- **Kontakt z zakładki Kontakty:** firma obowiązkowa, jak w Atlasie.
+
 ## Poza zakresem (świadomie)
 
 Generator ofert, P&L sprzedaży, skan ogłoszeń/LinkedIn/prasy, synchronizacja
-poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo,
+poczty i kalendarza M365 na żywo (historia z Atlasa jest), Fireflies na żywo
+(nowe nagrania będą z transkryptów Teams),
 kanał przetargów, eksport CSV (najpierw limit i dziennik odczytów), „Kogo
 możemy dać od ręki” (Talent Radar na rolach), metryka „nowi klienci na
 spotkaniach” z KPI Atlasa.

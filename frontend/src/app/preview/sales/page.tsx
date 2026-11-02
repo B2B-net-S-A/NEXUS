@@ -91,7 +91,16 @@ function prepare() {
   const client = harnessQueryClient();
   client.setQueryData(salesKeys.pipelines, [PIPELINE]);
   client.setQueryData(
-    salesKeys.opportunities({ pipeline_id: 1, owner_id: null, q: "", sort: "updated", archived: false }),
+    salesKeys.opportunities({
+      pipeline_id: 1,
+      owner_id: null,
+      q: "",
+      sort: "updated",
+      archived: false,
+      service_line: null,
+      created_from: null,
+      created_to: null,
+    }),
     { items: ITEMS, total: ITEMS.length },
   );
   // Filtr opiekuna czyta osoby z podsumowania lejka i etykiety z Atlasa — bez żądań.
