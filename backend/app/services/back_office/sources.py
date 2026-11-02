@@ -396,7 +396,7 @@ async def ending_cards(db: AsyncSession, today: date) -> list[CardSpec]:
         WHERE k.status = 'ending'
           AND NOT EXISTS (
               SELECT 1 FROM admin_cases c
-              WHERE c.source_key = 'contract:' || k.id || ':end'
+              WHERE c.source_key = 'contract:' || k.id || '\\:end'
                 AND c.status NOT IN ('done', 'closed')
           )
         """,

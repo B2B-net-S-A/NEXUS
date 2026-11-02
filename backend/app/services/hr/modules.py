@@ -39,7 +39,7 @@ class HrModule(StrEnum):
     settlements = "settlements"
     #: Zgody na wydatki i premie poza umową (0483) — domyślnie wyłączone.
     approvals = "approvals"
-    #: Kolejka spraw całego back office'u (0629) — domyślnie wyłączona.
+    #: Kolejka spraw całego back office'u (0637) — domyślnie wyłączona.
     back_office = "back_office"
 
 

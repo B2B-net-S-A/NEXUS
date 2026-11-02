@@ -192,7 +192,12 @@ class BonusPatch(BaseModel):
 
 
 class BonusBatchIn(BaseModel):
-    ids: list[int] = Field(min_length=1, max_length=100)
+    # Karta „Premie” w kolejce back office'u obejmuje cały okres (10.2026: 112).
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class BonusCancelBatchIn(BonusBatchIn):
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class PayrollCancelIn(BaseModel):
@@ -943,6 +948,29 @@ async def cancel_bonus(
             db, viewer, bonus_id, note=payload.note
         )
     return await _bonus_response(db, bonus, viewer)
+
+
+@router.post("/bonuses/cancel-batch")
+async def cancel_bonuses(
+    payload: BonusCancelBatchIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zbiorcze anulowanie z karty okresu: wszystko albo nic, jak „Zatwierdź zaznaczone”.
+
+    Każda premia przechodzi ``payroll_bonuses.cancel_bonus``. Pierwsza odmowa
+    cofa całość, więc nikt nie dostaje dzwonka o anulowaniu, które nie weszło.
+    """
+
+    viewer = await load_viewer(db, current_user)
+    cancelled = 0
+    for bonus_id in sorted(set(payload.ids)):
+        with _http_errors():
+            await payroll_bonuses.cancel_bonus(
+                db, viewer, bonus_id, note=payload.note
+            )
+        cancelled += 1
+    return {"cancelled": cancelled}
 
 
 @router.get("/contracts/{contract_id}/bonuses")

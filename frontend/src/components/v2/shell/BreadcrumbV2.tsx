@@ -46,6 +46,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   team: "Mój zespół",
   offboarding: "Odejście",
   care: "Opieka",
+  "back-office": "Back office",
   protocol: "Protokół",
   settings: "Ustawienia",
   templates: "Szablony email",

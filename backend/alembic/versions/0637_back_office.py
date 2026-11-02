@@ -1,7 +1,7 @@
 """Back office na sprawach: karty, historia kart i skład zespołów.
 
-Revision ID: 0629_back_office
-Revises: 0628_sales_meeting_transcripts
+Revision ID: 0637_back_office
+Revises: 0636_cv_generator_feedback
 
 SQL i powody: ``app/services/back_office_schema.py`` (to samo źródło czyta
 ``entrypoint.sh`` przez ``hr_schema_bundle``).
@@ -11,8 +11,8 @@ from alembic import op
 
 from app.services import back_office_schema as schema
 
-revision = "0629_back_office"
-down_revision = "0628_sales_meeting_transcripts"
+revision = "0637_back_office"
+down_revision = "0636_cv_generator_feedback"
 branch_labels = None
 depends_on = None
 

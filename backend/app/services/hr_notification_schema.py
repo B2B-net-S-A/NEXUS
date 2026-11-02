@@ -57,7 +57,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
     *APPROVAL_TYPES,
     # Rozliczenie zgód — dopłata do zatwierdzającego, odnowienie subskrypcji (0486).
     *APPROVAL_SETTLEMENT_TYPES,
-    # Kolejka back office'u — do kierownika i do osoby z przydziałem (0629).
+    # Kolejka back office'u — do kierownika i do osoby z przydziałem (0637).
     *BACK_OFFICE_TYPES,
 )
 

@@ -397,7 +397,7 @@ class NotificationType(str, enum.Enum):
     hr_lifecycle_task = "hr_lifecycle_task"
     hr_work_handover = "hr_work_handover"
     admin_case_assigned = "admin_case_assigned"
-    # 0629: kolejka back office'u.
+    # 0637: kolejka back office'u.
     back_office_escalated = "back_office_escalated"
     back_office_assigned = "back_office_assigned"
     equipment_task = "equipment_task"

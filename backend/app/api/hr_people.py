@@ -46,6 +46,7 @@ from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_policy import actor_of, can_see_type
 from app.services.hr.leave_calendar import presence_between
 from app.services.hr.modules import HrModule
+from app.services.back_office import access as back_office_access
 from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
@@ -80,6 +81,7 @@ async def hr_config(
                 "leave_approver": False,
                 "has_assigned_cases": False,
                 "back_office_head": False,
+                "back_office_member": False,
             },
         }
     profile = await people.profile_of(db, current_user.id)
@@ -117,6 +119,10 @@ async def hr_config(
             ),
             # Head back office edytuje ścieżkę „Konsultant u klienta” (etap 3, O4).
             "back_office_head": await is_back_office_head(db, current_user),
+            "back_office_member": bool(
+                hr_modules.module_open_for(current_user, loaded, "back_office")
+                and (await back_office_access.load_viewer(db, current_user)).has_access
+            ),
         },
     }
 

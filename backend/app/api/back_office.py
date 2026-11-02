@@ -28,6 +28,7 @@ from app.models.user import User
 from app.services.back_office import access, board, service, steps, sync
 from app.services.back_office.sources import ADAPTERS
 from app.services.back_office_schema import BACK_OFFICE_SETTING, NOTE_MAX
+from app.services.hr import people
 from app.services.hr.modules import HrModule
 
 router = APIRouter()
@@ -319,7 +320,18 @@ async def get_team(
     members = await access.team_members(db)
     names = await board.user_names(db, [uid for ids in members.values() for uid in ids])
     settings_value = await access.load_settings(db)
+    integration_ids = await people.integration_account_ids(db)
+    candidates = [
+        {"id": person.id, "name": person.name}
+        for person in (
+            await db.scalars(
+                select(User).where(User.is_active.is_(True)).order_by(User.name)
+            )
+        ).all()
+        if people.is_staff_account(person, integration_ids=integration_ids)
+    ]
     return {
+        "candidates": candidates,
         "teams": [
             {
                 "id": team,

@@ -99,8 +99,8 @@ CHAIN = (
     ),
     # Kolejka spraw back office'u (02.11.2026).
     (
-        "0629_back_office",
-        "0628_sales_meeting_transcripts",  # down_revision — przepina rechain_migration.py
+        "0637_back_office",
+        "0636_cv_generator_feedback",  # down_revision — przepina rechain_migration.py
         "back_office_schema",
     ),
 )

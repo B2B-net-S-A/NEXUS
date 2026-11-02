@@ -197,7 +197,7 @@ async def open_due_exit_cases(db: AsyncSession, *, today: date) -> int:
                     )
                     AND NOT EXISTS (
                       SELECT 1 FROM admin_cases c
-                      WHERE c.source_key = 'contract:' || contracts.id || ':end'
+                      WHERE c.source_key = 'contract:' || contracts.id || '\\:end'
                     )
                     """
                 ).bindparams(

@@ -70,7 +70,7 @@ MODULES = (
     equipment_cancel,
     # 0622: zastępca do Cpro we wniosku urlopowym (29.10.2026).
     leave_cpro,
-    # 0629: kolejka spraw całego back office'u (02.11.2026).
+    # 0637: kolejka spraw całego back office'u (02.11.2026).
     back_office,
 )
 
