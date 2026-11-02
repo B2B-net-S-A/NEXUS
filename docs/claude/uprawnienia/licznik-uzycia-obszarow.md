@@ -1,4 +1,4 @@
-# Licznik użycia obszarów do przeglądu dostępów (0630, 02.11.2026)
+# Licznik użycia obszarów do przeglądu dostępów (0631, 02.11.2026)
 <!-- indeks: ACCESS_USAGE_COUNTER_ENABLED domyślnie wyłączony, osoba × obszar × dzień, po ekranie nie po trasie, X-Nexus-Screen, retencja 90 dni, scripts.access_usage_review -->
 
 Program najmniejszych dostępów (Artur 02.11.2026): dużo osób ma dostępy, których
