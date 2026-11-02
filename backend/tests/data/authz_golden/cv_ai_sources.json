@@ -25,9 +25,10 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidates/stages/{stage_id}/cv/ai-sources": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "GET /api/candidates/stages/{stage_id}/cv/ai-sources": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

@@ -201,7 +201,7 @@ async def test_manager_moves_approved_leave_and_m365_follows(
             )
         )
     edited_bell = next(bell for bell in bells if bell.title == "Zmieniono Twój wniosek")
-    assert "Przekierowanie poczty do zastępcy wyłączone" in edited_bell.message
+    assert "Kopia poczty do zastępcy wyłączona" in edited_bell.message
     (event,) = trail
     assert event.details["changed"] == ["end_date", "start_date", "substitute_user_id"]
     assert event.details["before"]["start_date"] == MON.isoformat()

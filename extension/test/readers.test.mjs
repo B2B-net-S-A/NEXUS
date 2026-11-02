@@ -20,6 +20,9 @@ test("detectPage rozpoznaje obsługiwane strony LinkedIna", () => {
     ["https://www.linkedin.com/search/results/people/?keywords=java", "search_results"],
     ["https://www.linkedin.com/talent/hire/555/discover/recruiterSearch?searchContextId=1", "search_results"],
     ["https://www.linkedin.com/talent/hire/555/manage/all", "search_results"],
+    ["https://www.linkedin.com/talent/search?searchContextId=1&start=0", "search_results"],
+    ["https://www.linkedin.com/talent/search/profile/AEMAAX?searchContextId=1", "recruiter_profile"],
+    ["https://www.linkedin.com/talent/search/recruiter-search-history", "unsupported"],
     ["https://www.linkedin.com/feed/", "unsupported"],
     ["https://www.linkedin.com/search/results/companies/?keywords=x", "unsupported"],
     ["https://example.com/in/zofia", "unsupported"],
@@ -145,6 +148,42 @@ test("wyszukiwanie w Recruiterze w nieznanym układzie: heurystyka po linkach do
   assert.equal(r.people[0].headline, "Python Developer · Wymyślona Fintech");
   assert.equal(r.people[1].current_company, "Fikcyjne Ubezpieczenia");
   assert.equal(r.people[0].public_url, null);
+});
+
+test("główna wyszukiwarka Recruitera: lista ma źródło recruiter_search, a profil klucz osoby", () => {
+  assert.equal(detectPage("https://www.linkedin.com/talent/search?start=0").source, "recruiter_search");
+  assert.equal(detectPage("https://www.linkedin.com/talent/search/profile/AEMAAX?start=0").key, "talent/AEMAAX");
+});
+
+// Układ wiersza zmierzony w Recruiterze 02.11.2026, osoby i firmy wymyślone.
+const recruiterRow = (name, headline, groups) => `<div data-test-paginated-list-item><article class="profile-list-item">
+  <a data-test-row-lockup-full-name href="https://www.linkedin.com/talent/search/profile/AEMA${name.length}">${name}</a>
+  <p data-test-row-lockup-headline>${headline}</p><p data-test-row-lockup-location>Warsaw, Poland</p>
+  <dl data-test-history>${groups
+    .map(([term, lines]) => `<div data-test-history-group=""><dt data-test-description-entry-term>${term} Profile ${term.toLowerCase()}</dt><dd data-test-history-group-definition><ol>${lines.map((l) => `<li>${l}</li>`).join("")}</ol></dd></div>`)
+    .join("")}</dl>
+</article></div>`;
+
+const recruiterList = (...rows) => read2(`<html><body><ol>${rows.map((r) => `<li>${r}</li>`).join("")}</ol></body></html>`);
+const read2 = (html) => readPageDom(parse(html), "https://www.linkedin.com/talent/search?start=0").people;
+
+test("wiersz Recruitera: firma z obecnej pozycji w historii doświadczenia", () => {
+  const [p] = recruiterList(recruiterRow("Marta Fikcyjna", "Senior Java Developer", [["Experience", ["Senior Java Developer at Firma Fikcyjna · 2023 – Present", "Developer at Inna Firma · 2019 – 2023"]]]));
+  assert.equal(p.current_company, "Firma Fikcyjna");
+  assert.deepEqual(p.missing, []);
+});
+
+test("wiersz Recruitera: firma z polskiego interfejsu", () => {
+  const [p] = recruiterList(recruiterRow("Marta Fikcyjna", "Analityk", [["Doświadczenie", ["Analityk w Firma Fikcyjna · 2023 – obecnie"]]]));
+  assert.equal(p.current_company, "Firma Fikcyjna");
+});
+
+test("wiersz Recruitera: zakończona pozycja i uczelnia to nie obecna firma", () => {
+  const people = recruiterList(
+    recruiterRow("Marta Fikcyjna", "Szuka pracy", [["Experience", ["Developer at Dawna Firma · 2019 – 2023"]]]),
+    recruiterRow("Tomasz Testowy", "Student", [["Education", ["Politechnika Wymyślona at Kampus · 2021 – Present"]]]),
+  );
+  assert.deepEqual(people.map((p) => p.current_company), [null, null]);
 });
 
 test("lista: najwyżej 50 osób", () => {

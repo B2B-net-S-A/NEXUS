@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

@@ -45,6 +45,7 @@ class ProductAction(StrEnum):
     sales_view = "sales_view"
     sales_edit = "sales_edit"
     timesheets = "timesheets"
+    company_results = "company_results"
 
 
 class ActionAccess(IntEnum):
@@ -155,14 +156,14 @@ def has_permission(user: User, permission: ProductAction | str) -> bool:
 
 
 def reads_board_money(user: User) -> bool:
-    """Kwoty kokpitu Rady: uprawnienie „Moduł Finanse” albo rola Rada nadzorcza.
+    """Kwoty kokpitu Rady: uprawnienie „Wyniki firmy” albo rola Rada nadzorcza.
 
     Lustro bramki ``deps.BoardReader`` dla miejsc, które same decydują
     o redakcji kwot (tabele rok-do-roku).
     """
 
     return user.has_role(UserRole.board) or has_permission(
-        user, ProductAction.finance_module
+        user, ProductAction.company_results
     )
 
 
@@ -271,16 +272,13 @@ def account_accepts_grants(user: User) -> bool:
     return any(role not in UNGRANTABLE_ROLES for role in user.get_all_roles())
 
 
-def effective_action_policy_from_rows(
+def action_policy_before_closure(
     user: User,
     role_rows: Iterable[RoleActionPermission],
     override_rows: Iterable[UserActionOverride],
     section_rows: Iterable[RoleSectionPermission] = (),
 ) -> dict[ProductAction, ActionAccess]:
-    """Role union, explicit per-user replacement, then permission closure."""
-
-    if user.has_role(UserRole.admin):
-        return {action: ActionAccess.manage for action in ProductAction}
+    """Role union and per-user replacement, before dependencies come back."""
 
     policy = base_action_policy_from_rows(user.get_all_roles(), role_rows, section_rows)
     accepts_grants = account_accepts_grants(user)
@@ -302,7 +300,23 @@ def effective_action_policy_from_rows(
             # nie nadał. Wiersz zostaje — wraca z rolą, która nadania przyjmuje.
             continue
         policy[action] = access
-    return close_named_permissions(policy)
+    return policy
+
+
+def effective_action_policy_from_rows(
+    user: User,
+    role_rows: Iterable[RoleActionPermission],
+    override_rows: Iterable[UserActionOverride],
+    section_rows: Iterable[RoleSectionPermission] = (),
+) -> dict[ProductAction, ActionAccess]:
+    """Role union, explicit per-user replacement, then permission closure."""
+
+    if user.has_role(UserRole.admin):
+        return {action: ActionAccess.manage for action in ProductAction}
+
+    return close_named_permissions(
+        action_policy_before_closure(user, role_rows, override_rows, section_rows)
+    )
 
 
 async def resolve_effective_action_access(

@@ -3,7 +3,9 @@
 Rola `finance` ma organizacyjny odczyt wszystkich danych biznesowych: kandydatów,
 rekrutacji i pipeline'u, klientów wraz z kontaktami/notatkami/materiałami i
 dokumentami prawnymi, kontraktów/stawek/zamówień/wykonawców, Insights,
-raportów, eksportów i czatów audytowych. Zakres nie zależy od membershipu
+raportów, eksportów i czatów audytowych. **Bez zbiorczych wyników firmy** (decyzja
+Artura 02.11.2026, `wyniki-firmy-tylko-rada-i-admin.md`): Firma, Ranking klientów,
+Analityka kontraktów i Przegląd klientów wymagają uprawnienia „Wyniki firmy”. Zakres nie zależy od membershipu
 oferty, przypisania klienta ani `allowed_sections` (DynaReporter i Cortex
 usunięte 23.09.2026 — `users.allowed_sections` zostaje w bazie bez konsumenta
 tras).

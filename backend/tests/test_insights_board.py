@@ -225,18 +225,19 @@ async def _board(
 
 
 @pytest.mark.asyncio
-async def test_board_is_reachable_only_for_admin_and_finance(
+async def test_board_is_reachable_only_for_admin_and_the_board(
     board_client: AsyncClient,
 ):
-    """Widok Firma: admin · finance (decyzja Artura 24.09.2026).
+    """Widok Firma: admin · Rada (decyzja Artura 02.11.2026).
 
     Head of Recruitment wchodził tu od 21.09 — od 24.09 nie widzi pieniędzy.
-    Kwoty NIE są redagowane dla ról z dostępem, a pozostałe role dostają 403
-    — nie pustkę, która czytałaby się jak utrata danych.
+    Finanse wchodziły do 02.11 — pracują na pojedynczych rekordach. Kwoty NIE
+    są redagowane dla ról z dostępem, a pozostałe role dostają 403 — nie pustkę,
+    która czytałaby się jak utrata danych.
     """
     for role in (
         UserRole.admin,
-        UserRole.finance,
+        UserRole.board,
     ):
         _, email, password = await _seed_user(role, "rbac")
         headers = await _login(board_client, email, password)
@@ -247,6 +248,7 @@ async def test_board_is_reachable_only_for_admin_and_finance(
         assert "revenue_monthly_pln" in body["kpis"]["finance"], role.value
 
     for role in (
+        UserRole.finance,
         UserRole.head_of_recruitment,
         UserRole.recruiter,
         UserRole.delivery_lead,

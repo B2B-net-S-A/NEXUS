@@ -45,6 +45,11 @@ SALES_EDIT = "sales_edit"
 # firmy bez reszty „Kadr” — dla back office, który rozlicza godziny i premie.
 # Grupa „Ludzie”, ale na KOŃCU katalogu (siatka przy starcie, jak wyżej).
 TIMESHEETS = "timesheets"
+# Zbiorcze wyniki firmy (decyzja Artura 02.11.2026): suma przychodu i marży,
+# rankingi, prognoza. Bez domyślnych posiadaczy poza adminem — Rada czyta je
+# z tytułu roli, a „Moduł Finanse” ich nie otwiera. Grupa „Pieniądze”, ale na
+# KOŃCU katalogu (siatka przy starcie, jak wyżej).
+COMPANY_RESULTS = "company_results"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -234,6 +239,11 @@ PERMISSIONS: tuple[Permission, ...] = (
         TIMESHEETS,
         "Raporty godzin: akceptacja całej firmy",
         "people",
+    ),
+    Permission(
+        COMPANY_RESULTS,
+        "Wyniki firmy: podsumowania przychodu i marży",
+        "money",
     ),
 )
 

@@ -25,19 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDD",
-  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
-  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDD",
-  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDD",
-  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDDDDDDDD",
-  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
+  "DELETE /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/required-documents": "BBDBBDDDBBBDBBBBDBBBDDDDDDB",
+  "GET /api/clients/{client_id}/required-documents/{doc_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDDB",
+  "GET /api/required-document-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PATCH /api/clients/{client_id}/required-documents/{doc_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
+  "PATCH /api/required-document-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents/apply-templates": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/required-documents/{doc_id}/upload": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
+  "POST /api/required-document-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

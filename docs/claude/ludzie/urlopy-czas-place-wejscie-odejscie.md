@@ -156,6 +156,14 @@ decyduje o słowach i o przebiegu nieobecności.
   dnia urlopu, zamknięcie po ostatnim, `forwardTo` (kopia), domeny firmy z
   `SSO_ALLOWED_DOMAINS`. Reguła Outlooka nie ma warunków czasowych — sprzątanie
   sierot w uzgadnianiu 07:00 jest obowiązkowe.
+- **W interfejsie to „kopia poczty”, nie „przekierowanie”** (decyzja Artura
+  02.11.2026). Zgłoszenie „poczta idzie tylko do zastępcy” nie potwierdziło się
+  w regule NEXUSA (`forwardTo`, odczyt skrzynek z produkcji 02.11), a ekrany mówiły
+  „Przekieruj pocztę”, choć oryginał zostaje w skrzynce osoby. Zastępca dostaje
+  kopie tylko od osób spoza firmy (`forward_rules.filters`) i okno zgłoszenia mówi
+  to wprost. Dzwonki o bieżącej pracy dalej idą tylko do zastępcy, który ją przejął
+  (`notification_triggers._operational_recipient`) — tak zostaje, decyzja Artura
+  z tego samego dnia. Warstwa techniczna (`forward_*`) zostaje po angielsku.
 - Wydarzenie w kalendarzu: prywatne „Poza biurem”, bez rodzaju nieobecności.
 - **Osoba, która odeszła** (konto wyłączone albo kartoteka `exited`, 19.10.2026):
   jej skrzynka jest poza grupą aplikacji, więc Graph odpowiada 403. Uzgadnianie

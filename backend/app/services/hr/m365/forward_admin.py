@@ -59,7 +59,7 @@ MODE_SIMULATE = (
 NO_CREDENTIALS = "Aplikacja NEXUSA w Microsoft 365 nie ma poświadczeń — skrzynek nie da się odczytać."
 STILL_NEEDED = (
     "Ta reguła należy do trwającej nieobecności ze zgodą osoby — wyłącz "
-    "przekierowanie we wniosku (z powodem), wtedy kolejka zamknie regułę."
+    "kopię poczty we wniosku (z powodem), wtedy kolejka zamknie regułę."
 )
 NOT_MANAGED = "To nie jest reguła zastępstwa NEXUSA ani Compassa."
 
@@ -98,7 +98,7 @@ def _reason(leave: Optional[LeaveRequest], today: date) -> Optional[str]:
     if leave is None:
         return "Reguła nie pasuje do żadnego wniosku w NEXUSIE."
     if not leave.forward_mail_consent:
-        return "Przekierowanie wyłączono, a reguła mogła zostać w skrzynce."
+        return "Kopię poczty wyłączono, a reguła mogła zostać w skrzynce."
     if leave.status != "approved":
         return "Wniosek nie jest zatwierdzony — reguła nie powinna działać."
     if leave.end_date < today:

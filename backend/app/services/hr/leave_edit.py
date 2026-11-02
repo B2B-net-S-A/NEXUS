@@ -70,7 +70,7 @@ REPORT_EDIT_FORBIDDEN = (
     "Zgłoszenie osoby na B2B albo zleceniu zmieniają ona sama (anulowanie "
     "i nowe zgłoszenie) albo Kadry — koordynator może zgłosić kolizję."
 )
-FORWARD_OFF_FORBIDDEN = "Przekierowanie cudzej poczty wyłączają Kadry."
+FORWARD_OFF_FORBIDDEN = "Kopię cudzej poczty wyłączają Kadry."
 
 
 @dataclass(frozen=True)
@@ -276,7 +276,7 @@ async def edit_request(
         else "Zmieniono Twój wniosek",
         message=f"{span} — zmiana: {actor.name}."
         + (
-            " Przekierowanie poczty do zastępcy wyłączone — możesz je włączyć"
+            " Kopia poczty do zastępcy wyłączona — możesz ją włączyć"
             " przy wniosku w „Mój czas”."
             if before_consent and not consent
             else ""
@@ -375,7 +375,7 @@ async def forward_off_by_hr(
     text = (reason or "").strip()
     if len(text) < FORWARD_REASON_MIN:
         raise LeavePolicyError(
-            "Podaj powód wyłączenia przekierowania — zostanie w historii wniosku."
+            "Podaj powód wyłączenia kopii poczty — zostanie w historii wniosku."
         )
     if len(text) > FORWARD_REASON_MAX:
         raise LeavePolicyError(f"Powód może mieć najwyżej {FORWARD_REASON_MAX} znaków.")
@@ -384,10 +384,10 @@ async def forward_off_by_hr(
         raise core.LeaveNotFound(request_id)
     if request.user_id == actor.id:
         raise core.LeaveForbidden(
-            "Własne przekierowanie wyłączasz w „Mój czas” przy wniosku."
+            "Własną kopię poczty wyłączasz w „Mój czas” przy wniosku."
         )
     if not request.forward_mail_consent:
-        raise core.LeaveConflict("To przekierowanie jest już wyłączone.")
+        raise core.LeaveConflict("Ta kopia poczty jest już wyłączona.")
     request.forward_mail_consent = False
     await db.flush()
     audit_request(
@@ -415,10 +415,10 @@ async def forward_off_by_hr(
         db,
         [request.user_id],
         exclude={actor.id},
-        title="Przekierowanie poczty wyłączone",
+        title="Kopia poczty wyłączona",
         message=(
             f"{format_range(request.start_date, request.end_date)} — Kadry "
-            "wyłączyły przekierowanie poczty do zastępcy. Szczegóły u Kadr."
+            "wyłączyły kopię poczty do zastępcy. Szczegóły u Kadr."
         ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF_LEAVE,

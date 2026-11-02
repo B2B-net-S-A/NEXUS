@@ -25,19 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "DELETE /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/public-profile/poster.pdf": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/me/career-link/results": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/me/career-link/slug-available": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/public-profile/approve": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/public-profile/draft": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PUT /api/jobs/{job_id}/public-profile": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PUT /api/jobs/{job_id}/public-profile/visibility": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PUT /api/me/career-link": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

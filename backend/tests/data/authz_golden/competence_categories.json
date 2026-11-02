@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPPD"
+  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }
