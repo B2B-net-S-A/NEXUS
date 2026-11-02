@@ -1654,6 +1654,15 @@ class Settings(BaseSettings):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
     WHITE_LIST_MODE: str = "off"
+    # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
+    # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
+    # Klucz komunikacji i sekret dają dostęp do danych konta — tylko przez workflow
+    # „Coolify set env”, nigdy w logach. Pusty któryś z czterech = wyłączone.
+    EBI24_MODE: str = "off"
+    EBI24_USER_UUID: str = ""
+    EBI24_ACCOUNT_UUID: str = ""
+    EBI24_COMMUNICATION_KEY: str = ""
+    EBI24_SECRET_PHRASE: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
