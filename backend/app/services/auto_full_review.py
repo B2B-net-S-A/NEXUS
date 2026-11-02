@@ -859,6 +859,12 @@ async def _off_role_ids(
 # poniżej progu propozycji. Zapas ponad 20 na wykluczenia (osoby już
 # w rekrutacji, pominięte propozycje, „Nie szuka pracy”).
 AUTOFILL_POOL_SIZE = 150
+# Inna rola odpada dopiero po odczycie osoby, więc wiersze idą paczkami, aż
+# pula będzie pełna (02.11.2026: w „Python Developer” 137 ze 150 najlepszych to
+# testerzy i z 65 tys. ocenionych zostawało 13 osób). Limit chroni transakcję
+# kończącą przegląd przed czytaniem całej bazy przy rzadkiej roli.
+_POOL_PAGE = 500
+AUTOFILL_POOL_SCAN_LIMIT = 5000
 
 
 async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
@@ -867,7 +873,8 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
     Ten sam filtr co propozycje (dopuszczony, oceniony, zmierzony), bez progu
     i bez ``is_good_match``. Dowody = same nazwy wymagań, jak w propozycjach.
     Inna rola niż rekrutacja odpada zawsze, także z ≥ 80% „musi mieć” —
-    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026).
+    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026) —
+    a na jej miejsce wchodzą kolejni, do ``AUTOFILL_POOL_SIZE`` osób.
     """
     from sqlalchemy import delete, insert
 
@@ -876,61 +883,70 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
 
     if run.job_id is None:
         return 0
-    rows = (
-        await db.execute(
-            select(
-                CandidateSearchResult.candidate_id,
-                CandidateSearchResult.fit_score,
-                CandidateSearchResult.evidence,
-            )
-            .where(
-                CandidateSearchResult.run_id == run.id,
-                CandidateSearchResult.state == "evaluated",
-                CandidateSearchResult.eligible.is_(True),
-                CandidateSearchResult.measurement == "measured",
-                CandidateSearchResult.fit_score.is_not(None),
-            )
-            .order_by(
-                CandidateSearchResult.fit_score.desc(),
-                CandidateSearchResult.candidate_id,
-            )
-            .limit(AUTOFILL_POOL_SIZE)
-        )
-    ).all()
-    candidates = {
-        c.id: c
-        for c in (
-            await db.scalars(
-                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+    job = await db.get(Job, run.job_id)
+    payload: list[dict] = []
+    scanned = 0
+    while len(payload) < AUTOFILL_POOL_SIZE and scanned < AUTOFILL_POOL_SCAN_LIMIT:
+        page_size = min(_POOL_PAGE, AUTOFILL_POOL_SCAN_LIMIT - scanned)
+        rows = (
+            await db.execute(
+                select(
+                    CandidateSearchResult.candidate_id,
+                    CandidateSearchResult.fit_score,
+                    CandidateSearchResult.evidence,
+                )
+                .where(
+                    CandidateSearchResult.run_id == run.id,
+                    CandidateSearchResult.state == "evaluated",
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                    CandidateSearchResult.fit_score.is_not(None),
+                )
+                .order_by(
+                    CandidateSearchResult.fit_score.desc(),
+                    CandidateSearchResult.candidate_id,
+                )
+                .offset(scanned)
+                .limit(page_size)
             )
         ).all()
-    }
-    off_role = await _off_role_ids(
-        db,
-        await db.get(Job, run.job_id),
-        [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
-        candidates,
-        keep_strong=False,
-    )
-    payload = []
-    for candidate_id, score, evidence in rows:
-        candidate = candidates.get(candidate_id)
-        if candidate is None or candidate_id in off_role:
-            continue
-        requirements = (evidence or {}).get("requirements") or []
-        payload.append(
-            {
-                "job_id": run.job_id,
-                "candidate_id": candidate_id,
-                "score": round(float(score), 2),
-                "run_id": run.id,
-                "cv_revision": candidate_revision(candidate),
-                "evidence": {
-                    "matched_must": _requirement_names(requirements, met=True),
-                    "missing_must": _requirement_names(requirements, met=False),
-                },
-            }
+        scanned += len(rows)
+        candidates = {
+            c.id: c
+            for c in (
+                await db.scalars(
+                    select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+                )
+            ).all()
+        }
+        off_role = await _off_role_ids(
+            db,
+            job,
+            [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+            candidates,
+            keep_strong=False,
         )
+        for candidate_id, score, evidence in rows:
+            candidate = candidates.get(candidate_id)
+            if candidate is None or candidate_id in off_role:
+                continue
+            requirements = (evidence or {}).get("requirements") or []
+            payload.append(
+                {
+                    "job_id": run.job_id,
+                    "candidate_id": candidate_id,
+                    "score": round(float(score), 2),
+                    "run_id": run.id,
+                    "cv_revision": candidate_revision(candidate),
+                    "evidence": {
+                        "matched_must": _requirement_names(requirements, met=True),
+                        "missing_must": _requirement_names(requirements, met=False),
+                    },
+                }
+            )
+        if len(rows) < page_size:
+            break
+    payload = payload[:AUTOFILL_POOL_SIZE]
     await db.execute(
         delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
     )

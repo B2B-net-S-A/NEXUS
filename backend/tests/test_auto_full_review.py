@@ -1744,6 +1744,84 @@ async def test_analyst_with_a_tool_list_is_not_pooled_for_devsecops(monkeypatch)
     assert pooled == {devops}
 
 
+async def _developer_job_with_ranked_roles(owner_id, positions: list[str]) -> tuple:
+    """Rekrutacja programistyczna i przegląd: pierwsza pozycja ma najlepszy wynik."""
+    world = await _job(owner_id=owner_id, event=False, people=len(positions))
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"Python Developer {uuid.uuid4().hex[:6]}"
+        for cid, position in zip(world["candidate_ids"], positions):
+            (await db.get(Candidate, cid)).cv_extracted_data = {
+                "current_position": position
+            }
+        await db.commit()
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {cid: 90 - i for i, cid in enumerate(world["candidate_ids"])},
+    )
+    return world, run_id
+
+
+async def test_pool_keeps_filling_past_people_from_another_role(monkeypatch):
+    """Pomiar 02.11.2026: w „Python Developer” czołówkę zajęli testerzy
+    automatyzujący i z 65 tys. ocenionych osób w puli zostało 13, więc silnik
+    nie miał z czego utrzymać 20 kart. Pula dobiera dalej, aż ma komplet po
+    odrzuceniu innej roli — dalej nikogo z innej roli nie wpuszcza."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Test Automation Engineer",
+            "Python Developer",
+            "Senior QA Engineer",
+            "Software Engineer",
+            "Software Tester",
+            "Backend Developer",
+            "Full Stack Developer",
+        ],
+    )
+    _, _, first, _, second, _, third, _ = world["candidate_ids"]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 3
+        await db.commit()
+
+    pool = await _pool(world["job_id"])
+    assert [p.candidate_id for p in pool] == [first, second, third]
+
+
+async def test_pool_stops_at_the_scan_limit_with_what_it_found(monkeypatch):
+    """Górny limit przeglądanych wierszy: rekrutacja bez dość osób z tej roli
+    nie czyta całej bazy w transakcji kończącej przegląd."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SCAN_LIMIT", 4)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Python Developer",
+            "Test Automation Engineer",
+            "Senior QA Engineer",
+            "Software Engineer",
+        ],
+    )
+    within_limit = world["candidate_ids"][1]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 1
+        await db.commit()
+
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [within_limit]
+
+
 async def test_role_history_skips_cards_the_engine_placed_itself():
     """Karty „Nowych” wstawione przez system (`entry_source = "system"`) to nie
     decyzja człowieka — jak karty scrapera nie mówią, kim osoba jest. Bez tego
