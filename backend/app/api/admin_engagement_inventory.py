@@ -442,9 +442,11 @@ _CHECKS: list[tuple[str, str, str, str]] = [
     (
         "terminated_at_survived_reopen",
         "P2",
-        "Kontrakt jest ŻYWY, a niesie datę wypowiedzenia — ślad po przywróceniu "
-        "współpracy. `terminated_at` nie jest czyszczone przy aneksie ani "
-        "`reopen_contract`, więc reguła daty końca umowy B2B czyta stan, który "
+        "Kontrakt jest ŻYWY, a niesie datę zakończenia, które już nie obowiązuje: "
+        "umowa bez daty końca albo z późniejszą. Trwające wypowiedzenie "
+        "(`end_date <= terminated_at`) nie jest tu liczone. Powrót bezterminowy "
+        "czyści te pola od 02.11.2026; `terminated_at` nadal przeżywa aneks "
+        "przedłużenia, więc reguła daty końca umowy B2B czyta stan, który "
         "przestał obowiązywać.",
         f"""
         SELECT c.id AS contract_id, c.candidate_id, c.client_id,
@@ -452,6 +454,7 @@ _CHECKS: list[tuple[str, str, str, str]] = [
         FROM contracts c
         WHERE c.status IN {_LIVE}
           AND c.terminated_at IS NOT NULL
+          AND (c.end_date IS NULL OR c.end_date > c.terminated_at)
         ORDER BY c.id DESC
         LIMIT :sample_limit
         """,
