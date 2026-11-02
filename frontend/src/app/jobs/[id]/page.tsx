@@ -551,7 +551,7 @@ export default function JobDetailPage() {
     refetchOnWindowFocus: true,
   });
 
-  // PROTOTYP do makiety: zdarzenia z maili CPro.
+  // Co NEXUS zrobił sam z maili CPro (02.11.2026).
   const { data: cproEvents } = useQuery({
     queryKey: ["job-cpro-events", id],
     queryFn: () => fetchJobCproEvents(Number(id)),
@@ -1351,7 +1351,12 @@ export default function JobDetailPage() {
       {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
-          <JobCproBanner events={cproEvents} />
+          <JobCproBanner
+            jobId={jobId}
+            events={cproEvents}
+            onChangeReason={canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined}
+            onReopen={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+          />
           {canCloseJob && job.status === "published" ? (
             <JobIdleBanner
               idle={jobIdle}

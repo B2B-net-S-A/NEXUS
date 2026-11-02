@@ -147,6 +147,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
     # zadanie (daj im znać), nie do wyciszenia jak przydział.
     _T.job_closed_people_waiting: _C.mentions,
+    # 0629: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
+    # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
+    _T.cpro_candidate_rejected: _C.mentions,
+    _T.cpro_interview_change: _C.mentions,
+    _T.cpro_close_needs_decision: _C.mentions,
     # 0621: osoby po rekruterze, który odszedł — imienny obowiązek DL-a.
     _T.departed_pairs_care: _C.mentions,
     # Czat
