@@ -580,8 +580,10 @@ function CurrentContractCard({
               {contract.end_date ? formatDate(contract.end_date) : "bezterminowo"}
             </div>
             {/* Zaplanowane zakończenie (status „Kończący się"): koniec
-                zamówienia i — przy rozwiązaniu — ostatni dzień umowy. */}
-            {contract.terminated_at ? (
+                zamówienia i — przy rozwiązaniu — ostatni dzień umowy.
+                `end_date` odróżnia je od umowy przywróconej przed 02.11.2026,
+                jak karta kontraktu: tamte niosą `terminated_at` bez daty końca. */}
+            {contract.terminated_at && contract.end_date ? (
               <ContractTerminationSummary contract={contract} compact />
             ) : null}
           </div>

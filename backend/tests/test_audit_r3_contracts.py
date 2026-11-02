@@ -251,6 +251,45 @@ async def _generated(gid: int):
         return await db.get(B2BGeneratedContract, gid)
 
 
+async def test_dissolution_closes_on_contract_end_after_extension(
+    app_client, app_auth_headers, fake_render
+):
+    """R8-N13-1: po przedłużeniu `terminated_at` niesie PIERWSZE zakończenie —
+    umowa zamyka się dniem końca kontraktu, jak `project_end_date` tego wiersza."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.contract import Contract, ContractStatus
+    from app.tasks import contract_alerts
+
+    rid, contract_id = await _signed_parent(app_client)
+    doc_id = await _create_termination(
+        app_client,
+        app_auth_headers,
+        rid,
+        termination=business_today() + timedelta(days=20),
+    )
+    signed = await app_client.post(
+        f"{GENERATOR}/documents/{doc_id}/confirm-signed", headers=app_auth_headers
+    )
+    assert signed.status_code == 200, signed.text
+
+    passed = business_today() - timedelta(days=1)
+    first_end = passed - timedelta(days=7)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, contract_id)
+        assert contract.status == ContractStatus.ending
+        contract.end_date = passed
+        contract.terminated_at = first_end
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        await contract_alerts._promote_statuses(db)
+        await db.commit()
+
+    row = await _generated(rid)
+    assert row.contract_status == "closed"
+    assert row.project_end_date == passed
+    assert row.closure_date == passed
+
+
 async def test_future_dissolution_keeps_the_agreement_until_the_cron_closes_it(
     app_client, app_auth_headers, fake_render
 ):

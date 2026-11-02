@@ -703,6 +703,8 @@ async def build_reversal_plan(
         )
         await _plan_from_snapshot(db, plan, snapshot)
     else:
+        # Świadomie `terminated_at` przed `end_date`: tą datą „Zakończ współpracę”
+        # ucięło zamówienia, a plan szuka ich po niej (`OrderChangeEvent.new_date`).
         terminated_on = contract.terminated_at or (
             pending[0].effective_date if pending else contract.end_date
         )
