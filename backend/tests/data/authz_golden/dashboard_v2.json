@@ -25,20 +25,21 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPD",
-  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPDD",
+  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

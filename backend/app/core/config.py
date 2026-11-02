@@ -556,7 +556,10 @@ class Settings(BaseSettings):
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
@@ -1290,6 +1293,9 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
@@ -1651,6 +1657,15 @@ class Settings(BaseSettings):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
     WHITE_LIST_MODE: str = "off"
+    # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
+    # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
+    # Klucz komunikacji i sekret dają dostęp do danych konta — tylko przez workflow
+    # „Coolify set env”, nigdy w logach. Pusty któryś z czterech = wyłączone.
+    EBI24_MODE: str = "off"
+    EBI24_USER_UUID: str = ""
+    EBI24_ACCOUNT_UUID: str = ""
+    EBI24_COMMUNICATION_KEY: str = ""
+    EBI24_SECRET_PHRASE: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""

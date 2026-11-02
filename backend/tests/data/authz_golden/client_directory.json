@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/directory": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "GET /api/clients/directory/export": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/clients/{client_id}/portfolio-scopes/{scope_id}/placement": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/portfolio-scopes": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/proposals/convert-integration-cards/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/proposals/convert-integration-cards": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

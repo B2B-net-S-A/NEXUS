@@ -102,7 +102,9 @@ Od 2025 LinkedIn ma haszowane klasy CSS (zmieniają się przy wydaniach), nie ma
 
 1. Panel wstrzykuje do karty jedną funkcję (`capturePage` w `src/page.js`). Na
    profilu przewija kontener strony krokami 600 px co 300 ms (razem najwyżej 4 s),
-   bo sekcje doładowują się dopiero po przewinięciu, i wraca na miejsce.
+   bo sekcje doładowują się dopiero po przewinięciu, i wraca na miejsce. Listę
+   Recruitera przewija po kliknięciu „Sprawdź tę stronę” (do 8 s), bo tam wiersze
+   doładowują się tak samo.
 2. Funkcja zbiera `innerText` żywej strony (podział na linie wynika z układu):
    imię z pierwszego `h2` w `main`, linie karty górnej, każdą `section` z jej
    nagłówkiem i pozycjami (doświadczenie: pozycje rozdzielone `hr[role=presentation]`),
@@ -209,3 +211,9 @@ już pozwala odczytać kartę, więc to uprawnienie niczego by nie dodało.
 
 Wersja **1.0.2** usuwa dekoracyjny separator przed lokalizacją w topcardzie
 Recruitera, zachowując wewnętrzną interpunkcję nazw miejsc.
+
+Wersja **1.0.4** (pomiar na aktywnym koncie 02.11.2026): panel działa w głównej
+wyszukiwarce Recruitera (`/talent/search`, `/talent/search/profile/…`), lista
+Recruitera po kliknięciu przewija się do końca, bo z 25 wierszy na starcie są 3,
+wiersz listy podaje obecną firmę z historii doświadczenia, a profil oddaje
+wszystkie widoczne umiejętności i „Informacje” bez „… more”.

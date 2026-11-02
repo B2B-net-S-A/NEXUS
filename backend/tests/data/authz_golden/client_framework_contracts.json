@@ -25,18 +25,19 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDD",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDP",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
+  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDP",
+  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDDDP",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDDP",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDDDP"
  }
 }

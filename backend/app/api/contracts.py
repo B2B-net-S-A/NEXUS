@@ -138,6 +138,7 @@ from app.services.contract_lifecycle import (
     assert_contract_client_not_deleted,
     assert_transition,
     auto_activate_complete_draft,
+    clear_undone_termination,
     hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
@@ -4439,6 +4440,7 @@ async def apply_contract_update(
         ):
             contract.end_date = None
             updates["end_date"] = None
+            clear_undone_termination(db, contract, actor_id=policy.actor_id)
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
@@ -4591,6 +4593,7 @@ async def apply_contract_update(
                 # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
                 # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
                 await undo_contract_termination(db, contract, actor_id=policy.actor_id)
+                clear_undone_termination(db, contract, actor_id=policy.actor_id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -4809,6 +4812,7 @@ async def apply_contract_status(
         and contract.end_date is not None
     ):
         contract.end_date = None
+        clear_undone_termination(db, contract, actor_id=policy.actor_id)
     db.add(
         Activity(
             entity_type="contract",

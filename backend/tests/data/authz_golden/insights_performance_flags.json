@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/performance-flags": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/performance-flags/history/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/insights/performance-flags/{flag_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/performance-flags": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

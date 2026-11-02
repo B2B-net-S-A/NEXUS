@@ -1208,7 +1208,7 @@ export const adminApi = {
   /** Uprawnienia ról: dziewięć przełączników + liczba osób z każdą rolą. */
   getSectionPermissions: () =>
     api.get<AdminPermissionsSnapshot>("/api/admin/section-permissions"),
-  /** Dodatkowe uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
+  /** Uprawnienia jednej osoby (okno „Edytuj użytkownika”). */
   getUserPermissions: (userId: number) =>
     api.get<AdminUserPermissionsResponse>(
       `/api/admin/section-permissions/users/${userId}`,
@@ -4948,6 +4948,8 @@ export const scoringWeightsApi = {
   panel: () => api.get<RankingPanelState>("/api/scoring-weights/panel"),
   saveDraft: (payload: RankingPanelWeights) =>
     api.put<RankingPanelState>("/api/scoring-weights/panel/draft", payload),
+  saveKnownPoints: (payload: Omit<RankingKnownPoints, "max">) =>
+    api.put<RankingPanelState>("/api/scoring-weights/panel/known-points", payload),
   discardDraft: () => api.delete("/api/scoring-weights/panel/draft"),
   measurement: () =>
     api.get<{ measurement: RankingMeasurement | null }>(
@@ -5042,7 +5044,16 @@ export interface RankingChange {
   } | null;
 }
 
+/** Punkty kolejki w „Nowych”: „znamy tę osobę” (`known_queue_points`). */
+export interface RankingKnownPoints {
+  client: number;
+  note_recent: number;
+  note_older: number;
+  max: number;
+}
+
 export interface RankingPanelState {
+  known_points: RankingKnownPoints;
   published: {
     weights: RankingPanelWeights;
     shares: Record<RankingLayer, number>;
@@ -5119,6 +5130,8 @@ export interface ChampionBasics {
   start_date?: string | null;
   /** Termin na dostarczenie kandydatów do TEJ oferty. */
   deadline?: string | null;
+  /** Godzina tego terminu `GG:MM`, czas Europe/Warsaw. */
+  deadline_time?: string | null;
   contract_length?: string | null;
 }
 
@@ -5445,6 +5458,8 @@ export interface ChampionJobValues {
   role_name?: string | null;
   /** PR 1 — termin na kandydatów (ISO), jw. */
   deadline?: string | null;
+  /** Godzina terminu `GG:MM`; przy starszym backendzie brak klucza. */
+  deadline_time?: string | null;
 }
 
 export interface ChampionProfileResponse {

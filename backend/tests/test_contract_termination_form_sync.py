@@ -12,6 +12,7 @@ import uuid
 from datetime import date, timedelta
 from decimal import Decimal
 
+import pytest
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
@@ -419,6 +420,104 @@ async def test_undo_restores_agreement_and_clears_dissolution(
     assert row.termination_restore is None
 
 
+async def _assert_undone_termination_cleared(
+    cid: int, *, ended_on: date, reason: str, lessons: str
+) -> None:
+    """Pola zakończenia puste na wierszu, a ich wartości zostają w historii."""
+    contract = await _contract(cid)
+    assert contract.status == ContractStatus.active
+    assert contract.end_date is None
+    assert contract.terminated_at is None
+    assert contract.termination_reason is None
+    assert contract.termination_lessons is None
+    async with AsyncSessionLocal() as db:
+        details = await db.scalar(
+            select(Activity.details).where(
+                Activity.entity_type == "contract",
+                Activity.entity_id == cid,
+                Activity.action == "termination_data_cleared",
+            )
+        )
+    assert details == {
+        "terminated_at": ended_on.isoformat(),
+        "termination_reason": reason,
+        "termination_lessons": lessons,
+    }
+
+
+@pytest.mark.parametrize(
+    ("path_suffix", "payload"),
+    [
+        ("/status", {"status": "active"}),
+        ("", {"status": "active", "end_date": None}),
+        ("", {"end_date": None}),
+    ],
+    ids=["lista-statusu", "formularz-ze-statusem", "wyczyszczona-data"],
+)
+async def test_ended_contract_returned_indefinitely_loses_the_undone_termination(
+    app_client, app_auth_headers, path_suffix, payload
+):
+    """Kopia produkcji z 02.11.2026: 7 aktywnych kontraktów niosło datę i powód
+    cofniętego zakończenia, a premie, poczta zamówień i karta kontraktu czytały
+    je jak trwające wypowiedzenie."""
+    cid, _, _ = await _seed()
+    ended_on = business_today() - timedelta(days=2)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "project_ended",
+            "terminated_at": ended_on.isoformat(),
+            "termination_lessons": "Klient — koniec projektu",
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["status"] == "ended"
+
+    returned = await app_client.patch(
+        f"{PATH}/{cid}{path_suffix}", json=payload, headers=app_auth_headers
+    )
+    assert returned.status_code == 200, returned.text
+
+    await _assert_undone_termination_cleared(
+        cid,
+        ended_on=ended_on,
+        reason="project_ended",
+        lessons="Klient — koniec projektu",
+    )
+
+
+async def test_planned_termination_called_off_by_clearing_the_date(
+    app_client, app_auth_headers
+):
+    """„Kończący się” → „Aktywny” przez pustą datę to odwołane zakończenie."""
+    cid, _, _ = await _seed()
+    planned = business_today() + timedelta(days=10)
+    ended = await app_client.post(
+        f"{PATH}/{cid}/terminate",
+        json={
+            "termination_reason": "consultant_resigned",
+            "terminated_at": planned.isoformat(),
+            "termination_lessons": "Konsultant — zmiana planów",
+        },
+        headers=app_auth_headers,
+    )
+    assert ended.status_code == 200, ended.text
+    assert ended.json()["status"] == "ending"
+
+    resp = await app_client.patch(
+        f"{PATH}/{cid}", json={"end_date": None}, headers=app_auth_headers
+    )
+    assert resp.status_code == 200, resp.text
+
+    await _assert_undone_termination_cleared(
+        cid,
+        ended_on=planned,
+        reason="consultant_resigned",
+        lessons="Konsultant — zmiana planów",
+    )
+
+
 async def test_patching_a_later_end_date_reopens_through_the_lifecycle(
     app_client, app_auth_headers
 ):
@@ -451,6 +550,8 @@ async def test_patching_a_later_end_date_reopens_through_the_lifecycle(
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "ending"
     assert resp.json()["end_date"] == later.isoformat()
+    # Zakończenie nadal obowiązuje, tylko później: pola zostają na wierszu.
+    assert resp.json()["termination_reason"] == "project_ended"
     assert (await _generated(gid)).contract_status == "active"
     async with AsyncSessionLocal() as db:
         actions = set(

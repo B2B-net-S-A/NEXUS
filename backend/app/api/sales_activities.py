@@ -14,7 +14,7 @@ w Atlasie: synchronizacja przypina je do firmy, nie do szansy.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,15 +25,17 @@ from sqlalchemy.orm import aliased
 
 from app.api.sales_gates import SalesEditUser, SalesViewUser, is_admin
 from app.core.database import get_db
-from app.core.scheduling import local_day_bounds, local_now
+from app.core.scheduling import DEFAULT_TZ, local_day_bounds, local_now
 from app.models.sales import (
     SalesActivity,
     SalesCompany,
     SalesContact,
+    SalesMeetingTranscript,
     SalesOpportunity,
 )
 from app.models.user import User
 from app.services import sales_schema as schema
+from app.services.polish_ilike import polish_folded_ilike
 
 router = APIRouter()
 
@@ -42,6 +44,9 @@ AUTHOR_ONLY_DETAIL = "Aktywność usuwa jej autor albo administrator."
 EDIT_AUTHOR_ONLY_DETAIL = "Aktywność poprawia jej autor albo administrator."
 #: Maile i spotkania z Outlooka (Microsoft Graph) — ``external_source`` z Atlasa.
 COMPANY_MAIL_SOURCE_PATTERN = "msgraph-%"
+MEETING_PREVIEW_CHARS = 300
+OUTLOOK_EVENT_SOURCE = "msgraph-event"
+TRANSCRIPT_NOT_FOUND_DETAIL = "To spotkanie nie ma transkryptu."
 
 Kind = Literal[schema.ACTIVITY_KINDS]  # type: ignore[valid-type]
 Priority = Literal[schema.PRIORITIES]  # type: ignore[valid-type]
@@ -111,6 +116,22 @@ class ActivityOut(BaseModel):
 class TaskList(BaseModel):
     items: list[ActivityOut]
     total: int
+
+
+class MeetingOut(ActivityOut):
+    transcript_status: Optional[str] = None
+    transcript_summary: Optional[str] = None
+
+
+class MeetingList(BaseModel):
+    items: list[MeetingOut]
+    total: int
+
+
+class MeetingTranscriptOut(BaseModel):
+    subject: Optional[str]
+    summary: Optional[str]
+    plain_text: str
 
 
 def _ref(id_: Optional[int], name: Optional[str]) -> Optional[Ref]:
@@ -333,6 +354,116 @@ async def list_tasks(
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = (await db.execute(query.order_by(*order).limit(limit).offset(offset))).all()
     return TaskList(items=[_out(row, now) for row in rows], total=int(total or 0))
+
+
+@router.get("/meetings", response_model=MeetingList)
+async def list_meetings(
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = Query(default=None, max_length=200),
+    linked: Optional[Literal["opportunity", "company"]] = None,
+    has_transcript: bool = False,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> MeetingList:
+    """Wszystkie spotkania w jednym miejscu (ekran „Spotkania” z Atlasa)."""
+
+    held_at = func.coalesce(SalesActivity.occurred_at, SalesActivity.created_at)
+    held_day = func.date(func.timezone(DEFAULT_TZ, held_at))
+    query = (
+        _base_query()
+        .add_columns(
+            SalesMeetingTranscript.status.label("transcript_status"),
+            SalesMeetingTranscript.summary.label("transcript_summary"),
+        )
+        .outerjoin(
+            SalesMeetingTranscript,
+            and_(
+                SalesActivity.external_source == OUTLOOK_EVENT_SOURCE,
+                SalesActivity.external_id == SalesMeetingTranscript.ical_uid,
+            ),
+        )
+        .where(SalesActivity.kind == "meeting")
+    )
+    if linked == "opportunity":
+        query = query.where(SalesActivity.opportunity_id.is_not(None))
+    elif linked == "company":
+        query = query.where(SalesActivity.opportunity_id.is_(None))
+    if has_transcript:
+        query = query.where(SalesMeetingTranscript.status == "fetched")
+    if date_from is not None:
+        query = query.where(held_day >= date_from)
+    if date_to is not None:
+        query = query.where(held_day <= date_to)
+    text = (q or "").strip()
+    if text:
+        query = query.where(
+            or_(
+                polish_folded_ilike(func.coalesce(SalesActivity.subject, ""), text),
+                polish_folded_ilike(func.coalesce(SalesCompany.name, ""), text),
+                polish_folded_ilike(func.coalesce(SalesOpportunity.title, ""), text),
+            )
+        )
+    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    rows = (
+        await db.execute(
+            query.order_by(held_at.desc(), SalesActivity.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    items = []
+    for row in rows:
+        base = _out(row, now)
+        # Transkrypcja z Atlasa potrafi mieć setki kB, a lista pokazuje jedną linię.
+        base.body = base.body[:MEETING_PREVIEW_CHARS] if base.body else base.body
+        items.append(
+            MeetingOut(
+                **base.model_dump(),
+                transcript_status=row.transcript_status,
+                transcript_summary=row.transcript_summary,
+            )
+        )
+    return MeetingList(items=items, total=int(total or 0))
+
+
+@router.get("/{activity_id}/transcript", response_model=MeetingTranscriptOut)
+async def meeting_transcript(
+    activity_id: int,
+    current_user: SalesViewUser,
+    db: AsyncSession = Depends(get_db),
+) -> MeetingTranscriptOut:
+    """Pełny transkrypt Teams; lista niesie samo podsumowanie."""
+
+    row = (
+        await db.execute(
+            select(SalesActivity.subject, SalesMeetingTranscript)
+            .join(
+                SalesMeetingTranscript,
+                and_(
+                    SalesActivity.external_source == OUTLOOK_EVENT_SOURCE,
+                    SalesActivity.external_id == SalesMeetingTranscript.ical_uid,
+                ),
+            )
+            .where(
+                SalesActivity.id == activity_id,
+                SalesMeetingTranscript.status == "fetched",
+            )
+        )
+    ).first()
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, detail=TRANSCRIPT_NOT_FOUND_DETAIL
+        )
+    subject, transcript = row
+    return MeetingTranscriptOut(
+        subject=subject,
+        summary=transcript.summary,
+        plain_text=transcript.plain_text or "",
+    )
 
 
 @router.post("/tasks/complete", response_model=CompleteTasksOut)

@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/me": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/openapi.json": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

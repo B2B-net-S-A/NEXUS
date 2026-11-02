@@ -165,6 +165,60 @@ export function sortQueue(items: readonly TeamQueueItem[]): TeamQueueItem[] {
   return [...items].sort((a, b) => QUEUE_ORDER[a.status] - QUEUE_ORDER[b.status]);
 }
 
+interface LeaveTerm {
+  status: string;
+  start_date: string;
+  end_date: string;
+}
+
+/** Filtr kolejki po statusie raportu; `all` nie zmienia kolejności ani zwijania. */
+export type QueueFilter = QueueStatus | "all";
+
+/** Kolejność chipów statusu: ta sama co kolejność wierszy w `sortQueue`. */
+export const QUEUE_FILTERS: readonly QueueStatus[] = ["missing", "submitted", "draft", "approved"];
+
+export function filterQueue(items: readonly TeamQueueItem[], filter: QueueFilter): TeamQueueItem[] {
+  return filter === "all" ? [...items] : items.filter((item) => item.status === filter);
+}
+
+export function queueCounts(items: readonly TeamQueueItem[]): Record<QueueFilter, number> {
+  const counts: Record<QueueFilter, number> = { all: items.length, missing: 0, submitted: 0, draft: 0, approved: 0 };
+  for (const item of items) counts[item.status] += 1;
+  return counts;
+}
+
+/** Termin nieobecności obejmujący dzień; odrzuconych i anulowanych nie ma w siatce. */
+export function leaveTermForDay<T extends LeaveTerm>(terms: readonly T[], date: string): T | null {
+  return (
+    terms.find(
+      (term) =>
+        (term.status === "approved" || term.status === "pending") &&
+        term.start_date <= date &&
+        date <= term.end_date,
+    ) ?? null
+  );
+}
+
+/** Akcja dotyczy całego terminu, więc stoi raz: przy jego pierwszym dniu w tym miesiącu. */
+export function isFirstLeaveDay(days: readonly MonthDay[], term: LeaveTerm, date: string): boolean {
+  const first = days.find(
+    (day) => day.leave !== null && term.start_date <= day.date && day.date <= term.end_date,
+  );
+  return first?.date === date;
+}
+
+/** Zdanie w oknie cofnięcia nieobecności: co dalej z godzinami przy tym stanie raportu. */
+export function afterLeaveCancelNote(status: TimesheetStatus, payrollLocked: boolean): string {
+  if (payrollLocked) {
+    return "Miesiąc zamknięty w płacach: godziny w rozliczeniu się nie zmienią, a Płace dostaną powiadomienie.";
+  }
+  if (status === "approved") return "Zaakceptowane: żeby wpisać godziny, najpierw cofnij akceptację.";
+  if (status === "submitted") {
+    return "Czeka na akceptację: te dni będą puste, wpisz godziny tutaj albo zwróć do poprawy.";
+  }
+  return "Szkic: te dni będą puste, godziny wpiszesz tutaj albo zrobi to sama osoba.";
+}
+
 /** „72 / 176 h”; bez normy (stara odpowiedź API) — „72 h”. */
 export function queueHoursLabel(hours: number, norm: number | null | undefined): string {
   return norm ? `${formatHours(hours)} / ${norm} h` : `${formatHours(hours)} h`;

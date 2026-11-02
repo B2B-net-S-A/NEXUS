@@ -39,6 +39,8 @@ export const LEAGUE_TYPE_LABELS: Record<string, string> = {
   monthly_placements: "Wyścig placementów (miesiąc, voucher)",
 };
 
+const ALL_CLIENTS = "all";
+
 interface RulesForm {
   boundLow: string;
   boundHigh: string;
@@ -108,9 +110,10 @@ export function rulesPayload(
       eligible_business_days: days,
       automation_since: form.since || null,
       league_types: form.leagueTypes,
-      extra_dl: form.extraDl.map(({ dl_user_id, recipient_user_id }) => ({
+      extra_dl: form.extraDl.map(({ dl_user_id, recipient_user_id, client_ids }) => ({
         dl_user_id,
         recipient_user_id,
+        client_ids: client_ids ?? [],
       })),
       dl_hours: form.dlHours.map(({ user_id, hours }) => ({ user_id, hours })),
       individual_recruiters: form.individual.map(
@@ -170,6 +173,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
   const [error, setError] = useState<string | null>(null);
   const [newDl, setNewDl] = useState("");
   const [newRecipient, setNewRecipient] = useState("");
+  const [newClient, setNewClient] = useState<{ id: number; name: string } | null>(null);
   const [hoursPerson, setHoursPerson] = useState("");
   const [hoursValue, setHoursValue] = useState("160");
   const [individualPerson, setIndividualPerson] = useState("");
@@ -209,10 +213,16 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
     setError(null);
     set("extraDl", [
       ...form.extraDl,
-      { dl_user_id: Number(newDl), recipient_user_id: Number(newRecipient) },
+      {
+        dl_user_id: Number(newDl),
+        recipient_user_id: Number(newRecipient),
+        client_ids: newClient ? [newClient.id] : [],
+        client_names: newClient ? [newClient.name] : [],
+      },
     ]);
     setNewDl("");
     setNewRecipient("");
+    setNewClient(null);
   };
 
   const field = (key: TextKey, label: string, id: string, description?: string) => (
@@ -458,7 +468,7 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
         <legend className="text-sm font-medium text-foreground">Dodatkowa premia DL</legend>
         <p className="text-xs text-muted-foreground">
           Gdy placement prowadzi wskazany Delivery Lead, druga osoba dostaje propozycję premii
-          w tej samej kwocie co DL.
+          w tej samej kwocie co DL. Z wybranym klientem reguła działa tylko u niego.
         </p>
         {form.extraDl.length === 0 ? (
           <p className="text-sm text-muted-foreground">Brak reguł.</p>
@@ -472,6 +482,11 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
                 <span className="text-foreground">
                   {nameOf(rule.dl_user_id, rule.dl_name)} →{" "}
                   {nameOf(rule.recipient_user_id, rule.recipient_name)}
+                  {rule.client_names?.length ? (
+                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                      tylko: {rule.client_names.join(", ")}
+                    </span>
+                  ) : null}
                 </span>
                 <Button
                   size="icon-sm"
@@ -512,6 +527,28 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
               </Select>
             </FormField>
           ))}
+          <FormField label="Tylko klient" htmlFor="rules-extra-client" className="min-w-[220px]">
+            <Select
+              value={newClient ? String(newClient.id) : ALL_CLIENTS}
+              onValueChange={(value) =>
+                setNewClient(
+                  (rules.client_options ?? []).find((client) => String(client.id) === value) ?? null,
+                )
+              }
+            >
+              <SelectTrigger id="rules-extra-client">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CLIENTS}>Każdy klient</SelectItem>
+                {(rules.client_options ?? []).map((client) => (
+                  <SelectItem key={client.id} value={String(client.id)}>
+                    {client.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
           <Button variant="secondary" onClick={addExtra}>
             Dodaj regułę
           </Button>

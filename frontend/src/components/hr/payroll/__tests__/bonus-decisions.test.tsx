@@ -3,12 +3,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BonusRow } from "@/lib/api/hr-payroll";
 
-import { bonusCalculation } from "../BonusDialog";
+import { BonusDialog, bonusCalculation } from "../BonusDialog";
 import { DecisionPanel } from "../PayrollCloseParts";
 
 vi.mock("@/lib/api/hr-payroll", async (original) => ({
   ...(await original<typeof import("@/lib/api/hr-payroll")>()),
   useApproveBonuses: () => ({ mutate: vi.fn(), isPending: false }),
+  useApproveBonus: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateBonus: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateBonus: () => ({ mutate: vi.fn(), isPending: false }),
+  usePlacementOptions: () => ({ data: [] }),
+}));
+vi.mock("@/lib/api/hr", async (original) => ({
+  ...(await original<typeof import("@/lib/api/hr")>()),
+  usePeople: () => ({ data: { items: [] } }),
 }));
 vi.mock("@/components/Toast", () => ({ useToast: () => ({ showToast: vi.fn() }) }));
 vi.mock("@/components/v2/modals/ConfirmV2", () => ({
@@ -124,5 +132,42 @@ describe("Jak policzona premia", () => {
       bonusCalculation(row({ rule_snapshot: { margin_per_hour: "40.50", role: "dl", dl_percent: "10", dl_hours: 160 } })),
     ).toBe("10% × 40,50 zł/h × 160 h.");
     expect(bonusCalculation(row({ rule_snapshot: {} }))).toBeNull();
+  });
+});
+
+describe("BonusDialog: kwota z arkusza", () => {
+  const sheetRow = row({
+    amount: "1500.00",
+    from_sheet: true,
+    rule_snapshot: { margin_per_hour: "53.00", role: "recruiter", tier: 3, settlement_note: "bez zmian" },
+    flags: [
+      {
+        code: "amount_rule",
+        label: "Kwota inna niż reguła: 2000,00 zł",
+        detail: "Z arkusza: 1500,00 zł. Z reguły: 2000,00 zł.",
+        rule_amount: "2000.00",
+      },
+    ],
+  });
+
+  it("pokazuje obie kwoty i ustawia kwotę z reguły", () => {
+    render(<BonusDialog open onOpenChange={vi.fn()} people={[]} bonus={sheetRow} fullEdit />);
+    expect(screen.getByText(/Kwota i osoba są z arkusza/)).toBeInTheDocument();
+    expect(screen.getByText(/Uwaga z arkusza: bez zmian/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Ustaw kwotę z reguły" }));
+    expect(screen.getByLabelText("Kwota")).toHaveValue("2000,00");
+  });
+
+  it("bez różnicy nie ma przycisku", () => {
+    render(
+      <BonusDialog
+        open
+        onOpenChange={vi.fn()}
+        people={[]}
+        bonus={{ ...sheetRow, flags: [] }}
+        fullEdit
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Ustaw kwotę z reguły" })).not.toBeInTheDocument();
   });
 });
