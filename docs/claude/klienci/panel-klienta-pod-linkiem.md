@@ -1,4 +1,4 @@
-# Panel klienta pod linkiem z CV (0632, 02.11.2026)
+# Panel klienta pod linkiem z CV (0633, 02.11.2026)
 <!-- indeks: `/k/{token}`, sam link bez kodu, token HMAC + SHA-256 w bazie, dowód tylko z CV, stawka do klienta, oczekiwania i kontakt nigdy, wspólny serwis terminów, ramka w pobranym Wordzie, doprecyzowanie D2 -->
 
 Decyzje Artura z 02.11.2026. Makiety: https://claude.ai/artifact/JV234LbwTz1UFBH4r1STfb.

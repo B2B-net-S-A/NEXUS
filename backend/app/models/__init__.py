@@ -903,5 +903,5 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 # 0625: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402
 
-# 0632: panel klienta pod linkiem z CV.
+# 0633: panel klienta pod linkiem z CV.
 from app.models import client_panel as _client_panel_models  # noqa: F401,E402

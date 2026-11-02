@@ -1,4 +1,4 @@
-"""Panel klienta: ustawienia i sprawy od klienta dla Delivery Leada (0632).
+"""Panel klienta: ustawienia i sprawy od klienta dla Delivery Leada (0633).
 
 Bramka jak przy wysyłce CV: uprawnienie „Rekrutacje” i członkostwo w rekrutacji.
 Reguły: ``docs/claude/klienci/panel-klienta-pod-linkiem.md``.
