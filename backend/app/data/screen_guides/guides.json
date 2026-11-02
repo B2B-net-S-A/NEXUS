@@ -999,7 +999,7 @@
     "title": "Opieka nad konsultantami",
     "section": null,
     "roles": [],
-    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów. Gdy włączony jest moduł Back office, główna zakładka to „Kolejka”: cztery zespoły po cztery kolumny, „Biorę” i „Zastępuję”, limit 5 spraw w toku, a dotychczasowy kanban jest pod przełącznikiem „Po statusie”.",
+    "what": "Praca opiekuna i Delivery Leada: „Do zrobienia” to tablica spraw z kartami opieki (rozmowy, opinie menedżerów, decyzje o przepięciu, u DL popyt u klienta), dalej konsultanci ze zdrowiem relacji, klienci i zespół opiekunów.",
     "tasks": [
       {
         "q": "Od czego zacząć dzień?",
