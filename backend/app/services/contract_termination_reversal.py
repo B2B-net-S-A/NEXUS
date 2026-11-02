@@ -254,8 +254,8 @@ async def reversal_available(db: AsyncSession, contract: Contract) -> bool:
     )
     if snapshot is not None:
         return True
-    if contract.terminated_at is None:
-        return False
+    # Bez warunku na `terminated_at`: powrót bezterminowy czyści je od
+    # 02.11.2026, a sprawa o pulę MD czeka dalej.
     return bool(await _pending_cases(db, contract.id))
 
 

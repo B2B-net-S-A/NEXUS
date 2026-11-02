@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
-from app.models.contract import ContractStatus
+from app.models.contract import ContractStatus, ContractTerminationReason
 from app.services import contract_lifecycle as lifecycle
 
 BACKEND = Path(__file__).resolve().parents[1]
@@ -52,11 +53,54 @@ def _contract(status: ContractStatus) -> SimpleNamespace:
         status=status,
         client_id=3,
         candidate_id=None,
+        end_date=None,
+        terminated_at=None,
+        termination_reason=None,
+        termination_lessons=None,
         agreement_termination_mode=None,
         agreement_termination_party=None,
         agreement_termination_signed_on=None,
         agreement_last_day=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_indefinite_return_moves_termination_fields_to_history():
+    db = _CollectingDB()
+    contract = _contract(ContractStatus.ended)
+    contract.terminated_at = date(2026, 8, 31)
+    contract.termination_reason = ContractTerminationReason.project_ended
+    contract.termination_lessons = "Klient — koniec projektu"
+
+    assert await lifecycle.reopen_contract(db, contract, actor_id=42) is True
+
+    assert contract.terminated_at is None
+    assert contract.termination_reason is None
+    assert contract.termination_lessons is None
+    cleared = [a for a in db.added if a.action == "termination_data_cleared"]
+    assert [a.details for a in cleared] == [
+        {
+            "terminated_at": "2026-08-31",
+            "termination_reason": "project_ended",
+            "termination_lessons": "Klient — koniec projektu",
+        }
+    ]
+    assert cleared[0].user_id == 42
+
+
+@pytest.mark.asyncio
+async def test_return_with_a_new_end_date_keeps_the_moved_termination():
+    db = _CollectingDB()
+    contract = _contract(ContractStatus.ended)
+    contract.end_date = date(2026, 12, 31)
+    contract.terminated_at = date(2026, 8, 31)
+    contract.termination_reason = ContractTerminationReason.project_ended
+
+    assert await lifecycle.reopen_contract(db, contract, actor_id=42) is True
+
+    assert contract.terminated_at == date(2026, 8, 31)
+    assert contract.termination_reason == ContractTerminationReason.project_ended
+    assert [a.action for a in db.added] == ["contract_reopened"]
 
 
 @pytest.mark.asyncio

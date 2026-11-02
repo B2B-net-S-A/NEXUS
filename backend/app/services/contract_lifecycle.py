@@ -712,6 +712,45 @@ async def reopen_contract(
     from app.services.hr import contract_hooks
 
     await contract_hooks.contract_end_undone(db, contract)
+    clear_undone_termination(db, contract, actor_id=actor_id)
+    return True
+
+
+def clear_undone_termination(
+    db: AsyncSession, contract: Contract, *, actor_id: Optional[int]
+) -> bool:
+    """Umowa wróciła bezterminowo: pola zakończenia opisują to, co cofnięto.
+
+    Zostawione czytało się jak trwające wypowiedzenie: premie anulowały się
+    przez minioną datę, a karta kontraktu pokazywała „Koniec zamówienia”
+    (7 aktywnych kontraktów na kopii z 02.11.2026). Wartości przechodzą do
+    historii kontraktu. Przedłużenie z nową datą końca tu nie trafia:
+    zakończenie obowiązuje dalej, tylko później.
+    """
+    if contract.status != ContractStatus.active or contract.end_date is not None:
+        return False
+    reason = contract.termination_reason
+    previous = {
+        "terminated_at": (
+            contract.terminated_at.isoformat() if contract.terminated_at else None
+        ),
+        "termination_reason": getattr(reason, "value", reason),
+        "termination_lessons": contract.termination_lessons,
+    }
+    if not any(previous.values()):
+        return False
+    contract.terminated_at = None
+    contract.termination_reason = None
+    contract.termination_lessons = None
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="termination_data_cleared",
+            user_id=actor_id,
+            details=previous,
+        )
+    )
     return True
 
 
