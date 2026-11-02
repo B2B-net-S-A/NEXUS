@@ -184,6 +184,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_escalated'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_low_rating'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_monthly_review'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_reminder'",
@@ -346,6 +348,8 @@ _ENUM_STATEMENTS = [
     # 0628: podsumowanie transkryptu Teams spotkania handlowca.
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
+    # 0638: podsumowanie rozmowy z portalu konsultanta.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości

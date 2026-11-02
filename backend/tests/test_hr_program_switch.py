@@ -49,6 +49,8 @@ PROGRAM_API_MODULES = {
     "app.api.client_onboarding",
     "app.api.equipment_intune",
     "app.api.equipment_public",
+    "app.api.consultant_portal",
+    "app.api.consultant_portal_staff",
 }
 PROGRAM_PREFIXES = (
     "/api/hr/",
@@ -58,6 +60,8 @@ PROGRAM_PREFIXES = (
     "/api/client-onboarding",
     "/api/public/consultant-mail",
     "/api/public/equipment-protocols",
+    "/api/public/consultant-portal",
+    "/api/back-office/portal",
     "/api/finance/sales-invoices",
 )
 

@@ -116,6 +116,8 @@ class TestFeatureKeyEnum:
             "sales_meeting_summary",
             # 0634: słowa z CV wysłanych do wiersza „musi mieć”.
             "requirement_word_hints",
+            # 0638: podsumowanie rozmowy z portalu konsultanta.
+            "portal_meeting_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

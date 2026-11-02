@@ -76,6 +76,7 @@ export const SOURCE_ICON: Record<CaseSource, "mail" | "contract" | "exit" | "man
   lifecycle: "exit",
   manual: "manual",
   compass_import: "import",
+  portal: "mail",
 };
 
 /** Kropka priorytetu (P1 czerwona, P2 żółta, P3 szara) — etykieta w `title` i dla czytnika. */

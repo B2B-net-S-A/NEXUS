@@ -170,6 +170,8 @@ DECISION_2026_09_16 = {
     # F40 — 02.11.2026: podsumowanie transkryptu spotkania handlowca.
     AIFeatureKey.case_triage: ("F42", "claude-sonnet-5"),
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
+    # F43 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
+    AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
 }
 
 

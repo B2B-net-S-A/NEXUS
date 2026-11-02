@@ -45,6 +45,7 @@ from app.models.equipment import ConsultantWelcomeMail
 from app.models.user import User
 from app.services.admin_cases import mailbox as admin_mailbox
 from app.services.care.announcement_audience import valid_email
+from app.services.consultant_portal import portal_mail, portal_settings
 from app.services.equipment.errors import EquipmentError
 from app.services.hr import audit, client_pack
 from app.services.hr_lifecycle_schema import KEY_WELCOME_MAIL
@@ -192,6 +193,7 @@ def compose(
     documents: Sequence[client_pack.PackItem],
     owner_name: Optional[str],
     owner_email: Optional[str],
+    portal_url: Optional[str] = None,
 ) -> tuple[str, str]:
     """Temat i treść maila z danych kontraktu i pakietu (czysta funkcja)."""
 
@@ -215,6 +217,12 @@ def compose(
     ):
         if line:
             lines.append(line)
+    if portal_url:
+        lines += [
+            "",
+            "Odpowiedzi na częste pytania, Twoje sprawy, rozmowy i rozliczenia znajdziesz "
+            f"w strefie konsultanta: {portal_url}",
+        ]
     if owner_name:
         lines += [
             "",
@@ -314,6 +322,10 @@ async def draft_for(db: AsyncSession, contract_id: int) -> Draft:
         documents=pack.documents if pack else (),
         owner_name=owner.name if owner else None,
         owner_email=owner.email if owner else None,
+        # Link tylko przy portalu otwartym dla tego kontraktu: kod wchodzi ciemno.
+        portal_url=portal_mail.portal_url()
+        if (await portal_settings.load(db)).open_for(contract.id)
+        else None,
     )
     name = (
         " ".join(p for p in (candidate.name, candidate.lastname) if p)

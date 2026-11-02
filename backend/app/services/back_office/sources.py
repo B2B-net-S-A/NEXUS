@@ -582,6 +582,76 @@ async def md_cards(db: AsyncSession, today: date) -> list[CardSpec]:
 
 Adapter = Callable[[AsyncSession, date], Awaitable[list[CardSpec]]]
 
+
+async def document_cards(db: AsyncSession, today: date) -> list[CardSpec]:
+    """Dokumenty konsultanta: karta na (kontrakt, okres, rodzaj), z obu kanałów.
+
+    Dzięki temu raport wysłany w portalu i mailem na rozliczenia@ to jedna karta.
+    Plik z nieznanego adresu ma własną kartę do ręcznego przypisania. Bez kwot.
+    """
+
+    rows = await _rows(
+        db,
+        f"""
+        SELECT d.contract_id, d.kind, d.period_year AS y, d.period_month AS m,
+               array_agg(d.id ORDER BY d.id) AS ids, bool_or(d.period_guessed) AS guessed,
+               k.client_id, {_PERSON} AS person, {_CLIENT} AS client
+        FROM cp_documents d
+        JOIN contracts k ON k.id = d.contract_id
+        {_CONTRACT_JOIN}
+        WHERE d.status = 'received' AND d.contract_id IS NOT NULL
+        GROUP BY d.contract_id, d.kind, d.period_year, d.period_month,
+                 k.client_id, ca.name, ca.lastname, cl.display_name, cl.name
+        """,
+    )
+    unmatched = await _rows(
+        db,
+        """
+        SELECT d.id, d.kind, d.period_year AS y, d.period_month AS m, d.period_guessed AS guessed
+        FROM cp_documents d
+        WHERE d.status = 'received' AND d.contract_id IS NULL
+        """,
+    )
+    kind_labels = {"report": "Raport", "invoice": "Faktura"}
+    cards = [
+        CardSpec(
+            source_kind="document",
+            source_key=f"document:{row['contract_id']}:{row['y']}-{row['m']:02d}:{row['kind']}",
+            team="finance",
+            lane="invoice",
+            title=f"{kind_labels[row['kind']]} · {_MONTHS[row['m'] - 1]} {row['y']}",
+            person=row["person"],
+            client_label=row["client"],
+            contract_id=row["contract_id"],
+            client_id=row["client_id"],
+            meta={
+                "document_ids": list(row["ids"]),
+                "kind": row["kind"],
+                "period_guessed": row["guessed"],
+            },
+        )
+        for row in rows
+    ]
+    cards += [
+        CardSpec(
+            source_kind="document",
+            source_key=f"document:unmatched:{row['id']}",
+            team="finance",
+            lane="invoice",
+            title=f"{kind_labels[row['kind']]} od nieznanego nadawcy",
+            person="Do przypisania",
+            meta={
+                "document_ids": [row["id"]],
+                "kind": row["kind"],
+                "period_guessed": row["guessed"],
+                "unmatched": True,
+            },
+        )
+        for row in unmatched
+    ]
+    return cards
+
+
 ADAPTERS: dict[str, Adapter] = {
     "case": case_cards,
     "contact": contact_cards,
@@ -596,4 +666,5 @@ ADAPTERS: dict[str, Adapter] = {
     "gap": gap_cards,
     "extend": extend_cards,
     "md": md_cards,
+    "document": document_cards,
 }

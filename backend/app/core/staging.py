@@ -75,6 +75,9 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
+        "consultant_portal_transcripts",
+        "consultant_portal_ratings",
+        "consultant_portal_mailbox",
         "cv_generation",
         "cv_approval",
         "cv_source_cleanup",

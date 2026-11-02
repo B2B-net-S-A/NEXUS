@@ -15,6 +15,9 @@ from __future__ import annotations
 
 from app.services.back_office_schema import NOTIFICATION_TYPES as BACK_OFFICE_TYPES
 from app.services.care_board_schema import NOTIFICATION_TYPES as CARE_BOARD_TYPES
+from app.services.consultant_portal_schema import (
+    NOTIFICATION_TYPES as CONSULTANT_PORTAL_TYPES,
+)
 from app.services.client_structure_schema import (
     NOTIFICATION_TYPES as CLIENT_STRUCTURE_TYPES,
 )
@@ -59,6 +62,7 @@ PERSONAL_TYPES: tuple[str, ...] = (
     *APPROVAL_SETTLEMENT_TYPES,
     # Kolejka back office'u — do kierownika i do osoby z przydziałem (0637).
     *BACK_OFFICE_TYPES,
+    *CONSULTANT_PORTAL_TYPES,
 )
 
 #: Opieka nad konsultantem — link do kontraktu, sekcja Delivery; struktura

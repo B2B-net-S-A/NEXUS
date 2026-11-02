@@ -109,6 +109,14 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Przydzielono Ci kartę back office",
         "Szczegóły karty znajdziesz w NEXUSIE.",
     ),
+    "portal_low_rating": (
+        "Niska ocena rozmowy z portalu",
+        "Konsultant źle ocenił rozmowę. Zadanie znajdziesz w zakładce „Jakość”.",
+    ),
+    "portal_monthly_review": (
+        "Przegląd rozmów za miesiąc",
+        "Twój miesięczny przegląd rozmów z portalu jest w zakładce „Jakość”.",
+    ),
     "equipment_task": (
         "Sprzęt: zadania do zrobienia",
         "Recepcja ma zadania sprzętu na dziś i najbliższe dni.",
