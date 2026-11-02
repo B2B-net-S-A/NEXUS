@@ -7,6 +7,7 @@ import { AppModal } from "@/components/ds/AppModal";
 import { daysLabel } from "@/components/hr/leave/leave-format";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { StatusDot } from "@/components/ds/StatusDot";
+import { FilterChip } from "@/components/hr/people/people-ui";
 import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
@@ -33,14 +34,25 @@ import { TimesheetPreviewDialog } from "./TimesheetPreviewDialog";
 import { useUrlMonth } from "./use-url-month";
 import {
   QUEUE_COLLAPSED_ROWS,
+  QUEUE_FILTERS,
   STATUS_TONE,
   canRemindInQueue,
   defaultQueueMonth,
+  filterQueue,
   formatHours,
+  queueCounts,
   queueHoursFill,
   queueHoursLabel,
   sortQueue,
+  type QueueFilter,
 } from "./time-format";
+
+const STATUS_DOT: Record<TeamQueueItem["status"], string> = {
+  draft: "bg-muted-foreground/40",
+  missing: "bg-warning",
+  submitted: "bg-info",
+  approved: "bg-success",
+};
 
 export interface TimesheetApprovalsSectionProps {
   config: HrConfig;
@@ -69,6 +81,7 @@ export function TimesheetApprovalsSection({
   const [noteError, setNoteError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<QueueFilter>("all");
   const canApprove =
     config.me.is_admin ||
     config.me.people_admin ||
@@ -92,8 +105,10 @@ export function TimesheetApprovalsSection({
   });
   const previewed = items.find((item) => item.user_id === previewId) ?? null;
   const norm = queue.data?.norm_hours ?? null;
-  const rows = sortQueue(items);
-  const visibleRows = showAll ? rows : rows.slice(0, QUEUE_COLLAPSED_ROWS);
+  const counts = queueCounts(items);
+  const rows = sortQueue(filterQueue(items, statusFilter));
+  // Wybrany status pokazuje wszystkich: zwinięte 5 z 26 wyglądałoby jak wynik filtra.
+  const visibleRows = showAll || statusFilter !== "all" ? rows : rows.slice(0, QUEUE_COLLAPSED_ROWS);
 
   const approve = async (item: TeamQueueItem) => {
     if (!item.timesheet) return;
@@ -244,6 +259,25 @@ export function TimesheetApprovalsSection({
         </div>
       </div>
 
+      {canApprove && items.length > 0 ? (
+        <div role="group" aria-label="Status raportu" data-tour="hr.timesheet-status" className="flex flex-wrap gap-1.5">
+          <FilterChip active={statusFilter === "all"} count={counts.all} onClick={() => setStatusFilter("all")}>
+            Wszystkie
+          </FilterChip>
+          {QUEUE_FILTERS.map((status) => (
+            <FilterChip
+              key={status}
+              active={statusFilter === status}
+              count={counts[status]}
+              dotClass={STATUS_DOT[status]}
+              onClick={() => setStatusFilter(status)}
+            >
+              {TIMESHEET_STATUS_LABELS[status]}
+            </FilterChip>
+          ))}
+        </div>
+      ) : null}
+
       {!canApprove ? null : state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie zespołu…</p>
       ) : state === "empty" ? (
@@ -271,6 +305,13 @@ export function TimesheetApprovalsSection({
               </tr>
             </thead>
             <tbody>
+              {statusFilter !== "all" && visibleRows.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-3 py-6 text-center text-sm text-muted-foreground">
+                    W tym miesiącu nikt nie ma statusu „{TIMESHEET_STATUS_LABELS[statusFilter]}”.
+                  </td>
+                </tr>
+              ) : null}
               {visibleRows.map((item) => (
                 <tr key={item.user_id} className={CALM_ROW} data-testid={`queue-${item.user_id}`}>
                   <td className="px-3 py-2">
@@ -338,7 +379,7 @@ export function TimesheetApprovalsSection({
               ))}
             </tbody>
           </table>
-          {rows.length > QUEUE_COLLAPSED_ROWS ? (
+          {statusFilter === "all" && rows.length > QUEUE_COLLAPSED_ROWS ? (
             <div className="border-t border-border/60 px-3 py-1.5">
               <Button variant="tertiary" size="sm" onClick={() => setShowAll((open) => !open)}>
                 {showAll ? "Zwiń" : `Pokaż wszystkie (${rows.length})`}
@@ -357,6 +398,8 @@ export function TimesheetApprovalsSection({
           onOpenChange={(open) => !open && setPreviewId(null)}
           canEdit={previewed.can_decide}
           allowOvertime={config.me.is_admin || config.me.people_admin}
+          viewerIsHr={config.me.is_admin || config.me.people_admin}
+          leaveAccess={config.me.leave_approver === true}
           actions={
             <>
               {remindButton(previewed, "md")}

@@ -266,7 +266,7 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   nieaktualny. Bump `MUST_GATE_POLICY_VERSION` w ciągu dnia i tak zostawia
   takie przeglądy do najbliższej nocy — wdrażaj go przed oknem 01–05.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
-  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (25 od 30.09.2026) łącznie, jeden nowy przegląd na tick,
+  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (48 od 02.11.2026: przy 187 rekrutacjach w pracy to nie jest „co noc wszystkie”, tylko każda co ok. 4 noce) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
   pominięcie. **Automat ustępuje ludziom**: nie startuje, gdy JAKIKOLWIEK
   przegląd jest w kolejce/w toku, a worker i tak bierze ręczne pierwsze.

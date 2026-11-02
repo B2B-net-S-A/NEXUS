@@ -248,7 +248,9 @@ function MailboxCheckResult({
       </p>
     );
   }
-  const problems = result.items.filter((item) => item.health !== "ok");
+  const problems = result.items.filter(
+    (item) => item.health !== "ok" || !item.mailbox_keeps_mail,
+  );
   return (
     <div className="space-y-2 rounded-md border border-border p-3" aria-live="polite">
       <p className="text-sm text-foreground">
@@ -268,13 +270,14 @@ function MailboxCheckResult({
       ) : null}
       {result.items.length > 0 ? (
         <div className="relative overflow-x-auto">
-          <table className="w-full min-w-[560px] text-sm">
+          <table className="w-full min-w-[640px] text-sm">
             <caption className="sr-only">Reguły zastępstw w skrzynkach</caption>
             <thead>
               <tr className={CALM_ROW}>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Skrzynka</th>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Reguła</th>
                 <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Stan</th>
+                <th className={`${CALM_HEAD} py-2 pr-3 text-left`}>Skrzynka osoby</th>
                 <th className={`${CALM_HEAD} py-2 text-right`}>
                   <span className="sr-only">Akcje</span>
                 </th>
@@ -300,6 +303,16 @@ function MailboxCheckResult({
                   <td className="py-2 pr-3 align-top">
                     <Health health={item.health} reason={item.reason} />
                   </td>
+                  <td className="py-2 pr-3 align-top">
+                    <StatusDot
+                      tone={item.mailbox_keeps_mail ? "success" : "danger"}
+                      note={item.mailbox_note ?? undefined}
+                    >
+                      {item.mailbox_keeps_mail
+                        ? "Bez reguł zabierających pocztę"
+                        : "Maile mogą nie zostawać"}
+                    </StatusDot>
+                  </td>
                   <td className="py-2 text-right align-top">
                     {item.rule_id && canCloseRule(item) ? (
                       <Button
@@ -324,6 +337,10 @@ function MailboxCheckResult({
           </table>
         </div>
       ) : null}
+      <p className="text-xs text-muted-foreground">
+        NEXUS czyta reguły Outlooka. Przekierowania ustawionego przez admina w Exchange stąd nie
+        widać.
+      </p>
     </div>
   );
 }

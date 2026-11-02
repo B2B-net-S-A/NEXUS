@@ -171,6 +171,17 @@ decyduje o słowach i o przebiegu nieobecności.
   jej zaległe operacje jako `skipped: user_exited` bez wywołania Graph
   (`executor.left_company`). Właściciel urlopu bez kartoteki z aktywnym kontem
   nadal jest uzgadniany.
+- **„Skrzynki z błędem” w karcie to tylko skrzynki czytane** (02.11.2026):
+  uzgadnianie zdejmuje `last_error` skrzynek, których nie czytało (licznik
+  `stale_errors_cleared`), bo 11 z 18 pozycji to były osoby po odejściu i konto
+  bez kartoteki, a błąd sam by nie zniknął. Tych błędów się nie odfiltrowuje przy
+  wyświetlaniu.
+- **Nowe konto trzeba dopisać do grupy** `nexus-kadry-skrzynki@b2bnetwork.pl`
+  (`Add-DistributionGroupMember`, Exchange Online). NEXUS tego nie robi: wszystkie
+  konta założone 18–29.10.2026 miały 403. Odczyt skrzynki poza grupą nie blokuje
+  złożenia wniosku, a operacje urlopu po 6 próbach kończą jako `failed`. Po dopisaniu
+  uzgadnianie o 7:00 samo odtwarza autoodpowiedź i regułę trwającego urlopu oraz
+  zamyka reguły po urlopie; nieudane wydarzenie w kalendarzu wymaga „Ponów”.
 - **Uprawnienia rejestracji „NEXUS Kadry”**: APPLICATION `MailboxSettings.ReadWrite`,
   `Calendars.ReadWrite`, `Mail.Send` zawężone RBAC for Applications do skrzynek
   zespołu, plus `User.Read.All` (odczyt profili niżej). `User.Read.All` to
@@ -197,7 +208,11 @@ decyduje o słowach i o przebiegu nieobecności.
   module urlopów.
 - **Karta Microsoft 365 → przekierowania** (`m365/forward_admin.py`):
   `GET /forwards` (z bazy), `POST /forwards/check` (odczyt reguł na żywo,
-  tylko tryb `live`; inny tryb = zdanie, nie błąd), `POST /forwards/close`
+  tylko tryb `live`; inny tryb = zdanie, nie błąd; od 02.11.2026 kolumna
+  „Skrzynka osoby”: `forward_rules.mailbox_state` czyta same rodzaje akcji, włączona
+  reguła z `redirectTo`, `delete` albo `permanentDelete` to „Maile mogą nie zostawać”.
+  Warunków reguły nie ocenia, więc to sygnał do sprawdzenia, a przekierowania
+  z Exchange Graph nie pokazuje), `POST /forwards/close`
   (`forward_rule_close` przez kolejkę; reguły trwającego urlopu ze zgodą tak
   nie zamkniesz — 409, od tego jest wyłączenie we wniosku), `POST /reconcile`
   („Uzgodnij teraz”: bez rezerwacji dnia i bez 7:00; blokada
@@ -576,6 +591,18 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odpowiedzi `GET /api/hr/time/team/{rok}/{miesiąc}` (kalendarz firmy × 8 h, ta
   sama co w „Moim miesiącu”). Lista zwinięta do 5 wierszy (najpierw brak
   raportu, potem do akceptacji, szkice, zaakceptowane) z „Pokaż wszystkie (N)”.
+  Nad tabelą chipy statusu z liczbami (decyzja Artura 02.11.2026, po prośbie HoR):
+  wybrany status pokazuje wszystkich, bez zwijania. Zastąpiły pasek podsumowania,
+  który po strzałce miesiąca dalej pokazywał miesiąc z adresu.
+- **Cofnięcie nieobecności z podglądu raportu** (decyzja Artura 02.11.2026): osoba
+  od pierwszego dnia sama terminu nie anuluje, a droga przez „Zdecydowane” była
+  niewidoczna z chipu „Raporty godzin”. W podglądzie przy pierwszym dniu terminu
+  w miesiącu stoją „Cofnij …” i „Zmień daty”: te same okna i trasy co w historii
+  (`CancelLeaveDialog`, `EditLeaveDialog`), te same reguły (`canEditRow`, D5).
+  Termin bierzemy z `useLeaveHistory` po osobie, bez nowego API. Zapytanie idzie
+  tylko przy `can_decide` i `me.leave_approver`, więc same „Raporty godzin” i
+  zastępca nieobecnego przełożonego przycisku nie mają. Cofnięcie zostawia dni
+  puste: godzin nie wpisuje samo, bo potwierdza je osoba albo akceptujący.
 
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 

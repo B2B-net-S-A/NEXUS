@@ -323,6 +323,9 @@ export interface M365MailboxRule {
   substitute_name: string | null;
   health: M365ForwardHealth;
   reason: string | null;
+  /** `false`: włączona reguła w skrzynce może przekazywać albo kasować pocztę osoby. */
+  mailbox_keeps_mail: boolean;
+  mailbox_note: string | null;
 }
 
 export interface M365MailboxCheck {

@@ -27,7 +27,6 @@ import {
 } from "@/components/ui/table";
 import { yearMonthFromParams } from "@/components/hr/MyTimeScreen";
 import { TimesheetApprovalsSection } from "@/components/hr/time/TimesheetApprovalsSection";
-import { defaultQueueMonth } from "@/components/hr/time/time-format";
 import {
   CONSENT_RULES_NOTE,
   ConsentDetail,
@@ -55,13 +54,12 @@ import {
   type LeaveStatus,
 } from "@/lib/api/hr-leave";
 import { forwardStillAhead } from "@/lib/api/hr-m365";
-import { useTeamQueue, type QueueStatus } from "@/lib/api/hr-time";
 import { CALM_EMPTY, CALM_HEAD, CALM_ROW } from "@/lib/calm-table";
 import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
 import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
 import { isBlockingViewState, resolveViewState } from "@/lib/view-state";
-import { formatWeekdayDayPl, monthTitlePl, type YearMonth } from "@/lib/date-pl";
+import { formatWeekdayDayPl } from "@/lib/date-pl";
 import { warsawToday } from "@/lib/warsaw-date";
 
 import { personInitials } from "../people/hr-format";
@@ -88,8 +86,6 @@ import {
   substituteAbsent,
   termDays,
   termRows,
-  timesheetSummary,
-  timesheetSummaryText,
   workSummary,
   dayMonthRange,
   type ChipTone,
@@ -474,52 +470,6 @@ function LeaveDetail({
         }}
       />
     </section>
-  );
-}
-
-const SLICE: Record<QueueStatus, string> = {
-  draft: "bg-muted-foreground/40",
-  missing: "bg-warning",
-  submitted: "bg-info",
-  approved: "bg-success",
-};
-
-/**
- * Podsumowanie statusów timesheetów (pasek złożony + liczby) za miesiąc, od
- * którego otwiera się sekcja „Timesheety” — ta sama kolejka i ten sam klucz
- * zapytania, więc bez drugiego żądania.
- */
-function TimesheetSummary({ config, period }: { config: HrConfig; period: YearMonth }) {
-  const canApprove =
-    config.me.is_admin ||
-    config.me.people_admin ||
-    config.me.timesheets === true ||
-    config.me.is_manager ||
-    (config.me.covering?.length ?? 0) > 0;
-  const queue = useTeamQueue(period.year, period.month, config.open_modules.time && canApprove);
-  if (!queue.isSuccess) return null;
-  const slices = timesheetSummary(queue.data.items);
-  if (slices.length === 0) return null;
-  const total = slices.reduce((sum, slice) => sum + slice.count, 0);
-  const text = timesheetSummaryText(slices);
-  return (
-    <div className="flex flex-wrap items-center gap-3 text-xs" data-testid="timesheet-summary">
-      <span className="font-medium text-foreground">{monthTitlePl(period)}:</span>
-      <div
-        role="img"
-        aria-label={`Timesheety, ${monthTitlePl(period).toLowerCase()}: ${text}`}
-        className="flex h-2 w-[220px] overflow-hidden rounded-full bg-muted"
-      >
-        {slices.map((slice) => (
-          <span
-            key={slice.status}
-            className={SLICE[slice.status]}
-            style={{ width: `${(slice.count / total) * 100}%` }}
-          />
-        ))}
-      </div>
-      <span className="text-muted-foreground">{text}</span>
-    </div>
   );
 }
 
@@ -952,7 +902,7 @@ function ApprovalsInbox({
   );
 }
 
-/** Raporty godzin: podsumowanie miesiąca i kolejka (CSV, ZIP, podgląd osoby). */
+/** Raporty godzin: kolejka miesiąca z filtrem statusu (CSV, ZIP, podgląd osoby). */
 function TimesheetsSection({ config }: { config: HrConfig }) {
   const params = useSearchParams();
   const focusUser = Number(params.get("user"));
@@ -962,7 +912,6 @@ function TimesheetsSection({ config }: { config: HrConfig }) {
       aria-label="Raporty godzin"
       className="space-y-3 rounded-xl border border-border bg-card p-4"
     >
-      <TimesheetSummary config={config} period={initialMonth ?? defaultQueueMonth()} />
       <TimesheetApprovalsSection
         config={config}
         initialMonth={initialMonth}

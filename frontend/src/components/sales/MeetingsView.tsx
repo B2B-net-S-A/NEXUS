@@ -9,6 +9,7 @@ import { EmptyState } from "@/components/ds/EmptyState";
 import { FilterBar } from "@/components/ds/FilterBar";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useSalesMeetings, type MeetingFilters } from "@/lib/api/sales";
@@ -17,12 +18,14 @@ import { formatDateTimePl } from "@/lib/date-pl";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 
+import { MeetingTranscriptDialog } from "./MeetingTranscriptDialog";
 import { SalesSelect } from "./SalesSelect";
 
 const PAGE = 50;
 const LINK_OPTIONS = [
   { value: "opportunity", label: "Przy szansie" },
   { value: "company", label: "Tylko przy firmie" },
+  { value: "transcript", label: "Z transkryptem" },
 ];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -44,13 +47,15 @@ export function MeetingsView() {
   const searchParams = useSearchParams();
   const { replaceUrl } = useUrlWriter();
   const [q, setQ] = useState(searchParams?.get("q") ?? "");
-  const linked = (searchParams?.get("przypisanie") ?? "") as MeetingFilters["linked"] | "";
+  const scope = searchParams?.get("przypisanie") ?? "";
+  const [reading, setReading] = useState<number | null>(null);
   const dateFrom = searchParams?.get("od") ?? "";
   const dateTo = searchParams?.get("do") ?? "";
   const offset = Math.max(0, Number(searchParams?.get("strona") ?? 0) || 0);
   const meetings = useSalesMeetings({
     q,
-    linked: linked || undefined,
+    linked: scope === "transcript" ? undefined : (scope as MeetingFilters["linked"]) || undefined,
+    has_transcript: scope === "transcript",
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
     limit: PAGE,
@@ -93,7 +98,7 @@ export function MeetingsView() {
             <SalesSelect
               ariaLabel="Przypisanie"
               className="w-52"
-              value={linked ?? ""}
+              value={scope}
               onValueChange={(value) => writeParams({ przypisanie: value || null })}
               options={LINK_OPTIONS}
               anyLabel="Wszystkie spotkania"
@@ -148,8 +153,27 @@ export function MeetingsView() {
                     </TableCell>
                     <TableCell className="max-w-96">
                       <span className="font-medium text-foreground">{meeting.subject ?? "Spotkanie bez tytułu"}</span>
-                      {meetingPreview(meeting.body) && (
-                        <p className={`${CALM_SUBLINE} truncate`}>{meetingPreview(meeting.body)}</p>
+                      {meeting.transcript_status === "fetched" && (
+                        <Badge variant="soft" size="sm" className="ml-1.5">
+                          transkrypt
+                        </Badge>
+                      )}
+                      {meeting.transcript_summary ? (
+                        <p className={`${CALM_SUBLINE} line-clamp-2`}>{meeting.transcript_summary}</p>
+                      ) : (
+                        meetingPreview(meeting.body) && (
+                          <p className={`${CALM_SUBLINE} truncate`}>{meetingPreview(meeting.body)}</p>
+                        )
+                      )}
+                      {meeting.transcript_status === "fetched" && (
+                        <Button
+                          size="sm"
+                          variant="quiet"
+                          className="px-0"
+                          onClick={() => setReading(meeting.id)}
+                        >
+                          Czytaj transkrypt
+                        </Button>
                       )}
                     </TableCell>
                     <TableCell>
@@ -200,6 +224,9 @@ export function MeetingsView() {
             </div>
           )}
         </>
+      )}
+      {reading !== null && (
+        <MeetingTranscriptDialog activityId={reading} onClose={() => setReading(null)} />
       )}
     </div>
   );

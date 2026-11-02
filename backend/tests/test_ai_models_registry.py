@@ -165,6 +165,8 @@ DECISION_2026_09_16 = {
     AIFeatureKey.linkedin_message_draft: ("F38", "claude-sonnet-5"),
     # F39 — 28.10.2026: „Oceń z AI” na zaznaczonych osobach, jak F27.
     AIFeatureKey.candidate_ai_assessment: ("F39", "gpt-6-luna"),
+    # F40 — 02.11.2026: podsumowanie transkryptu spotkania handlowca.
+    AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
 }
 
 
