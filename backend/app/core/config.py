@@ -213,9 +213,12 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    # 30.09.2026 (decyzja Artura, audyt wyszukiwania): 3000 — przy pomiarze
-    # pula 2000 obcinała osoby wysłane do klienta w szerokich rolach.
-    MATCH_POOL_SIZE: int = 3000
+    # 2000 = wartość z produkcji, ustawiona po pomiarze z 18.08.2026. Domyślne
+    # 3000 z audytu 30.09 porównywało pulę z 1000, a produkcja miała już 2000.
+    # Pomiar 03.11.2026 (decyzja Artura), 621 wysłanych ze 164 rekrutacji:
+    # 3000 daje w puli 90,8% zamiast 87,8%, ale w top 20 tylko 287 osób zamiast
+    # 286, a `/recommendations` i `/ai-matches` są o 30–40% wolniejsze.
+    MATCH_POOL_SIZE: int = 2000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
