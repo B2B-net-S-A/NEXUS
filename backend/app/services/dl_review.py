@@ -322,7 +322,9 @@ def conversation_texts(
             # tabela mówiła „jest” po słowie, które padło tylko w pytaniu.
             question = str(answer.get("question_text") or "").strip()
             confirmed = must_text_evidence.answer_confirms_question(response)
-            out.append(f"{question}\n{response}" if question and confirmed else response)
+            out.append(
+                f"{question}\n{response}" if question and confirmed else response
+            )
     for key in ("recommendation", "motivation"):
         raw = str((card.get(key) or {}).get("raw") or "").strip()
         if raw:
