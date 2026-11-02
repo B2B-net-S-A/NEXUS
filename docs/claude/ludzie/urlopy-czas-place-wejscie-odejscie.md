@@ -200,7 +200,11 @@ decyduje o słowach i o przebiegu nieobecności.
   module urlopów.
 - **Karta Microsoft 365 → przekierowania** (`m365/forward_admin.py`):
   `GET /forwards` (z bazy), `POST /forwards/check` (odczyt reguł na żywo,
-  tylko tryb `live`; inny tryb = zdanie, nie błąd), `POST /forwards/close`
+  tylko tryb `live`; inny tryb = zdanie, nie błąd; od 02.11.2026 kolumna
+  „Skrzynka osoby”: `forward_rules.mailbox_state` czyta same rodzaje akcji, włączona
+  reguła z `redirectTo`, `delete` albo `permanentDelete` to „Maile mogą nie zostawać”.
+  Warunków reguły nie ocenia, więc to sygnał do sprawdzenia, a przekierowania
+  z Exchange Graph nie pokazuje), `POST /forwards/close`
   (`forward_rule_close` przez kolejkę; reguły trwającego urlopu ze zgodą tak
   nie zamkniesz — 409, od tego jest wyłączenie we wniosku), `POST /reconcile`
   („Uzgodnij teraz”: bez rezerwacji dnia i bez 7:00; blokada

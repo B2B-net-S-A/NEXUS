@@ -49,6 +49,10 @@ _ALWAYS_EXCLUDED = (
 
 WindowState = Literal["before", "open", "after"]
 
+# Po tych akcjach mail może nie zostać w skrzynce. ``forwardTo`` zostawia oryginał,
+# a ``moveToFolder`` trzyma mail w skrzynce, tylko poza „Odebranymi”.
+_TAKES_MAIL_AWAY = ("redirectTo", "delete", "permanentDelete")
+
 
 def rule_name(leave_id: str) -> str:
     return forward_rule_name(leave_id)
@@ -121,6 +125,35 @@ def rule_body(
         },
         **filters(company_domains),
     }
+
+
+def _active_action(rule: dict[str, Any], names: Iterable[str]) -> bool:
+    if rule.get("isEnabled") is False:
+        return False
+    actions = rule.get("actions") or {}
+    return any(actions.get(name) for name in names)
+
+
+def mailbox_state(rules: Iterable[dict[str, Any]]) -> dict[str, Any]:
+    """Co reguły skrzynki robią z pocztą — same rodzaje akcji, bez adresów i warunków.
+
+    Reguła osoby może dotyczyć tylko części poczty (warunków nie oceniamy), dlatego
+    to sygnał do sprawdzenia, nie stwierdzenie. Przekierowania ustawionego przez
+    admina w Exchange Graph nie pokazuje.
+    """
+
+    listed = list(rules)
+    away = [rule for rule in listed if _active_action(rule, _TAKES_MAIL_AWAY)]
+    if any(parse_leave_id(rule.get("displayName")) for rule in away):
+        note: Optional[str] = "reguła zastępstwa nie jest kopią"
+    elif len(away) > 1:
+        note = f"własne reguły osoby: przekazywanie albo kasowanie ({len(away)})"
+    elif away:
+        note = "własna reguła osoby: przekazywanie albo kasowanie"
+    else:
+        moved = sum(1 for rule in listed if _active_action(rule, ("moveToFolder",)))
+        note = f"reguły przenoszące maile do folderów: {moved}" if moved else None
+    return {"mailbox_keeps_mail": not away, "mailbox_note": note}
 
 
 def window_state(start: date, end: date, today: date) -> WindowState:
