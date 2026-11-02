@@ -84,7 +84,10 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # „qc-truth-2” (02.11.2026): słowo tylko z pytania karty i nazwa rekrutacji nie
 # są dowodem z rozmowy (`must_text_evidence._card_evidence_text`). Pomiar na
 # stagingu, 867 par: zaliczone 726 → 723, „kandydat mówił o tym” 325 → 301 pozycji.
-QC_VERSION = "qc-truth-2"
+# „qc-truth-3” (02.11.2026): zdanie z przecinkami nie jest listą technologii
+# (`is_tech_list`), „C” nie trafia w „C++” (`dz._patterns`). Pomiar na stagingu,
+# 814 par: zaliczone 685 → 688, `must_in_roles` 65 → 39, krytyczne 73 → 64 pozycji.
+QC_VERSION = "qc-truth-3"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -190,6 +193,16 @@ _TECH_LABEL = re.compile(
 )
 _HAS_LETTER = re.compile(r"[^\W\d_]")
 _LIST_SPLIT = re.compile(r"[,;|·•]")
+_BRACKETS = re.compile(r"\([^()]*\)")
+# Słowa zdania, których nie ma lista nazw. Bez „of” i „on”, bo stoją w nazwach
+# („Segregation of Duties”, „Ruby on Rails”).
+_SENTENCE_WORDS = frozenset(
+    "and or with for in using by from the a an "
+    "i oraz lub w we z ze do na dla przy po od przez".split()
+)
+# Tyle słów przed dwukropkiem to zdanie („Zarządzanie stosem danych: Spark, dbt”),
+# krótsze to etykieta listy („Bazy danych: Oracle, MySQL”).
+_COLON_LEAD_MIN_WORDS = 3
 _WORD = re.compile(r"[^\W_]+(?:[.#+\-][^\W_]+)*[#+]*", re.UNICODE)
 
 
@@ -207,7 +220,10 @@ def is_tech_list(text: str) -> bool:
     Lista = zaczyna się etykietą („Technologie:”, „Stack:”…) albo ponad
     połowa elementów rozdzielonych przecinkami to krótkie nazwy (≤ 3 słowa).
     „Rozwijała moduł SEPA w Java 11, Spring Boot i Kafka dla 2 mln klientów”
-    ma dwa długie człony — to zdanie, nie lista.
+    ma dwa długie człony — to zdanie, nie lista. Zdaniem jest też tekst ze
+    słowem łączącym („Managed Azure, Entra ID, and Intune”), a nawias nie jest
+    członem listy („Managed applications (Docker, ECS, Kubernetes)”). Pomiar
+    z 02.11.2026: prawie każdy z 991 punktów roli brany za listę był zdaniem.
     """
 
     body = (text or "").strip()
@@ -215,6 +231,12 @@ def is_tech_list(text: str) -> bool:
         return False
     if _TECH_LABEL.match(body):
         return True
+    body = _BRACKETS.sub(" ", body)
+    lead, colon, _ = body.partition(":")
+    if colon and word_count(lead) >= _COLON_LEAD_MIN_WORDS:
+        return False
+    if _SENTENCE_WORDS.intersection(body.split()):
+        return False
     parts = [p.strip() for p in _LIST_SPLIT.split(body) if p.strip()]
     if len(parts) < 3:
         return False
@@ -1133,8 +1155,9 @@ def _role_items(
                     detail=(
                         "Brak w tej roli, a oryginał opisuje to w tej roli."
                         if not in_role
-                        else "Jest tylko na liście technologii — oryginał opisuje, "
-                        "co kandydat w tej roli z tym robił; dopisz zdanie."
+                        else "Jest tylko na liście technologii albo w nazwie "
+                        "stanowiska — oryginał opisuje, co kandydat w tej roli "
+                        "z tym robił; dopisz zdanie."
                     ),
                     fix="ai",
                     role_index=idx,

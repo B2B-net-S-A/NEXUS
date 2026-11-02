@@ -107,10 +107,52 @@ def _by_key(checks: list[dict]) -> dict[str, dict]:
             False,
         ),
         ("Rozwój usług w Java i Spring.", False),
+        # Zdania z przecinkami z pomiaru 02.11.2026, w fikcyjnej formie.
+        (
+            "Developed software for control units in C/C++, using ARM chips "
+            "and CAN, I2C, SPI, UART communication",
+            False,
+        ),
+        ("Managed Microsoft Azure, Microsoft Entra ID, and Microsoft Intune", False),
+        ("Supported financial crime, KYC, and AML projects for large banks", False),
+        ("Used CMake, Conan, Docker, and Compose to deliver C++ solutions", False),
+        ("Managed containerized applications (Docker, ECS, Kubernetes)", False),
+        ("Zarządzanie stosem danych: Apache Spark, Airflow, dbt", False),
+        ("Zarządzanie platformami Azure, Entra ID i Intune", False),
+        # Prawdziwe listy zostają listami: nawias i „of”, „on” w nazwie.
+        ("Spring Framework (2.x to 5.x), Hibernate, JSP, SAML, Maven", True),
+        ("Segregation of Duties (SoD), Active Directory, PowerShell", True),
+        ("Ruby on Rails, PostgreSQL, Redis, Docker", True),
     ],
 )
 def test_tech_list_heuristic(text: str, tech_list: bool) -> None:
     assert qc.is_tech_list(text) is tech_list
+
+
+def test_sentence_with_commas_describes_the_term_in_the_role() -> None:
+    """„To nieprawda” z 02.11.2026: zdanie o pracy z przecinkami brane było za
+    listę technologii i QC kazało dopisać zdanie, które w CV już stało."""
+    req = _reqs("Entra ID")[0]
+    role = _blocks(
+        "<ul><li>Managed Microsoft Azure, Microsoft Entra ID, "
+        "and Microsoft Intune platforms</li></ul>"
+    )
+    assert qc.described_in_blocks(req, role)
+
+
+def test_single_letter_language_is_not_in_the_original_role_with_cpp() -> None:
+    """„C” przy „C++ Software Engineer”: oryginał opisuje C++, nie C."""
+    role = dz.Role(
+        label="C++ Software Engineer · Acme",
+        company="Acme",
+        text="",
+        title="C++ Software Engineer",
+        desc="Rozwijał narzędzie C++ do przetwarzania danych.",
+        technologies=("C++", "STL"),
+        detail=True,
+    )
+    assert qc.role_evidence(role, _reqs("C")[0]) == (None, None)
+    assert qc.role_evidence(role, _reqs("C++")[0])[0] == "description"
 
 
 def test_term_only_in_a_technology_tail_is_not_a_description() -> None:

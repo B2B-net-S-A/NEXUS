@@ -372,7 +372,11 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
     for form in sorted(forms, key=len, reverse=True):
         term = parse_keyword(form)
         if term is not None:
-            out.append(py_regex(term))
+            pattern = py_regex(term)
+            # „C” to nie „C++” ani „C#”, tak jak Java to nie JavaScript.
+            if len(term.text) == 1:
+                pattern = re.compile(pattern.pattern + r"(?![+#])", pattern.flags)
+            out.append(pattern)
     for form in sorted(forms, key=len, reverse=True):
         inflected = _inflected_pattern(form)
         if inflected is not None:
