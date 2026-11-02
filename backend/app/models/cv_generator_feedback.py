@@ -1,4 +1,4 @@
-"""Powód pobrania oryginału CV po złym wyniku generatora (migracja 0631).
+"""Powód pobrania oryginału CV po złym wyniku generatora (migracja 0632).
 
 Zasady: ``app/services/cv_download_policy.py``. DDL:
 ``app/services/cv_generator_feedback_schema.py``.

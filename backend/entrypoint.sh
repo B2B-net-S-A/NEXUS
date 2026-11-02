@@ -1207,7 +1207,7 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
-# Powody „co generator zrobił źle” (0631,
+# Powody „co generator zrobił źle” (0632,
 # `app/services/cv_generator_feedback_schema.py`).
 try:
     from app.services import cv_generator_feedback_schema as _cv_generator_feedback_schema
