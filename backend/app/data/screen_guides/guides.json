@@ -58,7 +58,7 @@
     "title": "Tablica rekrutacji",
     "section": "pipeline",
     "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"],
-    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony; u góry kolumny ten, kto ostatni wszedł na etap, a w „Nowych” najpierw osoby zespołu, potem kolejka systemu. Źródła są w nagłówku.",
+    "what": "Tu prowadzisz kandydatów tej rekrutacji przez 8 kolumn: Nowi, Screening, Zweryfikowany, QC CV, CV wysłane, Rozmowa u klienta, Akceptacja i umowa oraz Zatrudniony; w „Nowych” najpierw zespół, potem kolejka systemu. Źródła są w nagłówku.",
     "tasks": [
       {
         "q": "Od czego zacząć w tej rekrutacji?",
