@@ -597,8 +597,10 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
 describe("GenerateInviteLinkV2 — Wyniki", () => {
   const RESULTS = {
     days: 30,
+    visits_tracked_from: "2026-11-03",
     totals: {
       visits: 212,
+      visits_in_period: 40,
       applications: 18,
       new_candidates: 11,
       existing_candidates: 7,
@@ -694,6 +696,8 @@ describe("GenerateInviteLinkV2 — Wyniki", () => {
     await user.click(screen.getByRole("tab", { name: "Wyniki" }));
 
     const tiles = await screen.findByTestId("results-tiles");
+    expect(tiles).toHaveTextContent("Wejścia, 30 dni40");
+    expect(screen.getByTestId("results-visits-note")).toHaveTextContent(/zapisujemy od 03 lis 2026/);
     expect(tiles).toHaveTextContent("Zgłoszenia18");
     expect(tiles).toHaveTextContent("Nowi w bazie11");
     const people = await screen.findByTestId("results-people");
@@ -722,6 +726,8 @@ describe("GenerateInviteLinkV2 — Wyniki", () => {
         params: { days: 0 },
       }),
     );
+    expect(await screen.findByText("Wejścia od początku")).toBeInTheDocument();
+    expect(screen.queryByTestId("results-visits-note")).not.toBeInTheDocument();
   });
 
   it("awaria listy osób nie wygląda jak brak zgłoszeń", async () => {

@@ -6,9 +6,10 @@ była już w bazie). Ten sam zapis liczy kolumnę „Z linków” w aktywności 
 (``insights_team_activity``), więc obie liczby się zgadzają.
 
 Lejek: osoba ze zgłoszenia liczy się na etapie, gdy PO zgłoszeniu pojawiła się
-na nim w rekrutacji linku (link ogólny: w dowolnej rekrutacji). Wejścia to
-licznik od początku istnienia linku (``visit_count``) — dat wejść nie
-zapisujemy.
+na nim w rekrutacji linku (link ogólny: w dowolnej rekrutacji). Wejścia: licznik
+od początku istnienia linku (``visit_count``), a od 0635 także dzienne
+(``candidate_invite_link_visit_days``) — okres liczy się z dziennych, które
+zaczynają się w dniu wdrożenia.
 
 Makieta: https://claude.ai/artifact/8aVZkzVxkVnkVVNBUDgL4h (plansza 4).
 
@@ -20,12 +21,13 @@ reguła etapu co lejek, więc liczba zgłoszeń i długość listy się zgadzaj�
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.scheduling import business_date
 from app.services.my_people import my_people_membership
 
 COUNT_KEYS = (
@@ -84,6 +86,12 @@ reached AS (
 )
 SELECT links.token, links.kind, links.slug, links.job_id, links.visit_count,
        links.revoked, links.expires_at,
+       (
+           SELECT COALESCE(sum(d.visits), 0)
+           FROM candidate_invite_link_visit_days d
+           WHERE d.link_token = links.token
+             AND d.day >= CAST(:since_day AS date)
+       ) AS visits_in_period,
        count(reached.candidate_id) AS applications,
        count(*) FILTER (WHERE reached.candidate_id IS NOT NULL
                           AND NOT reached.was_duplicate) AS new_candidates,
@@ -193,6 +201,7 @@ class LinkResult:
     slug: Optional[str]
     job_id: Optional[int]
     visits: int
+    visits_in_period: Optional[int] = None
     revoked: bool = False
     expires_at: Optional[datetime] = None
     applications: int = 0
@@ -212,8 +221,12 @@ async def link_results(
     db: AsyncSession, owner_id: int, since: Optional[datetime]
 ) -> list[LinkResult]:
     """Wiersz na każdy link osoby (także wycofany), z liczbami w oknie."""
+    since_day = business_date(since) if since is not None else None
     rows = (
-        await db.execute(text(_RESULTS_SQL), {"owner": owner_id, "since": since})
+        await db.execute(
+            text(_RESULTS_SQL),
+            {"owner": owner_id, "since": since, "since_day": since_day},
+        )
     ).mappings()
     return [
         LinkResult(
@@ -222,6 +235,10 @@ async def link_results(
             slug=r["slug"],
             job_id=r["job_id"],
             visits=int(r["visit_count"] or 0),
+            # Od początku: dzienne nie sięgają wstecz, więc liczy licznik linku.
+            visits_in_period=(
+                int(r["visits_in_period"] or 0) if since is not None else None
+            ),
             revoked=bool(r["revoked"]),
             expires_at=r["expires_at"],
             **{key: int(r[key] or 0) for key in COUNT_KEYS},
@@ -261,6 +278,13 @@ async def job_team_links(db: AsyncSession, job_id: int) -> list[dict[str, Any]]:
             await db.execute(text(_JOB_TEAM_LINKS_SQL), {"job_id": job_id})
         ).mappings()
     ]
+
+
+async def visits_tracked_from(db: AsyncSession) -> Optional[date]:
+    """Pierwszy dzień z zapisanymi wejściami; ``None`` = jeszcze żadnego."""
+    return await db.scalar(
+        text("SELECT min(day) FROM candidate_invite_link_visit_days")
+    )
 
 
 def as_dict(item: LinkResult) -> dict[str, Any]:

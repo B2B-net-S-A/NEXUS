@@ -22,7 +22,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.application_submission import (  # noqa: F401
     ApplicationSubmission,
     ApplicationSubmissionStatus,
@@ -381,6 +381,7 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "CandidateInviteLinkVisitDay",
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",

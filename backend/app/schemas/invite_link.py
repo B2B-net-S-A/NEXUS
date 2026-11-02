@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -98,6 +98,8 @@ class CareerLinkResultCounts(BaseModel):
     """Lejek linku w oknie (etap 4 linków, 19.10.2026). ``visits`` = od początku."""
 
     visits: int = 0
+    # W wybranym okresie, z dziennych wejść (0635); ``None`` = od początku.
+    visits_in_period: Optional[int] = None
     applications: int = 0
     new_candidates: int = 0
     existing_candidates: int = 0
@@ -120,6 +122,8 @@ class CareerLinkResultRow(CareerLinkResultCounts):
 class CareerLinkResults(BaseModel):
     # ``None`` = od początku.
     days: Optional[int] = None
+    # Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma.
+    visits_tracked_from: Optional[date] = None
     totals: CareerLinkResultCounts
     links: list[CareerLinkResultRow] = Field(default_factory=list)
 

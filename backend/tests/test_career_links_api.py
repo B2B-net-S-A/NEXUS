@@ -19,6 +19,7 @@ import io
 import json
 import re
 import uuid
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -27,12 +28,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.application_submission import ApplicationSubmission
 from app.models.candidate import Candidate
 from app.models.candidate_consent import CandidateConsent
 from app.models.candidate_source_event import CandidateSourceEvent
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.job import Job, JobStatus, RecruitmentType, RemotePolicy
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import Notification, NotificationType
@@ -755,6 +757,73 @@ async def test_job_team_links_open_for_delivery_lead_across_clients(api):
     )
     assert resp.status_code == 200, resp.text
     assert resp.json() == []
+
+
+async def test_visits_count_per_day_and_show_in_the_period(api):
+    """0635: wejście zapisuje się w dniu i w liczniku; okres czyta dzienne."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+
+    for _ in range(2):
+        page = await api.get(f"/api/public/career/r/{link['slug']}")
+        assert page.status_code == 200, page.text
+    # Grafika OG nie jest wejściem kandydata.
+    await api.get(
+        f"/api/public/career/r/{link['slug']}", headers={"x-nexus-count-visit": "0"}
+    )
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(CandidateInviteLinkVisitDay)
+                .join(
+                    CandidateInviteLink,
+                    CandidateInviteLink.token == CandidateInviteLinkVisitDay.link_token,
+                )
+                .where(CandidateInviteLink.slug == link["slug"])
+            )
+        ).all()
+    assert [(row.day, row.visits) for row in rows] == [(business_today(), 2)]
+
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits"] == 2 and row["visits_in_period"] == 2
+    assert period["totals"]["visits_in_period"] == 2
+    assert period["visits_tracked_from"] is not None
+
+    # Od początku liczy licznik linku, bo dzienne nie sięgają wstecz.
+    everything = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert everything["totals"]["visits_in_period"] is None
+    assert everything["totals"]["visits"] == 2
+
+
+async def test_old_visits_stay_outside_the_period(api):
+    """Odmowa: wejście sprzed okresu nie wpada do liczby okresu."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        token = await db.scalar(
+            select(CandidateInviteLink.token).where(
+                CandidateInviteLink.slug == link["slug"]
+            )
+        )
+        db.add(
+            CandidateInviteLinkVisitDay(
+                link_token=token,
+                day=business_today() - timedelta(days=40),
+                visits=5,
+            )
+        )
+        await db.commit()
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits_in_period"] == 0
 
 
 async def test_link_results_hide_dead_links_without_applications(api):
