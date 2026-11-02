@@ -286,8 +286,8 @@ def test_policy_runs_after_year_guards_so_truncation_keeps_the_real_tenure(
     assert saved["experience"][0]["company"] == "F"
     # Pełny staż z sześciu ról (03.2014 → dziś) to ~12,5 roku; trzy zachowane
     # role dałyby ~4,5. v10 zostawia liczbę modelu („12"), legacy_v7 przelicza
-    # ją z PEŁNEJ listy dat (`_fix_scoped_years` → „13") — oba nie zaniżają.
-    years_match = re.match(r"(\d+) lat", saved["why_points"][0])
+    # ją z PEŁNEJ listy dat (`_fix_scoped_years` → „Ponad 12") — oba nie zaniżają.
+    years_match = re.match(r"(?:Ponad )?(\d+) lat", saved["why_points"][0])
     assert years_match, saved["why_points"]
     years = int(years_match.group(1))
     assert years >= 12, saved["why_points"]

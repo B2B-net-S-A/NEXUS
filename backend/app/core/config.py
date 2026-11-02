@@ -1290,6 +1290,9 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.

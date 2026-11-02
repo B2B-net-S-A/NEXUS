@@ -305,6 +305,10 @@ _CV_TITLE_LEADING = (
     re.compile(r"^\d+\s*[xX]\s+"),
     re.compile(r"^[^:()]{1,60}?_Role:\s*"),
 )
+# Forma odmieniona i z „zakup”: „usług programistycznych”, „Zakup usług Testera”.
+_SERVICE_TITLE = re.compile(
+    r"(?:RFX\s*-\s*)?(?:zakup\s+)?us[łl]ug(?:a|i|ę|y)?(?![^\W\d_])", re.I
+)
 
 
 def cv_role_title(
@@ -364,21 +368,43 @@ def _role_without_codes(base: str, names: list[str]) -> str:
     return text or base
 
 
+def is_service_title(title: Optional[str]) -> bool:
+    """Czy nazwa od klienta mówi o przedmiocie usługi, a nie o stanowisku.
+
+    PKO od 09.2026: „ZOB-3103 usługi programistyczne”, „usługa analizy
+    systemowej”. „Administrator usług IT” to stanowisko — liczy się początek.
+    """
+    return bool(_SERVICE_TITLE.match(_clean(title)))
+
+
 async def cv_role_title_for_job(db: AsyncSession, job: Any) -> str:
     """:func:`cv_role_title` rekrutacji z bazy — z nazwami i aliasami klienta.
 
-    Jedno wejście dla generatora i kopii CV etapu (plik Word, CV z profilu,
-    CV z innej rekrutacji). Do 15.10.2026 kopia brała surowy ``jobs.title``
+    Jedno wejście dla generatora, kopii CV etapu (plik Word, CV z profilu,
+    CV z innej rekrutacji) i QC. Do 15.10.2026 kopia brała surowy ``jobs.title``
     i u PKO nazwa pliku miała numer zapytania dwa razy
     („ZOB-2949_… (ZOB-2949)_….docx”), a nagłówek kopii — numer zapytania.
+
+    Nazwa będąca przedmiotem usługi ustępuje roli z Championa (02.11.2026):
+    CV miały nagłówek „usługi programistyczne – Imię Nazwisko”.
     """
     from app.services.job_public_profile import _client_names
+    from app.services.prep_role import looks_like_code
 
-    return cv_role_title(
-        job.title,
-        getattr(job, "client_reference", None),
-        await _client_names(db, job.client_id),
-    )
+    reference = getattr(job, "client_reference", None)
+    names = await _client_names(db, job.client_id)
+    role = cv_role_title(job.title, reference, names)
+    if is_service_title(role):
+        champion = cv_role_title(
+            champion_view.basics(job).get("role_name"), reference, names
+        )
+        if (
+            champion
+            and not is_service_title(champion)
+            and not looks_like_code(champion)
+        ):
+            return champion
+    return role
 
 
 def _is_role(text: str) -> bool:

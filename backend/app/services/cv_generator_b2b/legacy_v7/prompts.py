@@ -87,12 +87,12 @@ ZASADY DLA WHY_POINTS:
 - Edukacja jest w osobnej sekcji i nie powinna być powtarzana w why_points
 - ZWIĘZŁOŚĆ (KRYTYCZNE): sekcja "Dlaczego nasz kandydat" to samo MIĘSO — konkrety, zero marketingowego lania wody. Twarde reguły:
   • Maksymalnie 3-5 punktów ŁĄCZNIE — wliczając punkty oparte na notatkach (to NIE są punkty "dodatkowe" ponad limit). Domyślnie celuj w 3-4.
-  • Każdy punkt = JEDNA krótka linijka, jeden konkretny fakt, do ~18 słów. NIGDY "1-2 linijki", nigdy wielozdaniowe wyliczenia.
+  • Każdy punkt = JEDNO pełne zdanie do ~30 słów, zbudowane pod jedno z najważniejszych wymagań klienta: co kandydat faktycznie robił, w jakiej technologii i w jakim kontekście albo skali. Może łączyć kilka faktów ze źródła, jeśli dotyczą tego samego wymagania. Nie dopisuj niczego, żeby wypełnić zdanie.
   • Każdy punkt zaczyna od konkretu (liczba lat, technologia, skala, realne osiągnięcie) — nie od ogólnika ani przymiotnika.
   • ZAKAZ frazesów i pustych przymiotników: "doświadczony i zaangażowany", "bogate/szerokie doświadczenie", "wszechstronny/dynamiczny specjalista", "pasjonat", "udokumentowane sukcesy" — jeśli słowo nie niesie konkretnego faktu, usuń je.
   • Żadnych dwóch punktów o tej samej myśli — każdy wnosi NOWĄ informację.
   • PRZYKŁAD — ŹLE: „Doświadczony i zaangażowany specjalista z bogatym doświadczeniem w realizacji wielu projektów IT"; DOBRZE: „8 lat jako Backend Developer, w tym 3 lata w fintechu".
-- LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (od najwcześniejszego startu do ostatniej daty / "obecnie"), zaokrąglij do pełnego roku i NIE zaniżaj — podaj konkretną liczbę ("5 lat"), NIGDY "ponad 4" gdy realnie jest ~5
+- LATA DOŚWIADCZENIA: policz DOKŁADNIE łączny staż na podstawie dat (bez liczenia dwa razy nakładających się okresów i bez przerw między pracami), podaj pełne lata w dół, a gdy są jeszcze co najmniej 3 miesiące, napisz "Ponad N lat" (4 lata i 6 miesięcy to "Ponad 4 lata")
 - LICZBA LAT ZAWSZE PRZY ROLI, NIGDY PRZY POJEDYNCZEJ TECHNOLOGII (KRYTYCZNE): łączny staż (np. „6 lat") wiąż WYŁĄCZNIE z rolą lub specjalizacją zawodową ("6 lat jako administrator systemów / specjalista MDM"), NIGDY z konkretnym narzędziem ani technologią. NIE pisz „[X] lat doświadczenia z [technologia]" używając łącznego stażu — to FAŁSZYWIE zawyża doświadczenie z tą technologią (kandydat z 6-letnim stażem, który Intune używa od 2 lat, ma „2 lata doświadczenia z Microsoft Intune", a NIE „6 lat z Microsoft Intune"). Liczbę lat możesz postawić przy konkretnej technologii TYLKO wtedy, gdy odpowiada ona REALNEMU okresowi jej używania — policzonemu z dat tych ról, w których ta technologia faktycznie występuje w CV/notatkach. Gdy nie da się ustalić tego okresu — wymień technologię BEZ liczby lat.
 
 KWANTYFIKACJA I ZWIĘZŁOŚĆ:
@@ -100,7 +100,7 @@ KWANTYFIKACJA I ZWIĘZŁOŚĆ:
   serwerów/klastrów/użytkowników, SLA, budżet, % poprawy) — konkrety sprzedają lepiej niż ogólniki
 - NIGDY nie wymyślaj ani nie szacuj liczb, których nie ma w źródłach
 - To są GÓRNE limity, nie normy do wypełnienia: dwie–trzy najnowsze role opisz szczegółowo
-  (maks. 8 obowiązków); starsze role maks. 4 obowiązki; role sprzed ponad 10 lat maks. 2
+  (maks. 8 obowiązków); starsze role maks. 6 obowiązków; role sprzed ponad 10 lat maks. 3
   najważniejsze obowiązki. Gdy źródło podaje mniej obowiązków, podaj tyle, ile jest — NIE uzupełniaj
   listy do limitu, nie rozbijaj jednego obowiązku na kilka i nie dopisuj zadań spoza źródła
 - Soft skills z notatek rekrutera: maksymalnie JEDEN punkt w why_points i tylko cechy
@@ -123,7 +123,7 @@ Jeśli w kontekście znajdują się notatki ze screeningu (oznaczone jako "NOTAT
 - Linie zaczynające się od "P:" to PYTANIA rekrutera. Treść pytania NIE jest faktem o kandydacie — technologia wymieniona tylko w pytaniu NIE trafia do CV. Faktem jest wyłącznie odpowiedź ("O:")
 - Odpowiedź przecząca ("nie zna", "nie pracował", "brak doświadczenia", "tylko teoretycznie") oznacza, że danej rzeczy NIE ma w CV — nie wpisuj jej nigdzie, także z dopiskiem "podstawowa znajomość"
 - Technologie i umiejętności potwierdzone twierdzącą odpowiedzią dodaj do SKILLS i możesz je wykorzystać w WHY_POINTS
-- Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
+- Do obowiązków (responsibilities) i technologii KONKRETNEJ roli przenoś fakt z rozmowy TYLKO wtedy, gdy odpowiedź wprost nazywa firmę albo projekt tej roli. Gdy odpowiedź mówi wprost o obecnej pracy ("aktualnie", "obecnie", "w obecnym projekcie"), przypisz fakt do najnowszej roli. Bez takiego wskazania fakt z rozmowy nie trafia do żadnej roli
 - NIE przepisuj sformułowań rekrutera jako obowiązków — opisz fakt własnymi, rzeczowymi słowami
 - Mieść się w limicie 3-5 punktów why_points, NIE dokładaj punktu ponad limit
 
@@ -149,7 +149,7 @@ Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
 
 1. MUST-HAVE (wymagania klienta — technologie ORAZ kompetencje/metodyki):
    - ROZRÓŻNIJ: konkretne technologie (narzędzia, języki, frameworki, biblioteki, platformy, standardy techniczne) umieść w sekcji SKILLS; metodyki (np. Agile/Scrum), kompetencje miękkie, role i języki obce traktuj jako kontekst pozycjonujący — NIE wpisuj ich jako „technologii" ani nie twórz dla nich sztucznych kategorii technicznych
-   - Upewnij się że posiadane must-have TECHNOLOGIE są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii)
+   - Upewnij się że posiadane must-have TECHNOLOGIE są PROMINENTNIE widoczne w sekcji SKILLS (na początku odpowiednich kategorii). Pierwsze kategorie nazwij obszarami z wymagań klienta i tam umieść posiadane must-have
    - NIE dodawaj punktu wyliczającego wymagania (np. "Posiada kluczowe technologie wymagane na stanowisku: …") — klient od razu widzi, że CV pisano pod ogłoszenie. Posiadane must-have pokaż w why_points tylko jako zwykły fakt z doświadczenia kandydata
    - Jeśli kandydat je ma - możesz je umieścić w why_points w kontekście jego doświadczenia, ale NIGDY nie łącz ich z łączną liczbą lat stażu (patrz reguła „LICZBA LAT ZAWSZE PRZY ROLI") — staż z technologią musi odpowiadać realnemu okresowi jej używania, nie całej karierze
    - Jeśli kandydat NIE MA którejś technologii - dodaj ją do pola "warnings" w JSON
@@ -164,7 +164,7 @@ Ta reguła ma pierwszeństwo przed każdym z punktów 1–7.
    - NIE zmieniaj zakresu ani sensu obowiązków - możesz zmienić TYLKO sposób opisu tego co kandydat FAKTYCZNIE robił
    - NIE dodawaj obowiązków których kandydat nie wymienił w CV ani na screeningu
    - KOLEJNOŚĆ: Obowiązki związane z technologiami MUST-HAVE muszą być ZAWSZE na początku listy responsibilities dla każdego stanowiska. Najpierw obowiązki powiązane z MUST-HAVE, potem z NICE-TO-HAVE, potem pozostałe
-   - Wplataj nazwy technologii MUST-HAVE w opis obowiązków TYLKO jeśli kandydat faktycznie używał tej technologii na danym stanowisku (potwierdzone w CV lub notatkach ze screeningu). NIE dopisuj technologii do obowiązków jeśli kandydat ich nie używał w tej roli
+   - Gdy źródło pokazuje, że kandydat używał posiadanego MUST-HAVE na danym stanowisku (CV albo notatki ze screeningu), NAZWIJ go wprost w punkcie obowiązków tej roli, także gdy stoi już w SKILLS albo w why_points. NIE dopisuj technologii do obowiązków, jeśli kandydat jej nie używał w tej roli
 
 4. PYTANIA SCREENINGOWE:
    - Jeśli "idealna odpowiedź" wymaga konkretnej umiejętności i kandydat ją ma (potwierdza to <cv> albo twierdząca odpowiedź) - wyróżnij to w CV
@@ -448,12 +448,12 @@ RULES FOR WHY_POINTS:
 - Education is in a separate section and should not be repeated in why_points
 - CONCISENESS (CRITICAL): the "Why our candidate" section is pure SUBSTANCE — specifics, zero marketing filler. Hard rules:
   • At most 3-5 points IN TOTAL — including points based on the notes (these are NOT "extra" points beyond the limit). Default to aiming for 3-4.
-  • Each point = ONE short line, one concrete fact, up to ~18 words. NEVER "1-2 lines", never multi-clause enumerations.
+  • Each point = ONE full sentence of up to ~30 words built around one of the client's most important requirements: what the candidate actually did, with which technology and in what context or scale. It may combine several source facts if they concern the same requirement. Never add anything to fill the sentence.
   • Each point opens with the fact (years, technology, scale, real achievement) — not with a generality or an adjective.
   • NO clichés or empty adjectives: "experienced and committed", "rich/broad experience", "versatile/dynamic specialist", "passionate", "proven track record" — if a word carries no concrete fact, delete it.
   • No two points about the same idea — every point adds NEW information.
   • EXAMPLE — BAD: "An experienced and committed specialist with rich experience delivering many IT projects"; GOOD: "8 years as a Backend Developer, including 3 years in fintech".
-- YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (earliest start to the latest date / "present"), round to a whole year and do NOT undercount — give a concrete number ("5 years"), NEVER "over 4" when it is really ~5
+- YEARS OF EXPERIENCE: count the total tenure EXACTLY from the dates (without double counting overlapping periods and without gaps between jobs), give whole years rounded down, and with at least 3 extra months write "Over N years" (4 years and 6 months is "Over 4 years")
 - YEARS ALWAYS WITH THE ROLE, NEVER WITH A SINGLE TECHNOLOGY (CRITICAL): tie the total tenure (e.g. "6 years") ONLY to a role or professional specialization ("6 years as a systems administrator / MDM specialist"), NEVER to a specific tool or technology. Do NOT write "[X] years of experience with [technology]" using the total tenure — that FALSELY inflates experience with that technology (a candidate with 6 years total who has used Intune for 2 years has "2 years of experience with Microsoft Intune", NOT "6 years with Microsoft Intune"). You may put a year count next to a specific technology ONLY when it equals the REAL time it was used — computed from the dates of the roles where that technology actually appears in the CV/notes. When that period cannot be established, list the technology WITHOUT a year count.
 
 QUANTIFICATION AND CONCISENESS:
@@ -461,7 +461,7 @@ QUANTIFICATION AND CONCISENESS:
   number of servers/clusters/users, SLA, budget, % improvement) — specifics sell better than generalities
 - NEVER invent or estimate numbers that are not present in the sources
 - These are UPPER limits, not quotas to fill: describe the two-three most recent roles in detail
-  (max 8 responsibilities); older roles max 4; roles older than 10 years max 2 most important
+  (max 8 responsibilities); older roles max 6; roles older than 10 years max 3 most important
   responsibilities. When the source gives fewer responsibilities, give as many as there are — do NOT
   pad the list up to the limit, do not split one responsibility into several and do not add tasks
   absent from the source
@@ -485,7 +485,7 @@ If screening notes are provided in the context (marked as "SCREENING NOTES"), us
 - Lines starting with "P:" are the recruiter's QUESTIONS. The text of a question is NOT a fact about the candidate — a technology named only in a question does NOT go into the CV. Only the answer ("O:") is a fact
 - A negative answer ("does not know", "has not worked with", "no experience", "only theoretically") means the item is NOT in the CV — do not write it anywhere, not even as "basic knowledge"
 - Technologies and skills confirmed by an affirmative answer go into SKILLS and may be used in WHY_POINTS
-- Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. Without such a pointer the fact does not go into any role
+- Carry a fact from the conversation into the responsibilities or technologies of a SPECIFIC role ONLY when the answer explicitly names that role's company or project. When the answer plainly speaks about the current job ("currently", "now", "in my current project"), assign the fact to the newest role. Without such a pointer the fact does not go into any role
 - Do NOT copy the recruiter's wording as a responsibility — describe the fact in your own plain words
 - Stay within the 3-5 why_points limit, do NOT add a point beyond the limit
 
@@ -511,7 +511,7 @@ takes precedence over every one of points 1–7.
 
 1. MUST-HAVE (client requirements — technologies AND competencies/methodologies):
    - DISTINGUISH: concrete technologies (tools, languages, frameworks, libraries, platforms, technical standards) go into the SKILLS section; methodologies (e.g. Agile/Scrum), soft skills, roles and human languages are only positioning context — do NOT list them as "technologies" or invent artificial technical categories for them
-   - Ensure the possessed must-have TECHNOLOGIES are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories)
+   - Ensure the possessed must-have TECHNOLOGIES are PROMINENTLY visible in the SKILLS section (at the beginning of relevant categories). Name the first categories after the areas in the client requirements and put the held must-haves there
    - Do NOT add a point that enumerates the requirements (e.g. "Possesses key technologies required for the position: …") — the client immediately sees the CV was written for the ad. Show possessed must-haves in why_points only as an ordinary fact from the candidate's experience
    - If candidate has them - you may place them in why_points in the context of their experience, but NEVER attach the total tenure figure to them (see the "YEARS ALWAYS WITH THE ROLE" rule) — a year count next to a technology must reflect the real time it was used, not the whole career
    - If candidate DOES NOT HAVE a technology - add it to the "warnings" field in JSON
@@ -526,7 +526,7 @@ takes precedence over every one of points 1–7.
    - DO NOT change the scope or meaning of responsibilities - you may only change HOW something the candidate ACTUALLY did is described
    - DO NOT add responsibilities the candidate did not mention in the CV or screening notes
    - ORDER: Responsibilities related to MUST-HAVE technologies must ALWAYS be at the top of the responsibilities list for each position. First MUST-HAVE related duties, then NICE-TO-HAVE related, then the rest
-   - Weave MUST-HAVE technology names into responsibility descriptions ONLY if the candidate actually used that technology in that role (confirmed in CV or screening notes). DO NOT add technologies to responsibilities if the candidate did not use them in that role
+   - When the source shows the candidate used a held MUST-HAVE in a given role (CV or screening notes), NAME it explicitly in a responsibility of that role, even if it already stands in SKILLS or why_points. DO NOT add technologies to responsibilities if the candidate did not use them in that role
 
 4. SCREENING QUESTIONS:
    - If "ideal answer" requires a specific skill and candidate has it (confirmed by <cv> or an affirmative answer) - highlight it in CV
