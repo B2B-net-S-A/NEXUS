@@ -23,7 +23,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { canCustomizeBoardPanel } from "@/lib/dashboard-panels";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { getUserRoles, type User, type UserRole } from "@/store/auth";
+import { getUserRoles, hasRole, type User, type UserRole } from "@/store/auth";
 
 export type TileCategory =
   | "my_work"
@@ -927,9 +927,16 @@ export function templateAvailability(
   if (gate === "hidden") return { ok: false, reason: "Moduł „Ludzi w NEXUSIE” jest wyłączony" };
   if (!gate.ok) return gate;
   if (template.metricSection === "finance") {
-    // Kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”, nie za rolą.
-    // U KOGO konto widzi kwoty (Delivery Lead: u swoich klientów), liczy serwer
-    // przy każdym zapytaniu metryki.
+    // Całą firmę liczy „Wyniki firmy”. Bez niego kwoty ma tylko Delivery Lead,
+    // u swoich klientów (liczy serwer przy każdym zapytaniu metryki) — lustro
+    // `custom_metrics/engine.source_denial`.
+    if (hasPermission(user, "company_results")) return { ok: true };
+    if (!hasRole(user, "delivery_lead")) {
+      return {
+        ok: false,
+        reason: `Wymaga uprawnienia „${permissionLabel("company_results")}”`,
+      };
+    }
     return hasPermission(user, "amounts_view")
       ? { ok: true }
       : {

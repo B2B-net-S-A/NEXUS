@@ -932,6 +932,8 @@ async def test_first_real_change_writes_the_whole_seed_of_an_unseeded_role(
             "amounts_view": "none",
             "amounts_edit": "none",
             "finance_module": "none",
+            # Wyniki firmy (02.11.2026): domyślnie ma je tylko admin.
+            "company_results": "none",
             # Grupa „Ludzie” (16.10.2026): TCM prowadzi skrzynkę administracja@.
             "people_admin": "none",
             "payroll": "none",

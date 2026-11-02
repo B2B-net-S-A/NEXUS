@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.financial_access import FinanceReadUser
+from app.api.permission_access import CompanyResultsUser
 from app.core.database import get_db
 from app.models.client_order import ClientOrderStatus
 from app.models.contract import Contract
@@ -49,7 +49,7 @@ router = APIRouter()
 # Ranking klientów i marża liczą się w ``app/services/insights_clients.py`` —
 # ta sama funkcja zasila `/api/insights/clients/ranking`. Dwie kopie tego SQL
 # rozjeżdżałyby się cicho, bo obie odpowiedzi wyglądają wiarygodnie i nikt nie
-# kładzie ich obok siebie. Guard (``FinanceReadUser``) i kształt odpowiedzi
+# kładzie ich obok siebie. Guard (``CompanyResultsUser``) i kształt odpowiedzi
 # (``OverviewRow``) zostają tutaj i NIE zmieniają się — /insights ma własny
 # router na ``CurrentUser``, bo ten endpoint jest współdzielony z portalem DL.
 _LIVE_CONTRACT_STATUSES = LIVE_CONTRACT_STATUSES
@@ -58,7 +58,7 @@ _margin_lookup_pln = margin_lookup_pln
 
 @router.get("", response_model=list[OverviewRow])
 async def clients_overview(
-    _user: FinanceReadUser,
+    _user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     rows = await compute_client_ranking(db, on=business_today())
@@ -67,7 +67,7 @@ async def clients_overview(
 
 @router.get("/by-dl", response_model=list[DlKpiRow])
 async def kpi_by_dl(
-    _user: FinanceReadUser,
+    _user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Leaderboard DL — agregaty po klientach gdzie DL ma assignment."""

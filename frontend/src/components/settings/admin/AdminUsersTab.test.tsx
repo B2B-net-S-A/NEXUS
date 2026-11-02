@@ -185,7 +185,7 @@ describe("AdminUsersTab — Osoby i role", () => {
     address.search = "sub=permissions";
     renderTab();
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(16);
+    expect(await screen.findAllByRole("switch")).toHaveLength(17);
     expect(adminApi.listUsers).not.toHaveBeenCalled();
   });
 

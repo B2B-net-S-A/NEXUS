@@ -15,7 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.analytics.capabilities import AnalyticsCapability, require_capability
 from app.api.deps import CurrentUser, require_roles
-from app.api.financial_access import FinanceReadUser
+from app.api.permission_access import CompanyResultsUser
 from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.cache import cache_get, cache_set
 from app.core.database import get_db
@@ -481,8 +481,8 @@ async def report_recruitment(
 
 @router.get("/sales")
 async def report_sales(
-    # Revenue/margin/MRR: wyłącznie Finance/Admin, nigdy Delivery Lead.
-    current_user: FinanceReadUser,
+    # Revenue/margin/MRR całej firmy: uprawnienie „Wyniki firmy”.
+    current_user: CompanyResultsUser,
     db: AsyncSession = Depends(get_db),
 ):
     """

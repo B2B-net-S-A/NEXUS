@@ -274,6 +274,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      "Wyniki firmy: podsumowania przychodu i marży",
       // „Ludzie w NEXUSIE”: TCM ma domyślnie tylko „Sprawy”.
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Płace: stawki pracowników, premie, rozliczenie miesiąca",
@@ -372,7 +373,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     const { onSave } = renderModal({ initial: tcm });
 
     const group = await extraPermissions();
-    expect(labelsIn(group)).toHaveLength(12);
+    expect(labelsIn(group)).toHaveLength(13);
 
     fireEvent.change(screen.getAllByRole("combobox")[0], {
       target: { value: "delivery_lead" },
@@ -381,6 +382,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(labelsIn(group)).toEqual([
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      "Wyniki firmy: podsumowania przychodu i marży",
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Płace: stawki pracowników, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
@@ -462,7 +464,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
     expect(onSave.mock.calls[0][0]).not.toHaveProperty("permissions");
   });
 
-  it("dla Finansów lista ma dziesięć pozycji, których ta rola nie daje", async () => {
+  it("dla Finansów lista ma jedenaście pozycji, których ta rola nie daje", async () => {
     personIs(userPermissionsResponse({ roles: ["finance"] }));
     renderModal({ initial: { id: 7, role: "finance", roles: ["finance"] } });
 
@@ -472,6 +474,7 @@ describe("UserModal — dodatkowe uprawnienia osoby", () => {
       "Zakończenie współpracy, zmiana statusu kontraktu",
       "Umowy B2B: oznaczanie jako podpisane",
       "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
+      "Wyniki firmy: podsumowania przychodu i marży",
       // „Ludzie w NEXUSIE”: Finanse mają domyślnie „Płace”.
       "Kadry: kartoteka, urlopy za innych, wejście i odejście",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",

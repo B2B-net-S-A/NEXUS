@@ -34,10 +34,10 @@ afterEach(() => {
 });
 
 describe("/preview/permissions", () => {
-  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, szesnaście przełączników", async () => {
+  it("domyślnie: zakładka „Uprawnienia”, rola Finanse, siedemnaście przełączników", async () => {
     render(<PermissionsPreviewPage />);
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(16);
+    expect(await screen.findAllByRole("switch")).toHaveLength(17);
     expect(screen.getByRole("button", { name: "Finanse" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -79,7 +79,7 @@ describe("/preview/permissions", () => {
     ).toBeChecked();
     // Sześć z grup Delivery i Pieniądze + Kadry, Płace, Sprzęt, Raporty godzin
     // (TCM ma Sprawy).
-    expect(within(group).getAllByRole("checkbox")).toHaveLength(12);
+    expect(within(group).getAllByRole("checkbox")).toHaveLength(13);
     expect(group).toHaveTextContent(
       "Lista pokazuje tylko to, czego rola Talent Community Manager nie daje.",
     );

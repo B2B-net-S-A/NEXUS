@@ -28,7 +28,7 @@
   "board"
  ],
  "routes": {
-  "GET /api/admin/clients-overview": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/admin/clients-overview/by-dl": "PPDDDDDDDDDDDDDDDPDDDDDDDD"
+  "GET /api/admin/clients-overview": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/clients-overview/by-dl": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -45,6 +45,7 @@ class ProductAction(StrEnum):
     sales_view = "sales_view"
     sales_edit = "sales_edit"
     timesheets = "timesheets"
+    company_results = "company_results"
 
 
 class ActionAccess(IntEnum):
@@ -155,14 +156,14 @@ def has_permission(user: User, permission: ProductAction | str) -> bool:
 
 
 def reads_board_money(user: User) -> bool:
-    """Kwoty kokpitu Rady: uprawnienie „Moduł Finanse” albo rola Rada nadzorcza.
+    """Kwoty kokpitu Rady: uprawnienie „Wyniki firmy” albo rola Rada nadzorcza.
 
     Lustro bramki ``deps.BoardReader`` dla miejsc, które same decydują
     o redakcji kwot (tabele rok-do-roku).
     """
 
     return user.has_role(UserRole.board) or has_permission(
-        user, ProductAction.finance_module
+        user, ProductAction.company_results
     )
 
 

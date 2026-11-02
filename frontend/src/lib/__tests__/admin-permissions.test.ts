@@ -82,6 +82,7 @@ describe("przełączniki roli", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
+      "Wyniki firmy: podsumowania przychodu i marży",
     ]);
   });
 
@@ -166,6 +167,7 @@ describe("przełączniki roli", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "company_results",
     ];
     const subsets = Array.from({ length: 2 ** keys.length }, (_, mask) =>
       keys.filter((_key, index) => mask & (1 << index)),
@@ -278,6 +280,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "company_results",
       "people_admin",
       "payroll",
       "equipment",
@@ -300,6 +303,7 @@ describe("dodatkowe uprawnienia osoby", () => {
       "amounts_view",
       "amounts_edit",
       "finance_module",
+      "company_results",
       "sales_view",
       "sales_edit",
     ]);
@@ -314,6 +318,7 @@ describe("dodatkowe uprawnienia osoby", () => {
     ).toEqual([
       "amounts_edit",
       "finance_module",
+      "company_results",
       "people_admin",
       "payroll",
       "equipment",
@@ -455,7 +460,7 @@ describe("dodatkowe uprawnienia osoby", () => {
     });
   });
 
-  it("zna wszystkie szesnaście uprawnień (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(16);
+  it("zna wszystkie siedemnaście uprawnień (dziesięć + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(17);
   });
 });

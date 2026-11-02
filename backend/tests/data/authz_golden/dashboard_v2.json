@@ -30,7 +30,7 @@
  "routes": {
   "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/finance": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDD",
   "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPD",
   "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPD",

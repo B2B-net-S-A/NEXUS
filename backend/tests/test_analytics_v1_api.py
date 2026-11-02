@@ -460,16 +460,23 @@ async def test_finance_summary_decimal_strings(
 
     from app.main import app
 
-    finance = User(
-        id=9_000_001,
-        email="analytics-finance@example.com",
-        name="Analytics Finance",
-        role=UserRole.finance,
-        roles=[UserRole.finance.value],
-        is_active=True,
-    )
-    app.dependency_overrides[get_current_user] = lambda: finance
+    def _account(role: UserRole) -> User:
+        return User(
+            id=9_000_001,
+            email="analytics-finance@example.com",
+            name="Analytics Finance",
+            role=role,
+            roles=[role.value],
+            is_active=True,
+        )
+
     try:
+        # Zbiorcze kwoty: „Wyniki firmy”, nie rola Finanse (02.11.2026).
+        app.dependency_overrides[get_current_user] = lambda: _account(UserRole.finance)
+        denied = await v1_client.get("/api/analytics/v1/finance/summary")
+        assert denied.status_code == 403
+
+        app.dependency_overrides[get_current_user] = lambda: _account(UserRole.admin)
         resp = await v1_client.get("/api/analytics/v1/finance/summary")
         assert resp.status_code == 200, resp.text
         data = resp.json()["data"]

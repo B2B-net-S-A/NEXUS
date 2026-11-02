@@ -30,7 +30,7 @@
  "routes": {
   "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
-  "GET /api/invoices/dso": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
+  "GET /api/invoices/dso": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",
   "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDD",

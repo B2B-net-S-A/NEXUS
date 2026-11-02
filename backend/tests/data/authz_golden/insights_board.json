@@ -28,8 +28,8 @@
   "board"
  ],
  "routes": {
-  "GET /api/insights/board": "PPDDDDDDDDDDDDDDDPDDDDDDDP",
-  "GET /api/insights/board/flows": "PPDDDDDDDDDDDDDDDPDDDDDDDP",
+  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDP",
+  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDP",
   "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDP",
   "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDP"
  }

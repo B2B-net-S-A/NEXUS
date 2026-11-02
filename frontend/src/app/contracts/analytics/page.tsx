@@ -11,7 +11,7 @@ import api, {
 } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
 import { countPl } from "@/lib/plural-pl";
-import { RequireSectionAccess } from "@/components/RequireSectionAccess";
+import { RequirePermission } from "@/components/RequirePermission";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { resolveViewState, type ViewState } from "@/lib/view-state";
 import { CALM_AMOUNT, CALM_EMPTY, CALM_HEAD, CALM_ROW, CALM_UNIT } from "@/lib/calm-table";
@@ -463,15 +463,15 @@ export default function ContractAnalyticsPage() {
   const totalMonthlyRevenue = totals?.total_monthly_revenue ?? 0;
 
   return (
-    // Lustro backendu: endpointy stoją za VIEW_FINANCE = odczyt sekcji Finanse,
-    // nie za rolą. Rola admin/finance z odebraną sekcją widziała tu serię
-    // kart błędu 403 zamiast jednego komunikatu.
-    <RequireSectionAccess
-      section="finance"
+    // Lustro backendu: endpointy stoją za uprawnieniem „Wyniki firmy”, nie za
+    // rolą. Bez tego osoba z Finansów widziałaby serię kart błędu 403 zamiast
+    // jednego komunikatu.
+    <RequirePermission
+      permissions={["company_results"]}
       fallback={
         <QueryStateNotice
           state="forbidden"
-          description="Analityka kontraktów wymaga dostępu do sekcji Finanse. Poproś administratora o dostęp."
+          description="Analityka kontraktów wymaga uprawnienia „Wyniki firmy”. Poproś administratora o dostęp."
         />
       }
     >
@@ -613,7 +613,7 @@ export default function ContractAnalyticsPage() {
           <TerminationAnalysisCard />
         </div>
       </div>
-    </RequireSectionAccess>
+    </RequirePermission>
   );
 }
 

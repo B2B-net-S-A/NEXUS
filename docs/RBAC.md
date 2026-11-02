@@ -19,6 +19,7 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 | 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, DL |
 | 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse |
 | 9 | `finance_module` | Moduł Finanse | Finanse |
+| + | `company_results` | Wyniki firmy: podsumowania przychodu i marży | tylko admin; Rada czyta z tytułu roli (`docs/claude/uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`) |
 
 Źródła prawdy:
 
