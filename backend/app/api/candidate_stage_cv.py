@@ -437,8 +437,12 @@ def _original_cv_file_response(content: bytes, filename: str) -> Response:
 class GeneratorFeedbackIn(BaseModel):
     """Co generator zrobił źle: warunek pobrania oryginału po jego wyniku."""
 
-    reasons: list[str] = Field(min_length=1, max_length=len(cv_download_policy.FEEDBACK_REASONS))
-    detail: Optional[str] = Field(default=None, max_length=cv_download_policy.FEEDBACK_DETAIL_MAX)
+    reasons: list[str] = Field(
+        min_length=1, max_length=len(cv_download_policy.FEEDBACK_REASONS)
+    )
+    detail: Optional[str] = Field(
+        default=None, max_length=cv_download_policy.FEEDBACK_DETAIL_MAX
+    )
 
     @field_validator("reasons")
     @classmethod
@@ -499,7 +503,9 @@ async def download_original_cv_after_generator(
                     ),
                 ),
             )
-            .order_by(CvGeneratedDocument.created_at.desc(), CvGeneratedDocument.id.desc())
+            .order_by(
+                CvGeneratedDocument.created_at.desc(), CvGeneratedDocument.id.desc()
+            )
             .limit(1)
         )
     ).first()
