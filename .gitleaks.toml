@@ -142,6 +142,11 @@ regexes = [
   # Test składa go już z kawałków, ale wartość zostaje w historii gałęzi, a skan
   # PR-a obejmuje cały zakres commitów. Zakotwiczona, jedna wartość.
   '''^9f3c1a2b-0000-4000-8000-000000000000$''',
+  # UUID użytkownika i konta z wektora testowego podręcznika EBI24 (PR #2893):
+  # konto wchodzi do podpisu, więc wartości muszą zostać dosłowne. Bez materiału
+  # klucza, a reguła ``fireflies-api-key`` bierze je za klucz. Zakotwiczone,
+  # dokładnie dwie wartości.
+  '''^00000000-0000-4000-8000-00000000000[12]$''',
 ]
 
 [[rules]]
