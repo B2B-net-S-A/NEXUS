@@ -33,7 +33,7 @@ mimo wypełnionego pola.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any, Optional
 
 from app.core.scheduling import business_today
@@ -95,6 +95,16 @@ def _as_date(value: Any) -> Optional[date]:
     if isinstance(value, str):
         try:
             return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _as_time(value: Any) -> Optional[time]:
+    """Godzina terminu z sekcji 1 — `GG:MM`, jak zapisuje ją normalizator."""
+    if isinstance(value, str):
+        try:
+            return time.fromisoformat(value.strip())
         except ValueError:
             return None
     return None
@@ -196,6 +206,7 @@ def fill_job_columns_from_champion(
         and not job.deadline_not_provided
     ):
         job.deadline = deadline
+        job.deadline_time = _as_time(basics.get("deadline_time"))
         job.deadline_not_provided = False
         filled.append("deadline")
 
@@ -280,6 +291,15 @@ def overwrite_edited_job_columns(
     deadline = _as_date(edited("deadline")) if set_deadline else None
     if deadline is not None:
         targets["deadline"] = deadline
+        # Godzina należy do daty: nowa data bez godziny nie dziedziczy starej.
+        targets["deadline_time"] = _as_time(new_basics.get("deadline_time"))
+    elif (
+        set_deadline
+        and new_basics.get("deadline_time") != old_basics.get("deadline_time")
+        and _as_date(new_basics.get("deadline")) == job.deadline
+        and job.deadline is not None
+    ):
+        targets["deadline_time"] = _as_time(new_basics.get("deadline_time"))
 
     changed: list[str] = []
     for column, value in targets.items():
