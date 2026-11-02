@@ -151,6 +151,8 @@ def bonus_payload(
     with_snapshot: bool,
     today: Optional[date] = None,
 ) -> dict[str, Any]:
+    snapshot = bonus.rule_snapshot or {}
+    from_sheet = bool(snapshot.get("settlement_import"))
     payload: dict[str, Any] = {
         "id": bonus.id,
         "recipient_user_id": bonus.recipient_user_id,
@@ -172,8 +174,13 @@ def bonus_payload(
         "assigned_at": bonus.assigned_at.isoformat() if bonus.assigned_at else None,
         "cancelled_at": bonus.cancelled_at.isoformat() if bonus.cancelled_at else None,
         "cancel_reason": bonus.cancel_reason,
-        "edited": bool((bonus.rule_snapshot or {}).get("edited_amount")),
-        "edited_recipient": bool((bonus.rule_snapshot or {}).get("edited_recipient")),
+        # Import zapisuje znaczniki, żeby automat nie nadpisał arkusza: to nie zmiana.
+        "from_sheet": from_sheet,
+        "edited": bool(snapshot.get("edited_amount"))
+        and (not from_sheet or bool(snapshot.get("amount_edited_after_import"))),
+        "edited_recipient": bool(snapshot.get("edited_recipient"))
+        and (not from_sheet or bool(snapshot.get("recipient_edited_after_import"))),
+        "cancel_ended_on": snapshot.get("ended_on"),
     }
     if today is not None and bonus.eligible_on is not None:
         payload["eligible"] = bonus.eligible_on <= today
@@ -341,6 +348,11 @@ async def _change_recipient(
     bonus.rule_snapshot = {
         **snapshot,
         "edited_recipient": True,
+        **(
+            {"recipient_edited_after_import": True}
+            if snapshot.get("settlement_import")
+            else {}
+        ),
         "automat_recipient_user_id": snapshot.get(
             "automat_recipient_user_id", previous
         ),
@@ -460,7 +472,16 @@ async def update_bonus(
     if "amount" in changes:
         amount = clean_amount(changes["amount"])
         if amount != bonus.amount and is_automated(bonus):
-            bonus.rule_snapshot = {**(bonus.rule_snapshot or {}), "edited_amount": True}
+            snapshot = bonus.rule_snapshot or {}
+            bonus.rule_snapshot = {
+                **snapshot,
+                "edited_amount": True,
+                **(
+                    {"amount_edited_after_import": True}
+                    if snapshot.get("settlement_import")
+                    else {}
+                ),
+            }
         bonus.amount = amount
     if "currency" in changes:
         bonus.currency = clean_currency(changes["currency"])

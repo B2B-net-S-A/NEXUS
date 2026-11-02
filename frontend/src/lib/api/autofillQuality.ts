@@ -36,7 +36,36 @@ export interface AutofillWorstJob {
   top_reason_label: string;
 }
 
+/** Wysłani do klienta a to, co pokazał system (`services/sent_vs_system.py`). */
+export interface SentVsSystemSegment {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface SentVsSystem {
+  total: number;
+  jobs: number;
+  measured: number;
+  shown: number;
+  outside_base: number;
+  missed: number;
+  no_snapshot: number;
+  shown_pct: number | null;
+  outside_base_pct: number | null;
+  missed_pct: number | null;
+  segments: SentVsSystemSegment[];
+  worst_jobs: {
+    job_id: number;
+    job_title: string;
+    sent: number;
+    missed: number;
+    reasons: SentVsSystemSegment[];
+  }[];
+}
+
 export interface AutofillQualitySummary {
+  sent_vs_system: SentVsSystem;
   since: string;
   until: string;
   added: number;

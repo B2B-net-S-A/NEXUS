@@ -658,6 +658,26 @@ async def _has_cv_attachment(db: AsyncSession, email_id: int) -> bool:
     )
 
 
+async def message_body(msg: dict) -> tuple[Optional[str], str, str]:
+    """Treść wiadomości Graph jako ``(body_html, body_text, body_preview)``."""
+    body = msg.get("body") or {}
+    raw_html = body.get("content") or ""
+    # bleach sanitize/parse is sync CPU work — offload off the event loop.
+    body_html = (
+        await asyncio.to_thread(sanitize_html, raw_html)
+        if body.get("contentType") == "html"
+        else None
+    )
+    body_text = (
+        await asyncio.to_thread(html_to_text, raw_html)
+        if not body_html
+        else await asyncio.to_thread(html_to_text, body_html)
+    )
+    if body.get("contentType") == "text" and not body_html:
+        body_text = raw_html
+    return body_html, body_text, (msg.get("bodyPreview") or "")[:255]
+
+
 async def _upsert_message(
     db: AsyncSession,
     gc: GraphClient,
@@ -714,6 +734,29 @@ async def _upsert_message(
         # Wysłanych zakładała drugi wiersz tej samej wysyłki.
         existing = await _adopt_by_internet_message_id(db, conn, msg, folder_hint)
 
+    # Delta Graph potrafi oddać zmienioną wiadomość bez `body` (zwykle po samym
+    # przeczytaniu), choć `$select` je zawiera. Brak klucza to „bez zmian”, nie
+    # pusta wartość: do 02.11.2026 taki mail tracił treść, podgląd i flagę
+    # załączników (2782 wiersze, 1477 przy kandydatach).
+    if "body" not in msg:
+        logger.info(
+            "m365_partial_delta",
+            extra={
+                "event_kind": "m365_progress",
+                "subject_id": conn.id,
+                "email_id": existing.id if existing is not None else None,
+                "message_keys": sorted(k for k in msg if not k.startswith("@")),
+            },
+        )
+        if existing is None:
+            # Bez nadawcy i tematu wiersz nikomu nie służy (15 takich na 02.11),
+            # a zwykle to stary mail spoza okna backfillu.
+            return None
+        row = _apply_partial_delta(existing, msg)
+        if scope.sales:
+            await _record_sales_mail(db, conn, row)
+        return row
+
     categories = msg.get("categories") or []
     is_private = settings.M365_IGNORE_CATEGORY in categories
 
@@ -737,22 +780,7 @@ async def _upsert_message(
         body_preview = None
         has_attachments = False
     else:
-        body = msg.get("body") or {}
-        raw_html = body.get("content") or ""
-        # bleach sanitize/parse is sync CPU work — offload off the event loop.
-        body_html = (
-            await asyncio.to_thread(sanitize_html, raw_html)
-            if body.get("contentType") == "html"
-            else None
-        )
-        body_text = (
-            await asyncio.to_thread(html_to_text, raw_html)
-            if not body_html
-            else await asyncio.to_thread(html_to_text, body_html)
-        )
-        if body.get("contentType") == "text" and not body_html:
-            body_text = raw_html
-        body_preview = (msg.get("bodyPreview") or "")[:255]
+        body_html, body_text, body_preview = await message_body(msg)
         has_attachments = bool(msg.get("hasAttachments"))
 
     direction = (
@@ -1139,13 +1167,16 @@ def _apply_email_update(
 ) -> Email:
     """Nadpisanie istniejącego wiersza świeżą treścią z Graph.
 
-    Wydzielone bez zmiany zachowania, bo tę samą ścieżkę wykonuje teraz także
-    przegrany wyścig na UNIQUE (INSERT → IntegrityError → SELECT → update).
+    Tę samą ścieżkę wykonuje także przegrany wyścig na UNIQUE (INSERT →
+    IntegrityError → SELECT → update). Pusta treść nie kasuje zapisanej; kasuje
+    ją tylko kategoria prywatna, bo to decyzja właściciela skrzynki.
     """
     existing.is_read = is_read
-    existing.body_html = body_html
-    existing.body_text = body_text
-    existing.body_preview = body_preview
+    if is_private or body_html or body_text:
+        existing.body_html = body_html
+        existing.body_text = body_text
+    if is_private or body_preview:
+        existing.body_preview = body_preview
     existing.has_attachments = has_attachments
     existing.raw_categories = categories
     existing.is_private_filtered = is_private
@@ -1154,6 +1185,28 @@ def _apply_email_update(
         existing.match_method = match_method
         existing.match_confidence = match_confidence
         existing.matched_at = matched_at
+    return existing
+
+
+def _apply_partial_delta(existing: Email, msg: dict) -> Email:
+    """Aktualizacja bez ``body``: zmieniamy tylko pola, które Graph przysłał.
+
+    Dopasowanie do kandydata i załączniki zostają bez zmian, bo bez nadawcy
+    i treści nie ma ich z czego liczyć.
+    """
+    if "isRead" in msg:
+        existing.is_read = bool(msg["isRead"])
+    if "hasAttachments" in msg:
+        existing.has_attachments = bool(msg["hasAttachments"])
+    if "categories" in msg:
+        categories = msg["categories"] or []
+        existing.raw_categories = categories
+        existing.is_private_filtered = settings.M365_IGNORE_CATEGORY in categories
+        if existing.is_private_filtered:
+            existing.body_html = None
+            existing.body_text = None
+            existing.body_preview = None
+            existing.has_attachments = False
     return existing
 
 

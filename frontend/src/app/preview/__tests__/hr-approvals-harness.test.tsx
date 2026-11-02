@@ -81,9 +81,9 @@ describe("/preview/hr-approvals", () => {
     expect(await screen.findByText(monthTitlePl(previous))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Raporty godzin/ })).toHaveAttribute("aria-pressed", "true");
     expect(screen.queryByRole("list", { name: DECIDE })).toBeNull();
-    expect(screen.getByTestId("timesheet-summary")).toHaveTextContent(
-      "1 nie założony · 2 do akceptacji · 6 zaakceptowany",
-    );
+    const statuses = screen.getByRole("group", { name: "Status raportu" });
+    expect(within(statuses).getByRole("button", { name: /^Do akceptacji/ })).toHaveTextContent("2");
+    expect(within(statuses).getByRole("button", { name: /^Zaakceptowany/ })).toHaveTextContent("6");
     const ewa = screen.getByTestId("queue-103");
     expect(ewa).toHaveTextContent("Do akceptacji");
     expect(screen.getByTestId("queue-107")).toHaveTextContent("Nie założony");

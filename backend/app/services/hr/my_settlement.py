@@ -193,6 +193,7 @@ async def bonus_forecast(
                 dl_id,
                 recruiter_id,
                 rules,
+                client_id=contract.client_id,
             ).items()
             if target.recipient_user_id == user_id
             and placements.source_key(contract.id, role) not in existing
@@ -203,7 +204,7 @@ async def bonus_forecast(
             db, contract, start, fx_rates=fx_by_start.get(start, {})
         )
         targets = placements.placement_targets(
-            margin.per_hour, dl_id, recruiter_id, rules
+            margin.per_hour, dl_id, recruiter_id, rules, client_id=contract.client_id
         )
         candidate_name, client_name = context.names(contract)
         for role in candidates:

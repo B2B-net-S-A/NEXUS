@@ -310,6 +310,27 @@ def _drop_fragment(text: str, fragment: str) -> str:
     )
 
 
+_AFFIRMATION = re.compile(
+    r"^\s*(?:tak|yes|owszem|zgadza się|potwierdz\w*|ma|zna|robił\w*)\b", re.IGNORECASE
+)
+_AFFIRMATION_MAX_WORDS = 6
+
+
+def answer_confirms_question(answer: Optional[str]) -> bool:
+    """„Tak, 5 lat” na „Czy pracowałeś z Javą?”: treścią odpowiedzi jest pytanie.
+
+    Tylko wtedy pytanie liczy się jako dowód. Dłuższa odpowiedź mówi sama za
+    siebie, a słowo, które padło wyłącznie w pytaniu („Jakie rozwiązania wdrażałeś
+    na OpenShift lub Kubernetes?”), nie znaczy, że kandydat to zna.
+    """
+    text = str(answer or "").strip()
+    return (
+        bool(_AFFIRMATION.match(text))
+        and len(text.split()) <= _AFFIRMATION_MAX_WORDS
+        and not is_negative_answer(text)
+    )
+
+
 def evidence_note_text(kind: Optional[str], content: Optional[str]) -> str:
     """Treść notatki jako dowód: karta bez pytań, na które kandydat odpowiedział „nie”.
 
@@ -354,6 +375,11 @@ def _prune_heading_lists(text: str) -> str:
     return "\n".join(lines)
 
 
+_RECRUITMENT_NAME_LINE = re.compile(
+    r"^\s*(?:nazwa projektu|nazwa pliku cv)\s*:", re.IGNORECASE
+)
+
+
 # Karta się nie zmienia, a Tablica (`/pipeline-scores`) parsowała przy każdym
 # odświeżeniu karty wszystkich osób: 467 kart = 0,5 s CPU bez oddania pętli
 # zdarzeń (pomiar 27.10.2026). Karta ma średnio 2,4 KB: 4096 kart to ok. 10 MB.
@@ -362,17 +388,23 @@ def _card_evidence_text(content: str) -> str:
     from app.services.recommendation_card_parser import parse_card, to_text
 
     parsed = parse_card(content)
-    negative = [a for a in parsed.answers if is_negative_answer(a.get("answer"))]
-    text = to_text(content, limit=len(content))
-    for item in negative:
-        text = _drop_fragment(text, str(item.get("question") or "").strip())
-        text = _drop_fragment(text, str(item.get("answer") or "").strip())
+    full = to_text(content, limit=len(content))
+    # Pytanie rekrutera nie jest dowodem, gdy odpowiedź mówi co innego
+    # (02.11.2026: QC pisało „kandydat mówił o tym w rozmowie, dopisz” przy słowie
+    # z pytania), a nazwa rekrutacji w karcie nie mówi nic o kandydacie.
+    text = "\n".join(
+        line for line in full.split("\n") if not _RECRUITMENT_NAME_LINE.match(line)
+    )
+    for item in parsed.answers:
+        answer = item.get("answer")
+        if not answer_confirms_question(answer):
+            text = _drop_fragment(text, str(item.get("question") or "").strip())
+        if is_negative_answer(answer):
+            text = _drop_fragment(text, str(answer or "").strip())
     # 28.10.2026: także zdania spoza pytań („Open to expanding skills in
     # Angular”, „Nie zna Kafki”) i pozycje nagłówka, o których treść milczy.
     pruned = drop_negative_sentences(_prune_heading_lists(text))
-    if not negative and pruned == text:
-        return content
-    return pruned
+    return content if pruned == full else pruned
 
 
 def cv_text(candidate) -> str:
