@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/cpro/log": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/cpro-events": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PUT /api/cpro/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/cpro/log": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/cpro-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PUT /api/cpro/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }
