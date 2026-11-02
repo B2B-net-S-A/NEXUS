@@ -60,6 +60,8 @@ import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
 import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
+import { fetchJobCproEvents } from "@/lib/cpro-events-api";
 import { fetchJobIdle, jobIdleKey, snoozeJobIdle } from "@/lib/job-idle-api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
@@ -547,6 +549,13 @@ export default function JobDetailPage() {
     // Globalnie wyłączone od 27.10.2026 (`QueryProvider`); tu zostaje — zmiana
     // z drugiej karty (własna, więc bez `pipeline_changed`) wraca po powrocie.
     refetchOnWindowFocus: true,
+  });
+
+  // PROTOTYP do makiety: zdarzenia z maili CPro.
+  const { data: cproEvents } = useQuery({
+    queryKey: ["job-cpro-events", id],
+    queryFn: () => fetchJobCproEvents(Number(id)),
+    retry: false,
   });
 
   const {
@@ -1342,6 +1351,7 @@ export default function JobDetailPage() {
       {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
+          <JobCproBanner events={cproEvents} />
           {canCloseJob && job.status === "published" ? (
             <JobIdleBanner
               idle={jobIdle}
