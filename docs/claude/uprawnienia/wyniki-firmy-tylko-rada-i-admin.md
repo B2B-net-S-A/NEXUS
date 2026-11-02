@@ -18,9 +18,12 @@ Makiety i audyt: https://claude.ai/artifact/P9J4Zgecx7B9D9S9VQvQoN.
   go nie ma.
 - **Rada czyta z tytułu roli** (`reads_board_money`, `BoardReader`). Rada nie
   przyjmuje nadań i nie dostaje tras modułu Finanse.
-- **Mail `board_monthly_report`:** `receives_company_results`, czyli wyłącznie
-  role `board` i `admin`. Nadanie uprawnienia nie otwiera tego maila, bo Artur
-  określił jego odbiorców wprost. `board_placement_alert` idzie tylko do Rady.
+- **Mail `board_monthly_report`:** Rada i osoby z imiennym nadaniem
+  `users.receives_board_report` (0629, „Osoby i role” → edycja osoby; Artur
+  zaznacza je sobie). Nazwiska nie ma w kodzie, bo repo jest publiczne. Sama rola
+  admin ani „Wyniki firmy” maila nie otwierają: Artur wskazał odbiorców wprost.
+  Ekrany Firmy adminowie widzą dalej, do zmiany ich roli.
+  `board_placement_alert` idzie tylko do Rady.
 - **Moduł Finanse** zostaje narzędziem pracy: faktury, zgody, zmiany
   w zamówieniach, Wyniki miesięczne. Nie zdejmuj `VIEW_FINANCE` z roli Finanse:
   otwiera ponad 40 powierzchni z pojedynczymi rekordami. Trasy zbiorcze mają

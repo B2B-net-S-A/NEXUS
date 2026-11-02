@@ -312,6 +312,7 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
     role: initialPrimary,
     roles: initialRoles,
     can_delete_clients: initial?.can_delete_clients ?? false,
+    receives_board_report: initial?.receives_board_report ?? false,
     clear_microsoft_identity: false,
   });
 
@@ -492,6 +493,25 @@ export function UserModal({ initial, onClose, onSave, loading, error }: UserModa
                 Uprawnienie imienne — nie wynika z roli (także administrator go
                 nie ma bez zaznaczenia). Nadanie i odebranie trafia do Historii
                 zdarzeń.
+              </p>
+            </div>
+          )}
+
+          {isEdit && (
+            <div className="border border-border rounded-lg px-3 py-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-foreground">
+                <input
+                  type="checkbox"
+                  checked={form.receives_board_report}
+                  onChange={(e) => set("receives_board_report", e.target.checked)}
+                  className="rounded border-border"
+                />
+                Dostaje mail „Podsumowanie Rady”
+              </label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Mail z przychodem i marżą firmy. Rada nadzorcza dostaje go zawsze,
+                inni tylko po zaznaczeniu, także administrator. Zmiana trafia do
+                Historii zdarzeń.
               </p>
             </div>
           )}

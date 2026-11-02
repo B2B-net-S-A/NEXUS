@@ -168,13 +168,13 @@ def reads_board_money(user: User) -> bool:
 
 
 def receives_company_results(user: User) -> bool:
-    """Mail ze zbiorczym przychodem i marżą firmy: tylko Rada i admin.
+    """Mail ze zbiorczym przychodem i marżą firmy: Rada i imienne nadanie.
 
-    Decyzja Artura 02.11.2026: „Moduł Finanse” służy pracy na pojedynczych
-    rekordach i nie otwiera podsumowania całej firmy.
+    Decyzja Artura 02.11.2026: ani rola admin, ani „Moduł Finanse” go nie
+    otwierają. Poza Radą dostaje go osoba z ``users.receives_board_report``.
     """
 
-    return user.has_any_role(UserRole.board, UserRole.admin)
+    return user.has_role(UserRole.board) or bool(user.receives_board_report)
 
 
 def named_permissions_of(user: User) -> frozenset[str]:

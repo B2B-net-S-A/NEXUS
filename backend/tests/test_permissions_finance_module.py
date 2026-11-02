@@ -20,6 +20,7 @@ from datetime import date
 from typing import get_args, get_type_hints
 
 import pytest
+from sqlalchemy import update
 from fastapi import HTTPException
 from httpx import AsyncClient
 from starlette.requests import Request
@@ -73,21 +74,23 @@ def _account(role: UserRole, *permissions: str, insights: str = "read") -> User:
 
 
 def test_board_mail_skips_the_permission_holders() -> None:
-    """Zbiorcze wyniki firmy: Rada i admin, nie „Moduł Finanse” (02.11.2026)."""
+    """Mail zarządu: Rada i imienne nadanie, nie „Moduł Finanse” (02.11.2026)."""
+    named = _account(UserRole.admin, *catalog.KEYS, insights="write")
+    named.receives_board_report = True
     admin = _account(UserRole.admin, *catalog.KEYS, insights="write")
     board = _account(UserRole.board)
     finance = _account(UserRole.finance, FM)
     # Uprawnienie nadane osobie spoza domyślnych ról też nie otwiera maila.
     granted = _account(UserRole.recruiter, FM)
     # Raport niesie liczby z Insights — bez odczytu tej sekcji nie wychodzi.
-    without_insights = _account(UserRole.admin, *catalog.KEYS, insights="none")
+    without_insights = _account(UserRole.board, insights="none")
     hor = _account(UserRole.head_of_recruitment, insights="write")
 
     readers = reports._board_readers(
-        [admin, board, finance, granted, without_insights, hor]
+        [named, admin, board, finance, granted, without_insights, hor]
     )
 
-    assert readers == [admin, board]
+    assert readers == [named, board]
 
 
 async def test_year_on_year_admits_the_permission_or_the_hor_role() -> None:
@@ -317,11 +320,17 @@ async def test_year_on_year_money_follows_the_permission(
         assert _metric(full.json(), "margin_monthly_pln")["series"] is not None
 
 
-async def test_board_mail_recipients_are_the_board_and_admins(
+async def test_board_mail_recipients_are_the_board_and_named_people(
     app_client: AsyncClient,
 ) -> None:
     _, admin_id = await _seed_user(app_client, "admin")
+    _, named_id = await _seed_user(app_client, "admin")
     _, board_id = await _seed_user(app_client, "board")
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == named_id).values(receives_board_report=True)
+        )
+        await db.commit()
     _, finance_id = await _seed_user(app_client, "finance")
     _, granted_id = await _seed_user(app_client, "recruiter")
     _, hor_id = await _seed_user(app_client, "head_of_recruitment")
@@ -331,5 +340,5 @@ async def test_board_mail_recipients_are_the_board_and_admins(
     async with AsyncSessionLocal() as db:
         ids = {user.id for user in await reports._board_recipients(db)}
 
-    assert {admin_id, board_id} <= ids
-    assert not {finance_id, granted_id, hor_id, inactive_id} & ids
+    assert {named_id, board_id} <= ids
+    assert not {admin_id, finance_id, granted_id, hor_id, inactive_id} & ids

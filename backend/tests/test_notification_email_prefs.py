@@ -205,7 +205,12 @@ def test_delivery_lead_admin_head_and_finance_get_their_own_emails():
     assert "system_failure" not in lead
 
     admin = _applies(_user(UserRole.admin))
-    assert {"system_failure", "board_monthly_report"} <= admin
+    assert "system_failure" in admin
+    # Podsumowanie Rady: imienne nadanie, nie sama rola admin (02.11.2026).
+    assert "board_monthly_report" not in admin
+    named = _user(UserRole.admin)
+    named.receives_board_report = True
+    assert "board_monthly_report" in _applies(named)
     # Admin bez roli ze skrótu nie dostaje skrótu ani alertów klientów.
     assert not admin & {"daily_digest", "delivery_alert", "rate_change"}
 
