@@ -193,10 +193,12 @@ export function updateNotice(me, current, connection, updateUrl) {
   return null;
 }
 
-/** Pill etapu w rekrutacji. Zamknięte: „Odrzucona · powód”. */
+const CLOSE_TONES = Object.freeze({ hired: "success", rejected: "error" });
+
+/** Pill etapu w rekrutacji. Zamknięte: stan z NEXUSA, np. „Odrzucony · powód”, „Zatrudniony”. */
 export function processPill(process) {
   if (process.closed) {
-    return { text: process.close_label ? `Odrzucona · ${process.close_label}` : "Odrzucona", tone: "error" };
+    return { text: process.close_label || process.stage_label || "Zamknięta", tone: CLOSE_TONES[process.close_kind] || "muted" };
   }
   return { text: process.stage_label || "W procesie", tone: "info" };
 }
