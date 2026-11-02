@@ -151,7 +151,7 @@ wszystko, z każdą stawką i marżą, a uprawnienia osoby wtedy tylko dodawały
 - **Rekrutacje bez członkostwa w zespole** (`_JOB_MEMBERSHIP_BYPASS_ROLES`),
   jak reszta firmy. Poczty M365 nie synchronizuje (`eligible_m365_owner`),
   także konto przerobione z rekrutera.
-- **Viewer (`user`) nie ma żadnej sekcji** (0630, audyt 02.11.2026): rola bez
+- **Viewer (`user`) nie ma żadnej sekcji** (0631, audyt 02.11.2026): rola bez
   nowych kont przechodziła imienne Insights, a na kopii produkcji z 02.11 nie
   ma ani jednego konta. Zerowanie biegnie raz (`viewer_role_schema`, znacznik
   w `app_settings`); rola nie przechodzi niczego ponad „Pracownika”
