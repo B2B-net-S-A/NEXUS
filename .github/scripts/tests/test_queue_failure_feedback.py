@@ -249,6 +249,66 @@ class MessageTests(unittest.TestCase):
         self.assertNotIn("Grupa w kolejce", body)
 
 
+PLAYWRIGHT_LOG = "\n".join(
+    TS + line
+    for line in [
+        "  ✘  255 [preview-chromium] › e2e/responsive-preview.spec.ts:619:7 › panel › wąski dok (2.1s)",
+        "  1) [preview-chromium] › e2e/responsive-preview.spec.ts:619:7 › panel › wąski dok",
+        "    Error: przewijany obszar doku: Bartek Testowy",
+        "  1 flaky",
+        "    [preview-chromium] › e2e/responsive-preview.spec.ts:1:1 › panel › niestabilny",
+        "  2 failed",
+        "    [preview-chromium] › e2e/responsive-preview.spec.ts:619:7 › panel › wąski dok",
+        "    [preview-chromium] › e2e/responsive-preview.spec.ts:776:7 › pulpit › filtr",
+        "  262 passed (5.4m)",
+    ]
+)
+
+
+class E2EFeedback(unittest.TestCase):
+    def test_playwright_summary_lists_failed_without_flaky_or_line_numbers(self):
+        self.assertEqual(
+            [f.test_id for f in QFF.parse_failures(PLAYWRIGHT_LOG)],
+            [
+                "e2e/responsive-preview.spec.ts › panel › wąski dok",
+                "e2e/responsive-preview.spec.ts › pulpit › filtr",
+            ],
+        )
+
+    def test_same_test_on_other_line_is_shared_between_groups(self):
+        moved = PLAYWRIGHT_LOG.replace(":619:7", ":640:7")
+        shared = QFF.shared_with_other_groups(
+            QFF.parse_failures(PLAYWRIGHT_LOG), [2], [([1], QFF.parse_failures(moved))]
+        )
+        self.assertEqual(len(shared), 2)
+
+    def test_open_pr_comment_says_it_will_still_merge(self):
+        failures = QFF.parse_failures(PLAYWRIGHT_LOG)
+        body = QFF.build_e2e_comment("https://run", failures, [], {}, merged=False)
+        self.assertIn(QFF.E2E_MARKER, body)
+        self.assertNotIn(QFF.MARKER, body)
+        self.assertIn("nie wypadł z kolejki", body)
+        self.assertIn("wąski dok", body)
+
+    def test_merged_pr_comment_asks_for_separate_pr(self):
+        body = QFF.build_e2e_comment("https://run", [], [("E2E", "x")], {}, merged=True)
+        self.assertIn("już na `main`", body)
+        self.assertIn("osobnym PR-em", body)
+
+    def test_status_description_fits_github_limit(self):
+        failures = QFF.parse_failures(PLAYWRIGHT_LOG)
+        self.assertLessEqual(len(QFF.e2e_status_description(failures)), 140)
+        self.assertIn("2 testy", QFF.e2e_status_description(failures))
+
+    def test_all_shared_needs_every_failure_shared(self):
+        failures = QFF.parse_failures(PLAYWRIGHT_LOG)
+        one = {failures[0].test_id: [1]}
+        both = {f.test_id: [1] for f in failures}
+        self.assertFalse(QFF.all_shared(failures, one))
+        self.assertTrue(QFF.all_shared(failures, both))
+        self.assertFalse(QFF.all_shared([], {}))
+
+
 if __name__ == "__main__":
     unittest.main()
 
