@@ -1,7 +1,7 @@
 """Uprawnienie „Wyniki firmy: podsumowania przychodu i marży”.
 
-Revision ID: 0628_company_results_permission
-Revises: 0627_client_amendment_text
+Revision ID: 0629_company_results_permission
+Revises: 0628_sales_meeting_transcripts
 
 Decyzja Artura 02.11.2026: zbiorcze wyniki firmy widzą Rada i admin, a Finanse
 pracują na pojedynczych rekordach. „Moduł Finanse” przestaje otwierać te ekrany.
@@ -30,8 +30,8 @@ ROLES_AT_0628: tuple[str, ...] = (
     "board",
 )
 
-revision = "0628_company_results_permission"
-down_revision = "0627_client_amendment_text"
+revision = "0629_company_results_permission"
+down_revision = "0628_sales_meeting_transcripts"
 branch_labels = None
 depends_on = None
 

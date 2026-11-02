@@ -441,7 +441,11 @@ async def recruitment_operations_favorite(
     )
 
 
-@router.get("/finance", response_model=FinanceDashboardResponse)
+@router.get(
+    "/finance",
+    response_model=FinanceDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def finance_dashboard(
     current_user: CompanyResultsUser,
     db: Database,

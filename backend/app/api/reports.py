@@ -479,7 +479,7 @@ async def report_recruitment(
 # ── Sales Report ───────────────────────────────────────────────────────────────
 
 
-@router.get("/sales")
+@router.get("/sales", dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 async def report_sales(
     # Revenue/margin/MRR całej firmy: uprawnienie „Wyniki firmy”.
     current_user: CompanyResultsUser,

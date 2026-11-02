@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.permission_access import CompanyResultsUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.client_order import ClientOrderStatus
 from app.models.contract import Contract
@@ -43,7 +44,7 @@ from app.services.order_revenue import (
 )
 from app.core.scheduling import business_today
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 
 # Ranking klientów i marża liczą się w ``app/services/insights_clients.py`` —

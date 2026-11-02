@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 from pydantic import BaseModel, PlainSerializer
 
 from app.api.permission_access import CompanyResultsUser
+from app.api.section_access import INSIGHTS_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.schemas.money import to_whole_pln
@@ -50,7 +51,7 @@ from app.services.contractor_identity import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter()
+router = APIRouter(dependencies=INSIGHTS_SECTION_DEPENDENCIES)
 
 # Money is folded across currencies in Decimal for exactness, but the wire
 # format stays a JSON *number* (rounded to grosze). Pydantic serialises a bare
