@@ -1274,6 +1274,17 @@ def similar_in_original(
             continue
         start = max(0, match.start() - _SIMILAR_CONTEXT)
         end = min(len(original), match.end() + _SIMILAR_CONTEXT)
+        # Cytat od pełnego słowa do pełnego słowa.
+        while start > 0 and not original[start - 1].isspace():
+            start += 1
+            if start >= match.start():
+                start = match.start()
+                break
+        while end < len(original) and not original[end].isspace():
+            end -= 1
+            if end <= match.end():
+                end = match.end()
+                break
         return {
             "term": original[match.start() : match.end()],
             "quote": " ".join(original[start:end].split()),

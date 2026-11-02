@@ -5706,6 +5706,15 @@ def test_similar_in_original_stays_quiet_without_evidence(term, original):
     assert qc.similar_in_original(term, original) is None
 
 
+def test_similar_quote_starts_and_ends_on_whole_words():
+    original = "raporty z danymi źródłowymi; tworzyłem testy i pipeline’y GitHub Actions, potem kolejne wdrożenia."
+    quote = qc.similar_in_original("Data Pipelines", original)["quote"]
+    assert quote in original
+    assert original[original.index(quote) - 1].isspace() or original.startswith(quote)
+    after = original.index(quote) + len(quote)
+    assert after == len(original) or original[after].isspace()
+
+
 def test_no_unsupported_item_asks_instead_of_saying_it_is_not_there():
     html = "<h1>CV</h1><ul><li><p>Budowa Data Pipelines w Python.</p></li></ul>"
     data = _qc_input(
