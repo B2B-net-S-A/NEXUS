@@ -70,6 +70,7 @@ from app.services.cv_generator_b2b.legacy_v7.text_extractor import (
 )
 from app.services.cv_generator_b2b.university_names import localize_education
 from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
     CVGeneratorOverloadedError,
@@ -99,7 +100,8 @@ PIPELINE_ID = "legacy_v7"
 # 8 (13.10.2026): bez punktu „Posiada kluczowe technologie…”, pytania ≠ fakty,
 # branża tylko ze źródła, nagłówek bez tłumaczenia.
 # 9 (15.10.2026): polska uczelnia w polskim CV ma polską nazwę.
-PROMPT_VERSION = 9
+# 10 (02.11.2026): „obecnie” tylko, gdy oryginał tak mówi.
+PROMPT_VERSION = 10
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -316,6 +318,15 @@ def run_legacy_generation(
     # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
     # angielską nazwę ze źródła (15.10.2026).
     localize_education(candidate_data, language)
+    # Okresy stanowisk jak w oryginale (02.11.2026): przed kolejnością i latami,
+    # które się z nich liczą.
+    restored_dates = restore_experience_dates(candidate_data, cv_text)
+    if restored_dates:
+        logger.info(
+            "[cv_b2b][%s] restored %d role periods from source",
+            request_id,
+            restored_dates,
+        )
     # Stanowiska od najnowszego ustawia kod, nie model (16.10.2026): prompt
     # pozwala „zmieniać kolejność” pod wymagania klienta, a reguła klienta
     # „maks. N stanowisk” niżej bierze pierwsze N z tej listy.
