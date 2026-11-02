@@ -35,6 +35,7 @@ from app.services.admin_cases.service import (
     module_enabled,
     open_automatic_case,
 )
+from app.services.consultant_portal import portal_mail
 from app.services.consultant_portal.auth import PortalContext, PortalError
 from app.services.consultant_portal_schema import QUESTION_MAX, TOPICS
 
@@ -78,6 +79,7 @@ async def overview(db: AsyncSession, context: PortalContext) -> dict[str, Any]:
         "until": contract.end_date.isoformat()
         if contract and contract.end_date
         else None,
+        "support_email": portal_mail.mailbox(),
         "topics": [{"key": key, "label": TOPIC_LABELS[key]} for key in TOPICS],
     }
 

@@ -464,6 +464,8 @@ const PUBLIC_PATHS = [
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
+  // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.
+  "/konsultant/",
   // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
   // nie ma konta (etap 3, O12).
   "/wypis/",
@@ -620,7 +622,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
-const PUBLIC_EXACT_PATHS = ["/kariera", "/wtyczka/prywatnosc"];
+const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
 
 /**
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza
