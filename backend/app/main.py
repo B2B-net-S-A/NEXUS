@@ -3510,6 +3510,7 @@ async def api_health_deep_check():
     from app.models.sales import (
         SalesActivity,
         SalesCompany,
+        SalesMeetingTranscript,
         SalesOpportunity,
         SalesPipelineStage,
         SalesTarget,
@@ -3799,6 +3800,7 @@ async def api_health_deep_check():
         ("sales_activities", SalesActivity),
         # 0623: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
+        ("sales_meeting_transcripts", SalesMeetingTranscript),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),

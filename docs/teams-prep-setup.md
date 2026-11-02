@@ -110,6 +110,31 @@ Test-ServicePrincipalAuthorization -Identity <APP_ID NEXUS Teams Prep> -Resource
 
 Kalendarz działa po kilkunastu minutach, Teams do ok. 30 min.
 
+### Transkrypty spotkań handlowców (decyzja Artura 02.11.2026)
+
+Handlowcy mają OSOBNĄ grupę, a nie `NEXUS-Meetings-Scope`. Członkostwo w tamtej
+włącza `NEXUS-TeamsPrep-AutoRecording` i zapis do kalendarza, czyli nagrywanie
+każdego spotkania z klientem. Handlowiec sam włącza transkrypcję w spotkaniu,
+NEXUS tylko ją odczytuje. Kalendarz czyta token handlowca z synchronizacji, więc
+ta grupa nie dostaje Exchange App RBAC.
+
+1. W Entra załóż grupę zabezpieczeń `NEXUS-Sales-Transcripts` i dodaj handlowców.
+2. Daj grupie samą politykę dostępu aplikacji (bez polityki spotkań):
+
+```powershell
+Connect-MicrosoftTeams
+Grant-CsApplicationAccessPolicy -PolicyName NEXUS-TeamsPrep-ApplicationAccess -Group <ID_GRUPY_HANDLOWCOW>
+```
+
+3. Po ok. 30 minutach workflow „Coolify set env”: `SALES_TEAMS_TRANSCRIPTS_ENABLED=true`,
+   potem Deploy w oknie wdrożeń.
+4. Dowód działania: handlowiec organizuje spotkanie w Teams z osobą z firmy
+   z kartoteki, włącza transkrypcję, a po ok. 10 minutach od końca spotkania
+   Sprzedaż → Spotkania pokazuje plakietkę „transkrypt”.
+
+Graph daje transkrypt tylko organizatorowi, więc spotkania założonego przez klienta
+nie pobierzemy. Bez kroku 2 wiersze kończą w stanie `forbidden` (`last_error=http_403`).
+
 ## 3. Zawężenie dostępu (PowerShell)
 
 Exchange Online (kalendarze): skonfiguruj [App RBAC](https://learn.microsoft.com/en-us/exchange/permissions-exo/application-rbac)
