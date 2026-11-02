@@ -339,6 +339,8 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
     # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
+    # 0628: podsumowanie transkryptu Teams spotkania handlowca.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -1249,6 +1251,8 @@ try:
         *_sales_schema.TARGETS_DDL,
         # 0624: bieżąca poczta i kalendarz Outlooka handlowców.
         *_sales_schema.OUTLOOK_SYNC_DDL,
+        # 0628: transkrypty Teams przy spotkaniach handlowców.
+        *_sales_schema.TRANSCRIPTS_DDL,
     ]
     _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
 except Exception as _sales_schema_err:  # noqa: BLE001
@@ -1377,7 +1381,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1391,7 +1395,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -7702,6 +7706,11 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0628: seed klucza AI podsumowania spotkania handlowca.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.

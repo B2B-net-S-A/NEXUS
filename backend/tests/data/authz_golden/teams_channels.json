@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/teams-channels/{channel_db_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/teams-channels/{channel_db_id}/test": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -64,7 +64,7 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
 const sorted = (values: Iterable<string>) => [...values].sort();
 
 describe("katalog uprawnień", () => {
-  it("ma szesnaście pozycji w pięciu grupach, w kolejności ekranu", () => {
+  it("ma siedemnaście pozycji w pięciu grupach, w kolejności ekranu", () => {
     expect(PERMISSIONS.map((permission) => permission.label)).toEqual([
       "Klienci, kontrakty i zamówienia: podgląd",
       "Klienci: dodawanie i edycja",
@@ -82,13 +82,14 @@ describe("katalog uprawnień", () => {
       "Sprzedaż: podgląd firm, szans i kontaktów",
       "Sprzedaż: prowadzenie szans i kartoteki firm",
       "Raporty godzin: akceptacja całej firmy",
+      "Wyniki firmy: podsumowania przychodu i marży",
     ]);
     expect(
       PERMISSION_GROUPS.map((group) => [group.label, group.permissions.length]),
     ).toEqual([
       ["Klienci i kontrakty", 5],
       ["Rekrutacje", 1],
-      ["Pieniądze", 3],
+      ["Pieniądze", 4],
       ["Ludzie", 5],
       ["Sprzedaż", 2],
     ]);

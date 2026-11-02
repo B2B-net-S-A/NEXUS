@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/integrations/jjit/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/integrations/jjit/run": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

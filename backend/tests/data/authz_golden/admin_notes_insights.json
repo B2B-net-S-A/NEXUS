@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "POST /api/admin/notes-insights/client-rates": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/profile-fill": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/notes-insights/sync": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

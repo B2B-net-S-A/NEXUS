@@ -42,8 +42,8 @@ def _actor(**flags) -> Actor:
     )
 
 
-def test_permission_sits_in_people_group_at_the_end_of_the_catalog() -> None:
-    assert catalog.SEEDED_KEYS[-1] == catalog.TIMESHEETS
+def test_permission_sits_in_people_group_of_the_catalog() -> None:
+    assert catalog.TIMESHEETS in catalog.SEEDED_KEYS
     assert catalog.BY_KEY[catalog.TIMESHEETS].group == "people"
     assert catalog.close((catalog.TIMESHEETS,)) == {catalog.TIMESHEETS}
     assert catalog.derive_sections({catalog.TIMESHEETS}) == {

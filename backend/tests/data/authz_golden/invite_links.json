@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

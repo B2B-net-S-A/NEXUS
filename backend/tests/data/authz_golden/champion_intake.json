@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/champion/template": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/champion/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/champion/validate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

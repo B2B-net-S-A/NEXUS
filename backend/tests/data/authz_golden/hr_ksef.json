@@ -25,16 +25,17 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/hr/ksef/invoices": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/ksef/invoices/{invoice_id}/pdf": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/ksef/status": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/fetch": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/manual": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/{invoice_id}/ignore": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/invoices/{invoice_id}/period": "BBBBBBBDBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/ksef/refetch": "BBBBBBBDBBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/ksef/invoices": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/ksef/invoices/{invoice_id}/pdf": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/ksef/status": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/fetch": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/manual": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/{invoice_id}/ignore": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/invoices/{invoice_id}/period": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/ksef/refetch": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
  }
 }

@@ -25,19 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/recruitment/weekly-trend": "PPPPPPDDPPPPPPPPPPPPDPPPPP"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/in-flight": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/in-flight/me": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/seniority": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/team-goals": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/recruitment/weekly-trend": "PPPPPPPDPPPPPPPPPPPPDPPPPPP"
  }
 }

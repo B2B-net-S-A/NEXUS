@@ -344,7 +344,8 @@ def test_history_suggestion_never_gates_on_a_phrase():
     }
     inputs = dealbreaker_inputs_for_job(job)
     assert _must(inputs) == ["java"] and inputs.critical_source == "suggested"
-    assert inputs.gate_options == {}
+    # „bankowość” ma słowa do oceny (02.11.2026), ale bramka ich nie czyta.
+    assert not set(inputs.must_skills) & set(inputs.gate_options)
 
 
 def test_sql_pool_is_not_narrowed_by_a_critical_searched_by_words():

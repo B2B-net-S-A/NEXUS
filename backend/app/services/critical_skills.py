@@ -388,6 +388,38 @@ def critical_gate_options(job) -> dict[str, tuple[str, ...]]:
     return out
 
 
+def must_evidence_options(job) -> dict[str, tuple[str, ...]]:
+    """Słowa, po których CV spełnia wiersz „musi mieć” — do oceny, nie do bramki.
+
+    W wierszu wystarczy jedno słowo, a dotąd warianty liczyły się tylko przy
+    krytycznych: osoba z „płatności” w CV miała brak przy wierszu „płatniczych lub
+    payment* lub płatności” (121 z 707 wierszy, 02.11.2026). Wymaganie, którego
+    słownik nie zna (metodyka, fraza), szuka samego siebie, inaczej zawsze byłoby
+    brakiem („Agile”, „Change management”).
+    """
+    from app.services.must_gate_terms import gate_requirement
+    from app.services.scoring_service import job_skill_requirements
+    from app.services.skill_normalize import canonical_of
+
+    out: dict[str, tuple[str, ...]] = {}
+    rows = _row_words_by_label(job)
+    for label in job_skill_requirements(job).get("must") or []:
+        words: list[str] = []
+        for row_name, row_words in rows:
+            if match_must_labels([row_name], [label]):
+                words = row_words
+                break
+        requirement = gate_requirement(label)
+        if requirement is None:
+            out[label] = tuple(words) or (label,)
+            continue
+        known = {canonical_of(option) for option in requirement.options}
+        extra = tuple(w for w in words if "*" in w or canonical_of(w) not in known)
+        if extra:
+            out[label] = extra
+    return out
+
+
 def gate_mode() -> str:
     """``critical`` (domyślnie) albo ``all`` — awaryjny powrót do bramki v8."""
     mode = str(getattr(settings, "MUST_GATE_MODE", "critical") or "critical").lower()

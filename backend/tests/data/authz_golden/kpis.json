@@ -25,15 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/kpis/me/goals": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/kpis/me/panel": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/kpis/me/today": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDDP",
-  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/kpis/me/goals": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/me/panel": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/me/today": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/kpis/team/panel": "PPPPPDDDPPPPPPDDDDDDDDDDDPP",
+  "GET /api/kpis/users/{user_id}/today": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/kpis/admin/debug-fire-nudge": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/kpis/admin/trigger-sweep": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

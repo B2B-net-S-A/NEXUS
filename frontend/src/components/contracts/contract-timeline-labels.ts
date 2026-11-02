@@ -24,6 +24,7 @@ const ACTION_LABELS: Record<string, string> = {
   termination_reversed: "Cofnięto zakończenie (pomyłka)",
   return_after_break: "Powrót po przerwie – utworzono nowy kontrakt",
   contract_reopened: "Przywrócono kontrakt do aktywnych",
+  termination_data_cleared: "Usunięto datę i powód cofniętego zakończenia",
   end_date_cleared: "Wyczyszczono datę zakończenia (umowa bezterminowa)",
   synced_with_orders: "Zsynchronizowano z zamówieniami klienta",
   bulk_marked_ended: "Zakończono współpracę (operacja zbiorcza)",

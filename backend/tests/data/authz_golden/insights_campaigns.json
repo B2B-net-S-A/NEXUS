@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns/active": "PPPPPPDDPPPPPPPPPPPPDPPPPP",
-  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns/active": "PPPPPPPDPPPPPPPPPPPPDPPPPPP",
+  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

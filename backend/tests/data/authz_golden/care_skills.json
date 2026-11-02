@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBDDDDDDD",
-  "POST /api/care/skill-review/{item_id}/create": "BDBDBDDDBBDBBBDDDDDDDDDDDD",
-  "POST /api/care/skill-review/{item_id}/dismiss": "BDBDBDDDBBDBBBDDDDDDDDDDDD",
-  "POST /api/care/skill-review/{item_id}/map": "BDBDBDDDBBDBBBDDDDDDDDDDDD"
+  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBDDDDDDDB",
+  "POST /api/care/skill-review/{item_id}/create": "BDBDBDDDBBDBBBDDDDDDDDDDDDD",
+  "POST /api/care/skill-review/{item_id}/dismiss": "BDBDBDDDBBDBBBDDDDDDDDDDDDD",
+  "POST /api/care/skill-review/{item_id}/map": "BDBDBDDDBBDBBBDDDDDDDDDDDDD"
  }
 }

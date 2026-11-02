@@ -25,6 +25,34 @@ test("karta górna: imię z h2, nagłówek po zaimkach i „· 2nd”, miasto pr
   });
 });
 
+// Układ sekcji zmierzony na żywym profilu 02.11.2026: dwie umiejętności w jednej
+// pozycji między <hr>, pod nimi „użyte w” i licznik potwierdzeń.
+test("umiejętności: wszystkie z jednej pozycji, bez linii o potwierdzeniach i stanowisku", () => {
+  const s = {
+    url: "https://www.linkedin.com/in/ewa-przykladowa/",
+    heading: { text: "Ewa Przykładowa", level: 2 },
+    top: { lines: ["Ewa Przykładowa"] },
+    sections: [
+      { heading: "Skills (34)", itemsBy: "hr", lines: [], items: [["Skills (34)"], ["Rozwiązania chmurowe", "4 endorsements", "Strategia biznesowa", "Endorsed by 2 colleagues at Firma Fikcyjna", "Kierownik działu at Firma Fikcyjna", "Passed LinkedIn Skill Assessment", "15 endorsements", "Show all"]] },
+    ],
+    listItems: [],
+    links: [],
+  };
+  assert.deepEqual(readPage({ url: s.url, snapshot: s }).profile.skills, ["Rozwiązania chmurowe", "Strategia biznesowa"]);
+});
+
+test("informacje: rozwinięcie „… more” nie trafia do treści", () => {
+  const s = {
+    url: "https://www.linkedin.com/in/ewa-przykladowa/",
+    heading: { text: "Ewa Przykładowa", level: 2 },
+    top: { lines: ["Ewa Przykładowa"] },
+    sections: [{ heading: "About", itemsBy: null, items: [], lines: ["About", "Buduję zespoły od 2015 roku.", "… more"] }],
+    listItems: [],
+    links: [],
+  };
+  assert.equal(readPage({ url: s.url, snapshot: s }).profile.about, "Buduję zespoły od 2015 roku.");
+});
+
 test("karta górna własnego profilu: „Enhance cover image” przed imieniem, „Dane kontaktowe” po polsku", () => {
   const top = parseTopCard(snap("profile-own-pl-flat.json"));
   assert.equal(top.name, "Ewa Przykładowa");

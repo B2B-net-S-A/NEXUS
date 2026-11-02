@@ -8,7 +8,6 @@
 
 import { daysSince } from "@/components/hr/team/team-week";
 import type { PendingLeaveRow } from "@/lib/api/hr-leave";
-import { TIMESHEET_STATUS_LABELS, type QueueStatus, type TeamQueueItem } from "@/lib/api/hr-time";
 
 import { addDays, mondayOf } from "./calendar-bars";
 import { daysLabel, formatRange } from "./leave-format";
@@ -176,25 +175,4 @@ export function termRows(row: PendingLeaveRow, days: readonly string[]): TermRow
     });
   }
   return rows;
-}
-
-export interface TimesheetSlice {
-  status: QueueStatus;
-  count: number;
-  label: string;
-}
-
-const SUMMARY_ORDER: QueueStatus[] = ["draft", "missing", "submitted", "approved"];
-
-/** Podsumowanie statusów timesheetów miesiąca: pasek złożony + „5 szkic · 1 nie założony”. */
-export function timesheetSummary(items: readonly TeamQueueItem[]): TimesheetSlice[] {
-  return SUMMARY_ORDER.map((status) => ({
-    status,
-    count: items.filter((item) => item.status === status).length,
-    label: TIMESHEET_STATUS_LABELS[status].toLowerCase(),
-  })).filter((slice) => slice.count > 0);
-}
-
-export function timesheetSummaryText(slices: readonly TimesheetSlice[]): string {
-  return slices.map((slice) => `${slice.count} ${slice.label}`).join(" · ");
 }

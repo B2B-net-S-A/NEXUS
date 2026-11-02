@@ -26,8 +26,8 @@ Decyzje D1–D7 i pełna specyfikacja: `docs/insights-dynareporter-migration-pla
   Nowa treść = najpierw pytanie, na które odpowiada; jeśli nie jest jednym
   z czterech pytań widoków, to jest raport, nie kolejny blok na widoku.
 - **Head of Recruitment NIE widzi pieniędzy (decyzja Artura 24.09.2026).**
-  `BoardReader` = admin + finance (`/board`, `/clients/ranking`, narzędzie
-  Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
+  `BoardReader` = „Wyniki firmy” albo Rada, bez Finansów od 02.11.2026
+  (`/board`, `/clients/ranking`, narzędzie Jarvisa `insights_board`); `/board/yoy` stoi na `BoardTrendReader` (+ HoR),
   a HoR dostaje odpowiedź przez `without_money` (bez metryk `pln`,
   `margin_pct` i kwot w `component_series`, `money_redacted: true`). Mail
   zarządu idzie tylko do Rady i adminów, bez Finansów (zmiana 02.11.2026:

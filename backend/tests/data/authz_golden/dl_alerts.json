@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
-  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
-  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDDDDDDDD",
-  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDDDDDDDD"
+  "GET /api/dl-alerts": "PPDPDDDDPPPDDDDDDDDDDDDDDDP",
+  "GET /api/dl-alerts/cards": "PPDPDDDDPPPDDDDDDDDDDDDDDDP",
+  "GET /api/dl-alerts/export": "PPDPDDDDPPPDDDDDDDDDDDDDDDP",
+  "POST /api/dl-alerts/{alert_id}/handled": "PPDPDDDDPPPDDDDDDDDDDDDDDDP"
  }
 }
