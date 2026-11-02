@@ -120,6 +120,7 @@ export const SEGMENT_LABELS: Record<string, string> = {
   contractors: "Kontraktorzy",
   "kpi-targets": "Cele KPI",
   nowosci: "Nowości — kto już umie",
+  "jakosc-generatora": "Jakość generatora CV",
   "review-states": "Porządek w requestach",
   "strona-kariery": "Strona kariery do uzupełnienia",
   ogloszenia: "Ogłoszenia do nadrobienia",

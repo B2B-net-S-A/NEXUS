@@ -111,15 +111,23 @@ export async function postAuthenticatedDownload(
   });
 }
 
-/** GET a protected file and return it with the server-given filename. */
+/** GET (or POST with a JSON body) a protected file, with the server-given filename. */
 export async function fetchAuthenticatedDownload(
   path: string,
+  post?: { method: "POST"; body: unknown },
 ): Promise<AuthenticatedDownload> {
   const url = /^https?:\/\//i.test(path) ? path : `${API_BASE}${path}`;
   return trackTransfer(async () => {
-    const res = await fetch(url, {
-      headers: getAuthenticatedRequestHeaders(),
-    });
+    const res = await fetch(
+      url,
+      post
+        ? {
+            method: post.method,
+            headers: getAuthenticatedRequestHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify(post.body),
+          }
+        : { headers: getAuthenticatedRequestHeaders() },
+    );
     if (!res.ok) throw await responseError(res);
     const disposition = res.headers.get("Content-Disposition") ?? "";
     const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];

@@ -61,7 +61,7 @@
   "PATCH /api/candidates/{candidate_id}/recruitments/{job_id}/client-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "PATCH /api/candidates/{candidate_id}/recruitments/{job_id}/expected-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/candidates/bulk-cv-download": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/candidates/bulk-cv-download": "PPPPPDDDPPPPPPDDDDDDDDDDDDP",
   "POST /api/candidates/bulk-import": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/candidates/check-duplicates": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "POST /api/candidates/cv/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",

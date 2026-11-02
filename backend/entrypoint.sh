@@ -1215,6 +1215,16 @@ except Exception as _ai_assessment_err:  # noqa: BLE001
     print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
     _CANDIDATE_AI_ASSESSMENT_DDL = []
 
+# Powody „co generator zrobił źle” (0636,
+# `app/services/cv_generator_feedback_schema.py`).
+try:
+    from app.services import cv_generator_feedback_schema as _cv_generator_feedback_schema
+
+    _CV_GENERATOR_FEEDBACK_DDL = list(_cv_generator_feedback_schema.TABLE_DDL)
+except Exception as _cv_generator_feedback_err:  # noqa: BLE001
+    print(f"cv generator feedback DDL unavailable: {_cv_generator_feedback_err!r}")
+    _CV_GENERATOR_FEEDBACK_DDL = []
+
 # Opieka po odejściu (migracja 0621) — JEDNO źródło z migracją
 # (`app/services/departure_care_schema.py`).
 try:
@@ -1351,6 +1361,7 @@ _COLUMN_STATEMENTS = [
     *_PAIR_OWNER_DDL,
     *_LINKEDIN_EXTENSION_DDL,
     *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_CV_GENERATOR_FEEDBACK_DDL,
     *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.

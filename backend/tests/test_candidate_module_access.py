@@ -194,7 +194,6 @@ READ_ENDPOINTS = [
     ("GET", "/api/marketplace/candidates", None),
     ("POST", "/api/search/candidates", {}),
     ("POST", "/api/candidates/check-duplicates", {}),
-    ("POST", "/api/candidates/bulk-cv-download", {"candidate_ids": [999999]}),
     # ── PR1b: sibling routers that serve the SAME candidate data ────────────
     # Found by the independent module-2 re-audit: PR1 closed the canonical
     # /api/candidates/* surfaces but these two routers kept bare CurrentUser,
@@ -249,6 +248,23 @@ async def test_read_surface_role_matrix(
             assert resp.status_code == 403, (
                 f"[{role.value}] {method} {path} expected 403, got {resp.status_code}"
             )
+
+
+async def test_bulk_zip_is_closed_for_the_recruiter_only(
+    m2_client: AsyncClient, headers_by_role: dict[UserRole, dict[str, str]]
+):
+    """Paczka ZIP bez samej roli rekrutera (decyzja Artura 02.11.2026)."""
+
+    for role in ROLES:
+        resp = await m2_client.post(
+            "/api/candidates/bulk-cv-download",
+            headers=headers_by_role[role],
+            json={"candidate_ids": [999999]},
+        )
+        if role in OPERATIONAL_ROLES - {UserRole.recruiter}:
+            assert resp.status_code != 403, f"[{role.value}] ZIP unexpectedly forbidden"
+        else:
+            assert resp.status_code == 403, f"[{role.value}] ZIP expected 403"
 
 
 async def test_viewer_gets_403_not_404_for_existing_and_missing_ids(

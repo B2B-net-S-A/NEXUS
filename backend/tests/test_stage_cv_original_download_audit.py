@@ -27,6 +27,12 @@ class _FakeDb:
         self.commits += 1
 
 
+#: Rola bez ograniczeń: zasady zapisu sprawdza `test_cv_download_policy.py`.
+_USER = SimpleNamespace(
+    id=7, has_role=lambda _role: False, has_any_role=lambda *_roles: False
+)
+
+
 def _snapshot(content):
     csv = SimpleNamespace(
         candidate_id=4242,
@@ -69,7 +75,7 @@ async def test_download_records_audit_for_the_candidate(
     _use_snapshot(monkeypatch, b"%PDF-1.4 dummy")
     db = _FakeDb()
     res = await stage_cv_api.download_original_cv(
-        55, SimpleNamespace(id=7), db, disposition=disposition
+        55, _USER, db, disposition=disposition
     )
     assert res.status_code == 200
     (event,) = recorded
@@ -89,7 +95,7 @@ async def test_missing_bytes_leave_no_audit(recorded, monkeypatch) -> None:
     _use_snapshot(monkeypatch, None)
     with pytest.raises(HTTPException) as exc:
         await stage_cv_api.download_original_cv(
-            55, SimpleNamespace(id=7), _FakeDb(), disposition="attachment"
+            55, _USER, _FakeDb(), disposition="attachment"
         )
     assert exc.value.status_code == 404
     assert recorded == []

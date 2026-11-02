@@ -263,6 +263,7 @@ from app.api import onboarding as onboarding_api
 from app.api import procedures as procedures_api
 from app.api import help_screens as help_screens_api
 from app.api import novelties as novelties_api
+from app.api import cv_generator_feedback as cv_generator_feedback_api
 from app.api import help_materials as help_materials_api
 from app.api import proposals as proposals_api
 from app.api import job_shortlist as job_shortlist_api
@@ -2161,6 +2162,9 @@ app.include_router(users_api.router, prefix="/api/users", tags=["users"])
 app.include_router(procedures_api.router, prefix="/api", tags=["procedures"])
 app.include_router(help_screens_api.router, prefix="/api", tags=["help"])
 app.include_router(novelties_api.router, prefix="/api", tags=["novelties"])
+app.include_router(
+    cv_generator_feedback_api.router, prefix="/api", tags=["cv-generator-feedback"]
+)
 app.include_router(help_materials_api.router, prefix="/api", tags=["help-materials"])
 app.include_router(proposals_api.router, prefix="/api", tags=["proposals"])
 app.include_router(proposals_bulk_api.router, prefix="/api", tags=["proposals"])
