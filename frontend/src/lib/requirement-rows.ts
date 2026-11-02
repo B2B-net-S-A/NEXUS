@@ -879,3 +879,22 @@ export function criticalReachWarning(count: number | null | undefined): string |
     ? "Krytyczne razem nie zostawiają nikogo w bazie — propozycje AI i „Szukaj w bazie” będą puste."
     : `Krytyczne razem zostawiają ${count.toLocaleString("pl-PL")} ${count === 1 ? "osobę" : count < 5 ? "osoby" : "osób"} z bazy — propozycje AI pokażą tylko je.`;
 }
+
+/**
+ * Wiersz bez nikogo z wysłanych, którego dotyczy ten wiersz edytora. Serwer liczy
+ * zapisany profil: gdy Delivery Lead dopisał już słowo, ostrzeżenie czeka na zapis.
+ */
+export function sentGapForRow<T extends { label: string; words: readonly string[] }>(
+  rowWords: readonly string[],
+  gaps: readonly T[],
+): T | null {
+  if (rowWords.length === 0) return null;
+  const fold = (word: string) => word.trim().toLocaleLowerCase("pl");
+  const mine = rowWords.map(fold);
+  return (
+    gaps.find((gap) => {
+      const known = new Set([...gap.words.map(fold), fold(gap.label)]);
+      return mine.every((word) => known.has(word));
+    }) ?? null
+  );
+}

@@ -190,17 +190,22 @@ describe("Priority Work errors in candidate-add surfaces", () => {
 
   it("shows the structured lock reason when invite-link creation is blocked", async () => {
     const user = userEvent.setup()
-    vi.mocked(api.get).mockResolvedValue({
-      data: {
-        items: [
-          {
-            id: 101,
-            title: "Security Engineer",
-            status: "published",
+    vi.mocked(api.get).mockImplementation(async (url: string) =>
+      // Linki zespołu w tym oknie to lista, nie strona wyników.
+      url.endsWith("/link-results")
+        ? { data: [] }
+        : {
+            data: {
+              items: [
+                {
+                  id: 101,
+                  title: "Security Engineer",
+                  status: "published",
+                },
+              ],
+            },
           },
-        ],
-      },
-    })
+    )
     vi.mocked(api.post).mockRejectedValue(priorityLockConflict())
 
     renderWithProviders(

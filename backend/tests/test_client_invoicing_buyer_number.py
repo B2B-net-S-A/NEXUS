@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from math import ceil
 from typing import Optional
 
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.api import client_sales_invoices as api
 from app.core.config import settings
@@ -196,6 +197,96 @@ async def test_rematch_pending_finds_the_buyer_after_the_number_is_saved(client,
     async with AsyncSessionLocal() as db:
         sibling = await db.get(ClientSalesInvoice, sibling_id)
         assert sibling.client_id == client_id
+
+
+def _other_buyer(index: int) -> str:
+    """Fikcyjny NIP nabywcy bez klienta; suma kontrolna celowo się nie zgadza."""
+
+    return f"77777777{index}3"
+
+
+async def _waiting_in_queue() -> int:
+    async with AsyncSessionLocal() as db:
+        return int(
+            await db.scalar(
+                select(func.count())
+                .select_from(ClientSalesInvoice)
+                .where(
+                    ClientSalesInvoice.match_status == "unmatched",
+                    ClientSalesInvoice.match_reason.in_(sorted(matching.RETRY_REASONS)),
+                )
+            )
+        )
+
+
+async def test_rematch_reaches_the_oldest_invoices_when_the_queue_exceeds_the_limit(
+    seed,
+):
+    """Ponad ``limit`` czekających: najstarsze też dostają kolejną próbę."""
+
+    client_id = await _client_without_orders()
+    oldest = [
+        await _sibling_of_unknown(issue_date=date(2026, 8, day)) for day in (3, 4)
+    ]
+    for index in range(7):
+        await _sibling_of_unknown(
+            buyer_nip=_other_buyer(index), issue_date=date(2026, 11, 5)
+        )
+    # Numer wpisany ręcznie w profilu, bez okna „Przypisz i dopisz NIP”.
+    async with AsyncSessionLocal() as db:
+        (await db.get(Client, client_id)).nip = fx.UNKNOWN_NIP
+        await db.commit()
+
+    limit = 3
+    queue = await _waiting_in_queue()
+    assert queue > limit
+    for _ in range(ceil(queue / limit)):
+        async with AsyncSessionLocal() as db:
+            result = await matching.rematch_pending(db, limit=limit)
+            await db.commit()
+        # Budżet przebiegu: billing_rows liczy się na każdą fakturę.
+        assert result["retried"] == limit
+
+    async with AsyncSessionLocal() as db:
+        for invoice_id in oldest:
+            invoice = await db.get(ClientSalesInvoice, invoice_id)
+            assert (invoice.client_id, invoice.match_reason) == (client_id, "no_orders")
+
+
+async def test_rematch_failure_does_not_stop_the_rotation(seed, monkeypatch):
+    """Faktura, na której przebieg pada, nie blokuje następnych w kolejce."""
+
+    for index in range(5):
+        await _sibling_of_unknown(buyer_nip=_other_buyer(index))
+
+    limit = 2
+    tried: list[int] = []
+
+    async def fail(db, invoice, *, registry=None):
+        tried.append(invoice.id)
+        raise RuntimeError("awaria przebiegu")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(matching, "auto_match", fail)
+        async with AsyncSessionLocal() as db:
+            with pytest.raises(RuntimeError):
+                await matching.rematch_pending(db, limit=limit)
+            await db.rollback()
+    assert len(tried) == 1
+
+    original = matching.auto_match
+
+    async def record(db, invoice, *, registry=None):
+        tried.append(invoice.id)
+        return await original(db, invoice, registry=registry)
+
+    monkeypatch.setattr(matching, "auto_match", record)
+    async with AsyncSessionLocal() as db:
+        await matching.rematch_pending(db, limit=limit)
+        await db.commit()
+
+    assert len(tried) == 1 + limit
+    assert tried[0] not in tried[1:]
 
 
 async def test_assign_without_the_flag_leaves_the_client_alone(client, seed):

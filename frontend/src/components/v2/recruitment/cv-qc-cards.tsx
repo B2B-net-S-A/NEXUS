@@ -277,6 +277,16 @@ export function ItemAction({ item, ctx }: { item: QcItem; ctx: ActionContext }) 
           Ułóż od najnowszego
         </Button>
       );
+    case "restore_dates":
+      return (
+        <Button
+          size="sm"
+          disabled={!ctx.editable || ctx.busy}
+          onClick={() => ctx.apply({ action: "restore_dates", role_index: item.role_index ?? undefined }, "Przywrócono daty z oryginału.")}
+        >
+          Przywróć daty z oryginału
+        </Button>
+      );
     case "remove_term":
       return term ? <RemoveTermButton term={term} ctx={ctx} /> : null;
     case "ask_candidate":
@@ -683,7 +693,8 @@ function itemHasAction(item: QcItem): boolean {
     item.fix === "upload_consent" ||
     item.fix === "replace_consent" ||
     item.fix === "generate_cv" ||
-    item.fix === "role_order"
+    item.fix === "role_order" ||
+    item.fix === "restore_dates"
   );
 }
 

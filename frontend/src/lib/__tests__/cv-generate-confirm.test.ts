@@ -63,6 +63,14 @@ describe("pliki do wyboru", () => {
     expect(cvFileDetail({ ...FILE, stage_original: false, outdated: true, uploaded_at: null })).toBe("nieaktualne");
   });
 
+  it("firmowy Word mówi, że nie jest CV kandydata; PDF z „B2B” w nazwie nie", () => {
+    const base = { ...FILE, stage_original: false, uploaded_at: null };
+    expect(cvFileDetail({ ...base, filename: "B2B_Jan_Kowalski.docx", is_primary: true })).toBe(
+      "CV dla klienta, nie CV kandydata · główne CV profilu",
+    );
+    expect(cvFileDetail({ ...base, filename: "Jan_Kowalski_B2B.pdf" })).toBe("plik CV kandydata");
+  });
+
   it("serwer bez listy plików: jedyny wybór to plik domyślny", () => {
     expect(cvFileChoices({ original_cv: { document_id: 3, filename: "cv.pdf", uploaded_at: null } })).toEqual([
       { document_id: 3, filename: "cv.pdf", uploaded_at: null, is_primary: false, outdated: false, stage_original: false },
@@ -103,6 +111,13 @@ describe("„Powstało z” — kiedy źródło gotowego CV jest podejrzane", ()
     expect(
       sourceCvWarning({ original_cv: null, cv_files: [original], last_source_cv: used({ document_id: 8, filename: "inne.pdf", stage_original: false }) }),
     ).toBe("CV powstało z inne.pdf, a nie z Oryginału CV tej rekrutacji. Oryginał CV w tej rekrutacji to Jan_Kowalski_CV.pdf.");
+  });
+
+  it("kopia etapu z firmowego CV nie jest wzorem: CV z pliku kandydata bez ramki", () => {
+    const firmCopy = { ...original, document_id: 9, filename: "B2B_Jan_Kowalski.docx" };
+    expect(
+      sourceCvWarning({ original_cv: null, cv_files: [firmCopy], last_source_cv: used({ stage_original: false }) }),
+    ).toBeNull();
   });
 
   it("bez kopii oryginału w rekrutacji zwykły plik nie budzi ramki", () => {

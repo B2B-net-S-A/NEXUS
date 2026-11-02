@@ -159,6 +159,27 @@ describe("RequirementProposalDialog", () => {
     expect(rare).toHaveTextContent("„Crisis plans” — nikt w bazie, rekruter sprawdzi w rozmowie");
   });
 
+  it("wiersz bez nikogo z wysłanych: widać, co przejdzie do rozmowy i dlaczego", async () => {
+    respond({
+      proposal: proposal({
+        reasons: [{ code: "no_sent_match", text: "wymagania „musi mieć”, których nie ma nikt z 8 wysłanych: 1" }],
+        after: {
+          rows: [{ words: ["Java"], level: "must" }],
+          critical: null,
+          talk: [],
+          language: null,
+          sent_gap: [{ words: ["data sourcing"], sent: 8 }],
+        },
+      }),
+      can_decide: true,
+    });
+    renderDialog();
+    const after = await screen.findByRole("region", { name: "Po zmianie" });
+    expect(within(after).getByTestId("proposal-sent-gap")).toHaveTextContent(
+      "„data sourcing” — nie ma nikt z 8 wysłanych, rekruter sprawdzi w rozmowie",
+    );
+  });
+
   it("bez słów do szukania „Zatwierdź” jest wyłączone i prowadzi do Profilu Championa", async () => {
     respond({
       proposal: proposal({

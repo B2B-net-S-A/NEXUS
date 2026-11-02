@@ -17,14 +17,14 @@ from __future__ import annotations
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser, RecruiterPlus
+from app.api.deps import OperationalUser, RecruiterPlus, require_roles
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -33,7 +33,7 @@ from app.models.application_submission import ApplicationSubmission
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job, JobStatus
 from app.models.job_public_profile import JobPublicProfile
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.services import career_theme as ct
 from app.schemas.invite_link import (
     CareerLinkBrief,
@@ -44,6 +44,7 @@ from app.schemas.invite_link import (
     CareerLinkPeople,
     CareerLinkPerson,
     CareerLinkResults,
+    JobTeamLink,
     CareerLinkStats,
     CareerLinkUpdate,
     PublicProfileDraft,
@@ -65,6 +66,17 @@ from app.services.career_slugs import (
 from app.services.job_ad.text import visible
 from app.services.public_profile_lint import lint_internal_codes, lint_public_texts
 from app.services.public_apply import link_key
+
+# Cudze wyniki linków: admin, Head of Recruitment i Delivery Lead (decyzja Artura
+# 02.11.2026). Rekruter widzi tylko swoje przez ``/me/career-link/*``.
+LinkTeamViewer = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin, UserRole.head_of_recruitment, UserRole.delivery_lead
+        )
+    ),
+]
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -305,6 +317,33 @@ async def get_my_link_people(
             for row in rows
         ],
     )
+
+
+@router.get("/jobs/{job_id}/link-results", response_model=list[JobTeamLink])
+async def get_job_team_links(
+    job_id: int, current_user: LinkTeamViewer, db: AsyncSession = Depends(get_db)
+) -> list[JobTeamLink]:
+    """Kto z zespołu ma link do rekrutacji i co przyniósł (decyzja Artura 02.11.2026)."""
+    from app.api.candidate_search import _authorized_job
+    from app.services import career_link_results as clr
+
+    # Sekcja Pipeline i istnienie rekrutacji; dla Delivery Leada rekrutacje są org-wide.
+    job = await _authorized_job(db, current_user, job_id)
+    rows = await clr.job_team_links(db, job.id)
+    now = _now()
+    return [
+        JobTeamLink(
+            **{key: row[key] for key in JobTeamLink.model_fields if key in row},
+            state=(
+                "revoked"
+                if row["revoked"]
+                else "expired"
+                if row["expires_at"] is not None and row["expires_at"] < now
+                else "active"
+            ),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/me/career-link/slug-available", response_model=SlugAvailability)

@@ -251,6 +251,26 @@ def _full_name(candidate: Candidate) -> str:
 # ── Sekcje panelu ────────────────────────────────────────────────────────────
 
 
+def process_closure(
+    stage: PipelineStage, is_open: bool, reason: Optional[str]
+) -> tuple[Optional[str], Optional[str]]:
+    """Etykieta i rodzaj zamknięcia procesu; (None, None) = proces otwarty.
+
+    Etap osoby wygrywa z zamkniętą rekrutacją: zatrudniona w zamkniętej
+    rekrutacji jest zatrudniona. ``hired`` nie ma etykiety — panel bierze
+    wtedy ``stage_label``.
+    """
+    if stage in (PipelineStage.rejected, PipelineStage.withdrawn):
+        reason_label = rejection_reason_label(reason)
+        label = STAGE_LABELS[stage] + (f" · {reason_label}" if reason_label else "")
+        return label, stage.value
+    if stage == PipelineStage.hired:
+        return None, stage.value
+    if not is_open:
+        return "Rekrutacja zamknięta", "job_closed"
+    return None, None
+
+
 async def load_processes(
     db: AsyncSession, user: User, candidate_id: int
 ) -> tuple[list[ProcessOut], list[tuple[int, int]]]:
@@ -290,16 +310,8 @@ async def load_processes(
     out: list[ProcessOut] = []
     open_pairs: list[tuple[int, int]] = []
     for job_id, title, client_name, stage, moved_at, recruiter, reason, is_open in rows:
-        terminal = stage in _TERMINAL_STAGES
-        closed = terminal or not is_open
-        close_label = None
-        if stage in (PipelineStage.rejected, PipelineStage.withdrawn):
-            reason_label = rejection_reason_label(reason)
-            close_label = STAGE_LABELS[stage] + (
-                f" · {reason_label}" if reason_label else ""
-            )
-        elif not is_open and not terminal:
-            close_label = "Rekrutacja zamknięta"
+        close_label, close_kind = process_closure(stage, is_open, reason)
+        closed = close_kind is not None
         if not closed:
             open_pairs.append((candidate_id, job_id))
         out.append(
@@ -311,6 +323,7 @@ async def load_processes(
                 recruiter_name=recruiter,
                 closed=closed,
                 close_label=close_label,
+                close_kind=close_kind,
                 updated_at=moved_at,
             )
         )

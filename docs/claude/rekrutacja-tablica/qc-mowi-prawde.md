@@ -83,6 +83,31 @@ w żadnym źródle.
   nie ma jej w całym CV albo brakuje zdania tam, gdzie oryginał ją opisuje.
   Wymaganie opisowe (≥ 4 słowa), którego nie ma nigdzie, to informacja
   („sprawdź ręcznie”), nie „zapytaj kandydata”.
+- **Zdanie z przecinkami to zdanie, nie lista** (`qc-truth-3`, 02.11.2026).
+  `is_tech_list` brała za listę punkt, w którym ponad połowa członów między
+  przecinkami miała do 3 słów, więc „Managed Azure, Entra ID, and Intune” albo
+  „Developed tools in C/C++, using CAN, I2C, SPI” dawały „Jest tylko na liście
+  technologii”, choć zdanie w roli stało. Na 991 takich punktach z 775 par
+  prawie każdy był zdaniem. Teraz nie jest listą tekst ze słowem łączącym
+  (`_SENTENCE_WORDS`, bez „of” i „on”, bo stoją w nazwach), z co najmniej 3 słowami
+  przed dwukropkiem ani tekst, który bez nawiasu ma mniej niż 3 człony. Punkty
+  brane za listę: 991 → 36, a z 568 tekstów z sekcji „Technologie” za listę
+  uchodzi 456 zamiast 455.
+- **„C” to nie „C++” ani „C#”** (`dz._patterns`, tak samo „F#”): litera nie trafia,
+  gdy stoi za nią `+` albo `#`. Do 02.11.2026 QC twierdziło, że oryginał opisuje C
+  przy roli „C++ Software Engineer”. „C/C++” dalej zawiera C. Dotyczy wszystkich
+  czytających `_found` (QC, przegląd DZ, AI w edytorze, przegląd DL), nie
+  wyszukiwarki: tam słowo kluczowe ma co najmniej 2 znaki.
+- **Pomiar `qc-truth-3`** (staging, 814 par z 21 dni, kod starej i nowej wersji):
+  zaliczone 685 → 688, uwagi 1102 → 1067, blokujące 186 → 177, `must_in_roles`
+  65 → 39, `critical_skills` 73 → 64, `no_unsupported` bez zmian. Uwagi oznaczone
+  „To nieprawda”, które QC nadal zgłasza (`qc_eval_dismissals.py`): krytyczne
+  16 → 7. Przejrzane ręcznie wszystkie 36 znikających uwag: każda ma już zdanie
+  w roli. Jedna nowa blokada, prawdziwa: wymaganie „C” przy CV z samym C++ i C#.
+- **`dz_review` w nakładce `qc_overlay.py`** traci ścieżkę słownika tłumaczeń
+  (`__file__` nakładki) i pomiar kończy się samymi `FileNotFoundError`. Przed
+  skryptem pomiaru ustaw `_QC_TRANSLATIONS_FILE` na plik z obrazu i wyczyść
+  `_translation_groups`.
 - **Luka kandydata to informacja, nie uwaga** (D2, decyzja Artura
   17.10.2026). `must_in_cv`: wymaganie, którego nie ma w CV, w oryginale ani
   w rozmowie, idzie do `check["info"]` z `fix: "ask_candidate"` i detalem
@@ -225,7 +250,7 @@ Testy: sekcja „Stawka w CV” w `tests/test_cv_qc.py` (`CV_NOT_RATES`,
 `CV_RATES`: uwaga QC i „Usuń stawkę” zgadzają się na każdym przykładzie;
 `test_rate_mentions_is_linear`).
 
-## Pod inną nazwą zamiast „nie ma w oryginale” (`qc-truth-3`, 02.11.2026)
+## Pod inną nazwą zamiast „nie ma w oryginale” (`qc-truth-4`, 02.11.2026)
 
 Zgłoszenie rekruterki: QC mówi, że kandydat nie ma technologii, a ma ją w oryginale.
 Pomiar 635 par z plikiem: na 124 uwagi „nie ma w oryginale” 36 ma w oryginale pokrewne
