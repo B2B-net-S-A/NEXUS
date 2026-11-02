@@ -52,7 +52,7 @@ def test_defaults_keep_all_four_automations_on():
     assert fields["AUTO_FULL_REVIEW_ENABLED"].default is True
     # 30.09.2026: co noc wszystkie rekrutacje w pracy (~18); dysk trzyma
     # retencja zastąpionych przeglądów automatycznych.
-    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 25
+    assert fields["AUTO_FULL_REVIEW_MAX_PER_NIGHT"].default == 48
     assert fields["CV_AUTO_GENERATE_ON_VERIFIED"].default is True
     # 21.10.2026: automat po ruchu liczy tylko QC istniejącego CV pary;
     # nowe CV powstaje po potwierdzeniu w karcie.
