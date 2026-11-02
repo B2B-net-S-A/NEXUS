@@ -19,7 +19,7 @@ export type CaseArea =
   | "other";
 export type CasePriority = "P1" | "P2" | "P3";
 export type CaseStatus = "new" | "in_progress" | "waiting" | "done" | "closed";
-export type CaseSource = "manual" | "mail" | "contract" | "lifecycle" | "compass_import";
+export type CaseSource = "manual" | "mail" | "contract" | "lifecycle" | "compass_import" | "portal";
 
 export interface CasePersonRef {
   id: number;
@@ -230,6 +230,7 @@ export const CASE_SOURCE_LABELS: Record<CaseSource, string> = {
   contract: "z kontraktu",
   lifecycle: "z odejścia",
   compass_import: "z Compassa",
+  portal: "z portalu konsultanta",
 };
 
 export const CASE_AREAS = Object.keys(CASE_AREA_LABELS) as CaseArea[];

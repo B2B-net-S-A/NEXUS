@@ -63,7 +63,7 @@ async def test_switched_off_portal_answers_404_on_every_route(
         ("get", "/cases", None),
         ("get", "/meetings", None),
         ("get", "/finance/status", None),
-        ("get", "/rate/" + "x" * 40, None),
+        ("post", "/rating-form", {"token": "x" * 40}),
     ):
         response = await getattr(app_client, method)(
             f"{BASE}{path}", **({"json": body} if body else {})
@@ -231,7 +231,7 @@ async def test_bad_used_and_expired_links_look_the_same(app_client) -> None:
     await app_client.post(f"{BASE}/session", json={"token": used})
     answers = [
         await app_client.post(f"{BASE}/session", json={"token": token})
-        for token in (expired, used, "z" * 43)
+        for token in (expired, used, "z" * 43, "krótki", "")
     ]
     assert {answer.status_code for answer in answers} == {404}
     assert len({answer.text for answer in answers}) == 1

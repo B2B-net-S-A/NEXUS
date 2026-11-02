@@ -369,7 +369,7 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
       {dialog === "waiting" && card ? (
         <ReasonDialog
           title="Na kogo czeka ta sprawa?"
-          label="Kto ma teraz ruch"
+          label="Kto ma teraz ruch (przy zgłoszeniu z portalu zobaczy to konsultant)"
           confirmLabel="Zapisz"
           onCancel={() => setDialog(null)}
           onConfirm={async (text) => {

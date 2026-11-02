@@ -325,6 +325,8 @@ async def quality(
             else None,
         }
         for row in rows
+        # Kierownik, który sam prowadzi rozmowy, ma własny przegląd miesięczny.
+        if row.id != viewer_id
     ]
     total_meetings = sum(person["meetings"] for person in people)
     total_rated = sum(person["rated"] for person in people)

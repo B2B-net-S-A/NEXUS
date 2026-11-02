@@ -895,6 +895,7 @@ async def test_lead_who_hosted_does_not_see_own_rating(app_client) -> None:
     assert detail.json()["rating"] is None
     quality = await app_client.get(f"{STAFF}/quality", headers=staff_headers(head))
     assert comment not in quality.text
+    assert head.id not in {row["user_id"] for row in quality.json()["people"]}
 
 
 @pytest.mark.usefixtures("care_on", "clean_team", "divisions_restored")
@@ -1065,16 +1066,18 @@ async def test_rating_by_link_without_session(app_client) -> None:
     person = await make_person()
     meeting_id = await make_meeting(person, None)
     raw = await _rating_token(person, meeting_id)
-    form = await app_client.get(f"{BASE}/rate/{raw}")
+    form = await app_client.post(f"{BASE}/rating-form", json={"token": raw})
     assert form.status_code == 200
     assert form.json()["topic_label"] == "Faktury i płatności"
     assert not {"email", "contract_id", "comment"} & set(form.json())
-    sent = await app_client.post(f"{BASE}/rate/{raw}", json={"score": 4})
+    sent = await app_client.post(f"{BASE}/rating", json={"token": raw, "score": 4})
     assert sent.status_code == 201
     # Link jest jednorazowy.
-    assert (await app_client.get(f"{BASE}/rate/{raw}")).status_code == 404
     assert (
-        await app_client.post(f"{BASE}/rate/{raw}", json={"score": 1})
+        await app_client.post(f"{BASE}/rating-form", json={"token": raw})
+    ).status_code == 404
+    assert (
+        await app_client.post(f"{BASE}/rating", json={"token": raw, "score": 1})
     ).status_code == 404
 
 
@@ -1085,7 +1088,7 @@ async def test_rating_link_refusals_look_the_same(app_client) -> None:
     expired = await _rating_token(person, meeting_id, expired=True)
     used = await _rating_token(person, meeting_id, used=True)
     answers = [
-        await app_client.get(f"{BASE}/rate/{token}")
+        await app_client.post(f"{BASE}/rating-form", json={"token": token})
         for token in (expired, used, "z" * 43, "z" * 200)
     ]
     assert {answer.status_code for answer in answers} == {404}

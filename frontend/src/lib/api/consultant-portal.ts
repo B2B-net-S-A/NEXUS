@@ -193,9 +193,9 @@ export const portalApi = {
   cancelMeeting: (id: number) => postJson<{ id: number }>(`/meetings/${id}/cancel`),
   rateMeeting: (id: number, body: PortalRatingInput) =>
     postJson<{ ok: boolean }>(`/meetings/${id}/rating`, body),
-  ratingForm: (token: string) => getJson<PortalRatingForm>(`/rate/${encodeURIComponent(token)}`),
+  ratingForm: (token: string) => postJson<PortalRatingForm>("/rating-form", { token }),
   rateByLink: (token: string, body: PortalRatingInput) =>
-    postJson<{ ok: boolean }>(`/rate/${encodeURIComponent(token)}`, body),
+    postJson<{ ok: boolean }>("/rating", { token, ...body }),
   financeStatus: () => getJson<PortalFinanceStatus>("/finance/status"),
   sendCode: () => postJson<{ phone_hint: string | null }>("/finance/sms"),
   verifyCode: (code: string) => postJson<{ verified: boolean }>("/finance/verify", { code }),

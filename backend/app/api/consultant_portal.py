@@ -133,7 +133,8 @@ class LinkRequest(BaseModel):
 
 
 class SessionRequest(BaseModel):
-    token: str = Field(min_length=20, max_length=auth.TOKEN_MAX_LENGTH)
+    # Bez dolnej granicy: krótki token dostaje to samo 404 co każdy inny zły.
+    token: str = Field(max_length=2048)
 
 
 @router.get("/status")
@@ -383,27 +384,35 @@ async def rate_meeting(
     return {"ok": True}
 
 
-@router.get("/rate/{token}")
+class RatingLinkRequest(BaseModel):
+    token: str = Field(max_length=2048)
+
+
+class RatingByLinkRequest(RatingRequest):
+    token: str = Field(max_length=2048)
+
+
+# Token idzie w ciele, nie w adresie: adres trafia do logów serwera i pośredników.
+@router.post("/rating-form")
 @limiter.limit("30/minute")
-@limiter.shared_limit(SHARED_READ, scope="consultant-portal-read")
+@limiter.shared_limit(SHARED_AUTH, scope="consultant-portal-auth")
 async def rating_form(
-    token: str,
+    payload: RatingLinkRequest,
     state: OpenPortal,
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    summary = await ratings.link_summary(db, token, state=state, now=_now())
+    summary = await ratings.link_summary(db, payload.token, state=state, now=_now())
     if summary is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, LINK_INVALID)
     return summary
 
 
-@router.post("/rate/{token}", status_code=status.HTTP_201_CREATED)
+@router.post("/rating", status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute;30/hour")
 @limiter.shared_limit(SHARED_AUTH, scope="consultant-portal-auth")
 async def rate_by_link(
-    token: str,
-    payload: RatingRequest,
+    payload: RatingByLinkRequest,
     state: OpenPortal,
     request: Request,  # wymagane przez limiter slowapi
     db: AsyncSession = Depends(get_db),
@@ -411,7 +420,7 @@ async def rate_by_link(
     try:
         rating = await ratings.rate_by_link(
             db,
-            token,
+            payload.token,
             state=state,
             score=payload.score,
             resolved=payload.resolved,
