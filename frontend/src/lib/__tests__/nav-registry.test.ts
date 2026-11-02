@@ -430,15 +430,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...INSIGHTS,
       ...SYSTEM,
     ],
-    // Legacy viewer (0 kont): Kalendarz i Generator CV zdjęte 22.09.2026 —
-    // backend (RecruitmentReadAccess / CandidateWriteAccess) i tak go odcina.
-    user: [
-      "/dashboard",
-      "/contracts/b2b-generator",
-      "/jobs",
-      "/insights",
-      ...SYSTEM,
-    ],
+    // Wycofywany viewer (0 kont): od 0634 bez żadnej sekcji.
+    user: [...SYSTEM],
     // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
     trainee: [],
   };
@@ -550,9 +543,10 @@ describe("paleta ⌘K ⊆ sidebar", () => {
   });
 
   it("bez `nav.candidates` Talent Radar prowadzi na samodzielną stronę /talent-radar", () => {
-    // Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla `nav.candidates`.
+    // Radar jest dla KAŻDEJ roli z sekcją Sourcing (19.08), a /candidates tylko
+    // dla `nav.candidates`. Viewer bez sekcji (0634) nie ma w palecie żadnego.
     expect(hasCapability(userOf("user"), "nav.candidates")).toBe(false);
-    expect(paletteHref("user", "talent-radar")).toBe("/talent-radar");
+    expect(paletteHref("user", "talent-radar")).toBeUndefined();
     expect(paletteHref("user", "candidate-search")).toBeUndefined();
     // Odebrana sekcja Sourcing też odcina /candidates — adres wraca do radaru.
     const noSourcing = {

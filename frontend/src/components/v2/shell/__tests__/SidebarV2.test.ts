@@ -164,8 +164,9 @@ describe("visibleNavSections", () => {
 
     expect(viewer).not.toContain("/candidates");
     expect(viewer).not.toContain("/clients");
-    expect(viewer).toContain("/jobs");
-    expect(viewer).toContain("/insights");
+    // 0634: bez żadnej sekcji znikają też Rekrutacje i Insights.
+    expect(viewer).not.toContain("/jobs");
+    expect(viewer).not.toContain("/insights");
     expect(viewer).not.toContain("/cortex");
     expect(viewer).not.toContain("/finance");
   });
@@ -224,13 +225,9 @@ describe("szyna vs „Więcej”", () => {
     }
   });
 
-  it("viewer `user` ma na szynie tylko to, do czego ma dostęp", () => {
-    // Kalendarz zdjęty 22.09.2026 — backend (RecruitmentReadAccess) odcina viewera.
-    expect(primary("user")).toEqual([
-      "/dashboard",
-      "/jobs",
-      "/insights",
-    ]);
+  it("viewer `user` nie ma nic na szynie", () => {
+    // 0634: bez żadnej sekcji odpadają Dashboard, Rekrutacje i Insights.
+    expect(primary("user")).toEqual([]);
   });
 });
 
