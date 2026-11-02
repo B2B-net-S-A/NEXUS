@@ -1,7 +1,7 @@
 """Alarm o skrzynkach poza zakresem aplikacji „NEXUS Kadry” (02.11.2026).
 
-Revision ID: 0630_hr_m365_scope_alert
-Revises: 0629_company_results_permission
+Revision ID: 0631_hr_m365_scope_alert
+Revises: 0630_sales_invoice_foreign_id
 
 Grupę RBAC aplikacji prowadzi się ręcznie w Exchange. 02.11.2026 wszystkie konta
 założone 18–29.10 dostały 403 przy odczycie skrzynki i nikt nie dostał sygnału.
@@ -11,8 +11,8 @@ Po uzgadnianiu o 7:00 admini dostają listę osób do dopisania:
 
 from alembic import op
 
-revision = "0630_hr_m365_scope_alert"
-down_revision = "0629_company_results_permission"
+revision = "0631_hr_m365_scope_alert"
+down_revision = "0630_sales_invoice_foreign_id"
 branch_labels = None
 depends_on = None
 
@@ -28,7 +28,7 @@ BEGIN
         SELECT 1 FROM notifications
         WHERE notification_type::text = 'hr_m365_scope_missing'
     ) THEN
-        RAISE EXCEPTION 'Downgrade 0630 odmawia: notifications ma alarmy o zakresie skrzynek, których kod sprzed tej rewizji nie odczyta.';
+        RAISE EXCEPTION 'Downgrade 0631 odmawia: notifications ma alarmy o zakresie skrzynek, których kod sprzed tej rewizji nie odczyta.';
     END IF;
 END $$"""
 
