@@ -579,7 +579,11 @@ def _finance_quality(warnings: list[str], flag: str = "complete") -> QualityPayl
 # ── Finanse i zarząd — „Wyniki firmy” ──────────────────────────────────────────
 
 
-@router.get("/finance/summary", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/summary",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_summary(
     current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
@@ -603,7 +607,11 @@ async def get_finance_summary(
     )
 
 
-@router.get("/finance/trend", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/trend",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_trend(
     current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
@@ -636,7 +644,11 @@ async def get_finance_trend(
     )
 
 
-@router.get("/finance/clients", response_model=AnalyticsEnvelope)
+@router.get(
+    "/finance/clients",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_finance_clients(
     current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
@@ -660,7 +672,11 @@ async def get_finance_clients(
     )
 
 
-@router.get("/executive/board", response_model=AnalyticsEnvelope)
+@router.get(
+    "/executive/board",
+    response_model=AnalyticsEnvelope,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def get_executive_board(
     current_user: User = Depends(require_permission(ProductAction.company_results)),
     _: None = Depends(_analytics_enabled),
