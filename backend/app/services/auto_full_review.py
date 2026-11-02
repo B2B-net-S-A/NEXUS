@@ -12,7 +12,9 @@ Reguły, które łatwo cofnąć „przy okazji":
   zasila auto-match nowych CV) NOWSZE niż ostatni przegląd automatyczny tej
   rekrutacji — nie „każda opublikowana rekrutacja". Przegląd to ~100–130 MB
   wierszy wyników; przemiatanie wszystkich otwartych rekrutacji co noc
-  zapchałoby wolumen bazy.
+  zapchałoby wolumen bazy. Pierwszeństwo daje też inny odcisk requestu niż przy
+  ostatnim przeglądzie (`_request_changed_ids`, 02.11.2026), bo słownik aliasów
+  i statystyki krytycznych zmieniają go bez zdarzenia.
 * Najwyżej JEDEN przegląd automatyczny na rekrutację na noc (także nieudany —
   awaria nie może zapętlić się w oknie) i `AUTO_FULL_REVIEW_MAX_PER_NIGHT`
   łącznie. Odcisk requestu równy ostatniemu UDANEMU przeglądowi automatycznemu
@@ -230,14 +232,51 @@ def _reviewed_under_older_versions():
     )
 
 
+async def _request_changed_ids(db, due_clauses: tuple) -> list[int]:
+    """Rekrutacje, których dzisiejszy odcisk różni się od ostatniego przeglądu.
+
+    Zdarzenie nie łapie wszystkiego (pomiar 02.11.2026, 8 ze 187 rekrutacji):
+    pole spoza list zdarzeń (`hiring_manager_contact_id`), cotygodniowe
+    przeliczenie podpowiedzi krytycznych i nowy alias w słowniku zmieniają
+    odcisk bez żadnego zapisu w kolejce. Porównanie 190 rekrutacji to ok. 0,4 s.
+    Rekrutacja bez odcisku nie ma z czym się porównać. Wyjątek przy liczeniu
+    kontekstu nie zatrzymuje kolejki, `start_for_job` zapisze awarię tej rekrutacji.
+    """
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    jobs = (await db.scalars(select(Job).where(*due_clauses))).unique().all()
+    changed = []
+    for job in jobs:
+        fingerprint, _reviewed_at = await _last_successful_fingerprint(db, job.id)
+        if fingerprint is None:
+            continue
+        try:
+            profile = await resolve_active_profile(
+                db, user_id=None, client_id=job.client_id
+            )
+            current = build_request_context(job, profile).fingerprint
+        except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje nocy
+            logger.warning(
+                "[auto_full_review] job=%s fingerprint check: %s",
+                job.id,
+                type(exc).__name__,
+            )
+            continue
+        if current != fingerprint:
+            changed.append(job.id)
+    return changed
+
+
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
     """Opublikowane rekrutacje w pracy, które tej nocy jeszcze nie miały przeglądu.
 
     Od 30.09.2026 (decyzja Artura) co noc WSZYSTKIE rekrutacje w pracy, nie
     tylko te ze zdarzeniem: nowe CV w bazie nie jest zdarzeniem rekrutacji,
     a do 30.09 propozycje dostawało 5 rekrutacji na noc. Kolejność: najpierw
-    zdarzenie nowsze niż ostatni przegląd albo przegląd pod starą wersją reguł
-    (07.10.2026), potem „Szukamy”, potem najdawniej przeglądane.
+    zdarzenie nowsze niż ostatni przegląd, przegląd pod starą wersją reguł
+    (07.10.2026) albo inny odcisk requestu (02.11.2026), potem „Szukamy”, potem
+    najdawniej przeglądane.
     """
     lookback = now - timedelta(
         days=max(1, int(settings.AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS))
@@ -261,21 +300,23 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
     )
     last_auto = _last_auto_run_at()
     stale_versions = _reviewed_under_older_versions()
+    due_clauses = (
+        Job.status == JobStatus.published,
+        # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
+        # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
+        Job.work_state.in_(IN_WORK_STATES),
+        # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
+        # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
+        # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
+        # `_author_id`.
+        ~ran_tonight,
+    )
+    request_changed = await _request_changed_ids(db, due_clauses)
     rows = await db.execute(
         select(Job.id)
-        .where(
-            Job.status == JobStatus.published,
-            # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
-            # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
-            Job.work_state.in_(IN_WORK_STATES),
-            # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
-            # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
-            # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
-            # `_author_id`.
-            ~ran_tonight,
-        )
-        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł) pierwsze,
-        # potem „Szukamy kandydatów”,
+        .where(*due_clauses)
+        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł, albo inny
+        # odcisk requestu) pierwsze, potem „Szukamy kandydatów”,
         # potem najdawniej przeglądane.
         .order_by(
             case(
@@ -289,6 +330,7 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
                 # Przegląd pod starą wersją reguł jest nieczytelny (409) — jak
                 # zdarzenie rekrutacji.
                 (stale_versions, 0),
+                (Job.id.in_(request_changed), 0),
                 else_=1,
             ),
             case((Job.work_state == "searching", 0), else_=1),
