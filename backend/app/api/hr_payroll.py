@@ -44,8 +44,10 @@ from app.api.deps import require_onboarded_user
 from app.api.hr_gates import ensure_module
 from app.core.database import get_db
 from app.core.scheduling import business_today
+from app.models.client import Client
 from app.models.hr_payroll import HrBonus
 from app.models.hr_profile import EmployeeProfile
+from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
 from app.services.action_permissions import ProductAction
 from app.services.hr import audit, people
@@ -208,6 +210,7 @@ class ReopenIn(BaseModel):
 class ExtraDlIn(BaseModel):
     dl_user_id: int
     recipient_user_id: int
+    client_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class DlHoursIn(BaseModel):
@@ -1032,13 +1035,40 @@ async def _rules_response(
         {**item, "name": names.get(item["user_id"])}
         for item in payload["individual_recruiters"]
     ]
+    client_ids = {cid for rule in rules.extra_dl for cid in rule.client_ids}
+    client_names: dict[int, str] = {}
+    if client_ids:
+        client_names = dict(
+            (
+                await db.execute(
+                    select(Client.id, Client.name).where(Client.id.in_(client_ids))
+                )
+            ).all()
+        )
     payload["extra_dl"] = [
         {
             **item,
             "dl_name": names.get(item["dl_user_id"]),
             "recipient_name": names.get(item["recipient_user_id"]),
+            "client_names": [
+                client_names.get(cid, f"Klient {cid}") for cid in item["client_ids"]
+            ],
         }
         for item in payload["extra_dl"]
+    ]
+    payload["client_options"] = [
+        {"id": client_id, "name": name}
+        for client_id, name in (
+            await db.execute(
+                select(Client.id, Client.name)
+                .where(
+                    Client.id.in_(
+                        select(DeliveryLeadClientAssignment.client_id).distinct()
+                    )
+                )
+                .order_by(Client.name)
+            )
+        ).all()
     ]
     return payload
 
@@ -1091,6 +1121,20 @@ async def put_rules(
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
                 "Reguły premii: każda wskazana osoba musi mieć kartotekę w NEXUSIE.",
+            )
+    client_ids = {
+        int(client_id)
+        for item in (merged.get("extra_dl") or [])
+        for client_id in (item.get("client_ids") or [])
+    }
+    if client_ids:
+        known = set(
+            await db.scalars(select(Client.id).where(Client.id.in_(client_ids)))
+        )
+        if client_ids - known:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "Reguły premii: wskazany klient nie istnieje.",
             )
     with _http_errors():
         rules = await bonus_rules.save_rules(db, merged, actor_id=current_user.id)

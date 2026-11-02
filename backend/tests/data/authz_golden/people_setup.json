@@ -25,10 +25,11 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/people-setup/options": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/people-setup/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/people-setup/options": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "POST /api/people-setup/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

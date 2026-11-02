@@ -54,7 +54,7 @@ export function ForwardOffDialog({ target, onClose }: ForwardOffDialogProps) {
       {
         onSuccess: () => close(true),
         onError: (err) =>
-          setError(apiErrorMessage(err, "Nie udało się wyłączyć przekierowania.")),
+          setError(apiErrorMessage(err, "Nie udało się wyłączyć kopii poczty.")),
       },
     );
   };
@@ -63,7 +63,7 @@ export function ForwardOffDialog({ target, onClose }: ForwardOffDialogProps) {
     <AppModal
       open={target !== null}
       onOpenChange={(open) => (open ? undefined : close(false))}
-      title="Wyłączyć przekierowanie poczty?"
+      title="Wyłączyć kopię poczty do zastępcy?"
       description={
         target
           ? `${target.user_name ?? "Osoba"} · ${formatRange(target.start_date, target.end_date)}${
@@ -77,7 +77,7 @@ export function ForwardOffDialog({ target, onClose }: ForwardOffDialogProps) {
             Zostaw
           </Button>
           <Button variant="destructive" onClick={submit} disabled={forwardOff.isPending}>
-            {forwardOff.isPending ? "Wyłączanie…" : "Wyłącz przekierowanie"}
+            {forwardOff.isPending ? "Wyłączanie…" : "Wyłącz kopię poczty"}
           </Button>
         </>
       }

@@ -138,7 +138,7 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
-import { CALL_FIRST_COUNT, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
+import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
@@ -1503,6 +1503,15 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ) : null}
 
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
+ {callFirstRank != null && knownFactLabels(item.entry_autofill?.known).length > 0 ? (
+ <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
+ {knownFactLabels(item.entry_autofill?.known).map((label) => (
+ <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
+ {label}
+ </span>
+ ))}
+ </div>
+ ) : null}
  <NextActionRow
  action={nextAction}
  step={nextStep}
@@ -1743,7 +1752,7 @@ function NewColumnSectionHeader({ section, total }: { section: NewColumnSection;
  {label}
  </div>
  {section === "call_first" ? (
- <div className="mt-0.5 text-[10.5px] text-muted-foreground">Od najwyższego wyniku</div>
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground">Wynik plus to, co o osobie wiemy</div>
  ) : null}
  </div>
  );

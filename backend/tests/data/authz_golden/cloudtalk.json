@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/cloudtalk/agents": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/agents/{agent_id}/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/cloudtalk/initiate-call": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/cloudtalk/sync-agents": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

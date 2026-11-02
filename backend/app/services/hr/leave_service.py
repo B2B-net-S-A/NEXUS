@@ -1218,7 +1218,7 @@ async def set_forward_consent(
     if request.end_date < today:
         raise LeavePolicyError("Ta nieobecność już minęła.")
     if consent and request.substitute_user_id is None:
-        raise LeavePolicyError("Przekierowanie wymaga zastępcy we wniosku.")
+        raise LeavePolicyError("Kopia poczty wymaga zastępcy we wniosku.")
     if consent:
         _assert_forward_target(await db.get(User, request.substitute_user_id))
     if request.forward_mail_consent == consent:

@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPPDDPPPPD",
-  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPPDDPPPPD",
-  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/candidate-contact/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/candidate-contact/oversight": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "GET /api/candidate-contact/queue": "PDDDPPDDPDPPPPPPPPPDDPPPPDD",
+  "GET /api/candidate-contact/status": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/candidate-contact/cases/{case_id}/attempts": "PDDDPPDDPDPPPPPPPPPDDPPPPDD",
+  "POST /api/candidate-contact/cases/{case_id}/reassign": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

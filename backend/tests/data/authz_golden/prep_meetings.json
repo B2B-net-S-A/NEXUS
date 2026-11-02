@@ -25,18 +25,19 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/interview-cycle/prep-quality": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/interview-cycle/preps/options": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/interview-cycle/preps/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/interview-cycle/prep2-skip": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/interview-cycle/prep2-skip/{skip_id}/call-done": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/interview-cycle/preps": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/interview-cycle/preps/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/interview-cycle/prep-quality": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/interview-cycle/preps/options": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/interview-cycle/preps/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/interview-cycle/preps/{event_id}/transcript": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PATCH /api/interview-cycle/preps/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/interview-cycle/prep2-skip": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/interview-cycle/prep2-skip/{skip_id}/call-done": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/interview-cycle/preps": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/interview-cycle/preps/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

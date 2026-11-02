@@ -145,10 +145,18 @@ async def test_year_on_year_keeps_the_amounts_only_for_holders(monkeypatch) -> N
     limiter_was_enabled = limiter.enabled
     limiter.enabled = False
     try:
-        for holder in (
+        # „Moduł Finanse” wchodzi do tabeli, ale kwoty daje „Wyniki firmy”.
+        for without_money in (
             _account(UserRole.finance, FM),
             _account(UserRole.recruiter, FM),
-            _account(UserRole.head_of_recruitment, FM, insights="write"),
+        ):
+            assert (await read(without_money))["money_redacted"] is True
+        for holder in (
+            _account(UserRole.finance, catalog.COMPANY_RESULTS),
+            _account(UserRole.recruiter, catalog.COMPANY_RESULTS),
+            _account(
+                UserRole.head_of_recruitment, catalog.COMPANY_RESULTS, insights="write"
+            ),
         ):
             full = await read(holder)
             assert "money_redacted" not in full
@@ -293,8 +301,14 @@ async def test_year_on_year_money_follows_the_permission(
         await app_client.get(YOY_URL, headers=recruiter_headers, params=params)
     )
 
-    await grant_permissions(hor_id, FM)
+    # Sam „Moduł Finanse” wpuszcza do tabeli, ale bez kwot (02.11.2026).
     await grant_permissions(recruiter_id, FM)
+    no_money = await app_client.get(YOY_URL, headers=recruiter_headers, params=params)
+    assert no_money.status_code == 200, no_money.text
+    assert no_money.json()["money_redacted"] is True
+
+    await grant_permissions(hor_id, catalog.COMPANY_RESULTS)
+    await grant_permissions(recruiter_id, catalog.COMPANY_RESULTS)
 
     for headers in (hor_headers, recruiter_headers):
         full = await app_client.get(YOY_URL, headers=headers, params=params)

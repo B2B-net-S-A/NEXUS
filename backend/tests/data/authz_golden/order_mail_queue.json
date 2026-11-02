@@ -25,19 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/order-mail/queue": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDPPPDDDDDDPPDDDDDDD",
-  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
-  "GET /api/order-mail/recheck-runs": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "GET /api/order-mail/sync/status": "PPDPPDDDPPPDPPPPDPPPDDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
-  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPDDDDPPPDDPDDDDDDDDDDDD",
-  "POST /api/order-mail/sync": "PPDPDDDDPPPDDPDDDDDDDDDDDD"
+  "GET /api/order-mail/queue": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "GET /api/order-mail/queue/{doc_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "GET /api/order-mail/queue/{doc_id}/file": "PPDPDDDDPPPDDDDDDPPDDDDDDDP",
+  "GET /api/order-mail/queue/{doc_id}/order-target": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
+  "GET /api/order-mail/recheck-runs": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "GET /api/order-mail/sync/status": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
+  "POST /api/order-mail/queue/{doc_id}/apply": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
+  "POST /api/order-mail/queue/{doc_id}/dismiss": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
+  "POST /api/order-mail/queue/{doc_id}/refresh-plan": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
+  "POST /api/order-mail/queue/{doc_id}/resolved-in-order": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
+  "POST /api/order-mail/sync": "PPDPDDDDPPPDDPDDDDDDDDDDDDP"
  }
 }

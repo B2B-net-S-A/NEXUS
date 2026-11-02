@@ -48,6 +48,7 @@ __all__ = [
     "ContractsOrdersEditUser",
     "ContractsOrdersOrAmountsEditUser",
     "DeliveryViewUser",
+    "CompanyResultsUser",
     "FinanceModuleUser",
     "RecruitmentManageUser",
     "SalesEditUser",
@@ -61,6 +62,11 @@ __all__ = [
     "require_permission",
 ]
 
+# Zbiorcze wyniki firmy poza widokiem Firma: bez Rady, bo te trasy nie są jej
+# raportami (`rola-rada-nadzorcza-tylko-insights.md`) — te same liczby ma w Firmie.
+CompanyResultsUser = Annotated[
+    User, Depends(require_permission(ProductAction.company_results))
+]
 # Jeden obiekt zależności na uprawnienie — FastAPI liczy go raz na żądanie.
 DeliveryViewUser = Annotated[
     User, Depends(require_permission(ProductAction.delivery_view))

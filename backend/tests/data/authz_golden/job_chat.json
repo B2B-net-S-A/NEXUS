@@ -25,21 +25,22 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
-  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "GET /api/jobs/{job_id}/chat/members": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/chat/messages/{msg_id}/read-by": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/chat/pinned": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/jobs/{job_id}/chat/unread-count": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/reactions": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "PUT /api/jobs/{job_id}/chat/read": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
+  "DELETE /api/jobs/{job_id}/chat/messages/{msg_id}/reactions/{emoji}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/jobs/{job_id}/chat/members": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/chat/messages/{msg_id}/read-by": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/chat/pinned": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/jobs/{job_id}/chat/unread-count": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PATCH /api/jobs/{job_id}/chat/messages/{msg_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/chat/messages": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/pin": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/chat/messages/{msg_id}/reactions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "PUT /api/jobs/{job_id}/chat/read": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

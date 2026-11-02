@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /health": "PPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /health": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

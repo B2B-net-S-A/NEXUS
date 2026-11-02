@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "GET /api/users": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

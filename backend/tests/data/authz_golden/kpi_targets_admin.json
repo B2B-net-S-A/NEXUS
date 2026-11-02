@@ -25,12 +25,13 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/kpi-targets": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "GET /api/kpi-targets/history": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "PUT /api/kpi-targets/role-default": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "PUT /api/kpi-targets/user-target": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

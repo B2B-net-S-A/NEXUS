@@ -304,6 +304,23 @@ describe("SegmentedRadio — wygląd", () => {
     expect(radio("P1 Pilne").className).not.toContain("bg-primary");
   });
 
+  it("opcja może mieć własny kolor, gdy jest wybrana", () => {
+    render(
+      <Harness
+        options={[
+          OPTIONS[0],
+          { ...OPTIONS[1], checkedClassName: "bg-warning-muted text-warning-muted-foreground" },
+        ]}
+      />,
+    );
+    expect(radio("P2 Standard").className).toContain("bg-warning-muted");
+    expect(radio("P2 Standard").className).not.toContain("bg-primary");
+
+    fireEvent.click(radio("P1 Pilne"));
+    expect(radio("P1 Pilne").className).toContain("bg-primary");
+    expect(radio("P2 Standard").className).not.toContain("bg-warning-muted");
+  });
+
   it("zawija opcje w wąskim kontenerze i ma mniejszy rozmiar", () => {
     const { rerender } = render(
       <SegmentedRadio label="Priorytet" value="p2" onChange={vi.fn()} options={OPTIONS} />,

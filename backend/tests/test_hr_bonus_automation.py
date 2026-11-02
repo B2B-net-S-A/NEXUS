@@ -38,7 +38,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.section_permission import UserActionOverride
 from app.models.team_structure import DeliveryLeadClientAssignment
 from app.models.user import User, UserRole
-from app.services.hr import league_bonuses, placement_bonuses
+from app.services.hr import bonus_flags, league_bonuses, placement_bonuses
 from app.services.hr.bonus_rules import SETTING_KEY as RULES_KEY
 from app.services.hr.bonus_rules import (
     DEFAULT_RULES,
@@ -701,3 +701,231 @@ async def test_assigned_bonus_of_contract_ended_before_deadline_is_flagged(
     # Automat dalej nie rusza przyznanej premii.
     await _reconcile(world["contract"])
     assert (await _bonuses(world["contract"]))["dl"].status == "assigned"
+
+
+# ── Automat po arkuszu (zgłoszenia Płac 02.11.2026) ───────────────────────────
+
+
+async def _sheet_row(
+    contract_id: int, role: str, recipient: int, amount: str = "1000"
+) -> int:
+    """Wiersz, jaki zostawia import arkusza."""
+
+    async with AsyncSessionLocal() as db:
+        bonus = HrBonus(
+            recipient_user_id=recipient,
+            amount=Decimal(amount),
+            currency="PLN",
+            category="delivery_lead" if role != "recruiter" else "recruiter",
+            period_year=2026,
+            period_month=10,
+            status="proposed",
+            source=placement_bonuses.SOURCE,
+            source_key=placement_bonuses.source_key(contract_id, role),
+            contract_id=contract_id,
+            description="Premia z arkusza",
+            rule_snapshot={
+                "settlement_import": True,
+                "edited_amount": True,
+                "edited_recipient": True,
+                "edited_period": True,
+            },
+        )
+        db.add(bonus)
+        await db.commit()
+        return bonus.id
+
+
+@pytest.mark.asyncio
+async def test_sheet_row_before_floor_does_not_pull_missing_roles(payroll_on) -> None:
+    """Dziubiński: import założył jeden wiersz, a automat dopisał resztę ról."""
+
+    world = await _placement(started_days_ago=60)
+    await _set_setting(RULES_KEY, {"automation_since": business_today().isoformat()})
+    await _sheet_row(world["contract"], "dl", world["dl"])
+    await _reconcile(world["contract"])
+    assert set(await _bonuses(world["contract"])) == {"dl"}
+
+
+@pytest.mark.asyncio
+async def test_sheet_dl_for_extra_recipient_gets_no_second_bonus(payroll_on) -> None:
+    """Ta sama osoba nie dostaje premii DL i dodatkowej premii DL za jeden placement."""
+
+    world = await _placement(started_days_ago=5)
+    async with AsyncSessionLocal() as db:
+        extra = await _person(db, "delivery_lead")
+        await db.commit()
+        extra_id = extra.id
+    await _set_setting(
+        RULES_KEY,
+        {"extra_dl": [{"dl_user_id": world["dl"], "recipient_user_id": extra_id}]},
+    )
+    await _sheet_row(world["contract"], "dl", extra_id)
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    assert "dl_extra" not in found
+    assert found["dl"].recipient_user_id == extra_id
+
+
+@pytest.mark.asyncio
+async def test_stale_termination_date_does_not_cancel_bonus(payroll_on) -> None:
+    """Ewa Zieleń: aktywny kontrakt ze starą datą zakończenia zachowuje premię."""
+
+    world = await _placement(started_days_ago=5)
+    start = business_today() - timedelta(days=5)
+    await _update_contract(world["contract"], terminated_at=start - timedelta(days=1))
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    assert {b.status for b in found.values()} == {"proposed"}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_sheet_row_comes_back_after_fix(payroll_on) -> None:
+    world = await _placement(started_days_ago=5)
+    bonus_id = await _sheet_row(world["contract"], "recruiter", world["recruiter"])
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, bonus_id)
+        bonus.status = "cancelled"
+        bonus.cancel_reason = "contract_ended"
+        bonus.cancelled_at = local_now()
+        await db.commit()
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    assert found["recruiter"].status == "proposed"
+    assert found["recruiter"].amount == Decimal("1000.00")
+
+
+@pytest.mark.asyncio
+async def test_really_ended_contract_keeps_sheet_row_and_flags_it(payroll_on) -> None:
+    world = await _placement(started_days_ago=5)
+    start = business_today() - timedelta(days=5)
+    bonus_id = await _sheet_row(world["contract"], "recruiter", world["recruiter"])
+    await _reconcile(world["contract"])
+    await _update_contract(
+        world["contract"],
+        status=ContractStatus.ended,
+        end_date=start + timedelta(days=1),
+    )
+    await _reconcile(world["contract"])
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, bonus_id)
+        assert bonus.status == "proposed"
+        flags = await bonus_flags.bonus_flags(db, [bonus], today=business_today())
+    assert "contract_ended" in {flag["code"] for flag in flags[bonus_id]}
+
+
+@pytest.mark.asyncio
+async def test_ended_contract_keeps_end_date_on_cancelled_proposal(payroll_on) -> None:
+    world = await _placement(started_days_ago=5)
+    await _reconcile(world["contract"])
+    end = business_today() - timedelta(days=4)
+    await _update_contract(world["contract"], status=ContractStatus.ended, end_date=end)
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    assert found["dl"].cancel_reason == "contract_ended"
+    assert found["dl"].rule_snapshot["ended_on"] == end.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_extra_bonus_respects_client_list_and_flags_sheet_row(payroll_on) -> None:
+    """Tyrkiel: reguła tylko u wskazanego klienta, wiersz z arkusza dostaje oznaczenie."""
+
+    world = await _placement(started_days_ago=5)
+    async with AsyncSessionLocal() as db:
+        extra = await _person(db, "delivery_lead")
+        other = Client(name=f"Inny klient {uuid.uuid4().hex[:6]}")
+        db.add(other)
+        await db.commit()
+        extra_id, other_id = extra.id, other.id
+    await _set_setting(
+        RULES_KEY,
+        {
+            "extra_dl": [
+                {
+                    "dl_user_id": world["dl"],
+                    "recipient_user_id": extra_id,
+                    "client_ids": [other_id],
+                }
+            ]
+        },
+    )
+    await _reconcile(world["contract"])
+    assert "dl_extra" not in await _bonuses(world["contract"])
+    bonus_id = await _sheet_row(world["contract"], "dl_extra", extra_id, "1344")
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, bonus_id)
+        flags = await bonus_flags.bonus_flags(db, [bonus], today=business_today())
+    assert "extra_scope" in {flag["code"] for flag in flags[bonus_id]}
+
+
+@pytest.mark.asyncio
+async def test_amount_from_sheet_other_than_rule_is_flagged(payroll_on) -> None:
+    """Szczęsny: 1500 z arkusza przy progu 3. Podwojona kwota oznaczenia nie daje."""
+
+    world = await _placement(started_days_ago=5, client_rate="183", cost_rate="130")
+    low = await _sheet_row(world["contract"], "recruiter", world["recruiter"], "1500")
+    await _reconcile(world["contract"])
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, low)
+        flags = await bonus_flags.bonus_flags(db, [bonus], today=business_today())
+        flag = next(f for f in flags[low] if f["code"] == "amount_rule")
+        assert flag["rule_amount"] == "2000.00"
+        bonus.amount = Decimal("4000")
+        await db.flush()
+        again = await bonus_flags.bonus_flags(db, [bonus], today=business_today())
+        assert "amount_rule" not in {f["code"] for f in again.get(low, [])}
+        await db.rollback()
+
+
+@pytest.mark.asyncio
+async def test_two_bonuses_of_one_person_are_flagged(payroll_on) -> None:
+    world = await _placement(started_days_ago=5)
+    await _sheet_row(world["contract"], "dl", world["dl"])
+    second = await _sheet_row(world["contract"], "dl_extra", world["dl"], "672")
+    async with AsyncSessionLocal() as db:
+        bonus = await db.get(HrBonus, second)
+        flags = await bonus_flags.bonus_flags(db, [bonus], today=business_today())
+    assert "second_bonus" in {flag["code"] for flag in flags[second]}
+
+
+@pytest.mark.asyncio
+async def test_dl_closing_after_departed_recruiter_gets_only_dl_bonus(
+    payroll_on,
+) -> None:
+    """Błaszczyk: osobę zweryfikowała u klienta osoba, która odeszła, DL ma też rolę
+    rekrutera i domyka w nowej rekrutacji: tylko premia DL (decyzja 02.11.2026)."""
+
+    world = await _placement(started_days_ago=5)
+    async with AsyncSessionLocal() as db:
+        contract = await db.get(Contract, world["contract"])
+        dl = await db.get(User, world["dl"])
+        dl.roles = ["delivery_lead", "recruiter"]
+        gone = await _person(db, "recruiter")
+        gone.is_active = False
+        earlier = Job(
+            title=f"Wcześniejsza {uuid.uuid4().hex[:6]}",
+            client_id=contract.client_id,
+            status=JobStatus.published,
+            delivery_lead_id=dl.id,
+        )
+        db.add(earlier)
+        await db.flush()
+        db.add(
+            CandidateStage(
+                candidate_id=contract.candidate_id,
+                job_id=earlier.id,
+                stage=PipelineStage.verified,
+                moved_by=gone.id,
+            )
+        )
+        verified = await db.scalar(
+            select(CandidateStage).where(
+                CandidateStage.candidate_id == contract.candidate_id,
+                CandidateStage.job_id == contract.job_id,
+            )
+        )
+        verified.moved_by = dl.id
+        await db.commit()
+    await _reconcile(world["contract"])
+    found = await _bonuses(world["contract"])
+    assert set(found) == {"dl"}
