@@ -1,7 +1,7 @@
 """Wycofywany Viewer (``user``) nie ma żadnej sekcji.
 
-Revision ID: 0629_viewer_role_no_sections
-Revises: 0627_client_amendment_text
+Revision ID: 0630_viewer_role_no_sections
+Revises: 0629_company_results_permission
 
 Audyt najmniejszych dostępów 02.11.2026. Lustro w ``entrypoint.sh`` przez
 ``hr_schema_bundle``; biegnie raz, potem decyzja admina z panelu wygrywa.
@@ -13,8 +13,8 @@ from alembic import op
 
 from app.services import viewer_role_schema as schema
 
-revision = "0629_viewer_role_no_sections"
-down_revision = "0627_client_amendment_text"
+revision = "0630_viewer_role_no_sections"
+down_revision = "0629_company_results_permission"
 branch_labels = None
 depends_on = None
 
