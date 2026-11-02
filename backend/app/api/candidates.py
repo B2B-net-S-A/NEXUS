@@ -4531,7 +4531,13 @@ async def _resolve_invite_source(
         select(CandidateSourceEvent.utm_source)
         .where(
             CandidateSourceEvent.candidate_id == candidate_id,
-            CandidateSourceEvent.channel == SourceChannel.posting,
+            CandidateSourceEvent.channel.in_(
+                (
+                    SourceChannel.posting,
+                    SourceChannel.career_link_general,
+                    SourceChannel.career_link_job,
+                )
+            ),
             CandidateSourceEvent.captured_at
             <= activity.created_at + timedelta(minutes=5),
         )
