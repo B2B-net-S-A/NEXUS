@@ -1722,6 +1722,14 @@
    "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
   },
   {
+   "id": "champ.sent-gap",
+   "area": "zlecenie",
+   "opis": "Ostrzeżenie pod wierszem „musi mieć”, którego nie ma nikt z co najmniej 3 osób wysłanych do klienta: „Do rozmowy”, „Zostaw” i „Podpowiedz słowa” (model czyta CV wysłanych, słowa z liczbą złapanych osób i osób w bazie); ten sam powód w „Propozycji uporządkowania wymagań” i na pulpicie Delivery Leada (02.11.2026)",
+   "file": "components/champion/RequirementRowCallouts.tsx",
+   "marker": "SentGapCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · pulpit → Wymagania do poprawy"
+  },
+  {
    "id": "champ.talk-search-word",
    "area": "zlecenie",
    "opis": "„To słowo do szukania?” pod listą „Rekruter sprawdza w rozmowie”: pozycja, którą serwer czyta jako technologię albo słowo do szukania, a której nie ma w wierszach wymagań, dostaje liczbę osób w bazie i „Dodaj do słów do szukania” (pozycja z poziomem albo komentarzem zostaje na liście) albo „Przenieś do słów do szukania” (27.10.2026)",

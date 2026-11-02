@@ -116,6 +116,7 @@ class ProcessOut(BaseModel):
     recruiter_name: Optional[str] = None
     closed: bool = False
     close_label: Optional[str] = None
+    close_kind: Optional[Literal["hired", "rejected", "withdrawn", "job_closed"]] = None
     updated_at: Optional[datetime] = None
 
 

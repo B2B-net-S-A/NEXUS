@@ -24,4 +24,5 @@ export function invalidateChampionDependents(
   void qc.invalidateQueries({ queryKey: ["champion-profile", jobId] });
   void qc.invalidateQueries({ queryKey: ["job", String(jobId)] });
   void qc.invalidateQueries({ queryKey: ["job-readiness", jobId] });
+  void qc.invalidateQueries({ queryKey: ["requirement-sent-gaps", jobId] });
 }
