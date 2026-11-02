@@ -150,10 +150,12 @@ export function readExperienceText(snapshot) {
 export function readSkillsText(snapshot) {
   const section = findTextSection(snapshot, "skills");
   if (!section) return [];
-  const candidates = section.items?.length ? section.items.map((item) => bodyLines(section, item)[0]).filter(Boolean) : bodyLines(section);
+  // Jedna pozycja między <hr> może mieć kilka umiejętności (zmierzone 02.11.2026).
+  const candidates = section.items?.length ? section.items.flatMap((item) => bodyLines(section, item)) : bodyLines(section);
   const out = [];
   for (const s of candidates) {
-    if (s.length > 60 || isDateLine(s)) continue;
+    // „Kierownik at Firma” pod umiejętnością to miejsce jej użycia, nie umiejętność.
+    if (s.length > 60 || isDateLine(s) || splitTitleCompany(s).company) continue;
     if (!out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
   }
   return out.slice(0, 30);

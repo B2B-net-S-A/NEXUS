@@ -91,6 +91,14 @@ Pomiar DOM Recruitera i lokalna instalacja ZIP-a nie zastępują pełnej ścież
 zainstalowanej wtyczki z kontem rekrutera i produkcyjnym NEXUSEM. Ten etap
 wymaga osobnego potwierdzenia po połączeniu wtyczki.
 
+**Pomiar 02.11.2026 (1.0.4):** główna wyszukiwarka Recruitera to `/talent/search`,
+a profil z niej to `/talent/search/profile/…`. Lista ma na starcie 3 z 25 wierszy,
+reszta doładowuje się po przewinięciu strony. Wiersze nie mają linku `/in/`, więc
+rozpoznanie osoby na liście idzie po imieniu i firmie; firma stoi w pierwszej
+pozycji grupy „Experience” (`… at Firma · 2023 – Present`). Nadal poza panelem,
+bo niezmierzone: `discover/automatedSourcing/review` i `discover/applicants`
+bez otwartego profilu.
+
 ## Dystrybucja: ZIP z NEXUSA i Web Store (29.10.2026)
 
 Prośba Artura z 29.10: wtyczka ma działać u zespołu także wtedy, gdy Google nie
