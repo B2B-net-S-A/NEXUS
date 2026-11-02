@@ -32,6 +32,7 @@
   "GET /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "GET /api/sales/activities/tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/{activity_id}/transcript": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "PATCH /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/sales/activities/tasks/complete": "PDDDDDDDDDDDDDDDDDDDDDDDDD",

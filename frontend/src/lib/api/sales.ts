@@ -816,9 +816,27 @@ export function useSalesTasks(filters: TaskFilters) {
   });
 }
 
+export interface Meeting extends Activity {
+  /** Stan transkryptu Teams; `null` — spotkanie poza kolejką (gość, historia, Atlas). */
+  transcript_status: "waiting" | "fetched" | "missing" | "not_online" | "forbidden" | "error" | null;
+  transcript_summary: string | null;
+}
+
+export interface MeetingList {
+  items: Meeting[];
+  total: number;
+}
+
+export interface MeetingTranscript {
+  subject: string | null;
+  summary: string | null;
+  plain_text: string;
+}
+
 export interface MeetingFilters {
   q?: string;
   linked?: "opportunity" | "company";
+  has_transcript?: boolean;
   date_from?: string;
   date_to?: string;
   limit?: number;
@@ -829,8 +847,17 @@ export function useSalesMeetings(filters: MeetingFilters) {
   return useQuery({
     queryKey: ["sales", "meetings", filters] as const,
     queryFn: async () =>
-      (await api.get<TaskList>("/api/sales/activities/meetings", { params: clean({ ...filters }) }))
+      (await api.get<MeetingList>("/api/sales/activities/meetings", { params: clean({ ...filters }) }))
         .data,
+  });
+}
+
+export function useMeetingTranscript(activityId: number | null) {
+  return useQuery({
+    queryKey: ["sales", "meetings", activityId, "transcript"] as const,
+    queryFn: async () =>
+      (await api.get<MeetingTranscript>(`/api/sales/activities/${activityId}/transcript`)).data,
+    enabled: activityId !== null,
   });
 }
 

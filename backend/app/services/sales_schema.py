@@ -639,3 +639,51 @@ OUTLOOK_SYNC_DOWNGRADE_DDL: tuple[str, ...] = (
     "ALTER TABLE calendar_events DROP COLUMN IF EXISTS m365_ical_uid",
     "ALTER TABLE emails DROP COLUMN IF EXISTS web_link",
 )
+
+# ── 0628: transkrypty Teams przy spotkaniach handlowców (decyzja Artura 02.11.2026) ──
+# Klucz to ``iCalUId``, a nie aktywność: jedno spotkanie bywa przy kilku firmach,
+# a transkrypt pobieramy raz. Bez FK do ``sales_activities`` z tego samego powodu.
+
+TRANSCRIPT_STATUSES: tuple[str, ...] = (
+    "waiting",
+    "fetched",
+    "missing",
+    "not_online",
+    "forbidden",
+    "error",
+)
+CK_TRANSCRIPT_STATUS = f"status IN ({quoted(TRANSCRIPT_STATUSES)})"
+
+TRANSCRIPTS_DDL: tuple[str, ...] = (
+    f"""CREATE TABLE IF NOT EXISTS sales_meeting_transcripts (
+    id BIGSERIAL PRIMARY KEY,
+    ical_uid VARCHAR(255) NOT NULL,
+    organizer_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    organizer_upn VARCHAR(320) NOT NULL,
+    graph_event_id VARCHAR(512) NOT NULL,
+    organizer_aad_id VARCHAR(64),
+    join_url VARCHAR(2000),
+    online_meeting_id VARCHAR(512),
+    starts_at TIMESTAMPTZ NOT NULL,
+    ends_at TIMESTAMPTZ NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'waiting',
+    fetch_attempts INTEGER NOT NULL DEFAULT 0,
+    next_fetch_at TIMESTAMPTZ,
+    last_error VARCHAR(120),
+    graph_transcript_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+    plain_text TEXT,
+    fetched_at TIMESTAMPTZ,
+    summary TEXT,
+    summary_attempts INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT uq_sales_meeting_transcripts_ical UNIQUE (ical_uid),
+    CONSTRAINT ck_sales_meeting_transcripts_status CHECK ({CK_TRANSCRIPT_STATUS})
+)""",
+    "CREATE INDEX IF NOT EXISTS ix_sales_meeting_transcripts_queue "
+    "ON sales_meeting_transcripts (next_fetch_at) WHERE next_fetch_at IS NOT NULL",
+)
+
+TRANSCRIPTS_DOWNGRADE_DDL: tuple[str, ...] = (
+    "DROP TABLE IF EXISTS sales_meeting_transcripts",
+)

@@ -160,8 +160,7 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
   (`offers_only`), bez nowej tabeli. Generator ofert dalej jest poza zakresem.
 - **Spotkania = `GET /api/sales/activities/meetings`**: wszystkie aktywności
   `meeting`, notatka skrócona do 300 znaków, bo transkrypcja bywa bardzo długa.
-  Nowe nagrania mają przychodzić z transkryptów Teams, nie z Fireflies — tego
-  połączenia jeszcze nie ma.
+  Nowe nagrania przychodzą z transkryptów Teams, nie z Fireflies (niżej).
 - **Filtry szans:** Model (`service_line`) i data utworzenia w kalendarzu firmy,
   pod przyciskiem „Filtry”, bo przy 1280 × 720 kolejny rząd pól zabiera miejsce
   tablicy. Szukanie po NIP tylko dla frazy z samych cyfr: „10CLOUDS” nie może
@@ -169,6 +168,26 @@ https://claude.ai/artifact/DwuZg8fxnWRg4NdXVgLTpe.
 - **Mapa decyzyjna:** puste pola osoby uzupełnia jej kontakt, wpis z Atlasa ma
   pierwszeństwo. Dalej tylko do odczytu; edytor to osobne zadanie.
 - **Kontakt z zakładki Kontakty:** firma obowiązkowa, jak w Atlasie.
+
+## Transkrypty Teams przy spotkaniach (decyzje Artura 02.11.2026)
+
+`services/sales/meeting_transcripts.py`, tabela `sales_meeting_transcripts` (0628),
+wyłącznik `SALES_TEAMS_TRANSCRIPTS_ENABLED`. Konfiguracja Microsoft:
+`docs/teams-prep-setup.md`.
+
+- **Osobna grupa handlowców, bez automatycznego nagrywania.** Nie dopisuj ich do
+  `NEXUS-Meetings-Scope`: tamta grupa nagrywa każde spotkanie i daje zapis do
+  kalendarza. Handlowiec sam włącza transkrypcję, więc brak transkryptu jest normą.
+- **Tylko spotkania, których handlowiec jest organizatorem,** i tylko nowe: bez
+  pobierania historii. Klucz to `iCalUId`, bo jedno spotkanie bywa przy kilku firmach.
+- **Adres spotkania czyta token handlowca podczas synchronizacji**, osobnym GET-em
+  dla wiersza z kolejki. Nie dokładaj `onlineMeeting` do `EVENT_SELECT`: nie jest
+  potrzebny do reszty, a zmiana wymusza pełny odczyt kalendarzy wszystkich skrzynek.
+- **Spotkanie cykliczne ma wspólną listę transkryptów**, więc do wystąpienia należą
+  tylko te utworzone w jego czasie (`within_meeting`).
+- **Spotkanie odwołane albo oznaczone jako prywatne** zabiera też transkrypt.
+- **Podsumowanie (F40) jest dodatkiem:** lista czyta je z wiersza, awaria modelu
+  zostawia sam transkrypt, najwyżej 3 próby na spotkanie.
 
 ## Poza zakresem (świadomie)
 
