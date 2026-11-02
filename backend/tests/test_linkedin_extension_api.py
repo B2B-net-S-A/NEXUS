@@ -8,6 +8,7 @@ i rekrutacji → osoba „jest w NEXUSIE” z procesem i kontaktem → limit dzi
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -347,6 +348,38 @@ async def test_password_change_disconnects_extension(app_client, app_auth_header
     after = await app_client.get("/api/extension/me", headers=key)
     assert after.status_code == 401
     assert after.json()["detail"] == "extension_key_invalid"
+
+
+@pytest.mark.asyncio
+async def test_lookup_dates_are_company_calendar(app_client, app_auth_headers) -> None:
+    """Zapis tuż po północy w Warszawie to w UTC jeszcze poprzedni dzień."""
+    key = await _connect(app_client, app_auth_headers)
+    slug = f"jan-testowy-{time.time_ns()}"
+    async with AsyncSessionLocal() as db:
+        candidate = Candidate(
+            name="Jan",
+            lastname=f"Testowy{time.time_ns()}",
+            linkedin=f"https://www.linkedin.com/in/{slug}/",
+            created_at=datetime(2026, 10, 31, 23, 30, tzinfo=timezone.utc),
+        )
+        db.add(candidate)
+        await db.flush()
+        db.add(
+            Note(
+                content="Kontakt po północy",
+                candidate_id=candidate.id,
+                note_type="call",
+                created_at=datetime(2026, 11, 2, 23, 45, tzinfo=timezone.utc),
+            )
+        )
+        await db.commit()
+
+    found = await app_client.post("/api/extension/lookup", headers=key, json=_profile(slug))
+    assert found.status_code == 200, found.text
+    data = found.json()
+    assert data["status"] == "found"
+    assert data["candidate"]["in_nexus_since"] == "2026-11-01"
+    assert data["contacts"][0]["at"].startswith("2026-11-03T")
 
 
 @pytest.mark.asyncio

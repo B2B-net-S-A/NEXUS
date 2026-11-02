@@ -70,6 +70,8 @@ Wejście: `ProfileRead` plus opcjonalne `active_job_id` (rekrutacja z paska „P
  "usage": {"reads_today": 35, "reads_limit": 150}}
 ```
 Pola obiektowe mogą być `null`, listy puste. `rate` jest `null`, gdy rola nie widzi stawek.
+Daty to kalendarz firmy (Europe/Warsaw): `at`, `last_contact_at` i `updated_at` mają przesunięcie
+Warszawy (`2026-11-03T00:45:00+01:00`), więc dzień można wziąć z początku ciągu.
 `close_kind` to `hired | rejected | withdrawn | job_closed`, a `null` przy otwartym procesie.
 `close_label` podaje stan z powodem (`Odrzucony · powód`, `Rekrutacja zamknięta`); przy `hired`
 jest `null` i panel pokazuje `stage_label`.
