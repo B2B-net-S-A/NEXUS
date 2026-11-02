@@ -291,7 +291,7 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                 <label className="flex items-center gap-2 text-sm">
                   <span className="shrink-0 text-muted-foreground">Przydziel</span>
                   <select
-                    className="h-8 min-w-0 flex-1 rounded-md border bg-card px-2 text-sm"
+                    className="h-8 w-0 min-w-0 flex-1 rounded-md border bg-card px-2 text-sm"
                     value=""
                     onChange={(event) => {
                       const userId = Number(event.target.value);

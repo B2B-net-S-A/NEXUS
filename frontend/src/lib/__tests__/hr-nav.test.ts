@@ -42,7 +42,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
   it("wyłączony program ukrywa wszystko, także adminowi z otwartymi modułami", () => {
     const all = Object.fromEntries(Object.keys(MODULES).map((k) => [k, true])) as typeof MODULES;
     const off = { ...config({ is_admin: true, has_profile: true, people_admin: true }, all), program: false };
-    expect(hrNavState(off)).toEqual({ myTime: false, people: false, equipment: false, care: false });
+    expect(hrNavState(off)).toEqual({ myTime: false, people: false, equipment: false, care: false, backOffice: false });
   });
 
   it("bez odczytu konfiguracji wszystko ukryte", () => {
@@ -51,6 +51,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: false,
       equipment: false,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -60,6 +61,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: true,
       equipment: false,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -69,6 +71,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: true,
       equipment: true,
       care: false,
+      backOffice: false,
     });
   });
 
@@ -106,6 +109,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
       people: false,
       equipment: false,
       care: false,
+      backOffice: false,
     });
   });
 
