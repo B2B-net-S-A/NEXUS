@@ -121,6 +121,7 @@ import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvStatus } from "@/lib/cv-to-client";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
@@ -2430,6 +2431,16 @@ export function PipelineCandidateDock({
                     )}
                   </span>
                 </div>
+                {!brandedFailed && companyBranded?.current_filename ? (
+                  <div className="pl-3.5 text-xs text-muted-foreground">
+                    <CvFileNameRow
+                      stageId={editStageId}
+                      filename={companyBranded.current_filename}
+                      patternFilename={companyBranded.pattern_filename}
+                      readOnly={readOnly}
+                    />
+                  </div>
+                ) : null}
                 {/* Awaria odczytu nie udaje braku CV: bez pobierania i bez „Generuj CV”. */}
                 {!brandedFailed && (canDownloadCompanyCv || !readOnly) ? (
                   <div className="flex flex-wrap gap-1.5 pl-3.5">

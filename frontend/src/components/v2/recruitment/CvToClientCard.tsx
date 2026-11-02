@@ -141,6 +141,7 @@ import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
 import { normalizeCvAlign } from "@/lib/cv-editor-align";
 import { CvToClientChecks, useCvChecksCount } from "@/components/v2/recruitment/CvToClientChecks";
+import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { UseOtherCvDialog } from "@/components/v2/recruitment/UseOtherCvDialog";
 import { useReadyCvChoice } from "@/components/v2/recruitment/useReadyCvChoice";
 
@@ -886,6 +887,14 @@ export function CvToClientCard({
                 {finalized ? `wersja ${branded.version}` : "szkic"}
               </Badge>
               {facts.length > 0 ? <p>{facts.join(" · ")}</p> : null}
+              {branded.current_filename ? (
+                <CvFileNameRow
+                  stageId={cvStageId}
+                  filename={branded.current_filename}
+                  patternFilename={branded.pattern_filename}
+                  readOnly={readOnly}
+                />
+              ) : null}
               {usedFile ? (
                 <p data-testid="cv-source-file" className="[overflow-wrap:anywhere]">
                   Powstało z: <span className="font-medium text-foreground">{usedFile.filename ?? "plik CV"}</span>

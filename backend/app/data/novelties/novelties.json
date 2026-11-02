@@ -709,5 +709,24 @@
     "href": "/candidates",
     "section": "sourcing",
     "dot_anchor": "my-people.from-links"
+  },
+  {
+    "id": "zmiana-nazwy-pliku-cv",
+    "title": "Nazwa pliku CV: zmienisz ją bez pobierania",
+    "why": "Nazwa pliku CV do klienta stoi teraz na karcie CV i w panelu osoby. Zmienisz ją tam od razu, bez pobierania pliku, a treść CV zostaje bez zmian.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "head_of_recruitment",
+        "delivery_lead",
+        "admin"
+      ]
+    },
+    "where": "Panel osoby → CV",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.file-name"
   }
 ]
