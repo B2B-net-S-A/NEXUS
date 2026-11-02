@@ -1346,7 +1346,7 @@ export function ChampionProfileEditor({
             />
           </Labeled>
           <Labeled label="Deadline na kandydatów" field="basics.deadline">
-            <span className="flex gap-1.5">
+            <span className="flex gap-1">
               <input
                 type="text"
                 disabled={disabled}
@@ -1367,7 +1367,7 @@ export function ChampionProfileEditor({
                 disabled={disabled || !draft.basics.deadline}
                 value={draft.basics.deadline_time ?? ""}
                 onChange={(e) => patchBasics({ deadline_time: e.target.value })}
-                className={cn(inputClass, "w-[4.75rem] shrink-0")}
+                className={cn(inputClass, "w-[5rem] shrink-0 px-1.5")}
               />
             </span>
           </Labeled>
