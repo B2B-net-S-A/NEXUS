@@ -317,6 +317,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   (`matched_must`, `missing_must`). Pula przeżywa retencję przeglądu (2 dni) do
   następnego przeglądu tej rekrutacji; przegląd bez wektora jej nie rusza.
   Propozycje bez zmian. Wpis „Praca w tle” niesie `autofill_pool` (liczba).
+  150 to liczba osób PO odrzuceniu innej roli (02.11.2026): wiersze idą paczkami
+  (`_POOL_PAGE`) do `AUTOFILL_POOL_SCAN_LIMIT` (5000) przeglądanych; mniej niż 150
+  = rekrutacja wyczerpała wiersze albo limit.
 - **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach

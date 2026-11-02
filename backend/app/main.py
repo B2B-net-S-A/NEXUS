@@ -289,6 +289,8 @@ from app.api import role_profiles as role_profiles_api
 from app.api import invite_links as invite_links_api
 from app.api import career_links as career_links_api
 from app.api import public_career as public_career_api
+from app.api import public_client_panel as public_client_panel_api
+from app.api import client_panel as client_panel_api
 from app.api import application_submissions as application_submissions_api
 from app.api import users as users_api
 from app.api import user_dashboard as user_dashboard_api
@@ -1907,6 +1909,16 @@ app.include_router(
     tags=["public-career"],
 )
 app.include_router(
+    public_client_panel_api.router,
+    prefix="/api/public/panel",
+    tags=["public-client-panel"],
+)
+app.include_router(
+    client_panel_api.router,
+    prefix="/api/client-panel",
+    tags=["client-panel"],
+)
+app.include_router(
     pipeline_templates.router,
     prefix="/api/pipeline-templates",
     tags=["pipeline-templates"],
@@ -3479,6 +3491,12 @@ async def api_health_deep_check():
     from app.models.job_file import JobFile
     from app.models.candidate_client_form import CandidateClientForm
     from app.models.client_cover_sheet_template import ClientCoverSheetTemplate
+    from app.models.client_panel import (
+        ClientPanel,
+        ClientPanelCandidate,
+        ClientPanelRequest,
+        ClientPanelView,
+    )
     from app.models.job_ad import JobAd
     from app.models.job_ad_channel_skip import JobAdChannelSkip
     from app.models.job_ad_publication import JobAdPublication
@@ -3516,6 +3534,7 @@ async def api_health_deep_check():
         EmployeeProfile,
         LeaveEntitlement,
     )
+    from app.models.invite_link import CandidateInviteLinkVisitDay
     from app.models.sales import (
         SalesActivity,
         SalesCompany,
@@ -3786,6 +3805,11 @@ async def api_health_deep_check():
         ("candidate_client_forms", CandidateClientForm),
         # 0626: wzór „Karty przed CV” — brak tabeli = 500 w przeglądzie DL-a.
         ("client_cover_sheet_templates", ClientCoverSheetTemplate),
+        # 0639: panel klienta — brak tabeli = 500 pod linkiem z CV i w „⋯” rekrutacji.
+        ("client_panels", ClientPanel),
+        ("client_panel_candidates", ClientPanelCandidate),
+        ("client_panel_requests", ClientPanelRequest),
+        ("client_panel_views", ClientPanelView),
         # 0430: ogłoszenie do wklejenia na portale — brak tabeli = 500 przy
         # „Przygotuj ogłoszenie” w rekrutacji.
         ("job_ads", JobAd),
@@ -3810,6 +3834,8 @@ async def api_health_deep_check():
         # 0623: cele i KPI tygodniowe handlowców.
         ("sales_targets", SalesTarget),
         ("sales_meeting_transcripts", SalesMeetingTranscript),
+        # 0640: dzienne wejścia na linki — każde wejście na stronę kariery je zapisuje.
+        ("candidate_invite_link_visit_days", CandidateInviteLinkVisitDay),
         ("employee_profiles", EmployeeProfile),
         ("leave_entitlements", LeaveEntitlement),
         ("company_days_off", CompanyDayOff),

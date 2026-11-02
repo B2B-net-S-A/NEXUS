@@ -43,6 +43,7 @@ from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja par
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
 from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
 
@@ -868,6 +869,7 @@ async def _parse_with_claude(
             )
         if not isinstance(data, dict):
             return None
+        drop_untraced_technologies(data, cv_text)
         data["_source"] = f"claude:{template.name}:v{template.version}"
         # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
         # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w

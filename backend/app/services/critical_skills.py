@@ -398,12 +398,21 @@ def must_evidence_options(job) -> dict[str, tuple[str, ...]]:
     krytycznych: osoba z „płatności” w CV miała brak przy wierszu „płatniczych lub
     payment* lub płatności” (121 z 707 wierszy, 02.11.2026). Wymaganie, którego
     słownik nie zna (metodyka, fraza), szuka samego siebie, inaczej zawsze byłoby
-    brakiem („Agile”, „Change management”).
+    brakiem („Agile”, „Change management”). Zamrożone żądanie nie ma ``stack.rows``,
+    więc niesie gotowy słownik pod ``must_evidence_options``
+    (``request_matching_context``).
     """
     from app.services.must_gate_terms import gate_requirement
     from app.services.scoring_service import job_skill_requirements
     from app.services.skill_normalize import canonical_of
 
+    frozen = getattr(job, "must_evidence_options", None)
+    if isinstance(frozen, dict):
+        return {
+            str(label): tuple(str(w) for w in words)
+            for label, words in frozen.items()
+            if isinstance(words, (list, tuple)) and words
+        }
     out: dict[str, tuple[str, ...]] = {}
     rows = _row_words_by_label(job)
     for label in job_skill_requirements(job).get("must") or []:

@@ -22,7 +22,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.application_submission import (  # noqa: F401
     ApplicationSubmission,
     ApplicationSubmissionStatus,
@@ -383,6 +383,7 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "CandidateInviteLinkVisitDay",
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",
@@ -905,3 +906,6 @@ from app.models import announcement as _announcement_models  # noqa: F401,E402
 # 0625: Nowości do przeklikania — postęp osoby przy nowości.
 from app.models import novelty as _novelty_models  # noqa: F401,E402
 from app.models import access_usage as _access_usage_models  # noqa: F401,E402
+
+# 0639: panel klienta pod linkiem z CV.
+from app.models import client_panel as _client_panel_models  # noqa: F401,E402

@@ -8,12 +8,13 @@ recruiter — so ownership is attributed to whoever posted the link.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -127,3 +128,19 @@ class CandidateInviteLink(Base):
 
     creator = relationship("User", foreign_keys=[created_by])
     job = relationship("Job", foreign_keys=[job_id])
+
+
+class CandidateInviteLinkVisitDay(Base):
+    """Wejścia na link jednego dnia kalendarza firmy (0640, decyzja Artura 02.11.2026)."""
+
+    __tablename__ = "candidate_invite_link_visit_days"
+
+    link_token: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("candidate_invite_links.token", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    visits: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
