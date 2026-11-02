@@ -1680,6 +1680,7 @@ async def test_rename_updates_current_approved_version(
                 content_html=csv.branded_draft_html or "<p>x</p>",
                 content_sha256=hashlib.sha256(b"x").hexdigest(),
                 docx_filename="Wzor.docx",
+                approved_at=datetime.now(timezone.utc),
             )
         )
         await db.commit()

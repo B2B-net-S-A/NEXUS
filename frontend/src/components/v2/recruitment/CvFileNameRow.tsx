@@ -63,6 +63,7 @@ export function CvFileNameRow({ stageId, filename, patternFilename, readOnly }: 
       {readOnly ? null : (
         <button
           type="button"
+          data-tour="cv.file-name"
           className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
           onClick={() => {
             setValue(stem(current));
