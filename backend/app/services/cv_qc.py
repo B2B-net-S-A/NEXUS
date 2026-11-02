@@ -1414,9 +1414,7 @@ def _role_order_check(blocks: list[Block], roles: list[CvRole]) -> dict:
     return _check("role_order", "fail", "Do ułożenia", [item])
 
 
-def _role_dates_check(
-    blocks: list[Block], roles: list[CvRole], original: str
-) -> dict:
+def _role_dates_check(blocks: list[Block], roles: list[CvRole], original: str) -> dict:
     """„Daty stanowisk jak w oryginale”: reguła `cv_source_dates` (02.11.2026)."""
     if not original.strip():
         return _check("role_dates", "skip", "Brak tekstu oryginalnego CV")
