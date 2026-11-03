@@ -17,6 +17,9 @@
  * Wynik rekrutacji to dodatek: gdy historia się nie wczyta albo nie zna
  * rekrutacji z notatki, grupa zostaje bez plakietki. Awaria notatek to jeden
  * komunikat z „Ponów” — nigdy pusty stan.
+ *
+ * Od 03.11.2026 kartę dostaje też zakończona rekrutacja bez notatek, a powód
+ * ma osobną linię: tu szukano go i nie było, jeśli nikt nie zapisał notatki.
  */
 
 import { useId, useMemo, useState } from "react";
@@ -37,6 +40,7 @@ import {
   NOTES_FILTER_LABEL,
   notesCountLabel,
   notesForFilter,
+  outcomeReasonText,
   splitPersonNotes,
   THIS_RECRUITMENT_KEY,
   type EarlierNotesFilter,
@@ -136,6 +140,9 @@ function GroupCard({
 }) {
   const bodyId = useId();
   const notes = useMemo(() => notesForFilter(group.notes, filter), [group.notes, filter]);
+  // Sam wynik rekrutacji, bez notatek: nie ma czego rozwijać.
+  const hasNoNotes = group.notes.length === 0;
+  const reason = outcomeReasonText(group.outcome, group.rejectionReason);
   const head = (
     <>
       <span className="min-w-0 flex-1">
@@ -143,6 +150,11 @@ function GroupCard({
         {group.clientName ? <span className="text-xs text-muted-foreground"> · {group.clientName}</span> : null}
         {group.period ? (
           <span className="whitespace-nowrap text-xs text-muted-foreground"> · {group.period}</span>
+        ) : null}
+        {reason ? (
+          <span className="mt-0.5 block text-xs text-foreground">
+            <span className="font-medium">Powód:</span> {reason}
+          </span>
         ) : null}
         <span className="block text-xs text-muted-foreground">{groupFactsLine(group)}</span>
       </span>
@@ -155,7 +167,7 @@ function GroupCard({
   );
   return (
     <article aria-label={groupLabel(group)} className="rounded-lg border border-border bg-card">
-      {onToggle ? (
+      {onToggle && !hasNoNotes ? (
         <button
           type="button"
           onClick={onToggle}
@@ -173,7 +185,7 @@ function GroupCard({
       ) : (
         <div className="flex items-start gap-2 px-3 py-2">{head}</div>
       )}
-      {open ? (
+      {open && !hasNoNotes ? (
         <div id={bodyId} className="px-3 pb-3">
           {notes.length === 0 && filter !== "all" ? (
             <p className="text-xs text-muted-foreground">
@@ -255,7 +267,7 @@ export function PersonNotesHistory({
     ];
     const groups = [split.hereGroup, ...split.groups].filter(
       (group): group is EarlierNotesGroup<any> =>
-        group != null && notesForFilter(group.notes, readerFilter).length > 0,
+        group != null && (group.notes.length === 0 || notesForFilter(group.notes, readerFilter).length > 0),
     );
     return (
       <div className="mx-auto max-w-4xl space-y-3 text-[13px]">
@@ -342,9 +354,9 @@ export function PersonNotesHistory({
       <section aria-label="Wcześniej u nas" className="space-y-2">
         <SectionHead
           title="Wcześniej u nas"
-          meta={split.earlier.length > 0 ? earlierSummaryLabel(split) : null}
+          meta={split.groups.length > 0 ? earlierSummaryLabel(split) : null}
         />
-        {split.earlier.length === 0 ? (
+        {split.groups.length === 0 ? (
           <p className="text-xs text-muted-foreground">Nie ma wcześniejszych notatek o tej osobie.</p>
         ) : (
           <>

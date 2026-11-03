@@ -6,6 +6,7 @@ import {
   earlierSummaryLabel,
   groupFactsLine,
   notesForFilter,
+  outcomeReasonText,
   periodLabel,
   splitPersonNotes,
 } from "../notes-by-recruitment";
@@ -36,7 +37,56 @@ const row = (jobId: number, extra: Partial<RecruitmentOutcomeRow> = {}): Recruit
   ...extra,
 });
 
+describe("outcomeReasonText", () => {
+  it("pokazuje zapisany powód, a brak nazywa tylko przy odrzuceniu i rezygnacji", () => {
+    expect(outcomeReasonText({ tone: "danger" }, "Za drogo")).toBe("Za drogo");
+    expect(outcomeReasonText({ tone: "danger" }, null)).toBe("bez zapisanego powodu");
+    expect(outcomeReasonText({ tone: "warning" }, null)).toBe("bez zapisanego powodu");
+    expect(outcomeReasonText({ tone: "success" }, null)).toBeNull();
+    expect(outcomeReasonText({ tone: "neutral" }, null)).toBeNull();
+    expect(outcomeReasonText(null, null)).toBeNull();
+  });
+});
+
 describe("splitPersonNotes", () => {
+  it("zakończona rekrutacja bez notatek też ma grupę, od najświeższego zdarzenia", () => {
+    const split = splitPersonNotes(
+      [note(1, { job_id: 7, job_title: "Z notatką", created_at: "2026-09-24T10:00:00Z" })],
+      JOB,
+      [
+        row(7, { job_title: "Z notatką", latest_stage: "rejected", last_seen: "2026-09-24T10:00:00Z" }),
+        row(8, {
+          job_title: "Bez notatek",
+          latest_stage: "rejected",
+          rejection_reason: "Nie akceptuje trybu pracy",
+          last_seen: "2026-11-02T10:00:00Z",
+          stages: [{ stage: "screening", stage_name: null, moved_at: "2026-11-01T10:00:00Z" }],
+        }),
+        // W toku bez notatek: nie ma wyniku do pokazania.
+        row(9, { latest_stage: "screening" }),
+        // Bieżąca rekrutacja nie jest „wcześniej”, nawet zakończona.
+        row(JOB, { latest_stage: "rejected", rejection_reason: "Tu" }),
+      ],
+    );
+
+    expect(split.groups.map((g) => g.jobId)).toEqual([8, 7]);
+    expect(split.groups[0]).toMatchObject({
+      title: "Bez notatek",
+      notes: [],
+      outcome: { label: "Odrzucony" },
+      rejectionReason: "Nie akceptuje trybu pracy",
+    });
+    expect(groupFactsLine(split.groups[0])).toBe("Najdalej: Screening · bez notatek");
+    expect(split.earlierRecruitments).toBe(2);
+    expect(split.earlierHuman).toBe(1);
+  });
+
+  it("grupa z samymi wpisami automatu nie udaje rekrutacji bez notatek", () => {
+    const split = splitPersonNotes([note(1, { job_id: 7, is_system: true, group: "automat" })], JOB);
+
+    expect(groupFactsLine(split.groups[0])).toBe("0 notatek");
+  });
+
   it("oddziela notatki tej rekrutacji i grupuje resztę od najświeższej rozmowy", () => {
     const notes = [
       note(1, { job_id: JOB, job_title: "Analityk", created_at: "2026-10-12T08:00:00Z" }),
@@ -113,7 +163,7 @@ describe("splitPersonNotes", () => {
       currentStage: null,
     });
     expect(groupFactsLine(groups.get(7)!)).toBe(
-      "Najdalej: Rozmowa u klienta · powód: Klient — za mało integracji · 1 notatka",
+      "Najdalej: Rozmowa u klienta · 1 notatka",
     );
     // Rekrutacja w toku: etap zamiast wyniku.
     expect(groups.get(8)).toMatchObject({ outcome: null, currentStage: "Screening" });

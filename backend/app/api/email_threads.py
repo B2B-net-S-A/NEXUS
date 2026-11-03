@@ -221,6 +221,23 @@ def _can_access_email(email: Email, user, privileged_role: bool) -> bool:
     return privileged_role and email.candidate_id is not None
 
 
+def _has_content(email: Email) -> bool:
+    """Czy wiadomość ma co pokazać w wierszu wątku.
+
+    Outlook zapisuje odpowiedź na zaproszenie jako osobną, pustą wiadomość
+    (Graph: ``eventMessageResponse``). Prywatna ma puste pola z decyzji
+    właściciela skrzynki, więc liczy się jak wiadomość z treścią.
+    """
+    return (
+        email.is_private_filtered
+        or email.has_attachments
+        or any(
+            (value or "").strip()
+            for value in (email.body_html, email.body_text, email.body_preview)
+        )
+    )
+
+
 def _to_email_out(email: Email) -> EmailOut:
     return EmailOut(
         id=email.id,
@@ -265,8 +282,9 @@ async def list_candidate_emails(
     """Return conversation previews for a candidate, most-recent first.
 
     Groups by `m365_conversation_id`. Each preview carries the latest message
-    plus aggregate counts (total + unread). Archived emails (Phase 5.1) are
-    hidden unless `include_archived=true`.
+    with content (an empty invitation reply must not hide the conversation's
+    subject and preview) plus aggregate counts (total + unread). Archived
+    emails (Phase 5.1) are hidden unless `include_archived=true`.
     """
     # Fetch all candidate emails the user can see, latest first.
     base_stmt = select(Email).where(Email.candidate_id == candidate_id)
@@ -293,7 +311,11 @@ async def list_candidate_emails(
             slot["count"] += 1
             if not e.is_read:
                 slot["unread"] += 1
-            if e.received_at > slot["latest"].received_at:
+            latest = slot["latest"]
+            if (_has_content(e), e.received_at) > (
+                _has_content(latest),
+                latest.received_at,
+            ):
                 slot["latest"] = e
 
     ordered = sorted(

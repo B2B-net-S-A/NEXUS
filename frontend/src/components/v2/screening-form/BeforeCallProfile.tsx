@@ -38,7 +38,7 @@ import { candidateNoteItems, useCandidateNotes } from "@/components/v2/pages/can
 import { useCandidateRecruitmentOutcomes } from "@/components/v2/pages/candidate-outcomes-query";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
-import { notesCountLabel, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
+import { notesCountLabel, outcomeReasonText, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
 import { inBaseSourceText, inBaseView, type CandidateInBase } from "@/components/v2/person/PersonInBase";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
@@ -230,17 +230,24 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
   ]
     .filter(Boolean)
     .join(" · ");
-  const historyLine = [
-    inBase ? (inBase.exact ? `W bazie od ${inBase.dateLabel}` : `W bazie ${inBase.dateLabel}`) : null,
+  // Wynik i powód na początku linii (03.11.2026): ucięcie zabiera tytuł, nie powód.
+  const lastEndedReason = outcomeReasonText(lastEndedOutcome, lastEnded?.rejection_reason);
+  const lastEndedHead =
     lastEnded && lastEndedOutcome
-      ? `Wcześniej u nas: ${[jobNameText(candidateJobNames(lastEnded)), lastEnded.client_name]
-          .filter(Boolean)
-          .join(", ")} — ${[lastEndedOutcome.label, monthYear(lastEnded.last_seen)].filter(Boolean).join(" · ")}`
+      ? `${[lastEndedOutcome.label, monthYear(lastEnded.last_seen)].filter(Boolean).join(" ")}${
+          lastEndedReason ? `: ${lastEndedReason}` : ""
+        }`
+      : null;
+  const historyFacts = [
+    lastEnded && lastEndedOutcome
+      ? [jobNameText(candidateJobNames(lastEnded)), lastEnded.client_name].filter(Boolean).join(", ")
       : null,
+    inBase ? (inBase.exact ? `W bazie od ${inBase.dateLabel}` : `W bazie ${inBase.dateLabel}`) : null,
     othersTotal > 0 ? `W innych rekrutacjach: ${othersTotal}` : null,
   ]
     .filter(Boolean)
     .join(" · ");
+  const historyLine = [lastEndedHead, historyFacts].filter(Boolean).join(" · ");
 
   return (
     <section
@@ -273,8 +280,15 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
                 </p>
               ) : null}
               {historyLine ? (
-                <p className="truncate" title={historyLine}>
-                  {historyLine}
+                <p className={lastEndedHead ? "line-clamp-2" : "truncate"} title={historyLine}>
+                  {lastEndedHead ? (
+                    <>
+                      <span className="font-medium text-foreground">{lastEndedHead}</span>
+                      {historyFacts ? ` · ${historyFacts}` : ""}
+                    </>
+                  ) : (
+                    historyLine
+                  )}
                 </p>
               ) : null}
               {!termsLine && !historyLine && !failed && query.isLoading ? (

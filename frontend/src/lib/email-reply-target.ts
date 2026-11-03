@@ -1,4 +1,5 @@
 import type { EmailMessage } from "@/lib/api";
+import { isInviteReply } from "@/lib/email-blank-message";
 
 /**
  * Na którą wiadomość odpowiada „Odpowiedz” w wątku (runda 6 audytu).
@@ -32,6 +33,7 @@ export function planThreadReply(
     const m = messages[i];
     if (
       m.direction === "received" &&
+      !isInviteReply(m) &&
       own !== null &&
       (m.from_address ?? "").trim().toLowerCase() === own
     ) {
