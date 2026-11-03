@@ -170,6 +170,9 @@ def step_auto_done(step: Step, case: AdminCase, facts: Optional[ContractFacts]) 
     return rule(facts) if rule is not None and facts is not None else False
 
 
+CLOSED_WITH_CASE = "closed_with_case"
+
+
 def step_key(case_id: int, slug: str) -> str:
     return f"step:{case_id}:{slug}"
 
@@ -198,6 +201,7 @@ async def open_due_exit_cases(db: AsyncSession, *, today: date) -> int:
                     AND NOT EXISTS (
                       SELECT 1 FROM admin_cases c
                       WHERE c.source_key = 'contract:' || contracts.id || '\\:end'
+                        AND c.status <> 'closed'
                     )
                     """
                 ).bindparams(
@@ -208,12 +212,55 @@ async def open_due_exit_cases(db: AsyncSession, *, today: date) -> int:
     ).all()
     opened = 0
     for contract in contracts:
-        if await case_hooks.open_case_for_contract_end(db, contract) is not None:
+        # Zamkniętą przez automat hak otwiera, a zamkniętą przez człowieka zostawia.
+        case = await case_hooks.open_case_for_contract_end(db, contract)
+        if case is not None and not case_rules.is_terminal(case.status):
             opened += 1
     return opened
 
 
+async def close_extended_exit_cases(db: AsyncSession, *, today: date) -> int:
+    """Koniec się oddalił: sprawa z bezpiecznika nie stoi przy osobie, która zostaje.
+
+    ``terminated_at`` odróżnia ją od „Zakończ współpracę”, a decyzja „nie przepinamy”
+    na ten sam termin ją utrzymuje. Zamknięcie automatu da się odwrócić przy
+    prawdziwym końcu, zamknięcie człowieka już nie.
+    """
+
+    contract_ids = (
+        await db.scalars(
+            select(Contract.id).where(
+                text(
+                    """
+                    contracts.status IN ('active', 'ending')
+                    AND contracts.terminated_at IS NULL
+                    AND (contracts.end_date IS NULL OR contracts.end_date > :valve)
+                    AND EXISTS (
+                      SELECT 1 FROM admin_cases c
+                      WHERE c.source_key = 'contract:' || contracts.id || '\\:end'
+                        AND c.status NOT IN ('done', 'closed')
+                    )
+                    AND NOT EXISTS (
+                      SELECT 1 FROM redeploy_queue_items r
+                      WHERE r.contract_id = contracts.id
+                        AND r.reason = 'project_end'
+                        AND r.status = 'dismissed'
+                        AND r.due_on = contracts.end_date
+                    )
+                    """
+                ).bindparams(valve=today + timedelta(days=SAFETY_VALVE_DAYS))
+            )
+        )
+    ).all()
+    for contract_id in contract_ids:
+        await case_hooks.close_case_for_undone_end(db, contract_id)
+    return len(contract_ids)
+
+
 def _close_card(db: AsyncSession, card: BoCard, *, now: datetime, action: str) -> None:
+    if action == CLOSED_WITH_CASE:
+        # Nikt tego kroku nie zrobił: wróci, gdy sprawa się otworzy.
+        card.meta = {**(card.meta or {}), CLOSED_WITH_CASE: True}
     card.state = "done"
     card.closed_at = now
     card.updated_at = now
@@ -248,6 +295,7 @@ async def sync_steps(
 ) -> dict[str, int]:
     moment = now or datetime.now(timezone.utc)
     opened = await open_due_exit_cases(db, today=today)
+    extended = await close_extended_exit_cases(db, today=today)
     parents = (
         await db.execute(
             select(BoCard, AdminCase)
@@ -271,13 +319,16 @@ async def sync_steps(
             )
         ).all()
     }
-    created = closed = cases_done = 0
+    created = closed = reopened = cases_done = 0
     for parent, case in parents:
         definition = steps_for_case(case.source_key)
         if not definition:
             continue
         contract_facts = facts.get(case.contract_id) if case.contract_id else None
         all_done = True
+        # Sprawa otwarta po komplecie kroków (mail w wątku) czeka na człowieka:
+        # zamyka ją dopiero krok zrobiony teraz.
+        finished_now = False
         for order, step in enumerate(definition):
             key = step_key(case.id, step.slug)
             child = existing.get(key)
@@ -306,14 +357,29 @@ async def sync_steps(
                 )
                 db.add(child)
                 created += 1
+                finished_now = finished_now or done
             elif done and child.state != "done":
                 _close_card(db, child, now=moment, action="step_done_auto")
                 closed += 1
+                finished_now = True
+            elif not done and (child.meta or {}).get(CLOSED_WITH_CASE):
+                child.meta = {
+                    k: v for k, v in child.meta.items() if k != CLOSED_WITH_CASE
+                }
+                child.state = "new"
+                child.closed_at = None
+                child.due_on = parent.due_on
+                child.updated_at = moment
+                reopened += 1
             elif child.due_on != parent.due_on:
                 child.due_on = parent.due_on
                 child.updated_at = moment
             all_done = all_done and child.state == "done"
-        if all_done and await close_case_when_all_done(db, case, now=moment):
+        if (
+            all_done
+            and finished_now
+            and await close_case_when_all_done(db, case, now=moment)
+        ):
             cases_done += 1
     # Sprawa zamknięta ręcznie albo cofnięta: jej otwarte kroki znikają z tablicy.
     orphans = (
@@ -328,11 +394,13 @@ async def sync_steps(
         )
     ).all()
     for child in orphans:
-        _close_card(db, child, now=moment, action="closed_with_case")
+        _close_card(db, child, now=moment, action=CLOSED_WITH_CASE)
     await db.flush()
     return {
         "exit_cases_opened": opened,
+        "exit_cases_extended": extended,
         "created": created,
+        "reopened": reopened,
         "closed": closed + len(orphans),
         "cases_done": cases_done,
     }

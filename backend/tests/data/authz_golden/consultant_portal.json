@@ -37,7 +37,6 @@
   "GET /api/public/consultant-portal/finance/status": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/me": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/meetings": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/public/consultant-portal/rate/{token}": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "GET /api/public/consultant-portal/status": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/cases": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/finance/documents": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
@@ -48,7 +47,8 @@
   "POST /api/public/consultant-portal/meetings": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/meetings/{meeting_id}/cancel": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/meetings/{meeting_id}/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/public/consultant-portal/rate/{token}": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/rating": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/public/consultant-portal/rating-form": "BBBBBBBBBBBBBBBBBBBBBBBBBBB",
   "POST /api/public/consultant-portal/session": "BBBBBBBBBBBBBBBBBBBBBBBBBBB"
  }
 }

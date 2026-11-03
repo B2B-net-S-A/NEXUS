@@ -48,6 +48,10 @@ def apply_spec(card: BoCard, spec: CardSpec, *, now: datetime) -> bool:
     values: dict[str, Any] = {name: getattr(spec, name) for name in _SPEC_FIELDS}
     values["title"] = _clean_title(spec.title)
     values["meta"] = {**(card.meta or {}), **spec.meta}
+    if spec.mirrors_case:
+        # Adapter daje tylko otwarte sprawy: ta wróciła (np. mail w wątku), więc
+        # „Nie dotyczy” już jej nie trzyma. Inaczej stan bez ``closed_at`` łamie CHECK.
+        values["meta"].pop("dismissed", None)
     if not card.lane_locked:
         values["team"] = spec.team
         values["lane"] = spec.lane
@@ -162,6 +166,8 @@ async def run_once(db: AsyncSession, *, today: date) -> dict[str, Any]:
     if not modules.get(hr_modules.HrModule.back_office):
         return {"status": "disabled"}
     result = await sync_kinds(db, today=today)
+    # Rozdzielanie woła model: bez tego „Biorę” czekałoby na blokady z przebiegu kart.
+    await db.commit()
     result["triage"] = await triage.route_new_cards(db)
     result["steps"] = await steps.sync_steps(db, today=today)
     result["priorities"] = await service.apply_priorities(db, today=today)

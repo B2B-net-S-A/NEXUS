@@ -16,7 +16,16 @@ jednej kolejce. Ta reguła ma pierwszeństwo przed opisem „Do zrobienia” w
   `build_order_changes`, bo liczby z surowej tabeli różnią się od ekranu Finansów
   (02.11: 14 w tabeli, 6 na ekranie).
 - **Tytuł i `meta` bez kwot.** Kwotę dostaje przy odczycie tylko osoba z Płacami,
-  także przy „Zastępuję”. Tytuł negocjacji i cudzej sprawy to „Sprawa: <obszar>”.
+  także przy „Zastępuję”. Tytuł negocjacji i cudzej sprawy to „Sprawa: <obszar>”, bez osoby
+  i klienta.
+- **„Zastępuję” nie otwiera sprawy.** Osoba prowadząca przechodzi `may_read`, więc kartę sprawy
+  bierze jej zespół albo osoba ze „Sprawami”; negocjacje zespół Umów (`service.reads_case`).
+  Notatkę dodaje osoba prowadząca albo zespół, bo przy sprawie to komentarz w sprawie.
+- **„Biorę” sprawdza sprawę, nie lustro.** Karta bywa starsza o przebieg pętli, a zmiana z karty
+  nie ożywia zamkniętej sprawy (409).
+- **Sprawa wyjścia z bezpiecznika znika przy przedłużeniu** (`close_extended_exit_cases`), o ile nie
+  ma `terminated_at` ani decyzji „nie przepinamy”. Kroki zamknięte razem ze sprawą wracają, gdy
+  ta się otworzy; sprawa otwarta po komplecie kroków czeka na człowieka.
 - **Przy sprawie osoba i stan są w `admin_cases`.** Karta je lustruje, przejęcie idzie
   przez `update_case` w tej samej transakcji.
 - **Kanban zostaje 1:1 pod „Po statusie”** (warunek z 22.10). Pilnuje
@@ -96,4 +105,5 @@ Compass nie prowadzi już spraw, FAQ, dostawca SMS, IOD.
    dnia: wcześniej ludzie dostaliby nowość do ekranu, którego nie mają.
 
 Wycofanie: wyłączyć moduł. Menu wraca do „Opieki”, `/care` działa jak wcześniej, karty zostają
-w bazie, plan kontaktów wraca do starego rytmu przy nocnym przebiegu.
+w bazie, plan kontaktów wraca do starego rytmu przy nocnym przebiegu. Portal konsultanta zamyka się
+razem z modułem (`portal_settings.load`), także dla ludzi z zewnątrz.

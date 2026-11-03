@@ -44,6 +44,7 @@
   "POST /api/back-office/cards/{card_id}/take": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/review/finish": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "POST /api/back-office/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/back-office/sync/cases": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "PUT /api/back-office/deputy": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
   "PUT /api/back-office/team/{team}": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
  }

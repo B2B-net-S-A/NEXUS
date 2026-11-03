@@ -106,7 +106,9 @@ async def test_module_off_is_404_even_for_admin(app_client) -> None:
     await _set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
     try:
         admin = await _user("admin")
-        response = await app_client.get("/api/back-office/board", headers=_headers(admin))
+        response = await app_client.get(
+            "/api/back-office/board", headers=_headers(admin)
+        )
         assert response.status_code == 404
     finally:
         await _set_modules(previous or {key: False for key in HR_MODULE_KEYS})
@@ -116,7 +118,9 @@ async def test_module_off_is_404_even_for_admin(app_client) -> None:
 async def test_people_outside_teams_get_403(app_client, modules_on) -> None:
     await _user("recruiter", teams=("care",))  # skład wpisany: bez domyślnych
     outsider = await _user("recruiter")
-    response = await app_client.get("/api/back-office/board", headers=_headers(outsider))
+    response = await app_client.get(
+        "/api/back-office/board", headers=_headers(outsider)
+    )
     assert response.status_code == 403
 
 
@@ -394,3 +398,384 @@ async def test_review_decisions_and_finish(app_client, modules_on) -> None:
         assert row.value["review_done_at"]
         await db.delete(row)
         await db.commit()
+
+
+async def _case_card(*, area: str = "administration", **fields) -> tuple[int, int]:
+    """Sprawa i jej karta po synchronizacji: (id sprawy, id karty)."""
+
+    async with AsyncSessionLocal() as db:
+        case = AdminCase(
+            title=f"Sprawa testowa {uuid.uuid4().hex[:6]}",
+            area=area,
+            status="new",
+            source="manual",
+            checklist=[],
+            **fields,
+        )
+        db.add(case)
+        await db.commit()
+        await db.refresh(case)
+        await sync_kinds(db, ["case"], today=business_today())
+        await db.commit()
+        card = await db.scalar(
+            select(BoCard).where(BoCard.source_key == f"case:{case.id}")
+        )
+        return case.id, card.id
+
+
+@pytest.mark.asyncio
+async def test_substitute_cannot_open_a_case_without_cases_access(
+    app_client, modules_on
+) -> None:
+    """„Zastępuję” nie może być drogą do treści sprawy (assignee przechodzi ``may_read``)."""
+
+    outsider = await _user("recruiter", teams=("orders",))
+    case_id, card_id = await _case_card(area="negotiation")
+    refused = await app_client.post(
+        f"/api/back-office/cards/{card_id}/take",
+        json={"substitute": True},
+        headers=_headers(outsider),
+    )
+    assert refused.status_code == 403
+    read = await app_client.get(f"/api/cases/{case_id}", headers=_headers(outsider))
+    assert read.status_code == 403
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, case_id)).assignee_user_id is None
+
+    care = await _user("recruiter", teams=("care",))
+    own_team_refused = await app_client.post(
+        f"/api/back-office/cards/{card_id}/take",
+        json={"substitute": True},
+        headers=_headers(care),
+    )
+    assert own_team_refused.status_code == 403
+    contracts = await _user("recruiter", teams=("contracts",))
+    allowed = await app_client.post(
+        f"/api/back-office/cards/{card_id}/take",
+        json={},
+        headers=_headers(contracts),
+    )
+    assert allowed.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_note_needs_the_team_or_the_person_on_the_card(
+    app_client, modules_on
+) -> None:
+    from app.models.admin_case import AdminCaseComment
+
+    outsider = await _user("recruiter", teams=("orders",))
+    case_id, card_id = await _case_card()
+    refused = await app_client.post(
+        f"/api/back-office/cards/{card_id}/note",
+        json={"body": "Notatka spoza zespołu"},
+        headers=_headers(outsider),
+    )
+    assert refused.status_code == 403
+    async with AsyncSessionLocal() as db:
+        comments = await db.scalars(
+            select(AdminCaseComment).where(AdminCaseComment.case_id == case_id)
+        )
+        assert comments.all() == []
+    member = await _user("recruiter", teams=("care",))
+    ok = await app_client.post(
+        f"/api/back-office/cards/{card_id}/note",
+        json={"body": "Notatka zespołu"},
+        headers=_headers(member),
+    )
+    assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_hidden_case_shows_no_person_or_client(app_client, modules_on) -> None:
+    card = await _card(
+        team="contracts",
+        lane="annex",
+        source_kind="case",
+        title="Nowa stawka od stycznia",
+        person="Osoba Przykładowa",
+        client_label="Klient Przykładowy",
+        meta={"area": "negotiation"},
+    )
+    outsider = await _user("recruiter", teams=("orders",))
+    hidden = await app_client.get(
+        f"/api/back-office/cards/{card.id}", headers=_headers(outsider)
+    )
+    assert hidden.status_code == 200
+    assert hidden.json()["title"].startswith("Sprawa:")
+    assert hidden.json()["person"] is None
+    assert hidden.json()["client"] is None
+    contracts = await _user("recruiter", teams=("contracts",))
+    seen = await app_client.get(
+        f"/api/back-office/cards/{card.id}", headers=_headers(contracts)
+    )
+    assert seen.json()["person"] == "Osoba Przykładowa"
+
+
+@pytest.mark.asyncio
+async def test_take_reads_the_case_not_its_stale_mirror(app_client, modules_on) -> None:
+    first = await _user("talent_community_manager", teams=("care",))
+    second = await _user("talent_community_manager", teams=("care",))
+    case_id, card_id = await _case_card()
+    async with AsyncSessionLocal() as db:
+        (await db.get(AdminCase, case_id)).assignee_user_id = first.id
+        await db.commit()
+    taken = await app_client.post(
+        f"/api/back-office/cards/{card_id}/take", json={}, headers=_headers(second)
+    )
+    assert taken.status_code == 409
+    assert taken.json()["detail"]["code"] == "taken"
+
+    closed_id, closed_card = await _case_card()
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, closed_id)
+        case.status = "closed"
+        case.closed_at = case.created_at
+        await db.commit()
+    for path, body in (
+        ("take", {}),
+        ("state", {"state": "in_progress"}),
+    ):
+        refused = await app_client.post(
+            f"/api/back-office/cards/{closed_card}/{path}",
+            json=body,
+            headers=_headers(second),
+        )
+        assert refused.status_code == 409, path
+        assert refused.json()["detail"]["code"] == "closed"
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, closed_id)).status == "closed"
+
+
+@pytest.mark.asyncio
+async def test_state_done_is_not_a_card_state_change(app_client, modules_on) -> None:
+    member = await _user("recruiter", teams=("orders",))
+    card = await _card()
+    refused = await app_client.post(
+        f"/api/back-office/cards/{card.id}/state",
+        json={"state": "done"},
+        headers=_headers(member),
+    )
+    assert refused.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_review_current_keeps_the_card_in_its_lane(
+    app_client, modules_on
+) -> None:
+    lead = await _user("admin")
+    card = await _card(needs_review=True)
+    response = await app_client.post(
+        f"/api/back-office/cards/{card.id}/review",
+        json={"decision": "current"},
+        headers=_headers(lead),
+    )
+    assert response.status_code == 200
+    async with AsyncSessionLocal() as db:
+        fresh = await db.get(BoCard, card.id)
+        assert fresh.lane_locked is True
+        assert fresh.needs_review is False
+
+
+@pytest.mark.asyncio
+async def test_reopened_dismissed_case_returns_and_does_not_stop_the_sync(
+    app_client, modules_on
+) -> None:
+    lead = await _user("admin")
+    case_id, card_id = await _case_card()
+    dismissed = await app_client.post(
+        f"/api/back-office/cards/{card_id}/dismiss",
+        json={"body": "Nieaktualna"},
+        headers=_headers(lead),
+    )
+    assert dismissed.status_code == 200
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, case_id)
+        assert case.status == "closed"
+        case.status = "new"
+        case.closed_at = None
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        result = await sync_kinds(db, ["case"], today=business_today())
+        await db.commit()
+        assert result["failed"] == []
+        fresh = await db.get(BoCard, card_id)
+        assert fresh.state == "new"
+        assert fresh.closed_at is None
+        assert "dismissed" not in fresh.meta
+
+
+async def _exit_case() -> tuple[int, str]:
+    key = f"contract:{uuid.uuid4().int % 10**8 + 10**8}:end"
+    async with AsyncSessionLocal() as db:
+        case = AdminCase(
+            title=f"Koniec współpracy {uuid.uuid4().hex[:6]}",
+            area="offboarding",
+            status="new",
+            source="contract",
+            source_key=key,
+            checklist=[],
+        )
+        db.add(case)
+        await db.commit()
+        await db.refresh(case)
+        await sync_kinds(db, ["case"], today=business_today())
+        await steps.sync_steps(db, today=business_today())
+        await db.commit()
+        return case.id, key
+
+
+async def _set_case_status(case_id: int, status: str) -> None:
+    async with AsyncSessionLocal() as db:
+        case = await db.get(AdminCase, case_id)
+        case.status = status
+        case.closed_at = case.created_at if status in ("done", "closed") else None
+        await db.commit()
+
+
+async def _sync_steps_pass() -> None:
+    async with AsyncSessionLocal() as db:
+        today = business_today()
+        await sync_kinds(db, ["case"], today=today)
+        await steps.sync_steps(db, today=today)
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_reopened_exit_case_gets_its_steps_back(app_client, modules_on) -> None:
+    case_id, _ = await _exit_case()
+    await _set_case_status(case_id, "closed")
+    await _sync_steps_pass()
+    async with AsyncSessionLocal() as db:
+        children = await db.scalars(
+            select(BoCard).where(
+                BoCard.case_id == case_id, BoCard.source_kind == "step"
+            )
+        )
+        assert {c.state for c in children.all()} == {"done"}
+    await _set_case_status(case_id, "new")
+    await _sync_steps_pass()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, case_id)).status == "new"
+        children = await db.scalars(
+            select(BoCard).where(
+                BoCard.case_id == case_id, BoCard.source_kind == "step"
+            )
+        )
+        assert {c.state for c in children.all()} == {"new"}
+
+
+@pytest.mark.asyncio
+async def test_case_reopened_by_mail_after_all_steps_stays_open(
+    app_client, modules_on
+) -> None:
+    lead = await _user("admin")
+    case_id, _ = await _exit_case()
+    async with AsyncSessionLocal() as db:
+        ids = list(
+            await db.scalars(
+                select(BoCard.id).where(
+                    BoCard.case_id == case_id, BoCard.source_kind == "step"
+                )
+            )
+        )
+    for card_id in ids:
+        done = await app_client.post(
+            f"/api/back-office/cards/{card_id}/step-done", headers=_headers(lead)
+        )
+        assert done.status_code == 200
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, case_id)).status == "done"
+    await _set_case_status(case_id, "new")
+    await _sync_steps_pass()
+    async with AsyncSessionLocal() as db:
+        assert (await db.get(AdminCase, case_id)).status == "new"
+
+
+@pytest.mark.asyncio
+async def test_extended_contract_loses_the_valve_case_until_the_real_end(
+    app_client, modules_on
+) -> None:
+    from app.models.contract import Contract
+    from tests.care_announcements_seed import make_client, make_consultant
+
+    client_id = await make_client()
+    contract_id, _ = await make_consultant(client_id, end_in_days=10)
+    key = f"contract:{contract_id}:end"
+
+    async def set_end(days: int, *, terminated: bool = False) -> None:
+        async with AsyncSessionLocal() as db:
+            contract = await db.get(Contract, contract_id)
+            contract.end_date = business_today() + timedelta(days=days)
+            contract.terminated_at = contract.end_date if terminated else None
+            await db.commit()
+
+    async def status() -> str:
+        async with AsyncSessionLocal() as db:
+            return (
+                await db.scalar(select(AdminCase).where(AdminCase.source_key == key))
+            ).status
+
+    await _sync_steps_pass()
+    assert await status() == "new"
+
+    await set_end(200)
+    await _sync_steps_pass()
+    assert await status() == "closed"
+
+    await set_end(5)
+    await _sync_steps_pass()
+    assert await status() == "new"
+    await _sync_steps_pass()
+    async with AsyncSessionLocal() as db:
+        case_id = await db.scalar(
+            select(AdminCase.id).where(AdminCase.source_key == key)
+        )
+        children = await db.scalars(
+            select(BoCard).where(
+                BoCard.case_id == case_id, BoCard.source_kind == "step"
+            )
+        )
+        assert "new" in {c.state for c in children.all()}
+
+    await set_end(200, terminated=True)
+    await _sync_steps_pass()
+    assert await status() == "new"
+
+
+@pytest.mark.asyncio
+async def test_member_gets_new_case_card_without_the_lead_sync(
+    app_client, modules_on
+) -> None:
+    member = await _user("recruiter", teams=("orders",))
+    refused = await app_client.post(
+        "/api/back-office/sync", json={}, headers=_headers(member)
+    )
+    assert refused.status_code == 403
+    async with AsyncSessionLocal() as db:
+        case = AdminCase(
+            title=f"Nowa sprawa {uuid.uuid4().hex[:6]}",
+            area="administration",
+            status="new",
+            source="manual",
+            checklist=[],
+        )
+        db.add(case)
+        await db.commit()
+        await db.refresh(case)
+    synced = await app_client.post(
+        "/api/back-office/sync/cases", json={}, headers=_headers(member)
+    )
+    assert synced.status_code == 200
+    assert synced.json()["failed"] == []
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(
+            select(BoCard.id).where(BoCard.source_key == f"case:{case.id}")
+        )
+    outsider = await _user("recruiter")
+    denied = await app_client.post(
+        "/api/back-office/sync/cases", json={}, headers=_headers(outsider)
+    )
+    assert denied.status_code == 403
+    board = await app_client.get("/api/back-office/board", headers=_headers(member))
+    assert board.json()["me"]["cases_handler"] is False

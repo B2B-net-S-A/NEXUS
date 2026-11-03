@@ -18,7 +18,11 @@ from app.models.user import User
 from app.services.admin_cases import rules as case_rules
 from app.services.admin_cases import service as cases
 from app.services.back_office.access import Viewer
-from app.services.back_office.service import IN_PROGRESS_LIMIT, in_progress_count
+from app.services.back_office.service import (
+    IN_PROGRESS_LIMIT,
+    in_progress_count,
+    reads_case,
+)
 from app.services.back_office_schema import TEAM_LANES, TEAMS, TRIAGE_LANE
 
 TEAM_LABELS = {
@@ -73,18 +77,19 @@ _ACTIONS = {
 }
 
 
+def _case_hidden(card: BoCard, *, viewer: Viewer, user: User) -> bool:
+    return (
+        card.source_kind == "case"
+        and card.assignee_user_id != user.id
+        and not reads_case(card, viewer=viewer, user=user)
+    )
+
+
 def visible_title(card: BoCard, *, viewer: Viewer, user: User) -> str:
-    if card.source_kind != "case":
+    if not _case_hidden(card, viewer=viewer, user=user):
         return card.title
     area = (card.meta or {}).get("area", "other")
-    readable = cases.is_handler(user) or card.assignee_user_id == user.id
-    if area == "negotiation":
-        readable = readable or viewer.owns("contracts")
-    else:
-        readable = readable or viewer.owns(card.team)
-    return (
-        card.title if readable else f"Sprawa: {case_rules.AREA_LABELS.get(area, area)}"
-    )
+    return f"Sprawa: {case_rules.AREA_LABELS.get(area, area)}"
 
 
 async def user_names(db: AsyncSession, ids: Iterable[Optional[int]]) -> dict[int, str]:
@@ -132,6 +137,7 @@ def card_payload(
 ) -> dict[str, Any]:
     meta = card.meta or {}
     children = (steps or {}).get(card.id) or []
+    hidden = _case_hidden(card, viewer=viewer, user=user)
     amounts = None
     if card.source_kind == "bonus" and viewer.sees_amounts and totals is not None:
         amounts = totals.get((meta.get("year"), meta.get("month")))
@@ -146,8 +152,8 @@ def card_payload(
         "lane": card.lane,
         "source_kind": card.source_kind,
         "title": visible_title(card, viewer=viewer, user=user),
-        "person": card.person,
-        "client": card.client_label,
+        "person": None if hidden else card.person,
+        "client": None if hidden else card.client_label,
         "state": card.state,
         "waiting_on": card.waiting_on,
         "due_on": card.due_on,
@@ -254,6 +260,7 @@ async def board(
             "name": user.name,
             "teams": sorted(viewer.teams),
             "is_lead": viewer.is_lead,
+            "cases_handler": cases.is_handler(user),
             "sees_amounts": viewer.sees_amounts,
             "in_progress": await in_progress_count(db, user.id),
             "limit": IN_PROGRESS_LIMIT,

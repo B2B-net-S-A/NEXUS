@@ -186,7 +186,7 @@ async def assign_card(
 
 
 class StateBody(BaseModel):
-    state: Literal["new", "in_progress", "waiting", "done"]
+    state: Literal["new", "in_progress", "waiting"]
     waiting_on: Optional[str] = Field(default=None, max_length=200)
     expected_updated_at: Optional[datetime] = None
 
@@ -228,7 +228,10 @@ async def note_card(
 ) -> dict[str, Any]:
     card = await _card(db, card_id)
     try:
-        await service.add_note(db, card, actor=current_user, body=body.body)
+        viewer = await access.load_viewer(db, current_user)
+        await service.add_note(
+            db, card, actor=current_user, viewer=viewer, body=body.body
+        )
     except _CARD_ERRORS as exc:
         raise _translate(exc) from exc
     return await _detail(db, card, current_user)
@@ -300,6 +303,15 @@ async def refresh_card(
     if card.source_kind == "case":
         await steps.sync_steps(db, today=today)
     return await _detail(db, card, current_user)
+
+
+@router.post("/sync/cases")
+async def sync_cases(
+    current_user: BackOfficeMember, db: AsyncSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Karta nowej sprawy od razu; pełny przebieg z modelem i eskalacją ma kierownik."""
+
+    return await sync.sync_kinds(db, ["case"], today=business_today())
 
 
 @router.post("/sync")

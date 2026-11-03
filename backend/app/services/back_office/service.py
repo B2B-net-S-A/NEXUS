@@ -18,6 +18,7 @@ from app.models.admin_case import AdminCase
 from app.models.back_office import BoCard, BoCardEvent
 from app.models.notification import NotificationType
 from app.models.user import User
+from app.services.admin_cases import rules as case_rules
 from app.services.admin_cases import service as cases
 from app.services.back_office import steps
 from app.services.back_office.access import Viewer
@@ -29,6 +30,7 @@ IN_PROGRESS_LIMIT = 5
 #: Pierwszeństwo osoby, która ostatnio rozmawiała z konsultantem.
 PRIORITY_DAYS = 3
 STALE_DETAIL = "Karta zmieniła się w międzyczasie. Odśwież tablicę."
+CASE_CLOSED_DETAIL = "Ta sprawa jest już zamknięta."
 
 
 class CardError(ValueError):
@@ -106,12 +108,29 @@ async def _case_of(db: AsyncSession, card: BoCard) -> Optional[AdminCase]:
     return await cases.get_case(db, card.case_id, lock=True)
 
 
+def reads_case(card: BoCard, *, viewer: Viewer, user: User) -> bool:
+    """Czy tytuł i osoba sprawy są dla tej osoby widoczne, także po przejęciu.
+
+    Osoba prowadząca przechodzi ``cases.may_read``, więc to ten sam warunek chroni
+    przed „Zastępuję” jako drogą do treści sprawy i stawek z negocjacji.
+    """
+
+    if cases.is_handler(user):
+        return True
+    if (card.meta or {}).get("area") == "negotiation":
+        return viewer.owns("contracts")
+    return viewer.owns(card.team)
+
+
 async def _mirror_case(
     db: AsyncSession, card: BoCard, *, actor: User, changes: dict[str, Any]
 ) -> None:
     case = await _case_of(db, card)
     if case is None:
         return
+    # Karta bywa starsza od sprawy o przebieg pętli; zmiana z karty nie ożywia zamkniętej.
+    if case_rules.is_terminal(case.status):
+        raise CardConflict(CASE_CLOSED_DETAIL, code="closed")
     try:
         await cases.update_case(db, case, actor=actor, changes=changes)
     except cases.CaseError as exc:
@@ -136,8 +155,15 @@ async def take(
     if card.assignee_user_id is not None:
         raise CardConflict("Tę kartę ktoś już wziął.", code="taken")
     own_team = viewer.owns(card.team)
+    if card.source_kind == "case" and not reads_case(card, viewer=viewer, user=actor):
+        raise CardForbidden(
+            "Tę sprawę prowadzi jej zespół albo osoba z dostępem do Spraw."
+        )
     if not own_team and not substitute:
         raise CardForbidden("To karta innego zespołu. Użyj „Zastępuję”.")
+    case = await _case_of(db, card)
+    if case is not None and case.assignee_user_id not in (None, actor.id):
+        raise CardConflict("Tę kartę ktoś już wziął.", code="taken")
     if (
         card.priority_user_id not in (None, actor.id)
         and card.priority_until is not None
@@ -295,7 +321,11 @@ async def dismiss(
     await db.flush()
 
 
-async def add_note(db: AsyncSession, card: BoCard, *, actor: User, body: str) -> None:
+async def add_note(
+    db: AsyncSession, card: BoCard, *, actor: User, viewer: Viewer, body: str
+) -> None:
+    if card.assignee_user_id != actor.id and not viewer.owns(card.team):
+        raise CardForbidden("Notatkę dodaje osoba prowadząca albo jej zespół.")
     text_value = (body or "").replace("\x00", "").strip()
     if not text_value:
         raise CardError("Notatka nie może być pusta.")
@@ -410,6 +440,9 @@ async def review(
             viewer=viewer,
             note=note or "Przegląd przed startem: nieaktualna",
         )
+    elif decision == "current":
+        # Bez blokady następny przebieg rozdzielania przeniósłby ją mimo decyzji.
+        card.lane_locked = True
     now = _now()
     card.needs_review = False
     card.updated_at = now
