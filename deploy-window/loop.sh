@@ -94,7 +94,14 @@ else
     log "budzik czeka na token w $TOKEN_FILE (sloty: $SLOTS)"
 fi
 fired=""
+# `sh` jako PID 1 ignoruje SIGTERM bez własnej pułapki, a Coolify przy wdrożeniu
+# zatrzymuje kontenery po kolei i startuje nowe dopiero po ostatnim: budzik bez
+# pułapki wydłużał przerwę każdego wdrożenia o pełne 30 s `docker stop` (zmierzone
+# 03.11.2026). `sleep` w tle z `wait`, bo pułapka czeka na koniec polecenia
+# z pierwszego planu.
+trap 'exit 0' TERM INT
 while :; do
     tick "$(date +%H:%M)" "$(date +%F)"
-    sleep 20
+    sleep 20 &
+    wait $!
 done
