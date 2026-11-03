@@ -23,6 +23,11 @@ QC sprawdzało tylko, czy obraz jest (`zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp
   niż otwarcie rekrutacji minus 3 dni, ten sam plik pod CV innego kandydata
   (skrót obrazu w bazie, bez AI). Bez znanego kandydata sprawdzamy tylko
   dokument (klient, ZOB, data).
+- **B2B.net jako Oferent (03.11.2026).** Zapytania PKO niosą wzór z pustym
+  „[Nazwa Dostawcy]” (10 z 12 opisów). 02.11 na ZOB-3103 trafiły pod CV zgoda
+  bez nazwy firmy i zgoda z nazwiskiem kandydata jako Oferentem. Brak „b2b”
+  w akapicie zgody to problem `no_supplier`, na tych samych zasadach co reszta.
+  Pomiar OCR na 156 zrzutach: 144 z B2B.net, 2 złe, 10 nieodczytanych.
 - **Wariant A — ostrzeżenie, nie blokada.** `POST /api/cv-generator/consent-screenshot`
   przy `status: "mismatch"` bez `override_reason` oddaje wynik bez tokenu
   i NIE zapisuje obrazu. Z powodem (min. 5 znaków) zapisuje i wystawia

@@ -129,7 +129,7 @@ function Content({ mode, hasChampion, language, policy, clientName, advancedOpen
       </div>
       <AdvancedOptions
         open={advancedOpen} onOpenChange={noop} blind={false} onBlindChange={noop}
-        position={position} onPositionChange={noop} positionRequired={false} positionFromJob={!!position}
+        position={position} onPositionChange={noop} positionRequired={false} positionFromJob={!!position} positionDefault={position}
         projectRef={projectRefFromJob ?? ""} onProjectRefChange={noop}
         projectRefVisible={!!projectRefFromJob || advancedOpen} projectRefRequired={false} projectRefFromJob={projectRefFromJob}
       />

@@ -7303,6 +7303,17 @@ _DATA_STATEMENTS = [
     *_CONTRACT_RATE_FROM_BACKFILL,
     # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
     *_SCREENING_FORM_DATA,
+    # Karta PKO BP: akapit zgody stał w „Onboardingu”, a jego temat i „Dzień
+    # dobry,” w „Zasadach procesu” — RAZ (znacznik), żeby restart nie cofał
+    # późniejszych edycji karty. Seed ma już poprawny układ.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'pko_playbook_consent_moved') THEN "
+    "UPDATE client_playbooks SET "
+    "process_rules_md = rtrim(process_rules_md, chr(10)) || chr(10) || substring(onboarding_md from '- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*'), "
+    "onboarding_md = rtrim(regexp_replace(onboarding_md, chr(10) || '?- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*', ''), chr(10)), "
+    "version = version + 1 "
+    "WHERE onboarding_md ~ '- Ja, .imię i nazwisko kandydata.'; "
+    "INSERT INTO app_settings (key, value) VALUES ('pko_playbook_consent_moved', jsonb_build_object('at', now())); "
+    "END IF; END $$",
     # 0521: Centrum e-Zdrowia dostaje formularz klienta zamiast CV firmowego —
     # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
     # reguły CV. Lustro `client_form_schema.SEED_DDL`.

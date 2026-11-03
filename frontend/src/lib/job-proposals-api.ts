@@ -105,6 +105,12 @@ export interface ProposalInboxItem {
    * Starszy serwer pola nie zna (= od progu).
    */
   below_threshold?: boolean;
+  /**
+   * Nowi w bazie najpierw (03.11.2026): data wejścia do bazy osoby, która ma
+   * pierwszeństwo na liście. `null` = bez pierwszeństwa, także gdy jest świeża,
+   * ale nie przechodzi progu albo reguł silnika.
+   */
+  new_in_base_at?: string | null;
 }
 
 export interface ProposalHistoryRef {
@@ -229,6 +235,8 @@ export interface ProposalInboxPage {
   /** Próg propozycji w % — separator „Poniżej N%”. Starszy serwer pola nie zna. */
   threshold?: number;
   /** Ukryci na TEJ stronie przez globalną czarną listę — nigdy po cichu. */
+  /** Nowi w bazie najpierw: ile osób ma pierwszeństwo, także na dalszych stronach. */
+  new_in_base_total?: number;
   hidden_on_page: number;
   limit: number;
   offset: number;

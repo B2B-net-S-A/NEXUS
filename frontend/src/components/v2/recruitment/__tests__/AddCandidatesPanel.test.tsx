@@ -67,6 +67,7 @@ const proposalsState = {
   dismiss: (...a: unknown[]) => dismiss(...a),
   dismissing: false,
   status: {
+    newInBaseTotal: 0,
     run: {
       data: undefined as unknown,
       runId: null as string | null,
@@ -1406,6 +1407,32 @@ describe("AddCandidatesPanel — okno „Kandydaci do dodania”", () => {
         "Zaznacz Celina Spod",
       ]);
       expect(screen.getByRole("tab", { name: /Propozycje z bazy/ })).toHaveTextContent("Propozycje z bazy· 1");
+    });
+
+    it("nowi w bazie stoją w osobnej sekcji nad wyższym wynikiem (03.11.2026)", async () => {
+      const fresh = (id: number, name: string, fitScore: number, at: string) => {
+        const e = entry(id, name, ["inbox"], { sources: ["new_cv"], fitScore });
+        Object.assign(e.detail, { newInBaseAt: at });
+        return e;
+      };
+      const today = new Date().toISOString();
+      proposalsState.entries = [
+        entry(1, "Anna Starsza", ["inbox"], { sources: ["full_base"], fitScore: 95 }),
+        fresh(2, "Bartek Nowy", 71, today),
+        fresh(3, "Celina Nowa", 74, today),
+      ];
+      renderPanel();
+      const list = await screen.findByRole("list", { name: "Propozycje z bazy: nowi w bazie" });
+      expect(within(list).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Celina Nowa",
+        "Zaznacz Bartek Nowy",
+      ]);
+      expect(screen.getByTestId("proposals-new-in-base")).toHaveTextContent("Nowi w bazie · 2 osoby");
+      expect(within(list).getAllByTestId("pick-row-new-in-base")[0]).toHaveTextContent("Nowy · dziś");
+      const rest = screen.getByRole("list", { name: "Propozycje z bazy" });
+      expect(within(rest).getAllByRole("checkbox").map((c) => c.getAttribute("aria-label"))).toEqual([
+        "Zaznacz Anna Starsza",
+      ]);
     });
 
     it("bez nikogo od progu lista mówi to wprost, a najlepsi spod progu dalej są", async () => {

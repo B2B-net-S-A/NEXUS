@@ -19,6 +19,8 @@ import { editorText, findingsByField, isEditKey, withTechLevel, withoutTech } fr
 interface JustJoinTabProps extends AdTabProps {
   tech: AdTechItem[];
   onSaveTech: (tech: AdTechItem[]) => Promise<boolean>;
+  /** Portal włączony: ustawienia wybiera się w oknie publikacji, nie w panelu. */
+  viaApi?: boolean;
 }
 
 const LEVEL_OPTIONS: ReadonlyArray<{ value: AdTechLevel; label: string }> = [
@@ -87,6 +89,7 @@ export function JustJoinTab({
   onSaveField,
   tech,
   onSaveTech,
+  viaApi = false,
 }: JustJoinTabProps) {
   const byField = findingsByField(findings);
   const { form_fields, tech_stack, tech_overflow, sections, body_html, body_text } = rendered.jjit;
@@ -126,7 +129,9 @@ export function JustJoinTab({
       <div className="flex flex-col gap-4">
         <section aria-label="Pola formularza" className="flex flex-col gap-1.5">
           <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Pola formularza — wybierasz w panelu JustJoin.IT
+            {viaApi
+              ? "Pola formularza — wybierasz przy publikacji"
+              : "Pola formularza — wybierasz w panelu JustJoin.IT"}
           </h3>
           <dl className="divide-y divide-border text-[13px]">
             {form_fields.map((field) => (
@@ -156,7 +161,8 @@ export function JustJoinTab({
             <div className="flex items-start justify-between gap-2 py-1.5">
               <dt className="w-[104px] shrink-0 text-muted-foreground">Widełki</dt>
               <dd className="min-w-0 flex-1 text-warning-muted-foreground">
-                wpisujesz ręcznie w panelu (netto za godzinę, B2B)
+                {viaApi ? "wpisujesz przy publikacji" : "wpisujesz ręcznie w panelu"} (netto za
+                godzinę, B2B)
               </dd>
             </div>
           </dl>

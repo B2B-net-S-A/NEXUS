@@ -6,11 +6,14 @@
  * i „zdjęte z portalu”. Ten sam stan czyta okno „Ogłoszenie”,
  * sekcja „Zespół i ogłoszenie” i kolumna „Ogłoszenia” listy rekrutacji.
  *
- * NEXUS niczego na portalu nie zmienia — to wyłącznie zapis tego, co zrobił
- * człowiek. Reguły: `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`.
+ * To wyłącznie zapis tego, co zrobił człowiek. Wyjątek od 03.11.2026: przy
+ * włączonym portalu JustJoin.IT publikuje NEXUS (`state.jjit_api`) i stan „wisi”
+ * zapisuje worker. Reguły:
+ * `docs/claude/rekrutacja-tworzenie/ogloszenie-na-portale-kopiuj-wklej.md`,
+ * `docs/claude/rekrutacja-tworzenie/ogloszenie-justjoin-przez-api.md`.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, ExternalLink } from "lucide-react";
 
@@ -23,12 +26,14 @@ import {
   AD_PORTALS,
   jobAdApi,
   jobAdQueryKey,
+  missingAdsQueryKey,
   portalAdHref,
   type AdPortal,
   type AdPublication,
   type JobAdState,
   type PracujRequest,
 } from "@/lib/api/jobAd";
+import { pendingActionLabel } from "@/lib/api/jobPortals";
 import { copyHtmlToClipboard } from "@/lib/clipboard";
 import { cn, formatDate } from "@/lib/utils";
 
@@ -36,6 +41,18 @@ export type AdPublicationsApi = Pick<typeof jobAdApi, "markPublished" | "markRem
 
 /** Pierwszy człon klucza listy rekrutacji (`jobsListQueryKey`) — kolumna „Ogłoszenia”. */
 export const JOBS_LIST_QUERY_ROOT = "jobs-v2";
+
+/** Odświeżanie stanu, gdy zlecenie JustJoin.IT czeka na workera. */
+const JJIT_POLL_MS = 10_000;
+
+/** Co osoba może zrobić z JustJoin.IT przez API. Brak = widzi tylko stan. */
+export interface JjitActions {
+  onPublish: () => void;
+  onUpdate: () => void;
+  updating: boolean;
+  /** Dlaczego teraz nie wolno wysłać (kontrola, strona kariery, otwarta poprawka). */
+  blockedReason: string | null;
+}
 
 export interface AdPublicationsProps {
   /** Wejście z maila przypomnienia: pole linku tego portalu od razu otwarte. */
@@ -47,6 +64,7 @@ export interface AdPublicationsProps {
    * nie wysyła (rekruter) i widzi tylko stan.
    */
   onSendPracuj?: () => void;
+  jjitActions?: JjitActions;
   jobId: number;
   /** Portale do pokazania: jeden w zakładce okna, oba w sekcji rekrutacji. */
   portals: readonly AdPortal[];
@@ -75,6 +93,7 @@ export function AdPublications({
   initialLinkFor = null,
   renderExtra,
   onSendPracuj,
+  jjitActions,
 }: AdPublicationsProps) {
   const queryClient = useQueryClient();
   const { showError } = useToast();
@@ -84,6 +103,23 @@ export function AdPublications({
   const [link, setLink] = useState("");
   // „Skopiowane” przy opisie JustJoin.IT — dla tej wersji treści.
   const [jjitCopiedAt, setJjitCopiedAt] = useState<string | null>(null);
+
+  const jjitApi = state.jjit_api;
+  const jjitLive = jjitApi?.status === "publishing" || jjitApi?.status === "published";
+  const jjitWorking =
+    jjitApi?.status === "publishing" ||
+    (jjitApi?.status === "published" && jjitApi.pending_action != null);
+
+  // Wynik zlecenia zapisuje worker: okno czeka, aż stan przestanie się zmieniać.
+  useEffect(() => {
+    if (!jjitWorking) return;
+    const timer = setInterval(() => {
+      void queryClient.invalidateQueries({ queryKey: jobAdQueryKey(jobId) });
+      void queryClient.invalidateQueries({ queryKey: [JOBS_LIST_QUERY_ROOT] });
+      void queryClient.invalidateQueries({ queryKey: missingAdsQueryKey });
+    }, JJIT_POLL_MS);
+    return () => clearInterval(timer);
+  }, [jjitWorking, jobId, queryClient]);
 
   const apply = (next: JobAdState) => {
     queryClient.setQueryData(jobAdQueryKey(jobId), next);
@@ -117,6 +153,8 @@ export function AdPublications({
       ? "Najpierw usuń z treści fragmenty wskazane w kontroli."
       : null;
 
+  const jjitReason = blockedReason ?? jjitActions?.blockedReason ?? null;
+
   const jjitBody = state.rendered?.jjit ?? null;
   const jjitCopied = !!state.ad && jjitCopiedAt === state.ad.updated_at;
   const copyJjit = async () => {
@@ -138,6 +176,16 @@ export function AdPublications({
     if (confirmed) remove.mutate(portal);
   };
 
+  const confirmTakeDown = async () => {
+    const confirmed = await askConfirm({
+      title: "Zdjąć ogłoszenie z JustJoin.IT?",
+      description:
+        "NEXUS zamknie ogłoszenie na portalu. Tego nie da się cofnąć: ponowna publikacja to nowe ogłoszenie i nowy kredyt.",
+      confirmLabel: "Zdejmij z JustJoin.IT",
+    });
+    if (confirmed) remove.mutate("jjit");
+  };
+
   return (
     <>
       <ul className="flex flex-col gap-2" data-testid="job-ad-publications">
@@ -149,6 +197,9 @@ export function AdPublications({
           // Mail do opiekuna wyszedł, a ogłoszenia jeszcze nie oznaczono.
           const request: PracujRequest | null =
             key === "pracuj" && !active ? state.pracuj_request : null;
+          // Ogłoszenie trzyma kolejka portali: ręczne oznaczanie nie ma tu sensu.
+          const viaApi = key === "jjit" && jjitLive;
+          const jjitPending = viaApi ? pendingActionLabel(jjitApi?.pending_action) : null;
           return (
             <li
               key={key}
@@ -160,10 +211,15 @@ export function AdPublications({
             >
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="font-medium text-foreground">{label}</span>
-                {active ? (
+                {viaApi && !active ? (
+                  <span className="text-foreground" data-testid="jjit-api-status">
+                    {jjitApi?.status === "publishing" ? "Wysyłam na portal…" : "Wisi na portalu"}
+                  </span>
+                ) : active ? (
                   <span className="text-foreground">
                     Opublikowane {formatDate(active.published_at)}
                     {active.published_by_name ? ` · ${active.published_by_name}` : ""}
+                    {jjitPending ? ` · ${jjitPending}` : ""}
                   </span>
                 ) : request ? (
                   <span className="text-foreground" data-testid="pracuj-request-status">
@@ -197,7 +253,37 @@ export function AdPublications({
                   </span>
                 ) : null}
                 <div className="ml-auto flex flex-wrap items-center gap-1">
-                  {active ? (
+                  {viaApi ? (
+                    active && jjitActions && jjitApi?.pending_action == null ? (
+                      <>
+                        {active.outdated && jjitApi?.ready ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2.5"
+                            title={jjitReason ?? undefined}
+                            loading={jjitActions.updating}
+                            disabled={busy || !!jjitReason}
+                            onClick={jjitActions.onUpdate}
+                            data-testid="jjit-update"
+                          >
+                            Zaktualizuj na JustJoin.IT
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 px-2"
+                          disabled={busy}
+                          onClick={() => void confirmTakeDown()}
+                        >
+                          Zdejmij z JustJoin.IT
+                        </Button>
+                      </>
+                    ) : null
+                  ) : active ? (
                     <>
                       {active.outdated ? (
                         <Button
@@ -256,6 +342,20 @@ export function AdPublications({
                           {request ? "Wyślij ponownie" : "Wyślij do Pracuj.pl"}
                         </Button>
                       ) : null}
+                      {key === "jjit" && jjitActions && jjitApi?.ready && !jobClosed ? (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="primary"
+                          className="h-7 px-2.5"
+                          title={jjitReason ?? undefined}
+                          disabled={busy || !!jjitReason}
+                          onClick={jjitActions.onPublish}
+                          data-testid="jjit-publish"
+                        >
+                          {jjitApi.status === "failed" ? "Wyślij ponownie" : "Opublikuj na JustJoin.IT"}
+                        </Button>
+                      ) : null}
                       <Button
                         type="button"
                         size="sm"
@@ -275,7 +375,23 @@ export function AdPublications({
                 </div>
               </div>
 
-              {active?.outdated ? (
+              {key === "jjit" && jjitApi?.last_error && (viaApi || jjitApi.status === "failed") ? (
+                <p
+                  role={jjitApi.status === "failed" ? "alert" : "status"}
+                  className={cn(
+                    "text-xs",
+                    jjitApi.status === "failed" ? "text-destructive" : "text-warning-muted-foreground",
+                  )}
+                >
+                  {jjitApi.last_error}
+                </p>
+              ) : null}
+              {active?.outdated && viaApi ? (
+                <p className="text-xs text-warning-muted-foreground">
+                  Treść zmieniła się po publikacji. Zaktualizuj stronę kariery — JustJoin.IT dostanie
+                  nową wersję razem z nią.
+                </p>
+              ) : active?.outdated ? (
                 <p className="text-xs text-warning-muted-foreground">
                   Treść zmieniła się po publikacji. Popraw ogłoszenie na portalu i kliknij
                   „Zaktualizowane na portalu”.
@@ -288,16 +404,24 @@ export function AdPublications({
                     : "Ogłoszenie wciąż nie jest oznaczone. Sprawdź odpowiedź opiekuna i wklej link albo wyślij ponownie."}
                 </p>
               ) : null}
-              {active && jobClosed ? (
+              {active && jobClosed && !viaApi ? (
                 <p className="text-xs text-warning-muted-foreground">
                   Rekrutacja jest zamknięta, a ogłoszenie nadal wisi. Zdejmij je na portalu i oznacz
                   to tutaj.
                 </p>
               ) : null}
 
-              {key === "jjit" && !active && !jobClosed ? (
-                // Publikacji przez API JustJoin.IT jeszcze nie ma (brak klucza na
-                // produkcji) — rekruterka szukała przycisku „dodaj” (28.10.2026).
+              {key === "jjit" && !active && !jobClosed && !viaApi && jjitApi?.ready ? (
+                jjitActions ? (
+                  jjitReason ? <p className="text-xs text-muted-foreground">{jjitReason}</p> : null
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Na JustJoin.IT publikuje Delivery Lead — jednym kliknięciem z tego okna.
+                  </p>
+                )
+              ) : key === "jjit" && !active && !jobClosed && !viaApi ? (
+                // Portal wyłączony: ogłoszenie wstawia się ręcznie — rekruterka
+                // szukała przycisku „dodaj” (28.10.2026).
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>
                     Ogłoszenie wstawiasz w panelu pracodawcy JustJoin.IT: skopiuj opis, wklej go
@@ -364,7 +488,7 @@ export function AdPublications({
                   </Button>
                 </form>
               ) : null}
-              {!active ? renderExtra?.(key) : null}
+              {!active && !viaApi ? renderExtra?.(key) : null}
             </li>
           );
         })}

@@ -5,7 +5,7 @@
     "why": "Zamiast notatki „oddzwonić jutro” wybierasz termin w panelu osoby. NEXUS przypomni 15 minut przed, wpisze blokadę do Twojego Outlooka, a osoba zostanie przy Tobie do terminu.",
     "tier": "dot",
     "shipped_on": "2026-11-03",
-    "pr": 0,
+    "pr": 2993,
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Rekrutacja → panel osoby → Umów telefon",
     "href": "/jobs",
@@ -700,6 +700,18 @@
     "dot_anchor": "board.new-queue"
   },
   {
+    "id": "nowi-w-bazie-najpierw",
+    "title": "Nowi w bazie na początku kolejki",
+    "why": "Osoby do 14 dni w bazie, z wynikiem od progu i krytycznymi, stoją na początku „Zadzwoń najpierw” i „Propozycji z bazy”, także przed wyższym wynikiem. Wchodzą nawet przy pełnych „Nowych”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
+  },
+  {
     "id": "wyslani-a-system",
     "title": "Jakość podpowiedzi: czy system pokazał osoby wysłane do klienta",
     "why": "Widzisz, ile osób wysłanych do klienta system pokazał sam, ile było spoza bazy, a ile znał i minął, oraz w których rekrutacjach mija najwięcej.",
@@ -743,6 +755,18 @@
     "dot_anchor": "cv.file-name"
   },
   {
+    "id": "prosba-o-zgode-pko",
+    "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
+    "why": "„Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata; zrzut bez B2B.net dostanie ostrzeżenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → CV → Zgoda RODO",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-request"
+  },
+  {
     "id": "oryginal-cv-po-generatorze",
     "title": "Oryginał CV pobierzesz po próbie z generatorem",
     "why": "Z samą rolą rekrutera pliki oglądasz w NEXUSIE. Oryginał CV pobierzesz z karty „CV do klienta”, gdy generator zrobi złe CV, i napiszesz, co było źle. Paczki ZIP już nie ma.",
@@ -782,5 +806,17 @@
     "where": "Mój czas → Wynagrodzenie dodatkowe i stawka",
     "href": "/my-time",
     "dot_anchor": "my-time.bonus-months"
+  },
+  {
+    "id": "zakladka-zrodla",
+    "title": "Zakładka „Źródła”: ilu kandydatów z portali i strony kariery",
+    "why": "W jednej tabeli widzisz, ile osób przyszło z Pracuj.pl, JustJoin.IT i RocketJobs oraz z linków kariery, jak daleko doszły i kim są. Klik w liczbę pokazuje osoby, a daty wybierasz dowolnie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Źródła",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.sources"
   }
 ]

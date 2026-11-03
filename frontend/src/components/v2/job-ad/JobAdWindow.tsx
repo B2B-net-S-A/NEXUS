@@ -492,6 +492,7 @@ export function JobAdWindow({
                         </TabsContent>
                         <TabsContent value="jjit" className="mt-0">
                           <JustJoinTab
+                            viaApi={state.jjit_api?.ready === true}
                             content={ad.content}
                             tech={ad.tech}
                             rendered={rendered}

@@ -1,4 +1,4 @@
 {
-  "sha256": "fdb54828e12616ba6fd4958e742bc96e7bb790ea036f326e0fb31b01a44677fd",
+  "sha256": "9f86022bbdb20ae29b7f2456badd01fa286665a2dccd588699febac898c28724",
   "source": "backend/app/services/order_group_extraction.py"
 }

@@ -109,6 +109,8 @@ export interface ProposalDetail {
    * nocny przegląd). Czytaj przez `isBelowThreshold` — inne źródło osoby to znosi.
    */
   belowThreshold?: boolean;
+  /** Nowi w bazie najpierw: data wejścia do bazy osoby z pierwszeństwem na liście. */
+  newInBaseAt?: string | null;
 }
 
 export interface ProposalEntry {
@@ -393,6 +395,7 @@ export function mergeProposals(input: MergeProposalsInput): ProposalEntry[] {
     d.detail.firstSeenAt ??= item.first_seen_at;
     if (item.posting_recent === true) d.detail.postingRecent = true;
     if (item.below_threshold === true) d.detail.belowThreshold = true;
+    d.detail.newInBaseAt ??= item.new_in_base_at ?? null;
     d.detail.postingSeenAt ??= item.posting_seen_at ?? null;
     // Przegląd, który tę osobę zaproponował — telemetria dodania (żywy
     // przegląd użytkownika, jeśli jest, nadpisze go niżej).

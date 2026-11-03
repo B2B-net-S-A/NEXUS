@@ -24,6 +24,8 @@ export interface ClientRulesCardProps {
   error: boolean;
   languageLabel: string;
   filename: string | null;
+  /** Nagłówek CV, który wyjdzie z formularza. */
+  headerPreview?: string | null;
   projectRef: string | null;
   projectRefFromJob: boolean;
   consentRequired: boolean;
@@ -60,6 +62,9 @@ export function ClientRulesCard(props: ClientRulesCardProps) {
       ) : (
         <>
           <Row label="Język">{props.languageLabel}</Row>
+          {props.headerPreview ? (
+            <Row label="Nagłówek CV"><span className="text-xs">{props.headerPreview}</span></Row>
+          ) : null}
           {props.filename ? (
             <Row label="Nazwa pliku"><span className="font-mono text-xs">{props.filename}</span></Row>
           ) : null}

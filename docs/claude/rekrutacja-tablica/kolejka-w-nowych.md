@@ -19,8 +19,10 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
   które ktoś wziął („Dzwonię”, „Biorę”, `decided`, aktywna blokada). Tak zostaje
   decyzja z 16.10: osoba dodana ręcznie nie ląduje w środku kolumny.
 - **Pod nimi czekające karty od systemu:** od najwyższej sumy wyniku z migawki
-  `entry_autofill.score` i punktów `entry_autofill.known.points`; najpierw bez uwag, potem z ostrzeżeniem (`cautions`),
-  na końcu z brakiem krytycznej (`criticalGapMap`). Remis rozstrzyga numer osoby.
+  `entry_autofill.score` i punktów `entry_autofill.known.points`; najpierw nowi w bazie
+  od progu (`entry_autofill.fresh_first`, `nowi-w-bazie-najpierw.md`), potem pozostali bez uwag,
+  potem z ostrzeżeniem (`cautions`), na końcu z brakiem krytycznej (`criticalGapMap`).
+  Remis rozstrzyga numer osoby.
 - **Pierwszych pięć to „Zadzwoń najpierw”** z numerem na karcie
   (`CALL_FIRST_COUNT`). Nagłówki rysują się tylko wtedy, gdy kolejka ma choć
   jedną kartę. Procent na karcie się nie zmienia.
@@ -49,6 +51,27 @@ i punkty za umiejętności nic nie dokładały.
   (`PUT /api/scoring-weights/panel/known-points`, `app_settings.queue_known_points`).
   Działają od razu, bez szkicu i pomiaru panelu, bo nie zmieniają „Dop.” ani progu.
   Pomiar w tekście suwaka dotyczy wartości +6, +8, +2.
+
+## Co 5. miejsce dla osoby bez procesu
+
+Decyzja Artura z 03.11.2026. Osoba bez procesu nie ma wiersza etapu w żadnej innej
+rekrutacji (`known_queue_points.without_process`). Odtworzenie 814 rekrutacji: R@20
+nowych z 0,051 do 0,319, ich udział w top 20 z 1,5% do 20,3%, bez istotnej straty
+P@5, R@20, MRR i nDCG@10. Żywe kolumny stoją już wyżej niż odtworzenie, więc zysk
+będzie mniejszy: na kopii z 03.11 to 16% z 2422 czekających kart i 13,7% w top 5;
+w 98 ze 170 rekrutacji nikogo takiego nie ma w top 5, w 46 w całej kolumnie.
+
+- **Dwa miejsca, jedna zasada.** Silnik (`with_fresh_slots`) decyduje, kto wchodzi;
+  liczy miejsce od liczby kart w kolumnie, bo dopełnianie po jednej osobie zawsze
+  brałoby pierwszego z listy. Front (`orderNewColumn`) układa czekające karty.
+- **Tablica czyta flagę osobnym zapytaniem** (`entry_autofill.fresh`), tylko gdy są
+  karty od systemu.
+- **Najlepszy znaczy najwyższy sam wynik**, bez punktów „znamy”. Osoba z ostrzeżeniem
+  albo brakiem krytycznej nie przeskakuje.
+- **Napis „Jeszcze bez procesu”** ma tylko karta, która przeskoczyła, bo inaczej piąta
+  karta z niższym procentem wygląda na błąd. Pokazujemy go w „Zadzwoń najpierw”.
+- **Sprawdzić ok. 16.11** w Insights: czy osoby z tych miejsc są weryfikowane
+  i wysyłane. Spadek decyzji na nich to powód do wycofania.
 
 ## Wysłani do klienta a system
 

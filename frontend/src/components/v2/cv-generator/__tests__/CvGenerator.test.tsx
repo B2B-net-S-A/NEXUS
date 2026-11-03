@@ -167,6 +167,23 @@ describe("generacja w rekrutacji", () => {
     expect(await screen.findByRole("region", { name: "Wynik generacji" })).toHaveTextContent(/jako CV do klienta/);
   });
 
+  it("pole „Stanowisko” i prawa kolumna pokazują to, co pójdzie do klienta", async () => {
+    recruitments = [{ ...PKO, job_title: "ZOB-3103 usługi programistyczne", cv_position: "Senior Java Developer" }];
+    renderGenerator();
+    const rules = await screen.findByRole("region", { name: "Reguły klienta" });
+    await waitFor(() => expect(rules).toHaveTextContent("Senior Java Developer – Jan Kowalski"));
+    fireEvent.click(screen.getByRole("button", { name: /Zaawansowane/ }));
+    const field = screen.getByLabelText(/^Stanowisko/) as HTMLInputElement;
+    expect(field.value).toBe("Senior Java Developer");
+
+    fireEvent.change(field, { target: { value: "ZOB-3103 Architekt" } });
+    expect(rules).toHaveTextContent("Architekt – Jan Kowalski");
+    expect(rules).not.toHaveTextContent("ZOB-3103 Architekt");
+
+    fireEvent.click(screen.getByRole("button", { name: "Przywróć z rekrutacji" }));
+    expect(field.value).toBe("Senior Java Developer");
+  });
+
   it("„Co jeszcze przeczyta AI”: te same przełączniki co w karcie, wybór idzie jako `sources`", async () => {
     renderGenerator();
     const transcripts = await screen.findByRole("switch", { name: "Transkrypty rozmów" });

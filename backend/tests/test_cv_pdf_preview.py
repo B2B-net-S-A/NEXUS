@@ -306,3 +306,48 @@ def test_libreoffice_gets_no_application_secrets(tmp_path, monkeypatch):
     seen = (tmp_path / "soffice.env").read_text()
     assert "SECRET_KEY" not in seen and "DATABASE_URL" not in seen
     assert "PATH=" in seen
+
+
+def test_profile_blocks_links_from_the_document(tmp_path, monkeypatch):
+    """Obraz podlinkowany w pliku: LibreOffice bez blokady wykonał żądanie HTTP (SSRF)."""
+    recorder = tmp_path / "soffice"
+    copy = tmp_path / "settings.xcu"
+    recorder.write_text(
+        "#!/bin/sh\n"
+        'out=""; prev=""; profile=""\n'
+        'for a in "$@"; do\n'
+        '  case "$a" in -env:UserInstallation=file://*) profile="${a#*file://}";; esac\n'
+        '  [ "$prev" = "--outdir" ] && out="$a"; prev="$a"\n'
+        "done\n"
+        f'cp "$profile/user/registrymodifications.xcu" "{copy}"\n'
+        'printf "%%PDF-1.7" > "$out/cv.pdf"\n'
+    )
+    recorder.chmod(recorder.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv(service.SOFFICE_ENV, str(recorder))
+    service.docx_to_pdf(b"PK docx")
+    settings = copy.read_text()
+    assert 'oor:name="BlockUntrustedRefererLinks"' in settings
+    assert 'oor:name="DisableActiveContent"' in settings
+    assert 'oor:name="DisableMacrosExecution"' in settings
+    assert settings.count("<value>true</value>") == 3
+
+
+def test_import_filter_goes_to_libreoffice_only_when_asked(tmp_path, monkeypatch):
+    """Bez `--infilter` LibreOffice wybiera filtr po treści niezaufanego pliku."""
+    recorder = tmp_path / "soffice"
+    log = tmp_path / "args.txt"
+    recorder.write_text(
+        "#!/bin/sh\n"
+        f'printf "%s\\n" "$@" > "{log}"\n'
+        'out=""; prev=""\n'
+        'for a in "$@"; do [ "$prev" = "--outdir" ] && out="$a"; prev="$a"; done\n'
+        'printf "%%PDF-1.7" > "$out/cv.pdf"\n'
+    )
+    recorder.chmod(recorder.stat().st_mode | stat.S_IEXEC)
+    monkeypatch.setenv(service.SOFFICE_ENV, str(recorder))
+    service.docx_to_pdf(b"PK filtr", infilter="MS Word 97")
+    args = log.read_text().splitlines()
+    assert "--infilter=MS Word 97" in args
+    assert args.index("--infilter=MS Word 97") < args.index("--convert-to")
+    service.docx_to_pdf(b"PK bez filtra")
+    assert not any(a.startswith("--infilter") for a in log.read_text().splitlines())

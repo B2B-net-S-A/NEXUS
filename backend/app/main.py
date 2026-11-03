@@ -103,6 +103,7 @@ from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
+from app.api import insights_sources as insights_sources_api
 from app.api import insights_stage_breakdown
 from app.api import insights_board
 from app.api import autofill_quality as autofill_quality_api
@@ -1811,6 +1812,11 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(
     insights_recruitment.router,
     prefix="/api/insights/recruitment",
+    tags=["insights"],
+)
+app.include_router(
+    insights_sources_api.router,
+    prefix="/api/insights",
     tags=["insights"],
 )
 app.include_router(
