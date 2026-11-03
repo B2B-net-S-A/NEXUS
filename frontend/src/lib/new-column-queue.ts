@@ -10,10 +10,13 @@
  * systemu od najwyższego wyniku powiększonego o punkty „znamy tę osobę”
  * (`entry_autofill.known`, serwer): najpierw bez uwag, potem z ostrzeżeniem
  * o budżecie albo biurze, na końcu z brakiem krytycznej. Procent na karcie się
- * nie zmienia. Zasady: docs/claude/rekrutacja-tablica/kolejka-w-nowych.md.
+ * nie zmienia. Co 5. miejsce wśród osób bez uwag należy do najlepszej osoby bez
+ * procesu (`entry_autofill.fresh`, decyzja z 03.11.2026), ta sama zasada co
+ * `with_fresh_slots` na serwerze. Zasady: docs/claude/rekrutacja-tablica/kolejka-w-nowych.md.
  */
 
 export const CALL_FIRST_COUNT = 5;
+export const FRESH_EVERY = 5;
 
 export type KnownFacts = {
   points: number;
@@ -33,6 +36,7 @@ type QueueItem = {
     decided: boolean;
     cautions?: unknown[];
     known?: KnownFacts | null;
+    fresh?: boolean;
   } | null;
 };
 
@@ -73,10 +77,33 @@ function tier(item: QueueItem, criticalGaps: ReadonlyMap<number, string[]> | und
   return item.entry_autofill?.cautions?.length ? 1 : 0;
 }
 
+/** Co `FRESH_EVERY`-te miejsce dla najlepszej osoby bez procesu; `slots` to ci, którzy przeskoczyli. */
+function withFreshSlots<T extends QueueItem>(sorted: readonly T[]): { items: T[]; slots: Set<number> } {
+  const waiting = sorted
+    .filter((item) => item.entry_autofill?.fresh)
+    .sort(
+      (a, b) =>
+        (b.entry_autofill?.score ?? 0) - (a.entry_autofill?.score ?? 0) || a.candidate_id - b.candidate_id,
+    );
+  const items: T[] = [];
+  const slots = new Set<number>();
+  const used = new Set<number>();
+  while (items.length < sorted.length) {
+    const natural = sorted.find((item) => !used.has(item.id)) as T;
+    const fresh =
+      (items.length + 1) % FRESH_EVERY === 0 ? waiting.find((item) => !used.has(item.id)) : undefined;
+    const pick = fresh ?? natural;
+    if (pick !== natural) slots.add(pick.id);
+    items.push(pick);
+    used.add(pick.id);
+  }
+  return { items, slots };
+}
+
 export function orderNewColumn<T extends QueueItem>(
   items: readonly T[],
   criticalGaps?: ReadonlyMap<number, string[]>,
-): { items: T[]; ranks: Map<number, number>; total: number } {
+): { items: T[]; ranks: Map<number, number>; total: number; freshSlots: Set<number> } {
   const team = items.filter((item) => !waitsInSystemQueue(item));
   const queue = items
     .filter(waitsInSystemQueue)
@@ -87,9 +114,11 @@ export function orderNewColumn<T extends QueueItem>(
         queueValue(b.item) - queueValue(a.item) ||
         a.item.candidate_id - b.item.candidate_id,
     );
+  const clean = withFreshSlots(queue.filter(({ tier }) => tier === 0).map(({ item }) => item));
+  const ordered = [...clean.items, ...queue.filter(({ tier }) => tier !== 0).map(({ item }) => item)];
   const ranks = new Map<number, number>();
-  queue.forEach(({ item }, index) => ranks.set(item.id, index + 1));
-  return { items: [...team, ...queue.map(({ item }) => item)], ranks, total: queue.length };
+  ordered.forEach((item, index) => ranks.set(item.id, index + 1));
+  return { items: [...team, ...ordered], ranks, total: ordered.length, freshSlots: clean.slots };
 }
 
 export function newColumnSection(rank: number | undefined): NewColumnSection {
