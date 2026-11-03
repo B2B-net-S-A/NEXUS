@@ -1,5 +1,18 @@
 [
   {
+    "id": "cv-poprawione-automatycznie",
+    "title": "Generator sam poprawia CV po kontroli AI",
+    "why": "Zdanie bez pokrycia w CV i notatkach generator skraca albo usuwa. Pod wynikiem widzisz, co było i co jest. Jeśli było prawdziwe, skopiuj je i wklej w edytorze CV.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2968,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Generator CV → wynik → Poprawione automatycznie",
+    "href": "/cv-generator",
+    "section": "pipeline",
+    "dot_anchor": "cv.result.auto-repairs"
+  },
+  {
     "id": "wiersz-bez-nikogo-z-wyslanych",
     "title": "Wymaganie, którego nie ma nikt z wysłanych",
     "why": "Profil Championa pokazuje „musi mieć”, którego nie ma żadna z wysłanych osób. Możesz dopisać słowo z ich CV albo przenieść wymaganie do rozmowy.",

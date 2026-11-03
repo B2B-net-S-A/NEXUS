@@ -97,7 +97,7 @@ function CvAutoRepairs({ repairs }: { repairs: readonly CvAutoRepair[] }) {
     }
   }
   return (
-    <section aria-label="Poprawione automatycznie" className="rounded-xl border border-border bg-card">
+    <section aria-label="Poprawione automatycznie" data-tour="cv.result.auto-repairs" className="rounded-xl border border-border bg-card">
       <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
         <h3 className="text-sm font-semibold text-foreground">Poprawione automatycznie</h3>
         <StatusChip tone="neutral">{repairs.length}</StatusChip>
