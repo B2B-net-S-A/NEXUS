@@ -239,15 +239,17 @@ export function ChampionClientQuestionsPanel({
       >
         Pytania klienta z rozmów
       </h4>
-      <WorkspaceModeTabs<QuestionsTab>
-        label="Zakres pytań klienta"
-        value={tab}
-        onChange={setTab}
-        modes={[
-          { value: "job", label: "Z tej rekrutacji", count: jobCount },
-          { value: "client", label: "Wszystkie pytania klienta" },
-        ]}
-      />
+      <div data-tour="jobs.client-questions.scope">
+        <WorkspaceModeTabs<QuestionsTab>
+          label="Zakres pytań klienta"
+          value={tab}
+          onChange={setTab}
+          modes={[
+            { value: "job", label: "Z tej rekrutacji", count: jobCount },
+            { value: "client", label: "Wszystkie pytania klienta" },
+          ]}
+        />
+      </div>
       {tab === "job" ? (
         <>
           <p className="mt-2 mb-2 text-[11px] text-muted-foreground">

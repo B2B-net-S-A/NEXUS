@@ -738,6 +738,7 @@ export function TaskCard({ task, ctx, sourceLabel }: { task: QcTask; ctx: Action
   const sameThingButton = single?.similar ? (
     <Button
       size="sm"
+      data-tour="cv-qc.same-thing"
       disabled={ctx.dismissing}
       onClick={() =>
         ctx.dismiss({
