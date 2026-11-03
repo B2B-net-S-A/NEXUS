@@ -77,7 +77,9 @@ def test_consent_must_name_our_company_as_the_offeror(offeror):
     assert "supplier" not in codes(result, "passed")
 
 
-@pytest.mark.parametrize("company", ["B2B.netS.A.", "B2B.net", "b2b net s.a.", "B2BNET"])
+@pytest.mark.parametrize(
+    "company", ["B2B.netS.A.", "B2B.net", "b2b net s.a.", "B2BNET"]
+)
 def test_company_spelling_variants_pass(company):
     text = CONSENT.replace("B2B.net S.A.", company)
     result = cc.assess(reading(consent_text=text), SUBJECT)

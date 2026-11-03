@@ -59,7 +59,7 @@ export function ConsentRequestButton({ candidateId, candidateName, jobId }: Cons
 
   return (
     <>
-      <Button type="button" size="sm" onClick={() => setOpen(true)}>
+      <Button type="button" size="sm" data-tour="cv.consent-request" onClick={() => setOpen(true)}>
         <Mail aria-hidden className="h-3.5 w-3.5" /> Poproś kandydata o zgodę
       </Button>
       {open && candidateQuery.isError ? (

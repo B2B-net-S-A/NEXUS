@@ -730,6 +730,18 @@
     "dot_anchor": "cv.file-name"
   },
   {
+    "id": "prosba-o-zgode-pko",
+    "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
+    "why": "Gdy pod CV brakuje zrzutu zgody, „Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata. Zrzut bez B2B.net dostanie ostrzeżenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → CV → Zgoda RODO",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-request"
+  },
+  {
     "id": "oryginal-cv-po-generatorze",
     "title": "Oryginał CV pobierzesz po próbie z generatorem",
     "why": "Z samą rolą rekrutera pliki oglądasz w NEXUSIE. Oryginał CV pobierzesz z karty „CV do klienta”, gdy generator zrobi złe CV, i napiszesz, co było źle. Paczki ZIP już nie ma.",
