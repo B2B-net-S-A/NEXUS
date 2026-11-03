@@ -31,6 +31,15 @@ https://claude.ai/artifact/RYRUWbkuSfYWnW2NfJ6FUu.
     zatwierdzonej albo poprawionej przez Płace automat nie rusza.
 - **Bez przypisania nic się nie zmienia:** prowadzi pierwszy weryfikujący,
   a przed weryfikacją osoba, która dodała.
+- **Wiersz w panelu mówi to samo co karta (03.11.2026, wariant A z makiet
+  https://claude.ai/artifact/WPR3RnfFTQj8oNsXVfxK9e):** kolejność
+  `currentOwner` to przypisanie, osoba z „Biorę” (`taken_by_*`), weryfikujący,
+  dodający. Zgłoszenie: karta od systemu „Maciej · 10 h”, panel „— brak danych”.
+  Osoba z „Biorę” dostaje dopisek z czasem blokady, ale Liga, cele i premia
+  dalej jej nie liczą (`biore-zmienia-osobe-karty.md`). Karta w „Nowych” albo
+  „Screeningu” bez osoby mówi „Prowadzi nikt”; „brak danych” zostaje dla kart
+  dalej w procesie. „Tryb rozmowy” ma krótki znak w wierszu z imieniem
+  kandydata (`PairOwnerCompact`), bo zwinięty nagłówek chowa pełny wiersz.
 - **Nie zmienia się:** historia etapów (kto co przesunął), „Zweryfikował(a)”
   w przeglądzie DL, Hall of Fame i tabele Insights „kto kliknął” — liczą
   osobę, która przesunęła etap (definicja D2), nie prowadzącą.
