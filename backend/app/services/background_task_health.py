@@ -25,6 +25,20 @@ from typing import Any
 SLACK_WEBHOOK_ALARM_TASKS: tuple[str, ...] = ("slack_sla_alerts",)
 
 
+# Rolling update to kilkanaście sekund w `standby`. Dłużej znaczy, że pętle stoją,
+# bo blokady nikt nie zwalnia, a proces wygląda na zdrowy.
+_STANDBY_ALARM_SECONDS = 300
+
+
+def leader_check_value(*, is_leader: bool, standby_seconds: int) -> str | None:
+    """Wartość ``checks.background_tasks`` dla procesu bez pętli; lider = ``None``."""
+    if is_leader:
+        return None
+    if standby_seconds > _STANDBY_ALARM_SECONDS:
+        return f"unhealthy: standby {standby_seconds}s — pętle w tle nie działają"
+    return "standby"
+
+
 def classify_background_tasks(
     tasks: dict[str, "asyncio.Task[Any]"] | None,
 ) -> dict[str, Any]:

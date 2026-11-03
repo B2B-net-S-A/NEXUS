@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
     # tylko do hostów z listy (`app/core/staging.py`).
     NEXUS_ENV: str = "production"
+    # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
+    BACKGROUND_LEADER_LOCK_ENABLED: bool = True
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
     # (po przecinku). Na produkcji bez znaczenia.
     STAGING_EXTRA_ALLOWED_HOSTS: str = ""
