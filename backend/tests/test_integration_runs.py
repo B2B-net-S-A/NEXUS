@@ -301,10 +301,13 @@ async def _report_events(
         f"{_WRITE}/runs", headers=headers, json={"source": source, "mode": mode}
     )
     assert started.status_code == 201, started.text
-    resp = await client.post(
-        f"{_WRITE}/runs/{started.json()['id']}/events", headers=headers, json=events
-    )
+    run_url = f"{_WRITE}/runs/{started.json()['id']}"
+    resp = await client.post(f"{run_url}/events", headers=headers, json=events)
     assert resp.status_code == 201, resp.text
+    # Bieg zakończony: `running` na wspólnej bazie testowej blokuje każdy
+    # późniejszy import JJIT (`RunInProgress`, kolejka 03.11.2026).
+    finished = await client.patch(run_url, headers=headers, json={"status": "ok"})
+    assert finished.status_code == 200, finished.text
 
 
 def _event(external_id: str | None, action: str, minutes_ago: int) -> dict:
