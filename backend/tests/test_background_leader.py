@@ -134,6 +134,56 @@ async def test_lock_taken_by_another_process_stops_the_loops() -> None:
 
 
 @pytest.mark.asyncio
+async def test_own_unreleased_backend_is_not_another_process() -> None:
+    """Wolna odpowiedź bazy na jednym kontenerze: stare połączenie jeszcze trzyma
+    blokadę, ale to nie inny proces, więc pętle zostają."""
+    calls: list[str] = []
+    leader = _leader(calls, lock_key=91_000_009)
+    await leader.start()
+    stale = leader._conn  # noqa: SLF001
+
+    class _BackendNotYetClosed:
+        def terminate(self) -> None:
+            pass
+
+        async def fetchval(self, *_args: object) -> None:
+            raise OSError("zerwane")
+
+    leader._conn = _BackendNotYetClosed()  # noqa: SLF001
+    try:
+        await asyncio.sleep(0.3)
+        assert leader.is_leader is True
+        assert calls == ["a:acquired"]
+
+        await stale.close()
+        await _until(lambda: leader._conn is not None)  # noqa: SLF001
+        assert leader.is_leader is True
+        assert calls == ["a:acquired"]
+    finally:
+        await leader.stop_watching()
+        await leader.release()
+
+
+@pytest.mark.asyncio
+async def test_long_standby_logs_error_once(caplog: pytest.LogCaptureFixture) -> None:
+    """Sonda przychodzi co kilka godzin, a ERROR trafia do Sentry od razu."""
+    calls: list[str] = []
+    holder = await asyncpg.connect(_DSN)
+    assert await holder.fetchval("SELECT pg_try_advisory_lock($1)", 91_000_010)
+    leader = _leader(calls, lock_key=91_000_010)
+    await leader.start()
+    try:
+        leader._standby_since -= 301  # noqa: SLF001
+        await asyncio.sleep(0.3)
+    finally:
+        await holder.close()
+        await leader.stop_watching()
+        await leader.release()
+    errors = [r for r in caplog.records if r.levelname == "ERROR" and "standby" in r.getMessage()]
+    assert len(errors) == 1
+
+
+@pytest.mark.asyncio
 async def test_database_down_at_start_stays_standby_and_retries() -> None:
     attempts = {"n": 0}
     calls: list[str] = []

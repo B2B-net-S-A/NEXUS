@@ -3176,7 +3176,13 @@ async def api_health_check():
 
         _webhook_set = bool(os.environ.get("SLACK_WEBHOOK_URL", "").strip())
         _cls = classify_background_tasks(getattr(app.state, "background_tasks", None))
-        checks["ai_features"] = spend_alarm_status(_cls, webhook_set=_webhook_set)
+        _leader = getattr(app.state, "background_leader", None)
+        # Pętli nie ma tu z założenia, a długi `standby` alarmuje `background_tasks`.
+        checks["ai_features"] = (
+            "standby"
+            if _leader is not None and not _leader.is_leader
+            else spend_alarm_status(_cls, webhook_set=_webhook_set)
+        )
     except Exception as exc:
         logger.warning("[health] ai_features check failed: %s", exc)
         checks["ai_features"] = "unknown"

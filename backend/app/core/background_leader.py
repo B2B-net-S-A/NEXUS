@@ -10,6 +10,12 @@ zwalnia blokadę razem z połączeniem.
 Zwykły start bez nakładania zachowuje się jak dawniej: blokada jest wolna, więc
 pętle ruszają przed końcem startu. Plan:
 ``docs/claude/podstawy/przerwa-przy-wdrozeniu.md``.
+
+Granica gwarancji: gdy lider straci połączenie z blokadą w trakcie nakładania
+(restart bazy, zerwana sieć), zauważa to przy kolejnym sprawdzeniu, a następca
+przejmuje wcześniej, więc dwa komplety mogą chodzić do ok. 10 s. Bez ogrodzenia
+każdego zapisu tego się nie usunie. Rollback na kod bez blokady i wyłącznik
+``BACKGROUND_LEADER_LOCK_ENABLED=false`` w jednym z kontenerów też ją znoszą.
 """
 
 from __future__ import annotations
@@ -31,6 +37,8 @@ BACKGROUND_LEADER_LOCK_KEY = 7_203_411
 
 _CONNECT_TIMEOUT_SECONDS = 5.0
 _CHECK_TIMEOUT_SECONDS = 5.0
+# Wdrożenie trwa w `standby` kilkanaście sekund. Dłużej znaczy, że pętle stoją.
+STANDBY_ALARM_SECONDS = 300
 
 
 class BackgroundLeader:
@@ -53,8 +61,10 @@ class BackgroundLeader:
         self._check_seconds = check_seconds
         self._connect = connect
         self._conn: Any = None
+        self._lock_backend_pid: int | None = None
         self._watcher: asyncio.Task[None] | None = None
         self._standby_since = time.monotonic()
+        self._standby_alarm_sent = False
         self.is_leader = False
 
     @property
@@ -85,12 +95,27 @@ class BackgroundLeader:
             )
             if not self.is_leader:
                 await self._try_acquire()
+                self._alarm_on_long_standby()
             elif not await self._lock_connection_alive():
                 await self._recover_lost_connection()
+
+    def _alarm_on_long_standby(self) -> None:
+        """ERROR idzie do Sentry od razu; sonda `/api/health` przychodzi co kilka godzin."""
+        if (
+            not self.is_leader
+            and not self._standby_alarm_sent
+            and self.standby_seconds > STANDBY_ALARM_SECONDS
+        ):
+            self._standby_alarm_sent = True
+            logger.error(
+                "background leader: %s s w standby, pętle w tle nie działają",
+                self.standby_seconds,
+            )
 
     async def _try_acquire(self) -> None:
         if await self._take_lock():
             self.is_leader = True
+            self._standby_alarm_sent = False
             logger.info("background leader: przejęto pętle w tle")
             await self._notify(self._on_acquired)
 
@@ -105,6 +130,7 @@ class BackgroundLeader:
             )
             if await conn.fetchval("SELECT pg_try_advisory_lock($1)", self._lock_key):
                 self._conn = conn
+                self._lock_backend_pid = conn.get_server_pid()
                 return True
             await conn.close()
             return False
@@ -145,15 +171,22 @@ class BackgroundLeader:
             await self._notify(self._on_lost)
 
     async def _lock_held_by_another_process(self) -> bool:
-        """Brak bazy to nie utrata: nikt inny też nie wykona pracy, a pętle same ponawiają."""
+        """Brak bazy to nie utrata: nikt inny też nie wykona pracy, a pętle same ponawiają.
+
+        Własne porzucone połączenie Postgres zamyka z opóźnieniem i do tego czasu
+        blokada jest przyznana. Nie liczymy go jako innego procesu: pojedynczy
+        kontener wyłączyłby sobie wszystkie pętle przez samą wolną odpowiedź bazy.
+        """
         conn = None
         try:
             conn = await self._connect(self._dsn, timeout=_CONNECT_TIMEOUT_SECONDS)
             return await conn.fetchval(
                 "SELECT count(*) > 0 FROM pg_locks "
                 "WHERE locktype = 'advisory' AND objid = $1 AND granted "
+                "AND pid IS DISTINCT FROM $2 "
                 "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
                 self._lock_key,
+                self._lock_backend_pid,
             )
         except (OSError, asyncpg.PostgresError, asyncio.TimeoutError):
             return False
