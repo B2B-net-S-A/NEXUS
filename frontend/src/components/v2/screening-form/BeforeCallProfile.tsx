@@ -40,6 +40,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { notesCountLabel, outcomeReasonText, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
 import { PersonFacts } from "@/components/v2/person/PersonFacts";
+import { ScreeningCallControl } from "@/components/v2/recruitment/ScreeningCallControl";
 import { inBaseSourceText, inBaseView, type CandidateInBase } from "@/components/v2/person/PersonInBase";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import api, { candidatesApi } from "@/lib/api";
@@ -315,6 +316,14 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
           >
             <PhoneOff className="h-3.5 w-3.5" aria-hidden /> Nie odebrał
           </Button>
+        ) : null}
+        {!readOnly ? (
+          <ScreeningCallControl
+            candidateId={candidateId}
+            jobId={jobId}
+            call={item.booked_call}
+            popover
+          />
         ) : null}
       </div>
 

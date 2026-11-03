@@ -1,5 +1,18 @@
 [
   {
+    "id": "umow-telefon-na-screening",
+    "title": "Umów telefon, gdy kandydat prosi o później",
+    "why": "Zamiast notatki „oddzwonić jutro” wybierasz termin w panelu osoby. NEXUS przypomni 15 minut przed, wpisze blokadę do Twojego Outlooka, a osoba zostanie przy Tobie do terminu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2993,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → panel osoby → Umów telefon",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "screening-call.book"
+  },
+  {
     "id": "wiersz-bez-nikogo-z-wyslanych",
     "title": "Wymaganie, którego nie ma nikt z wysłanych",
     "why": "Profil Championa pokazuje „musi mieć”, którego nie ma żadna z wysłanych osób. Możesz dopisać słowo z ich CV albo przenieść wymaganie do rozmowy.",

@@ -137,6 +137,7 @@ from app.services.recruitment_move_policy import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.services import screening_calls
 from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
@@ -3704,6 +3705,7 @@ async def build_kanban_view(
     inactive_claimers = await candidate_claim.inactive_holders(
         db, v4_processes.values()
     )
+    booked_calls = await screening_calls.starts_by_candidate(db, job_id, candidate_ids)
     reassign_job_ids = {
         p.reassign_from_job_id
         for p in v4_processes.values()
@@ -4211,6 +4213,16 @@ async def build_kanban_view(
                 payload["reassign_from_reference"] = reassign_refs.get(
                     v4.reassign_from_job_id
                 )
+            booked_call = booked_calls.get(e.candidate_id)
+            if booked_call is not None:
+                payload["booked_call"] = {
+                    "event_id": booked_call.id,
+                    "start_time": booked_call.start_time,
+                    "note": booked_call.description,
+                    "owner_id": booked_call.operational_owner_id,
+                    "owner_name": user_name_by_id.get(booked_call.operational_owner_id),
+                    "in_outlook": bool(booked_call.external_id),
+                }
             claim = candidate_claim.claim_state(v4, inactive_claimers)
             if claim.active(board_now):
                 payload["claim_user_id"] = claim.user_id
@@ -5171,6 +5183,7 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    await screening_calls.follow_claim(db, process=process, user=current_user, now=now)
     # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
     # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
     from app.services.autofill_decisions import record_call

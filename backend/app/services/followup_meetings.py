@@ -12,7 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    CalendarEvent,
+    EventStatus,
+    EventType,
+    is_booked_call,
+)
 from app.services.calendar_privacy import PRIVATE_EVENT_TITLE
 from app.models.candidate import Candidate
 from app.models.followup_meeting import FollowupMeeting
@@ -399,6 +404,10 @@ async def erase_candidate_meetings(
             event.title = ERASED_EVENT_TITLE
         event.description = None
         event.attendees = _without_address(event.attendees, candidate.email)
+        # Blokadę w Outlooku rekrutera zdejmuje pętla przypomnień
+        # (`screening_calls.clean_outlook`), bo to jego połączenie, nie aplikacja Teams.
+        if is_booked_call(event) and event.status == EventStatus.scheduled:
+            event.status = EventStatus.cancelled
     pending_ids = {event_id for _upn, _graph_id, event_id in pending}
     for event in events:
         if pending_ids and event.id in pending_ids:
