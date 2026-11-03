@@ -231,7 +231,7 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                 </section>
               ) : null}
 
-              {card.actions.length === 0 ? (
+              {card.actions.length === 0 && card.state !== "done" ? (
                 <div className="flex flex-wrap gap-2">
                   {!card.assignee ? (
                     <Button
