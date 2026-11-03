@@ -261,21 +261,23 @@ async def _assert_new_email(db: AsyncSession, email: Optional[str]) -> None:
 
 
 async def _assert_not_erased(db: AsyncSession, email: Optional[str]) -> None:
-    """Osoba, której dane usunięto na jej żądanie (RODO), nie wraca z automatu.
+    """Adres trwale usuniętego profilu nie wraca z automatu.
 
     Ekran pyta człowieka, który rozmawiał z osobą (od 03.11.2026, ten sam
     nagrobek). Automatyzacja zakłada kandydatów hurtem (np. z maili), więc
     nagrobek adresu (``candidate_email_tombstone``, ten sam co przy imporcie)
     daje 409 ``candidate_erased`` bez żadnych danych osoby. Decyzja 15.10.2026.
+    Nagrobek stawia każde trwałe usunięcie, także duplikatu, więc odpowiedź nie
+    mówi o prośbie osoby.
     """
     if await email_was_erased(db, email):
         raise HTTPException(
             409,
             detail={
                 "error": "candidate_erased",
-                "message": "Dane osoby z tym adresem e-mail usunięto na jej "
-                "żądanie (RODO) — API nie zakłada jej ponownie. Jeśli osoba sama "
-                "wróciła do kontaktu, dodaje ją człowiek na ekranie.",
+                "message": "Ten adres należał do profilu trwale usuniętego — API "
+                "nie zakłada go ponownie. Jeśli osoba sama wróciła do kontaktu, "
+                "dodaje ją człowiek na ekranie.",
             },
         )
 
@@ -303,7 +305,7 @@ async def create_candidate(
     adminów i Head of Recruitment, indeks wyszukiwania. Autor = konto
     serwisowe. Kandydat z tym samym e-mailem (bez rozróżniania wielkości
     liter) już jest → 409 ``duplicate_candidate`` z ``candidate_id``. Adres
-    osoby usuniętej na jej żądanie (RODO) → 409 ``candidate_erased``.
+    trwale usuniętego profilu → 409 ``candidate_erased``.
     Dopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → 422 przy polu."""
     _reject_name_markers(body)
     data = _screen_candidate(body)

@@ -11,7 +11,7 @@ Dwie części:
 * z bazą (CI) — trasy przez HTTP: lista firmowa bez ukrytych klientów,
   kontakt tylko z ``candidates:contact``, plik CV z ``candidates:cv`` i ślad
   pobrania, rozpatrzenie link / merge / create / reject tym samym ciałem co
-  ekran (autor = konto serwisowe), reguła „ten sam e-mail”, nagrobek RODO
+  ekran (autor = konto serwisowe), reguła „ten sam e-mail”, nagrobek adresu
   (409), powtórka z paragonu, próba bez zapisu, 403 bez scope'u.
 
 Dane są zmyślone (repo jest publiczne).
@@ -685,7 +685,7 @@ class TestResolveApplications:
         assert error["code"] == "duplicate_candidate"
         assert error["details"] == {"candidate_id": taken["ewa"]}
 
-        # Adres osoby usuniętej na jej żądanie (RODO) nie wraca z automatu.
+        # Adres trwale usuniętego profilu nie wraca z automatu.
         erased = await _world(matched=False)
         async with AsyncSessionLocal() as db:
             db.add(
@@ -704,7 +704,10 @@ class TestResolveApplications:
                 **params,
             )
             assert resp.status_code == 409, resp.text
-            assert resp.json()["error"]["code"] == "candidate_erased"
+            error = resp.json()["error"]
+            assert error["code"] == "candidate_erased"
+            assert "trwale usuniętego" in error["message"]
+            assert "RODO" not in error["message"]
 
         fresh = await _world(matched=False)
         resp = await _resolve(
