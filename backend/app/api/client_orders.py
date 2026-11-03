@@ -2524,7 +2524,7 @@ async def extract_order_pdf(
             400,
             detail=(
                 "Nie udało się odczytać tekstu z dokumentu "
-                "(skan, plik zaszyfrowany lub nieobsługiwany format .doc?)."
+                "(skan, plik zaszyfrowany lub nieobsługiwany format?)."
             ),
         )
 
