@@ -234,7 +234,13 @@ def _paragraphs(text: Optional[str]) -> list[str]:
 
 
 def build_body(job: dict[str, Any]) -> str:
-    """HTML ogłoszenia z białej listy; każdy tekst przez ``html.escape``."""
+    """HTML ogłoszenia z białej listy; każdy tekst przez ``html.escape``.
+
+    Z okna „Ogłoszenie” przychodzi gotowy ``body_html``: ten sam, który pokazuje
+    zakładka JustJoin.IT (``job_ad.render``, też po ``html.escape``).
+    """
+    if job.get("body_html"):
+        return str(job["body_html"])
     show = job.get("show") if isinstance(job.get("show"), dict) else {}
     parts: list[str] = []
     subtitle = job.get("subtitle")

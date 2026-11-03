@@ -30,7 +30,9 @@ from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.models.job import Job
 from app.models.job_posting import JobPosting, Portal
+from app.models.user import User
 from app.services import job_portals
+from app.services.job_ad import reminders
 from app.services.job_portals.base import JJIT_FAMILY, PortalError
 from app.services.job_portals.service import (
     PortalRequestError,
@@ -155,6 +157,27 @@ async def _job(db: AsyncSession, job_id: int) -> Job:
     if job is None:
         raise HTTPException(404, detail="Nie znaleziono rekrutacji")
     return job
+
+
+async def _ensure_may_decide(
+    db: AsyncSession, user: User, job: Job, portal: Portal
+) -> None:
+    """JustJoin.IT: decyduje DL rekrutacji, Head of Recruitment albo admin.
+
+    Ta sama reguła co w oknie „Ogłoszenie”. Publikacja kosztuje kredyt, więc nie
+    wolno jej obejść starszą sekcją „Portale ogłoszeniowe” (decyzja 21.10.2026).
+    """
+    if portal != Portal.justjoinit:
+        return
+    found = await reminders.load_statuses(db, [job.id])
+    if found and not reminders.can_manage(user, found[0]):
+        raise HTTPException(
+            403,
+            detail=(
+                "O ogłoszeniach tej rekrutacji decyduje jej Delivery Lead, "
+                "Head of Recruitment albo admin."
+            ),
+        )
 
 
 @router.get("/job-portals/config", response_model=PortalConfigResponse)
@@ -317,6 +340,10 @@ async def publish_job_posting(
 ) -> JobPostingRead:
     job = await _job(db, job_id)
     await ensure_job_editor(db, current_user, job)
+    # Portal niegotowy odmawia każdemu tym samym słowem (409, `request_publish`).
+    config = job_portals.PortalConfig.from_settings(_portal(portal))
+    if await job_portals.resolve_state(db, config) == "ready":
+        await _ensure_may_decide(db, current_user, job, _portal(portal))
     options = body.options.as_dict() if body and body.options else None
     try:
         posting = await request_publish(
@@ -343,6 +370,7 @@ async def update_job_posting_options(
 ) -> JobPostingRead:
     job = await _job(db, job_id)
     await ensure_job_editor(db, current_user, job)
+    await _ensure_may_decide(db, current_user, job, _portal(portal))
     try:
         posting = await update_options(
             db, job=job, portal=_portal(portal), options=body.options.as_dict()
@@ -363,6 +391,7 @@ async def unpublish_job_posting(
 ) -> JobPostingRead:
     job = await _job(db, job_id)
     await ensure_job_editor(db, current_user, job)
+    await _ensure_may_decide(db, current_user, job, _portal(portal))
     try:
         posting = await request_unpublish(db, job=job, portal=_portal(portal))
     except PortalRequestError as exc:
