@@ -49,6 +49,7 @@ from app.services.candidate_erasure_leftovers import (
 )
 from app.services.candidate_name_rules import without_name_markers
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.dedup_service import find_candidate_by_email
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
 from app.models.application_submission import (
@@ -616,8 +617,11 @@ async def resolve_application_submission_route(
         await ensure_optional_job_membership(db, current_user, submission.job_id)
         # Zgłoszenie sprzed usunięcia zostaje w kolejce bez dopasowania, a
         # „Utwórz kandydata” przywróciłoby dane osoby jednym kliknięciem.
+        # Adres z żywym właścicielem to nie powrót: profil powstaje bez adresu.
         if payload.action == "create":
-            erased_email = await email_was_erased(db, submission.submitted_email)
+            erased_email = not await find_candidate_by_email(
+                db, submission.submitted_email
+            ) and await email_was_erased(db, submission.submitted_email)
             if erased_email and not payload.confirm_erased:
                 raise erased_email_conflict()
 

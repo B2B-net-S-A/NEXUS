@@ -400,7 +400,13 @@ async def submit_application(
 
     erased_email = await email_was_erased(db, normalized_email)
     candidate = await _create_candidate(
-        db, ref=ref, applicant=applicant, cv=cv, content=content, screening=screening
+        db,
+        ref=ref,
+        applicant=applicant,
+        cv=cv,
+        content=content,
+        screening=screening,
+        erased_before=erased_email,
     )
     if erased_email:
         record_recreated_after_erasure(
@@ -418,6 +424,7 @@ async def submit_application(
             related_entity_id=candidate_id,
             target=f"/candidates/{candidate_id}",
             duplicate=False,
+            erased_before=erased_email,
         )
 
     await _confirm_to_applicant(
@@ -643,6 +650,7 @@ async def _create_candidate(
     cv: UploadFile,
     content: bytes,
     screening: bool = False,
+    erased_before: bool = False,
 ) -> Candidate:
     from app.api import public_share
     from app.models.candidate_source_event import CandidateSourceEvent
@@ -732,6 +740,7 @@ async def _create_candidate(
             first_name=applicant.first_name,
             last_name=applicant.last_name,
             utm_source=applicant.utm.get("source"),
+            erased_before=erased_before,
         )
     elif link.job_id is not None:
         stage_exists = await db.scalar(
@@ -863,8 +872,12 @@ async def _notify_owner(
     blocked_reason: Optional[str] = None,
     extra: Optional[str] = None,
     in_job: Optional[ExistingCard] = None,
+    erased_before: bool = False,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    ``erased_before`` = TO zgłoszenie założyło profil na adres z nagrobka;
+    kolejne zgłoszenia tej osoby tego zdania już nie powtarzają.
 
     audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
     nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
@@ -924,16 +937,11 @@ async def _notify_owner(
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
-        elif related_entity_type == "candidate":
-            from app.services.candidate_erasure_leftovers import (
-                was_recreated_after_erasure,
+        if erased_before:
+            message += (
+                " Profil z tym adresem był już trwale usunięty; osoba "
+                "zgłosiła się sama."
             )
-
-            if await was_recreated_after_erasure(db, related_entity_id):
-                message += (
-                    " Profil z tym adresem był już trwale usunięty; osoba "
-                    "zgłosiła się sama."
-                )
         if (
             job_id is not None
             and in_job is None

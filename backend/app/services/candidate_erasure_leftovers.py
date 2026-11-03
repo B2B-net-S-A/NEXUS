@@ -200,21 +200,6 @@ def record_recreated_after_erasure(
     )
 
 
-async def was_recreated_after_erasure(db: AsyncSession, candidate_id: int) -> bool:
-    from app.models.activity import Activity
-
-    found = await db.scalar(
-        select(Activity.id)
-        .where(
-            Activity.entity_type == "candidate",
-            Activity.entity_id == candidate_id,
-            Activity.action == RECREATED_AFTER_ERASURE,
-        )
-        .limit(1)
-    )
-    return found is not None
-
-
 async def _erase_notifications(db: AsyncSession, candidate_id: int) -> int:
     from app.models.notification import Notification
     from app.models.recruitment_pipeline import CandidateStage
