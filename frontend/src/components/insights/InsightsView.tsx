@@ -9,6 +9,7 @@ import {
   FileText,
   Landmark,
   Lock,
+  Target,
   Trophy,
   UserRound,
   Users,
@@ -31,8 +32,12 @@ import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { ZrodlaViewMock } from "@/components/insights/views/ZrodlaViewMock";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { hasSectionAccess } from "@/lib/section-access";
 
 export type TabId =
+  | "zrodla"
   | "rywalizacja"
   | "moj-miesiac"
   | "zespol"
@@ -103,6 +108,8 @@ const TABS: TabDef[] = [
     permission: FIRMA_PERMISSION,
     alsoRoles: FIRMA_ROLES,
   },
+  // MAKIETA: lustro `CandidatePIIAccess`, jak raport źródeł w `RaportyView`.
+  { id: "zrodla", label: "Źródła", icon: Target, roles: null },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -169,6 +176,10 @@ type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 export const DEFAULT_INSIGHTS_TAB: TabId = "rywalizacja";
 
+const seesSources = (user: NonNullable<AuthUser>): boolean =>
+  holdsCapabilityGrant(user, "nav.candidates") &&
+  (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline"));
+
 export function getDefaultTabForUser(user: AuthUser): TabId {
   // Rada nadzorcza startuje na Firmie (jak `BOARD_HOME`) — 22.10.2026.
   if (user && hasRole(user, "board")) return "firma";
@@ -184,6 +195,7 @@ export function getDefaultTabForUser(user: AuthUser): TabId {
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
   const ids = TABS.filter((tab) => {
     if (!user) return true;
+    if (tab.id === "zrodla") return seesSources(user);
     if (tab.permission) {
       return (
         hasPermission(user, tab.permission) ||
@@ -395,6 +407,7 @@ export function InsightsView() {
       </div>
 
       <div>
+        {location.tab === "zrodla" && <ZrodlaViewMock />}
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}
