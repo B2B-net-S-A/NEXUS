@@ -85,6 +85,8 @@ describe("klucz ekranu z adresu", () => {
     ["/people/calendar", "", "hr.team_calendar"],
     ["/people/consents", "?request=4", "hr.consents"],
     ["/people/approvals", "?tab=consents&request=4", "hr.consents"],
+    ["/care", "", "hr.care"],
+    ["/back-office", "", "hr.care"],
     ["/people", "", null],
     ["/order-mail", "", null],
     ["/jobs/new", "", null],

@@ -105,7 +105,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
-      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "finance"]],
+      // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "back-office", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });

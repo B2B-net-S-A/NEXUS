@@ -224,6 +224,17 @@ _KNOWN_CONTRACT_FKS = {
     ("redeploy_queue_items", "contract_id"),
     # Karty technologiczne — historia rozmów u klienta, przenoszona w całości.
     ("tech_cards", "contract_id"),
+    # Kolejka back office: ``source_key`` zostaje, więc karta duplikatu zamknie się
+    # przy następnym przebiegu, a karta zachowanego kontraktu powstanie sama.
+    ("bo_cards", "contract_id"),
+    # Portal konsultanta przenoszony w całości; ten sam plik dwóch duplikatów
+    # łączy ``_resolve_child_duplicates``.
+    ("cp_documents", "contract_id"),
+    ("cp_links", "contract_id"),
+    ("cp_meetings", "contract_id"),
+    ("cp_ratings", "contract_id"),
+    ("cp_sessions", "contract_id"),
+    ("cp_sms_codes", "contract_id"),
 }
 
 # Only these scalar fields are eligible for additive (empty <- populated)
@@ -3000,6 +3011,7 @@ _AUTOMATION_KEY_RE = re.compile(
 # wiersz (zrobiony, pominięty, zatwierdzony) wygrywa z otwartym, bo niesie
 # decyzję człowieka; remis — wiersz kontraktu zachowanego, potem najniższe id.
 _PLAN_ITEM_RANK = {"done": 0, "skipped": 1, "open": 2}
+_PORTAL_DOCUMENT_RANK = {"paid": 0, "accepted": 1, "received": 2, "rejected": 3}
 _REDEPLOY_RANK = {"in_progress": 0, "open": 1}
 _EQUIPMENT_TASK_RANK = {"zrobione": 0, "anulowane": 1, "otwarte": 2}
 _PLACEMENT_BONUS_RANK = {"assigned": 0, "proposed": 1, "cancelled": 2}
@@ -3250,6 +3262,32 @@ async def _resolve_child_duplicates(
                 {"ids": [int(row["id"]) for row in losers]},
             )
         out["contract_care_plan_items_duplicates_removed"] = len(losers)
+
+    if ("cp_documents", "contract_id") in present:
+        rows = await _child_rows(
+            db,
+            "SELECT id, contract_id, kind, period_year, period_month, sha256, status "
+            "FROM cp_documents WHERE contract_id = ANY(:ids) ORDER BY id",
+            every,
+        )
+        _, losers = _split_slot_duplicates(
+            rows,
+            slot_of=lambda row: (
+                row["kind"],
+                int(row["period_year"]),
+                int(row["period_month"]),
+                row["sha256"],
+            ),
+            rank=_PORTAL_DOCUMENT_RANK,
+            survivor_id=survivor_id,
+        )
+        if losers:
+            # Ten sam plik na dysku (nazwa to skrót): znika tylko zdublowany wiersz.
+            await db.execute(
+                text("DELETE FROM cp_documents WHERE id = ANY(:ids)"),
+                {"ids": [int(row["id"]) for row in losers]},
+            )
+        out["cp_documents_duplicates_removed"] = len(losers)
 
     if ("redeploy_queue_items", "contract_id") in present:
         rows = await _child_rows(

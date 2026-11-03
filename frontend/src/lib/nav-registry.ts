@@ -74,7 +74,8 @@ export type NavFeatureFlag =
   | "hrMyTime"
   | "hrPeople"
   | "hrEquipment"
-  | "hrCare";
+  | "hrCare"
+  | "hrBackOffice";
 
 export type NavSectionKey =
   | "sourcing"
@@ -96,7 +97,7 @@ export type NavUser =
 export type NavVisibilityOptions = {
   contactQueueEnabled: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean };
+  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -665,6 +666,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],
     inPalette: true,
   },
+  // Kolejka spraw back office'u (moduł `back_office`, decyzja Artura 02.11.2026):
+  // przy włączonym module zastępuje pozycję „Opieka nad konsultantami”, a stare
+  // linki `/care` dalej otwierają ten sam ekran.
+  {
+    id: "back-office",
+    href: "/back-office",
+    label: "Back office",
+    icon: HeartHandshake,
+    section: "system",
+    featureFlag: "hrBackOffice",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "sprawy", "kolejka", "premie", "umowy"],
+    inPalette: true,
+  },
   {
     id: "help",
     moreHint: "Procedury, instrukcje, karty klientów",
@@ -714,7 +729,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "care", "finance"],
+    ids: ["sales", "clients", "contracts", "care", "back-office", "finance"],
   },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
@@ -744,7 +759,9 @@ function featureFlagOn(
     case "hrEquipment":
       return opts.hr?.equipment ?? false;
     case "hrCare":
-      return opts.hr?.care ?? false;
+      return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
+    case "hrBackOffice":
+      return opts.hr?.backOffice ?? false;
   }
 }
 

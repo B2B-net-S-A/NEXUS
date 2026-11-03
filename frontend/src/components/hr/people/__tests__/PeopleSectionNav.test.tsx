@@ -35,6 +35,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
@@ -104,7 +105,7 @@ describe("liczniki zakładek „Ludzie”", () => {
     expect(parseHrCounts({ approvals: 2, consents: 3, cases: null }).consents).toBe(3);
     expect(() => parseHrCounts({ approvals: 2, consents: -1, cases: null })).toThrow();
     expect(() => parseHrCounts({ approvals: "2", cases: null })).toThrow();
-    expect(() => parseHrCounts({ approvals: 2 })).toThrow();
+    expect(() => parseHrCounts({ approvals: 2, back_office: false })).toThrow();
     expect(() => parseHrCounts(null)).toThrow();
   });
 });

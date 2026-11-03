@@ -21,6 +21,7 @@ const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
     equipment: false,
     settlements: false,
     approvals: false,
+    back_office: false,
     ...on,
   },
 });
@@ -68,20 +69,20 @@ describe("„Zgody i wydatki” (22.10.2026, dawne „Moje zgody”)", () => {
   const me = (has_profile: boolean, is_admin = false) => ({ has_profile, is_admin });
 
   it("ostatnia zakładka przy otwartym module „Zgody” — z kartoteką albo dla admina", () => {
-    const withProfile = { ...open({ leave: true, approvals: true }), me: me(true) };
+    const withProfile = { ...open({ leave: true, approvals: true, back_office: false }), me: me(true) };
     expect(myTimeTabs(withProfile).map((tab) => tab.value)).toEqual([
       "overview",
       "leave",
       "consents",
     ]);
     expect(myTimeTabs(withProfile).at(-1)?.label).toBe("Zgody i wydatki");
-    expect(consentsTabVisible({ ...open({ approvals: true }), me: me(false, true) })).toBe(true);
+    expect(consentsTabVisible({ ...open({ approvals: true, back_office: false }), me: me(false, true) })).toBe(true);
   });
 
   it("bez modułu, bez kartoteki (nie admin) albo bez danych o osobie — bez zakładki", () => {
     expect(consentsTabVisible({ ...open({}), me: me(true, true) })).toBe(false);
-    expect(consentsTabVisible({ ...open({ approvals: true }), me: me(false) })).toBe(false);
-    expect(consentsTabVisible(open({ approvals: true }))).toBe(false);
+    expect(consentsTabVisible({ ...open({ approvals: true, back_office: false }), me: me(false) })).toBe(false);
+    expect(consentsTabVisible(open({ approvals: true, back_office: false }))).toBe(false);
   });
 });
 

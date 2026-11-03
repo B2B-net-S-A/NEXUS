@@ -775,6 +775,103 @@ async def test_contract_merge_carries_care_rhythm_mails_and_consultant_entry(
         await _cleanup_merge(ids)
 
 
+async def test_contract_merge_moves_queue_cards_and_portal_rows():
+    """Nowe tabele z ``contract_id`` nie blokują scalenia, a ten sam plik się łączy."""
+    suffix = uuid.uuid4().hex[:10]
+    today = business_today()
+    ids: dict = {}
+    try:
+        async with AsyncSessionLocal() as db:
+            candidate, client, survivor, loser = await _merge_pair(db, suffix=suffix)
+            sid, lid = survivor.id, loser.id
+            ids.update(contracts=[sid, lid], candidate=candidate.id, client=client.id)
+            card = await _insert(
+                db,
+                "INSERT INTO bo_cards (team, lane, source_kind, source_key, title, "
+                "contract_id) VALUES ('care', 'bench', 'bench', :key, 'Ławka', :c)",
+                key=f"bench:{lid}:{suffix}",
+                c=lid,
+            )
+            session = await _insert(
+                db,
+                "INSERT INTO cp_sessions (contract_id, email, token_hash, expires_at) "
+                "VALUES (:c, 'konsultant@example.com', :h, now() + interval '1 hour')",
+                c=lid,
+                h=(suffix * 7)[:64],
+            )
+
+            async def document(contract: int, status: str, sha: str) -> int:
+                return await _insert(
+                    db,
+                    "INSERT INTO cp_documents (contract_id, kind, period_year, "
+                    "period_month, channel, status, file_path, mime, size_bytes, "
+                    "sha256) VALUES (:c, 'invoice', 2026, 10, 'portal', :s, 'x', "
+                    "'application/pdf', 1, :sha)",
+                    c=contract,
+                    s=status,
+                    sha=sha,
+                )
+
+            same = (suffix * 7)[:64]
+            kept_copy = await document(sid, "received", same)
+            accepted_copy = await document(lid, "accepted", same)
+            other_file = await document(lid, "received", ("a" + suffix * 7)[:64])
+            await db.commit()
+
+            manifest = ContractMergeManifest(same_client_groups=((sid, lid),))
+            audit = await build_contract_merge_plan(db, manifest, today=today)
+            assert audit["global_blockers"] == []
+            assert audit["groups"][0]["blockers"] == []
+            await db.rollback()
+            applied = await apply_contract_merge_plan(
+                db,
+                manifest,
+                expected_fingerprint=audit["fingerprint"],
+                expected_approval_fingerprint=approval_fingerprint(
+                    audit["fingerprint"]
+                ),
+                today=today,
+            )
+            await db.commit()
+            moved = applied["applied"][0]["reparented"]
+            assert moved["cp_documents_duplicates_removed"] == 1
+            for table, row_id in (("bo_cards", card), ("cp_sessions", session)):
+                assert (
+                    await db.scalar(
+                        text(f"SELECT contract_id FROM {table} WHERE id = :id"),
+                        {"id": row_id},
+                    )
+                    == sid
+                ), table
+            documents = dict(
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id, status FROM cp_documents "
+                            "WHERE contract_id = :c ORDER BY id"
+                        ),
+                        {"c": sid},
+                    )
+                ).all()
+            )
+            # Przyjęty dokument wygrywa z tym samym plikiem czekającym na decyzję.
+            assert documents == {accepted_copy: "accepted", other_file: "received"}
+            assert kept_copy not in documents
+    finally:
+        async with AsyncSessionLocal() as db:
+            if ids.get("contracts"):
+                await db.execute(
+                    text("DELETE FROM bo_cards WHERE contract_id = ANY(:ids)"),
+                    {"ids": ids["contracts"]},
+                )
+                await db.execute(
+                    text("DELETE FROM cp_documents WHERE contract_id = ANY(:ids)"),
+                    {"ids": ids["contracts"]},
+                )
+            await db.commit()
+        await _cleanup_merge(ids)
+
+
 async def test_contract_merge_blocks_two_assigned_placement_bonuses_of_one_role():
     """Dwie zatwierdzone premie DL za jeden placement — scalenie czeka na Płace."""
     suffix = uuid.uuid4().hex[:10]

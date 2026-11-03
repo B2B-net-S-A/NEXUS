@@ -182,6 +182,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_lifecycle_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_work_handover'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_escalated'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_low_rating'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_monthly_review'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_reminder'",
@@ -346,6 +350,9 @@ _ENUM_STATEMENTS = [
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
+    # 0643: podsumowanie rozmowy z portalu konsultanta.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -7794,6 +7801,11 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0637: seed klucza AI rozdzielania spraw back office'u.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'case_triage', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'case_triage')",
     # 0628: seed klucza AI podsumowania spotkania handlowca.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "

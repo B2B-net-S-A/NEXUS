@@ -106,6 +106,9 @@ class AdminCaseMessage(Base):
         CheckConstraint(
             schema.CK_MESSAGE_ATTACHMENTS, name="ck_admin_case_messages_attachments"
         ),
+        CheckConstraint(
+            "direction IN ('in', 'out')", name="ck_admin_case_messages_direction"
+        ),
         Index("ix_admin_case_messages_case", "case_id", "received_at"),
         Index("ix_admin_case_messages_conversation", "conversation_id"),
         Index("ix_admin_case_messages_internet", "internet_message_id"),
@@ -125,6 +128,10 @@ class AdminCaseMessage(Base):
     subject: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     received_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    #: ``in`` albo ``out`` (odpowiedź ze sprawy, własny mail w wątku; 0637).
+    direction: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default="in", default="in"
     )
     body_text: Mapped[str] = mapped_column(
         Text, nullable=False, default="", server_default=""

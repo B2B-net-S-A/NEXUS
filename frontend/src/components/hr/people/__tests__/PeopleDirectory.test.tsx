@@ -42,6 +42,7 @@ const MODULES = {
   equipment: false,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(peopleAdmin: boolean, payroll = false): HrConfig {
