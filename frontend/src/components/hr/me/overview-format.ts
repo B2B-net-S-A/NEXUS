@@ -275,6 +275,8 @@ export interface MyBonusItem {
   progress: number | null;
   /** Linia pod paskiem w „Przeglądzie”: dni, termin, start umowy. */
   timeline: string;
+  /** Miesiąc płac premii; prognoza nie ma go w bazie, więc bierze miesiąc terminu. */
+  period: YearMonth;
 }
 
 /** „Premia rekrutera — placement: Jan Przykładowy (Firma)” → „Jan Przykładowy (Firma)”. */
@@ -343,6 +345,7 @@ export function bonusItemFromRow(
     cancelled: false,
     inTransit: false,
     progress: null,
+    period: { year: row.period_year, month: row.period_month },
   };
   if (row.status === "cancelled") {
     const reason = cancelReasonLabel(row.cancel_reason, requiredDays, row.cancel_ended_on);
@@ -434,6 +437,7 @@ export function bonusItemFromForecast(item: BonusForecast): MyBonusItem {
     cancelled: false,
     inTransit: true,
     progress: progressPercent(item.started ? item.business_days_elapsed : 0, item.business_days_required),
+    period: { year: Number(item.eligible_on.slice(0, 4)), month: Number(item.eligible_on.slice(5, 7)) },
     timeline: item.started
       ? `${daysStage(item.business_days_elapsed, item.business_days_required)} · liczy się do ~${formatDayMonthPl(item.eligible_on)}`
       : `umowa podpisana · start ${formatDayMonthPl(item.start_date)} · liczy się do ~${formatDayMonthPl(item.eligible_on)}`,

@@ -759,5 +759,15 @@
         "ack": true
       }
     ]
+  },
+  {
+    "id": "premie-po-miesiacach",
+    "title": "Premie i wynagrodzenie dodatkowe po miesiącach",
+    "why": "Wybierasz miesiąc i od razu widzisz podstawę, wynagrodzenie dodatkowe albo premie oraz sumę. Lista pokazuje wtedy tylko pozycje z tego miesiąca, a „Wszystkie” wraca do pełnej listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "where": "Mój czas → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.bonus-months"
   }
 ]
