@@ -35,6 +35,7 @@ SENSITIVE_ROW = {
     "invoiceNumber": "FV/1/11/2026",
     "invoiceType": "INVOICE",
     "issuedDate": "2026-11-03T10:00:00.000",
+    "_createdDate": "2026-11-03T10:00:00.000",
     "grossAmount": 123456,
     "paid": True,
     "paidDate": "2026-11-10",
@@ -51,18 +52,30 @@ def test_podsumowanie_liczy_pola_bez_danych_wrazliwych() -> None:
             "_schemaName": "INCOME_INVOICE",
             "_origin": {"channel": "MAILBOX"},
             "issuedDate": "2026-10-01",
+            "_createdDate": "2026-10-01",
             "invoiceType": "CORRECTIVE_INVOICE",
             "paid": False,
         },
-        {"_schemaName": "INCOME_INVOICE", "_ksefStatus": "tekst z <html>"},
+        {
+            "_schemaName": "INCOME_INVOICE",
+            "_ksefStatus": "tekst z <html>",
+            "_createdDate": "tekst z <html>",
+        },
+        {"_schemaName": "INCOME_INVOICE"},
     ]
 
     summary = ebi24_probe.summarize(rows)
 
-    assert summary["rows"] == 3
-    assert summary["ksef_status"] == {"COMPLETED": 1, "(brak)": 1, "INNY": 1}
+    assert summary["rows"] == 4
+    assert summary["ksef_status"] == {"COMPLETED": 1, "(brak)": 2, "INNY": 1}
     assert summary["valid_ksef_number"] == 1
-    assert summary["origin_channel"] == {"SELF": 1, "MAILBOX": 1, "(brak)": 1}
+    assert summary["origin_channel"] == {"SELF": 1, "MAILBOX": 1, "(brak)": 2}
+    assert summary["created_date_shape"] == {
+        "9999-99-99T99:99:99.999": 1,
+        "9999-99-99": 1,
+        "INNY": 1,
+        "(brak)": 1,
+    }
     assert summary["invoice_type"]["CORRECTIVE_INVOICE"] == 1
     assert summary["paid_true"] == 1
     assert summary["paid_with_date"] == 1
@@ -136,7 +149,9 @@ async def test_sonda_przechodzi_strony_i_czyta_probke_xml(monkeypatch) -> None:
     assert report["totals"]["INCOME_INVOICE"] == 1
     assert report["totals"]["FILE"] == 0
     assert report["newest"]["INCOME_INVOICE"]["rows"] == 1
-    assert report["date_filter"]["accepted"] is True
+    assert report["date_filter"]["days"] == 30
+    assert report["date_filter"]["date"]["accepted"] is True
+    assert report["date_filter"]["datetime"]["accepted"] is True
     assert report["xml_sample"]["INCOME_INVOICE"] == {
         "ok": 1,
         "not_found": 0,
@@ -155,11 +170,21 @@ async def test_sonda_przechodzi_strony_i_czyta_probke_xml(monkeypatch) -> None:
     assert "Fikcyjn" not in text
 
 
-async def test_odrzucony_filtr_dat_to_wynik_a_nie_awaria() -> None:
+async def test_format_daty_odrzucony_przez_serwer_to_wynik_a_nie_awaria() -> None:
+    sent: list[dict] = []
+
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
-        if payload["data"].get("_constructor") == "AdvancedCriteria":
-            return httpx.Response(200, json={"response": {"status": -1, "data": "x"}})
+        criteria = payload["data"]
+        total = 40
+        if criteria.get("_constructor") == "AdvancedCriteria":
+            created = criteria["criteria"][1]
+            sent.append(created)
+            if "T" in created["value"]:
+                return httpx.Response(
+                    200, json={"response": {"status": -1, "data": "x"}}
+                )
+            total = 7
         return httpx.Response(
             200,
             json={
@@ -168,7 +193,7 @@ async def test_odrzucony_filtr_dat_to_wynik_a_nie_awaria() -> None:
                     "data": [],
                     "startRow": 0,
                     "endRow": 0,
-                    "actualTotalRows": 0,
+                    "actualTotalRows": total,
                 }
             },
         )
@@ -181,7 +206,13 @@ async def test_odrzucony_filtr_dat_to_wynik_a_nie_awaria() -> None:
     ) as client:
         report = await ebi24_probe.probe(client, max_rows=500, xml_sample=0)
 
-    assert report["date_filter"] == {"accepted": False}
+    assert report["date_filter"] == {
+        "days": 30,
+        "date": {"accepted": True, "total": 7, "narrowed": True},
+        "datetime": {"accepted": False},
+    }
+    assert [item["fieldName"] for item in sent] == ["_createdDate", "_createdDate"]
+    assert {item["operator"] for item in sent} == {"greaterOrEqual"}
 
 
 def test_wylaczona_konfiguracja_konczy_kodem_2(monkeypatch, capsys) -> None:
