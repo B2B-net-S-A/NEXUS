@@ -321,6 +321,49 @@ async def return_for_fix(
     return await lock_timesheet(db, timesheet.id)
 
 
+async def withdraw(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
+    """Osoba cofa własny wysłany timesheet do szkicu, dopóki nikt go nie przyjął."""
+
+    timesheet = await lock_timesheet(db, timesheet_id)
+    if timesheet.user_id != actor.user_id:
+        raise TimeForbidden("Wycofujesz tylko własny timesheet.")
+    assert_not_locked(timesheet)
+    if timesheet.status != "submitted":
+        raise TimeConflict("Wycofać można tylko wysłany timesheet. Odśwież widok.")
+    done = await db.scalar(
+        update(Timesheet)
+        .where(
+            Timesheet.id == timesheet.id,
+            Timesheet.status == "submitted",
+            Timesheet.payroll_locked.is_(False),
+        )
+        .values(status="draft", submitted_at=None)
+        .returning(Timesheet.id)
+    )
+    if done is None:
+        raise TimeConflict(CHANGED_DETAIL)
+    audit.record(
+        db,
+        actor_user_id=actor.user_id,
+        subject_user_id=timesheet.user_id,
+        entity_type="timesheet",
+        entity_id=timesheet.id,
+        action="timesheet_withdrawn",
+        details={"year": timesheet.year, "month": timesheet.month},
+    )
+    words = await _words(db, timesheet.user_id)
+    await _notify(
+        db,
+        user_ids=await approval_recipients(db, timesheet.user_id),
+        title=f"Wycofano do poprawy: {words['timesheet'].lower()}",
+        message=f"{await _name(db, timesheet.user_id)}: "
+        f"{month_label(timesheet.year, timesheet.month)}.",
+        ntype=NotificationType.hr_timesheet_decided,
+        link=approvals_link(timesheet.year, timesheet.month, timesheet.user_id),
+    )
+    return await lock_timesheet(db, timesheet.id)
+
+
 async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesheet:
     """Cofnięcie akceptacji: wraca do „wysłany”; wiedzą o tym osoba i Płace."""
 

@@ -281,6 +281,50 @@ describe("MyMonthTab", () => {
     expect(screen.queryByRole("button", { name: "Sourcing: Java Developer" })).toBeNull();
   });
 
+  it("wysłany raport osoba wycofuje sama, dopóki nikt go nie przyjął", async () => {
+    const sent = {
+      id: 5,
+      status: "submitted" as const,
+      submitted_at: "2031-04-01T08:00:00Z",
+      return_note: null,
+      returned_at: null,
+      approved_at: null,
+      approved_by_name: null,
+      payroll_locked: false,
+      pdf_hash: null,
+    };
+    routeGet(month({ timesheet: sent }));
+    mocks.post.mockResolvedValue({ data: { ...sent, status: "draft", submitted_at: null } });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Wycofaj i popraw" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/me/2031/3/withdraw"));
+  });
+
+  it("przyjętego i zamkniętego w płacach raportu wycofać się nie da", async () => {
+    const closed = {
+      id: 5,
+      status: "submitted" as const,
+      submitted_at: "2031-04-01T08:00:00Z",
+      return_note: null,
+      returned_at: null,
+      approved_at: null,
+      approved_by_name: null,
+      payroll_locked: true,
+      pdf_hash: null,
+    };
+    routeGet(month({ timesheet: closed }));
+    const first = renderTab();
+    await screen.findByText(/zamknięty w płacach/);
+    expect(screen.queryByRole("button", { name: "Wycofaj i popraw" })).toBeNull();
+    first.unmount();
+
+    routeGet(month({ timesheet: { ...closed, status: "approved", payroll_locked: false } }));
+    renderTab();
+    await screen.findByRole("button", { name: /Pobierz PDF/ });
+    expect(screen.queryByRole("button", { name: "Wycofaj i popraw" })).toBeNull();
+  });
+
   it("przełącznik Biuro/Zdalnie zapisuje wyjątek dnia", async () => {
     routeGet(month());
     mocks.put.mockResolvedValue({ data: { date: "2031-03-05", source: "exception" } });
