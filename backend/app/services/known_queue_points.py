@@ -11,9 +11,12 @@ procent dopasowania zostaje (ta sama zasada co ``known_people_signal``). Zapis
 w ``app_settings``, domyślne działają bez wiersza.
 
 Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta
-(``ended_by = 'client'``). Warunek z ``known_people_signal`` liczy też stare
-wiersze z pustym ``ended_by`` po wysyłce CV: pod niego wpadało 33 z 82 wysłanych
-ze zweryfikacją u tego klienta i top 40 spadało z 62% do 53% (pomiar bez flag).
+(``ended_by = 'client'``). Pusty ``ended_by`` po wysyłce CV to nie odrzucenie: pod
+ten warunek wpadało 33 z 82 wysłanych ze zweryfikacją u tego klienta i top 40
+spadało z 62% do 53% (pomiar bez flag).
+
+Osoby bez procesu (``without_process``) dostają co 5. miejsce w kolejce, decyzja
+Artura z 03.11.2026; zasady w ``docs/claude/rekrutacja-tablica/kolejka-w-nowych.md``.
 """
 
 from __future__ import annotations
@@ -182,3 +185,21 @@ async def facts_for(
                 client + note, client, note, client_jobs, last_note
             )
     return out
+
+
+async def without_process(
+    db: AsyncSession, *, job_id: int, candidate_ids: list[int]
+) -> set[int]:
+    """Osoby bez żadnego wiersza etapu w innej rekrutacji."""
+    if not candidate_ids:
+        return set()
+    rows = await db.execute(
+        text(
+            """
+            SELECT DISTINCT candidate_id FROM candidate_stages
+            WHERE candidate_id = ANY(:ids) AND job_id <> :job
+            """
+        ),
+        {"ids": candidate_ids, "job": job_id},
+    )
+    return set(candidate_ids) - {int(cid) for cid in rows.scalars()}

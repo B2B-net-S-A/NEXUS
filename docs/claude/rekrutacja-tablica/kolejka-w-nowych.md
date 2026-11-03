@@ -50,6 +50,27 @@ i punkty za umiejętności nic nie dokładały.
   Działają od razu, bez szkicu i pomiaru panelu, bo nie zmieniają „Dop.” ani progu.
   Pomiar w tekście suwaka dotyczy wartości +6, +8, +2.
 
+## Co 5. miejsce dla osoby bez procesu
+
+Decyzja Artura z 03.11.2026. Osoba bez procesu nie ma wiersza etapu w żadnej innej
+rekrutacji (`known_queue_points.without_process`). Odtworzenie 814 rekrutacji: R@20
+nowych z 0,051 do 0,319, ich udział w top 20 z 1,5% do 20,3%, bez istotnej straty
+P@5, R@20, MRR i nDCG@10. Żywe kolumny stoją już wyżej niż odtworzenie, więc zysk
+będzie mniejszy: na kopii z 03.11 to 16% z 2422 czekających kart i 13,7% w top 5;
+w 98 ze 170 rekrutacji nikogo takiego nie ma w top 5, w 46 w całej kolumnie.
+
+- **Dwa miejsca, jedna zasada.** Silnik (`with_fresh_slots`) decyduje, kto wchodzi;
+  liczy miejsce od liczby kart w kolumnie, bo dopełnianie po jednej osobie zawsze
+  brałoby pierwszego z listy. Front (`orderNewColumn`) układa czekające karty.
+- **Tablica czyta flagę osobnym zapytaniem** (`entry_autofill.fresh`), tylko gdy są
+  karty od systemu.
+- **Najlepszy znaczy najwyższy sam wynik**, bez punktów „znamy”. Osoba z ostrzeżeniem
+  albo brakiem krytycznej nie przeskakuje.
+- **Napis „Jeszcze bez procesu”** ma tylko karta, która przeskoczyła, bo inaczej piąta
+  karta z niższym procentem wygląda na błąd. Pokazujemy go w „Zadzwoń najpierw”.
+- **Sprawdzić ok. 16.11** w Insights: czy osoby z tych miejsc są weryfikowane
+  i wysyłane. Spadek decyzji na nich to powód do wycofania.
+
 ## Wysłani do klienta a system
 
 Sekcja w „Insights → Jakość podpowiedzi systemu” (`services/sent_vs_system.py`,

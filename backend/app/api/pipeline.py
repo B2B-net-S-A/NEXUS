@@ -3737,6 +3737,15 @@ async def build_kanban_view(
         ],
         now=board_now,
     )
+    without_process_ids = await known_queue_points.without_process(
+        db,
+        job_id=job_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
     autofill_recruiter_since = (
         (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
         if any(
@@ -4159,6 +4168,10 @@ async def build_kanban_view(
             known_fact = known_queue_facts.get(e.candidate_id)
             if payload["entry_autofill"] is not None and known_fact is not None:
                 payload["entry_autofill"]["known"] = known_fact.as_dict()
+            if payload["entry_autofill"] is not None:
+                payload["entry_autofill"]["fresh"] = (
+                    e.candidate_id in without_process_ids
+                )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id

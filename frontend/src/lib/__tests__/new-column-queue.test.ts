@@ -44,6 +44,60 @@ describe("orderNewColumn", () => {
     expect(items.map((i) => i.id)).toEqual([4, 2, 3]);
   });
 
+  it("co 5. miejsce oddaje najlepszej osobie bez procesu i oznacza tylko przeskok", () => {
+    const fresh = (id: number, score: number) =>
+      system(id, score, { entry_autofill: { score, decided: false, cautions: [], fresh: true } });
+    const known = (id: number, score: number) =>
+      system(id, score, {
+        entry_autofill: {
+          score,
+          decided: false,
+          cautions: [],
+          known: { points: 10, client_points: 6, note_points: 4, verified_at_client: 1, last_note_days: 3 },
+        },
+      });
+    const { items, ranks, freshSlots } = orderNewColumn([
+      known(1, 80),
+      known(2, 79),
+      known(3, 78),
+      known(4, 77),
+      known(5, 76),
+      known(6, 75),
+      fresh(7, 60),
+      fresh(8, 70),
+    ]);
+    expect(items.map((i) => i.id)).toEqual([1, 2, 3, 4, 8, 5, 6, 7]);
+    expect(ranks.get(8)).toBe(5);
+    expect([...freshSlots]).toEqual([8]);
+  });
+
+  it("osoba bez procesu, która i tak stoi na swoim miejscu, nie dostaje napisu", () => {
+    const fresh = (id: number, score: number) =>
+      system(id, score, { entry_autofill: { score, decided: false, cautions: [], fresh: true } });
+    const { items, freshSlots } = orderNewColumn([
+      fresh(1, 90),
+      fresh(2, 89),
+      fresh(3, 88),
+      fresh(4, 87),
+      fresh(5, 86),
+    ]);
+    expect(items.map((i) => i.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(freshSlots.size).toBe(0);
+  });
+
+  it("osoba bez procesu z ostrzeżeniem albo brakiem krytycznej nie przeskakuje", () => {
+    const caution = system(6, 95, {
+      entry_autofill: { score: 95, decided: false, cautions: [{ key: "budget" }], fresh: true },
+    });
+    const gap = system(7, 94, { entry_autofill: { score: 94, decided: false, cautions: [], fresh: true } });
+    const { items, freshSlots } = orderNewColumn(
+      [system(1, 80), system(2, 79), system(3, 78), system(4, 77), system(5, 76), caution, gap],
+      new Map([[70, ["angular"]]]),
+    );
+    expect(items.map((i) => i.id)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    expect(freshSlots.size).toBe(0);
+  });
+
   it("remis wyniku rozstrzyga numer osoby, więc kolejność jest stała", () => {
     const { items } = orderNewColumn([system(3, 75), system(1, 75), system(2, 75)]);
     expect(items.map((i) => i.id)).toEqual([1, 2, 3]);
