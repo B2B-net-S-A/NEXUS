@@ -20,6 +20,10 @@ dokłada do komparycji warunek ``b2b.is_company``. ``build`` robi to zawsze;
 na już zacommitowanych szablonach (źródła prawnika nie leżą w repo):
 
     python scripts/build_b2b_templates.py --company-variant
+
+Stawka progresywna jako podpunkty a) b) (dział umów, 03.11.2026) — tak samo:
+
+    python scripts/build_b2b_templates.py --rate-lines
 """
 
 from __future__ import annotations
@@ -27,11 +31,13 @@ from __future__ import annotations
 import html as _html
 import re
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import docx
 from docx.document import Document as _DocType
 from docx.oxml.ns import qn
+from docx.shared import Twips
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
@@ -409,9 +415,7 @@ def add_company_variant_html(html: str, pairs: list[tuple[str, str]]) -> str:
         for body_old, body_new in bodies.items():
             old = f"<strong>{_esc(head_old)}</strong>{_esc(body_old).rstrip()}"
             new = f"<strong>{_esc(head_new)}</strong>" + _esc(
-                _company_if(
-                    _COMPANY_BODY_BY_JDG[body_new].rstrip(), body_old.rstrip()
-                )
+                _company_if(_COMPANY_BODY_BY_JDG[body_new].rstrip(), body_old.rstrip())
             )
             count = html.count(old)
             html = html.replace(old, new)
@@ -442,6 +446,92 @@ def patch_company_variant() -> None:
         html = add_company_variant_html(html_path.read_text(encoding="utf-8"), pairs)
         html_path.write_text(html, encoding="utf-8")
         print(f"[{lang}] ✅ wariant spółki: {wrapped} komparycje")
+
+
+# ── Stawka progresywna: podpunkty a) b) ───────────────────────────────────────
+
+_RATE_MARK = "{{ b2b.rate_clause }}"
+_RATE_LINES = "b2b.rate_lines | default([])"
+# Końcówka zdania o stawce; po niej zdanie się kończy, więc idzie za ostatni podpunkt.
+_RATE_ENDING = {
+    "pl": " netto + VAT.",
+    "en": " net + VAT in accordance with the applicable regulations.",
+}
+
+
+def _rate_sentence(lang: str) -> tuple[str, str]:
+    """(„w wysokości {{ stawka }} netto + VAT.” → to samo z warunkiem listy)."""
+    old = f" {_RATE_MARK}{_RATE_ENDING[lang]}"
+    new = (
+        f"{{% if {_RATE_LINES} %}}:{{% else %}}"
+        f" {_RATE_MARK}{_RATE_ENDING[lang]}{{% endif %}}"
+    )
+    return old, new
+
+
+def _line_text(lang: str) -> str:
+    return f"{{{{ line }}}}{{% if loop.last %}}{_RATE_ENDING[lang]}{{% endif %}}"
+
+
+def add_rate_lines(doc: _DocType, lang: str) -> bool:
+    """Po zdaniu o stawce dołóż pętlę akapitów z podpunktami. Zwraca, czy zmienił."""
+    old, new = _rate_sentence(lang)
+    for p in doc.paragraphs:
+        for run in p.runs:
+            if old not in run.text or _RATE_LINES in run.text:
+                continue
+            run.text = run.text.replace(old, new)
+            anchor = p._p
+            for text in (
+                f"{{%p for line in {_RATE_LINES} %}}",
+                _line_text(lang),
+                "{%p endfor %}",
+            ):
+                line = deepcopy(p._p)
+                # Identyfikatory akapitu Worda muszą zostać jednoznaczne.
+                for attr in [
+                    a for a in line.attrib if a.endswith(("paraId", "textId"))
+                ]:
+                    del line.attrib[attr]
+                anchor.addnext(line)
+                anchor = line
+                para = Paragraph(line, p._parent)
+                para.runs[0].text = text
+                # Podpunkt nie jest kolejnym ustępem: bez numeracji, tekst pod
+                # tekstem ustępu (wcięcie z poziomu 0 listy numId 5).
+                p_pr = line.get_or_add_pPr()
+                p_pr.remove(p_pr.numPr)
+                para.paragraph_format.left_indent = Twips(360)
+                para.paragraph_format.first_line_indent = Twips(0)
+            return True
+    return False
+
+
+def add_rate_lines_html(html: str, lang: str) -> str:
+    old, new = _rate_sentence(lang)
+    if html.count(old) != 1:
+        raise RuntimeError(f"[{lang}] oczekiwano 1 zdania o stawce w HTML")
+    head, tail = html.split(old)
+    end = tail.index("</p>") + len("</p>")
+    lines = (
+        f"\n{{% for line in {_RATE_LINES} %}}<p>{_line_text(lang)}</p>{{% endfor %}}"
+    )
+    return f"{head}{new}{tail[:end]}{lines}{tail[end:]}"
+
+
+def patch_rate_lines() -> None:
+    """Dołóż podpunkty stawki do ZACOMMITOWANYCH szablonów (idempotentnie)."""
+    for lang in ("pl", "en"):
+        docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
+        html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+        doc = docx.Document(str(docx_path))
+        if not add_rate_lines(doc, lang):
+            print(f"[{lang}] podpunkty stawki już są — bez zmian")
+            continue
+        doc.save(str(docx_path))
+        html = add_rate_lines_html(html_path.read_text(encoding="utf-8"), lang)
+        html_path.write_text(html, encoding="utf-8")
+        print(f"[{lang}] ✅ podpunkty stawki")
 
 
 def _lowercase_net_in_paragraph(p: Paragraph, target: str = "B2B.NET") -> int:
@@ -591,8 +681,10 @@ def build(lang: str, src: Path, rules) -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     docx_path = OUT_DIR / f"umowa_b2b_{lang}.docx"
     html_path = OUT_DIR / f"umowa_b2b_{lang}.html"
+    # Podpunkty stawki po `doc_to_html`: lustro HTML ma pętlę Jinja, nie `{%p %}`.
+    html = add_rate_lines_html(doc_to_html(doc), lang)
+    add_rate_lines(doc, lang)
     doc.save(str(docx_path))
-    html = doc_to_html(doc)
     html_path.write_text(html, encoding="utf-8")
 
     # ── Weryfikacja ──
@@ -621,6 +713,9 @@ def build(lang: str, src: Path, rules) -> None:
 def main() -> None:
     if "--company-variant" in sys.argv[1:]:
         patch_company_variant()
+        return
+    if "--rate-lines" in sys.argv[1:]:
+        patch_rate_lines()
         return
     pl_src = Path(sys.argv[1]) if len(sys.argv) > 2 else DEFAULT_PL
     en_src = Path(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_EN

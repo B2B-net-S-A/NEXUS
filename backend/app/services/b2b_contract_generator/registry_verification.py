@@ -38,6 +38,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.b2b_contract_generator.address_format import format_registry_address
 from app.services.b2b_contract_generator.entity_type import COMPANY, SOLE_TRADER
 from app.services.b2b_contract_generator.registry_lookup import (
     _CEIDG_BASE,
@@ -191,6 +192,7 @@ def krs_deletion_date(odpis_pelny: dict) -> tuple[bool, str | None]:
 
 def _company_from_ceidg(firm: dict) -> dict:
     owner = firm.get("wlasciciel") or {}
+    adr = firm.get("adresDzialalnosci") or {}
     person = (
         " ".join(p for p in [owner.get("imie"), owner.get("nazwisko")] if p).strip()
         or None
@@ -201,7 +203,9 @@ def _company_from_ceidg(firm: dict) -> dict:
         "nip": owner.get("nip") or firm.get("nip"),
         "regon": owner.get("regon") or firm.get("regon"),
         "krs": None,
-        "address": _ceidg_address(firm.get("adresDzialalnosci") or {}),
+        "address": format_registry_address(
+            _ceidg_address(adr), has_street=bool(adr.get("ulica")) if adr else None
+        ),
         "entity_type": SOLE_TRADER,
     }
 
@@ -216,7 +220,7 @@ def _company_from_krs(data: dict) -> dict | None:
         "nip": parsed.get("nip"),
         "regon": parsed.get("regon"),
         "krs": parsed.get("krs"),
-        "address": parsed.get("address"),
+        "address": format_registry_address(parsed.get("address")),
         "entity_type": COMPANY,
     }
 

@@ -185,6 +185,11 @@ services:
       QDRANT_COLLECTION:
       SCORE_RENORMALIZE_UNSCORED_LAYERS:
       CV_PASSAGES_ENABLED:
+      # Listy klientów, też z produkcji i przez ten sam plik: decydują, co widać
+      # na karcie klienta. Bez nich stare zamówienia bez `order_type` są ukryte.
+      MULTI_CONSULTANT_ORDER_CLIENT_IDS:
+      COST_ORDER_CLIENT_IDS:
+      EXTENDED_ORDER_ALERT_CLIENT_IDS:
     volumes:
       - uploads_data:/tmp/nexus/uploads
     ports:

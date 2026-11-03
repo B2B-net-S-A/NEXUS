@@ -102,6 +102,20 @@ więc ostrzeżenie „podobny kandydat” trafiało bardzo często i nic nie zna
   (`attachCvFormData`). W zakładce Pliki pole „Ustaw jako główne CV (AI odświeży
   profil)” jest domyślnie zaznaczone; przy kilku plikach głównym zostaje ostatni,
   bo każde główne CV to osobny płatny odczyt.
+- **Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz**
+  (03.11.2026, `cv_upload_dedup.profile_holds_read_of_file`). Dowód to
+  `cv_highlights.source_hash` równy SHA-256 pliku: zapisuje go tylko odczyt, który
+  przeszedł bramkę tożsamości, więc plik z importu Traffita ani poczty się nie
+  liczy. Wątpliwość oznacza odczyt: regex, ucięta odpowiedź, znacznik po
+  kwarantannie, plik w kwarantannie, brak recenzji tożsamości, inny plik
+  w profilu. Nowy odczyt mimo to: „Ponów odczyt” (`/cv/reparse`, `force_read`).
+  Pomiar z 02.11.2026 (30 dni, konto scrapera): 793 z 7853 odczytów szło na te same
+  bajty, tydzień 26.10: 411 z 1682. Zdarzało się to mimo sita, bo scraper po
+  rozpoznaniu osoby i tak wgrywa CV do profilu.
+- **Sita nie poszerzamy o całą treść CV.** Odczytów bez nowego profilu i bez
+  wgrania było od 15.10.2026 tylko 8 w 19 dni, z czego e-mail poza nagłówkiem
+  miały 3. Zysk poniżej 0,20 USD miesięcznie nie uzasadnia zmiany reguły „adresy
+  z treści nie opisują kandydata”.
 - CV innej osoby wgrane jako główne nie może zniszczyć profilu. Bramka
   tożsamości (imię i nazwisko z pliku) biegnie w tle, a nowy plik przejmuje
   główne CV i `cv_filename` od razu, więc wgranie i „Ustaw jako główne CV”

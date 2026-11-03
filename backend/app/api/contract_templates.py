@@ -118,6 +118,9 @@ from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
 from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
     build_rate_clause as _build_rate_clause,
 )
+from app.services.b2b_contract_generator.rate_clause import (  # noqa: E402
+    build_rate_lines as _build_rate_lines,
+)
 
 _jinja_env.filters["pl_date"] = _pl_date
 
@@ -179,6 +182,11 @@ def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
         language=lang,
         currency=contract.resolved_rate_candidate_currency,
         words_override=_words_override,
+    )
+    _rate_lines = _build_rate_lines(
+        _rate_stages,
+        language=lang,
+        currency=contract.resolved_rate_candidate_currency,
     )
     return {
         "contract": {
@@ -248,6 +256,7 @@ def _contract_vars(contract: Contract, language: Optional[str] = None) -> dict:
             ),
             "rate_in_words": detail.rate_in_words if detail else None,
             "rate_clause": _rate_clause,
+            "rate_lines": _rate_lines,
             "language": lang,
             "area_label": _area_label,
             "role_name": _role_name,

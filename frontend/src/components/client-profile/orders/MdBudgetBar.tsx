@@ -37,9 +37,12 @@ export function MdBudgetBar({ remaining, total, className }: Props) {
   const low = hasBudget && !depleted && pct <= 15;
 
   return (
-    <div className={cn("flex items-center gap-3", className)}>
+    <div className={cn("flex flex-wrap items-center gap-x-3 gap-y-0.5", className)}>
+      {/* W ciasnej komórce ustępuje pasek, nie liczby — inaczej „39,17 / 96,95 MD”
+          wchodziło pod przycisk „Zużycie” w tabeli zamówień. Gdy nawet najwęższy
+          pasek się nie mieści, liczba schodzi do drugiego wiersza. */}
       <div
-        className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted"
+        className="h-1.5 max-w-24 grow basis-10 overflow-hidden rounded-full bg-muted"
         role="progressbar"
         aria-valuenow={Math.round(pct)}
         aria-valuemin={0}

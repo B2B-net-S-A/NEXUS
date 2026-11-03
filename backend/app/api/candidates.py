@@ -6406,6 +6406,7 @@ async def reparse_primary_cv(
         document.id,
         document.content_sha256,
         actor_user_id=current_user.id,
+        force_read=True,
     )
     return {"status": "queued", "document_id": document.id}
 
@@ -7013,6 +7014,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
     ReplacedPrimaryCv,
+    get_identity_review,
     record_detected_identity,
 )
 
@@ -7250,13 +7252,21 @@ async def _enrich_candidate_from_document_task(
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    force_read: bool = False,
 ) -> None:
-    """Extract and enrich from the still-current primary CV version."""
+    """Extract and enrich from the still-current primary CV version.
+
+    Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
+    ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
+    profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
+    odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+    """
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -7281,6 +7291,27 @@ async def _enrich_candidate_from_document_task(
                 and document.content_sha256 != expected_hash
             ):
                 return
+            if not force_read and profile_holds_read_of_file(
+                candidate.cv_extracted_data,
+                raw_cv_text=candidate.raw_cv_text,
+                content_sha256=document.content_sha256,
+            ):
+                # Plik z kwarantanny musi wrócić przez bramkę tożsamości: to ona
+                # oddaje główne CV poprzedniemu plikowi.
+                review = await get_identity_review(
+                    db,
+                    candidate_id=candidate_id,
+                    source_kind="document",
+                    source_id=document.id,
+                )
+                if review is not None and not review.is_quarantined:
+                    logger.info(
+                        "[cv_enrich] plik już odczytany, bez modelu "
+                        "candidate=%s document=%s",
+                        candidate_id,
+                        document_id,
+                    )
+                    return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
