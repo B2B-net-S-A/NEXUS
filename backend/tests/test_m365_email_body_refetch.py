@@ -74,8 +74,75 @@ async def test_fill_row_reports_mail_empty_in_mailbox() -> None:
 
     assert await refetch.fill_row(row, message) == "empty_in_mailbox"
 
+    # Pusta wiadomość (zwykle odpowiedź na zaproszenie) zostaje nietknięta.
     assert row.body_html is None
-    assert row.has_attachments is True
+    assert row.has_attachments is False
+    assert row.raw_categories == []
+
+
+def _ghost(**kw) -> SimpleNamespace:
+    # Wiersz z aktualizacji delty nieznanej wiadomości: samo id i data zapisu.
+    return _row(
+        from_address="",
+        from_name=None,
+        subject=None,
+        to_addresses=[],
+        cc_addresses=[],
+        sent_at=None,
+        received_at=datetime(2026, 10, 20, tzinfo=timezone.utc),
+        m365_internet_message_id=None,
+        m365_conversation_id="graph-1",
+        web_link=None,
+        direction=EmailDirection.received,
+        **kw,
+    )
+
+
+GHOST_MESSAGE = {
+    "id": "graph-1",
+    "from": {"emailAddress": {"address": "Nadawca@Example.com", "name": "Nadawca"}},
+    "toRecipients": [{"emailAddress": {"address": "me@example.com", "name": "Ja"}}],
+    "ccRecipients": [],
+    "subject": "Temat",
+    "sentDateTime": "2026-09-01T10:00:00Z",
+    "receivedDateTime": "2026-09-01T10:00:05Z",
+    "conversationId": "conv-1",
+    "internetMessageId": "<a@example.com>",
+    "webLink": "https://outlook.example/1",
+}
+
+
+def test_restore_sender_fills_identity_from_mailbox() -> None:
+    row = _ghost()
+
+    assert refetch.restore_sender(row, GHOST_MESSAGE, "me@example.com") is True
+
+    assert row.from_address == "nadawca@example.com"
+    assert row.from_name == "Nadawca"
+    assert row.subject == "Temat"
+    assert row.to_addresses[0]["address"] == "me@example.com"
+    assert row.m365_internet_message_id == "<a@example.com>"
+    assert row.m365_conversation_id == "conv-1"
+    assert row.received_at == datetime(2026, 9, 1, 10, 0, 5, tzinfo=timezone.utc)
+    assert row.web_link == "https://outlook.example/1"
+    assert row.direction == EmailDirection.received
+
+
+def test_restore_sender_marks_own_mail_as_sent() -> None:
+    row = _ghost()
+
+    refetch.restore_sender(row, GHOST_MESSAGE, "NADAWCA@example.com")
+
+    assert row.direction == EmailDirection.sent
+
+
+def test_restore_sender_without_sender_in_mailbox_changes_nothing() -> None:
+    row = _ghost()
+
+    assert refetch.restore_sender(row, {"id": "graph-1"}, "me@example.com") is False
+
+    assert row.from_address == ""
+    assert row.subject is None
 
 
 async def test_fetch_message_finds_moved_mail_by_internet_message_id() -> None:
@@ -171,13 +238,34 @@ async def test_plan_takes_only_wiped_received_mail(mailbox) -> None:
             _email(mailbox, "full", body_html="<p>x</p>", body_text="x"),
             _email(mailbox, "blank-html", body_html=""),
             _email(mailbox, "private", is_private_filtered=True),
-            _email(mailbox, "sent", direction=EmailDirection.sent),
-            _email(mailbox, "no-sender", from_address=""),
+            _email(mailbox, "sent-full", direction=EmailDirection.sent, body_text="x"),
         ]
-        db.add_all(rows)
+        sent = _email(mailbox, "sent", direction=EmailDirection.sent)
+        no_sender = _email(mailbox, "no-sender", from_address="")
+        db.add_all([*rows, sent, no_sender])
         await db.commit()
 
         items = await refetch.plan(db)
 
-    assert items["by_connection"][mailbox.conn_id] == [wiped.id]
-    assert items["without_sender"] >= 1
+    assert items["by_connection"][mailbox.conn_id] == [wiped.id, sent.id, no_sender.id]
+
+
+@pytest.mark.asyncio
+async def test_has_twin_finds_other_row_of_same_message(mailbox) -> None:
+    async with AsyncSessionLocal() as db:
+        twin = _email(
+            mailbox,
+            "twin",
+            body_text="x",
+            m365_internet_message_id="<bliźniak@example.com>",
+        )
+        ghost = _email(mailbox, "ghost", from_address="")
+        db.add_all([twin, ghost])
+        await db.commit()
+
+        message = {"internetMessageId": "<bliźniak@example.com>"}
+        other = {"internetMessageId": "<inny@example.com>"}
+
+        assert await refetch.has_twin(db, ghost, message) is True
+        assert await refetch.has_twin(db, ghost, other) is False
+        assert await refetch.has_twin(db, twin, message) is False
