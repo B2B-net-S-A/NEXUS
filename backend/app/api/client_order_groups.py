@@ -1379,6 +1379,7 @@ async def _group_to_read(
     # osoby zeszły z tej samej umowy.
     md_positions_total: Optional[Decimal] = None
     md_used_total: Optional[Decimal] = None
+    md_adjustment_total: Optional[Decimal] = None
     contract_value_pln: Optional[Decimal] = None
     used_value_pln: Optional[Decimal] = None
     if not group.is_cost_based and not uses_shared_md_budget:
@@ -1394,6 +1395,7 @@ async def _group_to_read(
                 replaced_kind[item.id] = None
         positions = Decimal("0")
         used_sum = Decimal("0")
+        adjustment_sum = Decimal("0")
         value = Decimal("0")
         used_value = Decimal("0")
         for line in lines:
@@ -1422,8 +1424,12 @@ async def _group_to_read(
             budget = line_budget_total(line)
             positions += budget
             value += budget * rate
+            # Korekta idzie tylko z linii, która wnosi budżet: po zamianie
+            # następca dostał pozostałość już po korekcie poprzednika.
+            adjustment_sum += Decimal(str(line.md_manual_adjustment or 0))
         md_positions_total = quantize_md(positions)
         md_used_total = quantize_md(used_sum)
+        md_adjustment_total = quantize_md(adjustment_sum)
         if with_finance:
             contract_value_pln = quantize_money(value)
             used_value_pln = quantize_money(used_value)
@@ -1474,6 +1480,7 @@ async def _group_to_read(
         ),
         md_positions_total=md_positions_total,
         md_used_total=md_used_total,
+        md_adjustment_total=md_adjustment_total,
         contract_value_pln=contract_value_pln,
         used_value_pln=used_value_pln,
         filename=group.filename,

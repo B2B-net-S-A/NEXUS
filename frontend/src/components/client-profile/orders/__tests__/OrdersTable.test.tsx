@@ -162,6 +162,31 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     expect(within(header).queryByRole("progressbar")).toBeNull();
   });
 
+  it("nagłówek MD per osoba liczy ręczną korektę tak samo jak wiersz osoby", () => {
+    renderTable([
+      group({
+        md_positions_total: 96.95,
+        md_used_total: 62.05,
+        md_adjustment_total: -2.4,
+        lines: [line({ id: 1, md_total: 96.95, md_remaining: 32.5, md_manual_adjustment: -2.4 })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent(
+      "Budżet 96,95 MD · wykorzystano 62,05 MD · pozostało 32,5 MD (w tym korekta −2,4 MD)",
+    );
+    expect(rowOf(1)).toHaveTextContent(/32,5\s*\/\s*96,95\s*MD/);
+  });
+
+  it("korekta na plus też trafia do „pozostało” w nagłówku", () => {
+    renderTable([
+      group({ md_positions_total: 100, md_used_total: 120, md_adjustment_total: 30 }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      "Budżet 100 MD · wykorzystano 120 MD · pozostało 10 MD (w tym korekta +30 MD)",
+    );
+  });
+
   it("nagłówek wspólnej puli MD: budżet · wykorzystano · pozostało, bez schodzenia pod zero", () => {
     renderTable([
       group({

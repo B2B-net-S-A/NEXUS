@@ -444,3 +444,81 @@ def test_offboarding_reducer_drops_the_option_first():
     assert order.md_optional_total == Decimal("0")
     assert order.md_total == Decimal("20")
     assert order.md_manual_adjustment == Decimal("0")
+
+
+async def test_group_sums_carry_the_manual_adjustment_of_budget_lines(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Budżet 100, zużycie 60, korekta −2,4 → nagłówek musi dać te 37,6 co wiersz.
+
+    Korekta nie jest zużyciem, więc ``md_used_total`` zostaje sumą zejść.
+    """
+    client_id, contracts, _ = await _seed_client_with_contracts(1)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[0], input_value=100)],
+    )
+    line = group["lines"][0]
+    assert group["md_adjustment_total"] == 0
+    await _put_consumption(
+        app_client, app_auth_headers, client_id, group["id"], line["id"], "2026-07", 60
+    )
+    patched = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{line['id']}",
+        json={"md_remaining": 37.6},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+
+    body = await _group(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_positions_total"] == 100
+    assert body["md_used_total"] == 60
+    assert body["md_adjustment_total"] == pytest.approx(-2.4)
+    assert (
+        body["md_positions_total"] - body["md_used_total"] + body["md_adjustment_total"]
+    ) == pytest.approx(body["lines"][0]["md_remaining"])
+
+
+async def test_group_adjustment_of_a_swapped_out_line_stays_in_the_successor_budget(
+    app_client: AsyncClient, app_auth_headers: dict, monkeypatch
+):
+    """Następca przejmuje pozostałość PO korekcie, więc druga korekta w sumie
+    grupy odjęłaby te same MD dwa razy."""
+    client_id, contracts, _ = await _seed_client_with_contracts(2)
+    _enable_for(monkeypatch, client_id)
+    group = await _create_md_group(
+        app_client,
+        app_auth_headers,
+        client_id,
+        [_line_payload(contracts[0], input_value=100)],
+    )
+    old = group["lines"][0]
+    await _put_consumption(
+        app_client, app_auth_headers, client_id, group["id"], old["id"], "2026-07", 60
+    )
+    patched = await app_client.patch(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old['id']}",
+        json={"md_remaining": 30},
+        headers=app_auth_headers,
+    )
+    assert patched.status_code == 200, patched.text
+    resp = await app_client.post(
+        f"/api/clients/{client_id}/order-groups/{group['id']}/lines/{old['id']}/swap",
+        json={
+            "contract_id": contracts[1],
+            "rate_cost": 1000,
+            "rate_revenue": 1200,
+            "swap_date": business_today().isoformat(),
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["md_total"] == 30
+
+    body = await _group(app_client, app_auth_headers, client_id, group["id"])
+    assert body["md_adjustment_total"] == 0
+    assert body["md_positions_total"] == 90
+    assert body["md_used_total"] == 60
