@@ -1821,6 +1821,19 @@ async def list_candidate_recruitments(
         except HTTPException:
             schedulable[r.job_id] = False
 
+    # Stanowisko i nazwy tylko dla formularza generatora, stąd poza gotowością.
+    from app.services.job_working_title import cv_position_for_form
+
+    names: dict[int, dict[str, Optional[str]]] = {}
+    for job_id in {r.job_id for r in readiness}:
+        job = await db.get(Job, job_id)
+        if job is not None:
+            names[job_id] = {
+                "cv_position": await cv_position_for_form(db, job),
+                "job_working_title": job.working_title,
+                "job_client_reference": job.client_reference,
+            }
+
     return [
         RecruitmentOption(
             stage_id=r.stage_id,
@@ -1838,10 +1851,8 @@ async def list_candidate_recruitments(
             missing_inputs=r.missing_inputs,
             client_id=r.client_id,
             client_name=r.client_name,
-            cv_position=r.cv_position,
-            job_working_title=r.job_working_title,
-            job_client_reference=r.job_client_reference,
             can_schedule=schedulable.get(r.job_id, False),
+            **names.get(r.job_id, {}),
         )
         for r in readiness
     ]
