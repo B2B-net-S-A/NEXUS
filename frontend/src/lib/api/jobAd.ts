@@ -8,6 +8,11 @@
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
+import type {
+  JobPostingStatus,
+  PendingAction,
+  PortalListingOptions,
+} from "@/lib/api/jobPortals";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 // ── Typy ─────────────────────────────────────────────────────────────────
@@ -242,6 +247,17 @@ export interface JobAdState {
   reminders: AdReminders | null;
   /** Ostatni mail do opiekuna Pracuj.pl (27.10.2026). */
   pracuj_request: PracujRequest | null;
+  /** JustJoin.IT przez API; `null` = portal wyłączony (kopiuj-wklej, 03.11.2026). */
+  jjit_api: AdJjitApi | null;
+}
+
+/** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
+export interface AdJjitApi {
+  ready: boolean;
+  status: JobPostingStatus | null;
+  pending_action: PendingAction;
+  last_error: string | null;
+  options: PortalListingOptions | null;
 }
 
 /** Mail z ogłoszeniem do opiekuna Pracuj.pl wysłany z NEXUSA. */
@@ -347,6 +363,7 @@ function normalize(data: unknown): JobAdState {
           }
         : null,
     pracuj_request: d.pracuj_request ?? null,
+    jjit_api: d.jjit_api ?? null,
   };
 }
 
@@ -479,6 +496,17 @@ export const jobAdApi = {
     },
   ): Promise<JobAdState> => {
     const res = await api.post(`/api/jobs/${jobId}/portal-ad/pracuj-mail`, input);
+    return normalize(res.data);
+  },
+  /**
+   * Zlecenie publikacji albo aktualizacji na JustJoin.IT; portal woła worker.
+   * Aktualizacja bez `options` zostawia ustawienia z publikacji.
+   */
+  publishJjit: async (
+    jobId: number,
+    input: { expected_updated_at: string | null; options?: PortalListingOptions },
+  ): Promise<JobAdState> => {
+    const res = await api.post(`/api/jobs/${jobId}/portal-ad/jjit`, input);
     return normalize(res.data);
   },
   getFixedBlocks: async (): Promise<FixedBlocks> => {

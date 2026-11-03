@@ -37,6 +37,7 @@
   "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
   "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/portal-ad/jjit": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/portal-ad/pracuj-mail": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
   "POST /api/jobs/{job_id}/portal-ad/remind": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
