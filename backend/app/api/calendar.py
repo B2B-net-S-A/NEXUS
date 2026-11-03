@@ -17,7 +17,12 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.rate_limit import limiter, user_or_ip_key
-from app.models.calendar_event import CalendarEvent, EventType, EventStatus
+from app.models.calendar_event import (
+    CalendarEvent,
+    EventStatus,
+    EventType,
+    is_booked_call,
+)
 from app.models.candidate import Candidate
 from app.models.candidate_contact import (
     CandidateContactCase,
@@ -55,6 +60,7 @@ from app.services.candidate_contact_hooks import (
     maybe_sync_calendar_handoff,
 )
 from app.services import loop_heartbeat
+from app.services import screening_calls
 from app.services.calendar_all_day import normalize_all_day
 from app.services.interview_change_notifications import notify_client_interview_change
 
@@ -598,6 +604,27 @@ def _outlook_changed_fields(event: CalendarEvent, changes: dict) -> list[str]:
     )
 
 
+# Umówiony telefon: znacznik i para zostają, inaczej pętla i listy go zgubią.
+_BOOKED_CALL_LOCKED_FIELDS = frozenset(
+    {"event_type", "location", "candidate_id", "job_id"}
+)
+_BOOKED_CALL_OUTLOOK_FIELDS = frozenset({"start_time", "end_time"})
+
+
+def _reject_booked_call_changes(event: CalendarEvent, changes: dict) -> None:
+    if any(
+        field in changes and changes[field] != getattr(event, field)
+        for field in _BOOKED_CALL_LOCKED_FIELDS
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "To umówiony telefon. Możesz zmienić termin i opis, a typ, miejsce, "
+                "kandydata i rekrutację zostaw bez zmian."
+            ),
+        )
+
+
 def _reject_outlook_owned_changes(event: CalendarEvent, changes: dict) -> None:
     if not _is_outlook_event(event):
         return
@@ -661,6 +688,9 @@ async def update_event(
         _is_contact_handoff_event(event),
     )
     changes = body.model_dump(exclude_unset=True)
+    booked_call = is_booked_call(event)
+    if booked_call:
+        _reject_booked_call_changes(event, changes)
     _reject_outlook_owned_changes(event, changes)
 
     # CAL-01: KAŻDA lokalna odmowa (daty wynikowe, zakres rekrutacji) zapada
@@ -716,12 +746,22 @@ async def update_event(
 
     await _reject_teams_meeting_relink(db, event, changes)
     outlook_fields = _outlook_changed_fields(event, changes)
+    if booked_call:
+        # W Outlooku jest sama blokada: nazwisko i słowa kandydata tam nie idą.
+        outlook_fields = [f for f in outlook_fields if f in _BOOKED_CALL_OUTLOOK_FIELDS]
     previous_start = event.start_time
     previous_status = event.status
     if outlook_fields:
         await _push_outlook_changes(db, event, changes, outlook_fields)
     for field, value in changes.items():
         setattr(event, field, value)
+    if booked_call:
+        moment = datetime.now(timezone.utc)
+        if event.status != EventStatus.scheduled:
+            await screening_calls.release_hold(db, event, moment)
+        elif event.start_time != previous_start:
+            event.reminder_sent_at = None
+            await screening_calls.extend_hold(db, event, moment)
     if {"start_time", "end_time"} & set(outlook_fields):
         await _notify_prep_moved(db, event, current_user, previous_start)
     if normalize_all_day_range:
@@ -1150,6 +1190,8 @@ async def cancel_event(
             occurred_at=datetime.now(timezone.utc),
         )
     event.status = EventStatus.cancelled
+    if is_booked_call(event):
+        await screening_calls.release_hold(db, event, datetime.now(timezone.utc))
     if _upcoming(event.start_time):
         await notify_client_interview_change(
             db, actor=current_user, event=event, kind="cancelled"
@@ -1211,6 +1253,8 @@ async def delete_event(
         event_id=event.id,
         override=user_is_override(current_user),
     )
+    if is_booked_call(event):
+        await screening_calls.release_hold(db, event, datetime.now(timezone.utc))
     await db.delete(event)
     await db.commit()
 
@@ -1739,6 +1783,10 @@ async def _dispatch_reminder(event_id: int) -> None:
             await db.commit()
             return
         link = f"/calendar?event={event.id}"
+        booked_call = is_booked_call(event)
+        # Umówiony telefon prowadzi od razu do panelu osoby z formularzem.
+        if booked_call and event.job_id and event.candidate_id:
+            link = screening_calls.panel_link(event.job_id, event.candidate_id)
         recipient_id = await effective_owner_id(
             db, event.operational_owner_id or event.created_by
         )
@@ -1766,8 +1814,17 @@ async def _dispatch_reminder(event_id: int) -> None:
         minutes_left = max(1, round((event.start_time - now).total_seconds() / 60))
         notif = Notification(
             user_id=recipient_id,
-            title="Przypomnienie o wydarzeniu",
-            message=f"Za {_minutes_pl(minutes_left)}: {event.title}",
+            # Dymek pokazuje tytuł, więc telefon niesie w nim osobę i czas.
+            title=(
+                f"{event.title} za {_minutes_pl(minutes_left)}"
+                if booked_call
+                else "Przypomnienie o wydarzeniu"
+            ),
+            # Treść zaczyna się od „Za N minut:”, bo okienko czyta z niej start.
+            message=(
+                f"Za {_minutes_pl(minutes_left)}: "
+                f"{(event.description or 'umówiony telefon') if booked_call else event.title}"
+            ),
             # Link otwiera TO wydarzenie (`?event=`), nie sam kalendarz.
             link=link,
             notification_type=NotificationType.interview_scheduled,
@@ -1786,6 +1843,7 @@ async def _dispatch_reminder(event_id: int) -> None:
             "link": notif.link,
             "notification_type": NotificationType.interview_scheduled.value,
             "created_at": now.isoformat(),
+            "force_toast": booked_call,
         }
 
     await ws_manager.notify_user(user_id, {"type": "notification", "data": payload})
@@ -1822,6 +1880,12 @@ async def calendar_reminder_loop():
         beat.tick()
         try:
             now = datetime.now(timezone.utc)
+            # Przed skanem: telefon osoby, która już poszła dalej, nie dzwoni.
+            # Awaria porządków nie może zatrzymać przypomnień.
+            try:
+                await screening_calls.reconcile_open_calls()
+            except Exception:  # noqa: BLE001
+                logger.exception("Booked call reconcile failed")
             async with AsyncSessionLocal() as db:
                 # Bez dolnej granicy `now+14min` — patrz docstring.
                 due_ids = await _due_reminder_ids(db, now)
@@ -1835,6 +1899,11 @@ async def calendar_reminder_loop():
                     logger.exception(
                         "calendar reminder dispatch failed for event %s", event_id
                     )
+
+            try:
+                await screening_calls.clean_outlook_copies(now)
+            except Exception:  # noqa: BLE001
+                logger.exception("Booked call Outlook cleanup failed")
 
         except asyncio.CancelledError:
             raise

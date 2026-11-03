@@ -215,7 +215,10 @@ def enrich_realtime_event(event: Mapping[str, Any]) -> Mapping[str, Any]:
     except ValueError:
         topic, toast = _P.other, True
     else:
-        topic, toast = topic_for(ntype), ntype in TOAST_TYPES
+        # `force_toast`: przypomnienie o umówionym telefonie ma wyskoczyć, choć
+        # reszta tematu „Kalendarz” tylko podbija licznik.
+        topic = topic_for(ntype)
+        toast = ntype in TOAST_TYPES or data.get("force_toast") is True
     return {**event, "data": {**data, "topic": topic.value, "toast": toast}}
 
 

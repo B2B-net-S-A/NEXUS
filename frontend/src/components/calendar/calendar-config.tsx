@@ -141,6 +141,9 @@ export function isOtherOutlookMeeting(
 /** Typy, po których zbieramy feedback (reszta to spotkania wewnętrzne). */
 export const FEEDBACK_EVENT_TYPES: ReadonlySet<string> = new Set(["interview", "screening"]);
 
+/** Umówiony telefon (`models/calendar_event.py`): wynik zapisuje się w formularzu screeningu. */
+export const BOOKED_CALL_LOCATION = "Telefon";
+
 export const REMINDER_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
   { value: 5, label: "5 minut przed" },
   { value: 10, label: "10 minut przed" },

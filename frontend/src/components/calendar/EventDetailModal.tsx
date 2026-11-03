@@ -31,6 +31,7 @@ import { CandidateCombobox, type CandidateChoice } from "@/components/calendar/C
 import { RecruitmentSelect } from "@/components/calendar/RecruitmentSelect";
 import {
   EVENT_TYPE_CONFIG,
+  BOOKED_CALL_LOCATION,
   FEEDBACK_EVENT_TYPES,
   REMINDER_OPTIONS,
   RecordingBlock,
@@ -154,6 +155,7 @@ export function EventDetailModal({
   const canCollectFeedback =
     !!event.candidate_id &&
     !!onOpenFeedback &&
+    event.location !== BOOKED_CALL_LOCATION &&
     (FEEDBACK_EVENT_TYPES.has(event.event_type) || feedbackSources.length > 0);
   // Odwołać / usunąć może właściciel albo admin (`can_remove` z serwera) —
   // HoR poprawia cudze wydarzenia, ale ich nie odwołuje (decyzja 17.09.2026).

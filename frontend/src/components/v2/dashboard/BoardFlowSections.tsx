@@ -20,6 +20,7 @@
  *  - „Osoby od systemu czekają na decyzję” (23.10.2026) — `BoardAutofillDecisions`.
  */
 
+import { callWhen } from "@/lib/screening-call";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Clock, Lock } from "lucide-react";
@@ -202,11 +203,20 @@ export function BoardFlowSections({
             <PairRowItem
               key={`${row.job_id}-${row.candidate_id}`}
               row={row}
-              aside={(row.missing ?? []).map((m) => (
-                <Badge key={m} size="sm" variant="warning">
-                  {MISSING_LABEL[m]}
-                </Badge>
-              ))}
+              aside={
+                <>
+                  {row.call_at ? (
+                    <Badge size="sm" variant="info">
+                      Telefon {callWhen(row.call_at)}
+                    </Badge>
+                  ) : null}
+                  {(row.missing ?? []).map((m) => (
+                    <Badge key={m} size="sm" variant="warning">
+                      {MISSING_LABEL[m]}
+                    </Badge>
+                  ))}
+                </>
+              }
             />
           ))}
         </Section>

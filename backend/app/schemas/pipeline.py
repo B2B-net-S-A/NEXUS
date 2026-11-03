@@ -237,6 +237,17 @@ class HiringManagerVetoBrief(BaseModel):
     rejection_note: Optional[str] = None
 
 
+class BookedCallSummary(BaseModel):
+    """Otwarty telefon pary na karcie Tablicy."""
+
+    event_id: int
+    start_time: datetime
+    note: Optional[str] = None
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    in_outlook: bool = False
+
+
 class CandidateStageResponse(BaseModel):
     id: int
     candidate_id: int
@@ -457,6 +468,8 @@ class CandidateStageResponse(BaseModel):
     claim_user_id: Optional[int] = None
     claim_user_name: Optional[str] = None
     claim_until: Optional[datetime] = None
+    # Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+    booked_call: Optional[BookedCallSummary] = None
     # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —
     # do pierwszej weryfikacji (27.10.2026). Karta i filtr „Kto dodał”.
     taken_by_user_id: Optional[int] = None
