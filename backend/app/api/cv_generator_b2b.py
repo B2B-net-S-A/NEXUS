@@ -196,6 +196,11 @@ class RecruitmentOption(BaseModel):
     # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    # Stanowisko do nagłówka CV i nazwy pliku; pusty napis = trzeba je wpisać,
+    # bo nazwa od klienta to przedmiot usługi, a Champion nie ma roli.
+    cv_position: str = ""
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     # Czy wołający może przypiąć do tej rekrutacji wydarzenie w kalendarzu
     # (członkostwo — ta sama bramka co zapis wydarzenia). Picker kalendarza
     # auto-wybiera i udostępnia tylko takie rekrutacje; generator CV pola
@@ -1676,6 +1681,7 @@ class ClientCvRuleForGeneration(BaseModel):
     require_position: bool = False
     require_champion: bool = False
     filename_pattern: Optional[str] = None
+    spaces_to_underscores: bool = False
     filename_preview: Optional[str] = None
     # Baner pokazuje rekruterowi, czym model kształtował dokument.
     notes: Optional[str] = None
@@ -1742,6 +1748,7 @@ async def client_rule_for_generation(
         require_position=bool(rule.require_position),
         require_champion=bool(rule.require_champion),
         filename_pattern=rule.filename_pattern,
+        spaces_to_underscores=bool(rule.spaces_to_underscores),
         filename_preview=_preview(rule),
         notes=rule.notes if sees_client_knowledge else None,
         generator_instructions=(
@@ -1831,6 +1838,9 @@ async def list_candidate_recruitments(
             missing_inputs=r.missing_inputs,
             client_id=r.client_id,
             client_name=r.client_name,
+            cv_position=r.cv_position,
+            job_working_title=r.job_working_title,
+            job_client_reference=r.job_client_reference,
             can_schedule=schedulable.get(r.job_id, False),
         )
         for r in readiness

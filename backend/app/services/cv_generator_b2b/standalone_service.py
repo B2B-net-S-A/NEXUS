@@ -332,6 +332,11 @@ class RecruitmentReadiness:
     content_mode: ContentMode = DEFAULT_CONTENT_MODE
     required_champion: bool = False
     required_notes_min_chars: int = 0
+    # Stanowisko do nagłówka CV i nazwy pliku (`cv_position_for_form`) oraz nazwy
+    # rekrutacji na liście procesów: numer u klienta i tytuł dla rekrutera.
+    cv_position: str = ""
+    job_working_title: str | None = None
+    job_client_reference: str | None = None
 
     @property
     def missing_inputs(self) -> list[str]:
@@ -2143,6 +2148,8 @@ async def list_recruitments_with_readiness(
 
     has_cv = await _candidate_has_supported_cv(db, candidate_id)
 
+    from app.services.job_working_title import cv_position_for_form
+
     # Earliest pipeline entry per job — the call-window anchor.
     first_moved_rows = (
         await db.execute(
@@ -2287,6 +2294,9 @@ async def list_recruitments_with_readiness(
                     if job is not None and job.client is not None
                     else None
                 ),
+                cv_position=await cv_position_for_form(db, job) if job else "",
+                job_working_title=job.working_title if job else None,
+                job_client_reference=job.client_reference if job else None,
             )
         )
 
@@ -2832,11 +2842,6 @@ async def load_candidate_generation_source(
 
     position = (position or "").strip()
     job_title = (job.title or "").strip() if job is not None else ""
-    # Pole „Stanowisko” jest w UI podpowiadane tytułem rekrutacji — ten sam
-    # tekst to nie decyzja rekrutera, więc nagłówek dalej dopasowuje model.
-    position_override = (
-        position if position and position.casefold() != job_title.casefold() else ""
-    )
     # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
     # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
     header_title = ""
@@ -2844,6 +2849,19 @@ async def load_candidate_generation_source(
         from app.services.job_working_title import cv_role_title_for_job
 
         header_title = await cv_role_title_for_job(db, job)
+    # Pole „Stanowisko” jest w UI podpowiadane nazwą roli (wcześniej tytułem
+    # rekrutacji) — ten sam tekst to nie decyzja rekrutera. Wpisany numer
+    # zapytania schodzi: nazwa pliku ma go już ze wzoru klienta.
+    position_override = position
+    if job is not None:
+        from app.services.job_working_title import typed_cv_position
+
+        position_override = typed_cv_position(position, job.client_reference)
+    if (
+        position.casefold() == job_title.casefold()
+        or position_override.casefold() == header_title.casefold()
+    ):
+        position_override = ""
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",
