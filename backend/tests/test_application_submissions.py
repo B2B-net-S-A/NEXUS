@@ -666,3 +666,125 @@ async def test_resolve_link_of_vetoed_candidate_returns_409(sub_client: AsyncCli
             )
         )
         assert doc is None  # wszystko wycofane
+
+
+async def _tombstone_email(email: str) -> None:
+    from app.models.purged_candidate import PurgedCandidate
+    from app.services.candidate_audit import (
+        EMAIL_TOMBSTONE_SOURCE,
+        candidate_email_tombstone,
+    )
+
+    async with AsyncSessionLocal() as db:
+        db.add(
+            PurgedCandidate(
+                external_source=EMAIL_TOMBSTONE_SOURCE,
+                external_id_hash=candidate_email_tombstone(email),
+            )
+        )
+        await db.commit()
+
+
+async def _erasure_traces(candidate_id: int) -> list[dict]:
+    async with AsyncSessionLocal() as db:
+        rows = await db.scalars(
+            select(Activity).where(
+                Activity.entity_type == "candidate",
+                Activity.entity_id == candidate_id,
+                Activity.action == "recreated_after_erasure",
+            )
+        )
+        return [row.details for row in rows]
+
+
+@pytest.mark.asyncio
+async def test_own_application_on_an_erased_address_passes_with_a_trace(
+    sub_client: AsyncClient,
+):
+    """Osoba sama wysyła CV: profil powstaje, historia i dzwonek to mówią."""
+    from app.models.notification import Notification
+
+    uid, email, password = await _seed_user(UserRole.recruiter, "wraca")
+    job_id = await _seed_job()
+    headers = await _login(sub_client, email, password)
+    token = await _make_link(sub_client, headers, job_id)
+    erased = f"wraca-{uuid.uuid4().hex[:6]}@example.com"
+    await _tombstone_email(erased)
+
+    await _apply(sub_client, token, email=erased, first="Wraca", last="Sama")
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.email == erased))
+        assert cand is not None
+        bell = await db.scalar(
+            select(Notification)
+            .where(Notification.user_id == uid)
+            .order_by(Notification.id.desc())
+            .limit(1)
+        )
+    assert await _erasure_traces(cand.id) == [{"via": "self_application"}]
+    assert bell is not None
+    assert "trwale usunięty" in bell.message
+
+
+@pytest.mark.asyncio
+async def test_own_application_without_a_tombstone_has_no_trace(
+    sub_client: AsyncClient,
+):
+    from app.models.notification import Notification
+
+    uid, email, password = await _seed_user(UserRole.recruiter, "nowa")
+    job_id = await _seed_job()
+    headers = await _login(sub_client, email, password)
+    token = await _make_link(sub_client, headers, job_id)
+    fresh = f"nowa-{uuid.uuid4().hex[:6]}@example.com"
+
+    await _apply(sub_client, token, email=fresh, first="Nowa", last="Osoba")
+
+    async with AsyncSessionLocal() as db:
+        cand = await db.scalar(select(Candidate).where(Candidate.email == fresh))
+        bell = await db.scalar(
+            select(Notification)
+            .where(Notification.user_id == uid)
+            .order_by(Notification.id.desc())
+            .limit(1)
+        )
+    assert await _erasure_traces(cand.id) == []
+    assert bell is not None
+    assert "trwale usunięty" not in bell.message
+
+
+@pytest.mark.asyncio
+async def test_resolve_create_on_an_erased_address_asks_first(sub_client: AsyncClient):
+    """Stare zgłoszenie po usunięciu profilu nie przywraca danych jednym kliknięciem."""
+    uid_admin, email_a, pass_a = await _seed_user(UserRole.admin, "erased-admin")
+    admin_headers = await _login(sub_client, email_a, pass_a)
+    sub_id, matched_id, dup_email, _ = await _park_submission(
+        sub_client, owner_id=uid_admin
+    )
+    async with AsyncSessionLocal() as db:
+        row = await db.get(Candidate, matched_id)
+        await db.delete(row)
+        await db.commit()
+    await _tombstone_email(dup_email)
+
+    refused = await sub_client.post(
+        f"/api/application-submissions/{sub_id}/resolve",
+        json={"action": "create"},
+        headers=admin_headers,
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["detail"]["code"] == "candidate_erased"
+    async with AsyncSessionLocal() as db:
+        sub = await db.get(ApplicationSubmission, sub_id)
+        assert sub.status == ApplicationSubmissionStatus.pending_review.value
+
+    confirmed = await sub_client.post(
+        f"/api/application-submissions/{sub_id}/resolve",
+        json={"action": "create", "confirm_erased": True},
+        headers=admin_headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert await _erasure_traces(confirmed.json()["candidate_id"]) == [
+        {"via": "screen"}
+    ]

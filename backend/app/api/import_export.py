@@ -32,6 +32,10 @@ from app.models.activity import Activity
 from app.api.candidate_access import CandidateExportAccess, CandidateWriteAccess
 from app.services import candidate_audit
 from app.services import candidate_profile_facts
+from app.services.candidate_erasure_leftovers import (
+    ERASED_EMAIL_SKIP_REASON,
+    email_was_erased,
+)
 from app.services.candidate_language_writer import (
     normalize_language_payload,
     sync_candidate_languages_from_source,
@@ -186,6 +190,17 @@ async def import_candidates(
                             "status": "skipped",
                             "email": email,
                             "reason": "Email już istnieje w bazie",
+                        }
+                    )
+                    continue
+                if await email_was_erased(db, email):
+                    skipped += 1
+                    details.append(
+                        {
+                            "row": row_num,
+                            "status": "skipped",
+                            "email": email,
+                            "reason": ERASED_EMAIL_SKIP_REASON,
                         }
                     )
                     continue

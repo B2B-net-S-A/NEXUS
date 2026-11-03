@@ -390,9 +390,22 @@ async def submit_application(
         )
         return {"ok": True, "status": "received"}
 
+    # Nagrobek nie blokuje zgłoszenia: osoba sama wysyła CV i daje nową zgodę.
+    # Zostaje ślad w historii, a dzwonek powtarza go w `_notify_owner`.
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        record_recreated_after_erasure,
+    )
+
+    erased_email = await email_was_erased(db, normalized_email)
     candidate = await _create_candidate(
         db, ref=ref, applicant=applicant, cv=cv, content=content, screening=screening
     )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=None, via=VIA_SELF_APPLICATION
+        )
     await db.commit()
     candidate_id = candidate.id
 
@@ -911,6 +924,16 @@ async def _notify_owner(
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
             )
+        elif related_entity_type == "candidate":
+            from app.services.candidate_erasure_leftovers import (
+                was_recreated_after_erasure,
+            )
+
+            if await was_recreated_after_erasure(db, related_entity_id):
+                message += (
+                    " Profil z tym adresem był już trwale usunięty; osoba "
+                    "zgłosiła się sama."
+                )
         if (
             job_id is not None
             and in_job is None
