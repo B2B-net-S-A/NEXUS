@@ -324,8 +324,8 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
   (2,5 × podobieństwo) i za weryfikację gdziekolwiek w ostatnich 90 dniach (3);
-  osoba odrzucona przez tego samego klienta (`ended_by='client'`, bez kolumny —
-  po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
+  osoba jawnie odrzucona przez tego samego klienta (`ended_by='client'`, od
+  03.11.2026 bez pustej kolumny po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
   (same id, etapy, daty; tytuły rozwija `api/job_proposals._history_sources`)
   i zmieniają WYŁĄCZNIE kolejność: `list_for_job` i `compareProposals` sortują
   po wynik + punkty, pokazywany procent bez zmian, bez osobnej sekcji. O tym,
