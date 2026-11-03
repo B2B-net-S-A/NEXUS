@@ -72,7 +72,8 @@ CANCEL_FAILED = "Nie udało się odwołać rozmowy. Spróbuj ponownie za chwilę
 
 INVITE_NOTE = (
     "Rozmowa w Teams jest spisywana, żebyśmy nie gubili ustaleń. Nie zachowujemy wideo. "
-    "Zapis widzi prowadzący, kierownik i osoba przejmująca sprawę."
+    "Pełny zapis widzi prowadzący, kierownik i osoba prowadząca sprawę, "
+    "a podsumowanie także zespół obsługi spraw."
 )
 
 

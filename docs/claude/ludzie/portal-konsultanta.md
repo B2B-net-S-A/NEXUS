@@ -27,7 +27,8 @@ modułu. Stan `off` kasuje sesje, więc ponowne włączenie ich nie ożywia.
   Odblokowanie finansów trwa 30 minut.
 - „Twoje sprawy” to lista dozwolona (`content.visible_cases_clause`): zgłoszenia z portalu z kluczem
   `portal:` i maile, które konsultant sam napisał. Nigdy obszar `negotiation`, sprawy automatyczne, opis,
-  komentarze ani checklista. Pole „Czeka na” z karty konsultant widzi w portalu.
+  komentarze ani checklista. Wolny tekst „Czeka na” z karty zostaje wewnętrzny: konsultant dostaje stałą
+  etykietę „Czekamy na odpowiedź” (decyzja Artura 03.11.2026).
 - Moduł publiczny ma `@limiter.limit`, więc nie ma `from __future__ import annotations`.
 
 ## SMS
@@ -43,7 +44,9 @@ Konsultant wybiera osobę z zespołów `care`, `finance`, `contracts` i termin. 
 `NEXUS-Meetings-Scope`. Termin rezerwuje wiersz `pending` zatwierdzony przed Graphem (częściowy unikat na osobę
 i początek). Kalendarz nieczytelny = brak terminów. Własna tabela `cp_meetings`, bo `prep_meetings` wymaga
 kandydata i rekrutacji. Transkrypt bez wideo zależy od polityki Teams, której w kodzie nie widać.
-Podsumowanie AI (`portal_meeting_summary`) to komentarz w sprawie: awaria modelu niczego nie blokuje.
+Podsumowanie AI (`portal_meeting_summary`) to komentarz w sprawie: awaria modelu niczego nie blokuje. Widzi je
+zespół obsługi spraw, a pełny zapis tylko prowadzący, kierownik i osoba prowadząca sprawę; tak mówi zaproszenie
+(`INVITE_NOTE`, decyzja Artura 03.11.2026, do pokazania IOD).
 Transkrypt znika po 365 dniach (`TRANSCRIPT_RETENTION`, termin do potwierdzenia z IOD).
 
 ## Oceny

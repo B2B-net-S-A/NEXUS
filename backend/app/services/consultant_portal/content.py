@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import local_now
 from app.models.admin_case import AdminCase, AdminCaseMessage
-from app.models.back_office import BoCard
 from app.models.client import Client
 from app.models.consultant_portal import CpFaqItem
 from app.models.contract import Contract
@@ -129,19 +128,17 @@ def visible_cases_clause(contract_ids: tuple[int, ...], email: str):
     )
 
 
-def waiting_label(
-    status: str, waiting_on: Optional[str], owner: Optional[str]
-) -> dict[str, str]:
-    """„Kto na kogo czeka”: ``who`` to ``nobody``, ``us``, ``other`` albo ``done``."""
+def waiting_label(status: str, owner: Optional[str]) -> dict[str, str]:
+    """„Kto na kogo czeka”: ``who`` to ``nobody``, ``us``, ``other`` albo ``done``.
+
+    Stałe etykiety: wolny tekst „Czeka na” z karty pisze pracownik dla zespołu
+    i nie może wyjść do osoby spoza firmy.
+    """
 
     if status in ("done", "closed"):
         return {"who": "done", "label": "Załatwione"}
     if status == "waiting":
-        target = (waiting_on or "").strip()
-        return {
-            "who": "other",
-            "label": f"Czekamy na: {target}" if target else "Czekamy na odpowiedź",
-        }
+        return {"who": "other", "label": "Czekamy na odpowiedź"}
     if owner is None:
         return {"who": "nobody", "label": "Czeka na przydzielenie osoby"}
     return {"who": "us", "label": f"Po naszej stronie: {owner}"}
@@ -151,12 +148,8 @@ async def own_cases(db: AsyncSession, context: PortalContext) -> list[dict[str, 
     consultant = context.consultant
     rows = (
         await db.execute(
-            select(AdminCase, User.name, BoCard.waiting_on)
+            select(AdminCase, User.name)
             .outerjoin(User, User.id == AdminCase.assignee_user_id)
-            .outerjoin(
-                BoCard,
-                and_(BoCard.case_id == AdminCase.id, BoCard.source_kind == "case"),
-            )
             .where(visible_cases_clause(consultant.contract_ids, consultant.email))
             .order_by(AdminCase.updated_at.desc(), AdminCase.id.desc())
             .limit(CASES_LISTED)
@@ -168,11 +161,11 @@ async def own_cases(db: AsyncSession, context: PortalContext) -> list[dict[str, 
             "title": case.title,
             "status": case.status,
             "owner": owner,
-            "waiting": waiting_label(case.status, waiting_on, owner),
+            "waiting": waiting_label(case.status, owner),
             "created_at": case.created_at.isoformat(),
             "updated_at": case.updated_at.isoformat(),
         }
-        for case, owner, waiting_on in rows
+        for case, owner in rows
     ]
 
 

@@ -320,16 +320,14 @@ async def test_mail_case_visible_only_for_own_message(app_client) -> None:
 
 
 def test_who_waits_for_whom() -> None:
-    assert content.waiting_label("done", None, "Ola")["who"] == "done"
-    assert content.waiting_label("waiting", "klienta", "Ola") == {
+    assert content.waiting_label("done", "Ola")["who"] == "done"
+    # Wolny tekst „Czeka na” zostaje wewnętrzny: konsultant dostaje stałą etykietę.
+    assert content.waiting_label("waiting", "Ola") == {
         "who": "other",
-        "label": "Czekamy na: klienta",
+        "label": "Czekamy na odpowiedź",
     }
-    assert content.waiting_label("waiting", None, None)["label"] == (
-        "Czekamy na odpowiedź"
-    )
-    assert content.waiting_label("new", None, None)["who"] == "nobody"
-    assert content.waiting_label("in_progress", None, "Ola") == {
+    assert content.waiting_label("new", None)["who"] == "nobody"
+    assert content.waiting_label("in_progress", "Ola") == {
         "who": "us",
         "label": "Po naszej stronie: Ola",
     }
