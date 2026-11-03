@@ -98,6 +98,9 @@ vi.mock("next/dynamic", () => ({
 vi.mock("@/components/v2/cv-generator/CvGeneratorDialog", () => ({
   CvGeneratorDialog: () => <div data-testid="generator-dialog" />,
 }));
+vi.mock("@/components/v2/recruitment/ConsentRequestButton", () => ({
+  ConsentRequestButton: () => <button type="button">Poproś kandydata o zgodę</button>,
+}));
 vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
   ConsentAttachButton: (props: Record<string, unknown>) => {
     mocks.consentProps = props;
@@ -646,6 +649,7 @@ describe("CvToClientCard — CV gotowe", () => {
     expect(screen.getByRole("button", { name: "Otwórz strony CV — Jan Kowalski" })).toBeEnabled();
     expect(screen.getByRole("button", { name: /Otwórz i popraw/ })).toBeEnabled();
     expect(screen.getByText(/Zgoda RODO: brak zrzutu/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Poproś kandydata o zgodę/ })).toBeInTheDocument();
     expect(mocks.consentProps).toMatchObject({ generatedId: 5, hasConsent: false, compact: true });
     // Bez zgody serwer i tak odpowie 409 — miniatura nie pyta o PDF.
     await expect(mocks.thumbProps!.load()).rejects.toThrow();
