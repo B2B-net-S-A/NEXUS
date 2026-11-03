@@ -255,6 +255,8 @@ async def test_board_shows_the_system_badge_and_claim_records_the_call(
     assert card["entry_autofill"]["score"] == 81
     assert card["entry_autofill"]["matched_must"] == ["Java"]
     assert card["entry_autofill"]["decided"] is False
+    # Świeżo założona osoba od progu ma pierwszeństwo w kolejce (03.11.2026).
+    assert card["entry_autofill"]["fresh_first"] is True
     assert card.get("claim_user_id") is None
 
     claim = await api_client.post(

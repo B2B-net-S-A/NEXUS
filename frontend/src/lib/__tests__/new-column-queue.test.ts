@@ -110,6 +110,55 @@ describe("orderNewColumn", () => {
   });
 });
 
+describe("nowi w bazie najpierw (03.11.2026)", () => {
+  const fresh = (id: number, score: number) =>
+    system(id, score, { entry_autofill: { score, decided: false, cautions: [], fresh_first: true } });
+
+  it("nowa w bazie wyprzedza wyższy wynik, między nowymi liczy się wynik", () => {
+    const { items, ranks, freshFirst } = orderNewColumn([system(1, 95), fresh(2, 71), fresh(3, 74)]);
+    expect(items.map((i) => i.id)).toEqual([3, 2, 1]);
+    expect(ranks.get(3)).toBe(1);
+    expect(freshFirst).toBe(true);
+  });
+
+  it("wyprzedza też punkty „znamy tę osobę”", () => {
+    const familiar = system(1, 78, {
+      entry_autofill: {
+        score: 78,
+        decided: false,
+        cautions: [],
+        known: { points: 14, client_points: 6, note_points: 8, verified_at_client: 2, last_note_days: 5 },
+      },
+    });
+    expect(orderNewColumn([familiar, fresh(2, 70)]).items.map((i) => i.id)).toEqual([2, 1]);
+  });
+
+  it("brak krytycznej cofa nową na koniec", () => {
+    const { items, freshFirst } = orderNewColumn([fresh(1, 90), system(2, 70)], new Map([[10, ["angular"]]]));
+    expect(items.map((i) => i.id)).toEqual([2, 1]);
+    expect(freshFirst).toBe(false);
+  });
+
+  it("co 5. miejsce dla osoby bez procesu liczy się za nowymi w bazie", () => {
+    const noProcess = system(9, 40, { entry_autofill: { score: 40, decided: false, cautions: [], fresh: true } });
+    const { items, freshSlots } = orderNewColumn([
+      fresh(1, 71),
+      fresh(2, 72),
+      fresh(3, 73),
+      system(4, 90),
+      system(5, 85),
+      system(6, 80),
+      noProcess,
+    ]);
+    expect(items.map((i) => i.id)).toEqual([3, 2, 1, 4, 9, 5, 6]);
+    expect(freshSlots.has(9)).toBe(true);
+  });
+
+  it("bez nowych w bazie kolejka jest jak dotąd", () => {
+    expect(orderNewColumn([system(1, 70), system(2, 80)]).freshFirst).toBe(false);
+  });
+});
+
 describe("znamy tę osobę", () => {
   const known = (points: number) => ({
     points,

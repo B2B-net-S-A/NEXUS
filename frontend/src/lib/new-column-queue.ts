@@ -8,7 +8,8 @@
  * Osoby dodane przez zespół i karty od systemu, które ktoś już wziął, zostają
  * na górze od najmłodszego (decyzja z 16.10.2026). Pod nimi czekające karty od
  * systemu od najwyższego wyniku powiększonego o punkty „znamy tę osobę”
- * (`entry_autofill.known`, serwer): najpierw bez uwag, potem z ostrzeżeniem
+ * (`entry_autofill.known`, serwer): najpierw nowi w bazie od progu (03.11.2026,
+ * `entry_autofill.fresh_first`), potem pozostali bez uwag, potem z ostrzeżeniem
  * o budżecie albo biurze, na końcu z brakiem krytycznej. Procent na karcie się
  * nie zmienia. Co 5. miejsce wśród osób bez uwag należy do najlepszej osoby bez
  * procesu (`entry_autofill.fresh`, decyzja z 03.11.2026), ta sama zasada co
@@ -36,6 +37,8 @@ type QueueItem = {
     decided: boolean;
     cautions?: unknown[];
     known?: KnownFacts | null;
+    /** Nowa w bazie, od progu, bez uwag — liczy serwer (`has_fresh_first`). */
+    fresh_first?: boolean;
     fresh?: boolean;
   } | null;
 };
@@ -74,11 +77,15 @@ export function waitsInSystemQueue(item: QueueItem): boolean {
 
 function tier(item: QueueItem, criticalGaps: ReadonlyMap<number, string[]> | undefined): number {
   if (criticalGaps?.get(item.candidate_id)?.length) return 2;
-  return item.entry_autofill?.cautions?.length ? 1 : 0;
+  if (item.entry_autofill?.cautions?.length) return 1;
+  return item.entry_autofill?.fresh_first ? -1 : 0;
 }
 
-/** Co `FRESH_EVERY`-te miejsce dla najlepszej osoby bez procesu; `slots` to ci, którzy przeskoczyli. */
-function withFreshSlots<T extends QueueItem>(sorted: readonly T[]): { items: T[]; slots: Set<number> } {
+/**
+ * Co `FRESH_EVERY`-te miejsce dla najlepszej osoby bez procesu; `slots` to ci, którzy
+ * przeskoczyli. `start` = karty przed tą listą (nowi w bazie): miejsce liczy się w całej kolejce.
+ */
+function withFreshSlots<T extends QueueItem>(sorted: readonly T[], start = 0): { items: T[]; slots: Set<number> } {
   const waiting = sorted
     .filter((item) => item.entry_autofill?.fresh)
     .sort(
@@ -91,7 +98,7 @@ function withFreshSlots<T extends QueueItem>(sorted: readonly T[]): { items: T[]
   while (items.length < sorted.length) {
     const natural = sorted.find((item) => !used.has(item.id)) as T;
     const fresh =
-      (items.length + 1) % FRESH_EVERY === 0 ? waiting.find((item) => !used.has(item.id)) : undefined;
+      (start + items.length + 1) % FRESH_EVERY === 0 ? waiting.find((item) => !used.has(item.id)) : undefined;
     const pick = fresh ?? natural;
     if (pick !== natural) slots.add(pick.id);
     items.push(pick);
@@ -103,7 +110,7 @@ function withFreshSlots<T extends QueueItem>(sorted: readonly T[]): { items: T[]
 export function orderNewColumn<T extends QueueItem>(
   items: readonly T[],
   criticalGaps?: ReadonlyMap<number, string[]>,
-): { items: T[]; ranks: Map<number, number>; total: number; freshSlots: Set<number> } {
+): { items: T[]; ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } {
   const team = items.filter((item) => !waitsInSystemQueue(item));
   const queue = items
     .filter(waitsInSystemQueue)
@@ -114,11 +121,18 @@ export function orderNewColumn<T extends QueueItem>(
         queueValue(b.item) - queueValue(a.item) ||
         a.item.candidate_id - b.item.candidate_id,
     );
-  const clean = withFreshSlots(queue.filter(({ tier }) => tier === 0).map(({ item }) => item));
-  const ordered = [...clean.items, ...queue.filter(({ tier }) => tier !== 0).map(({ item }) => item)];
+  const first = queue.filter(({ tier }) => tier < 0).map(({ item }) => item);
+  const clean = withFreshSlots(queue.filter(({ tier }) => tier === 0).map(({ item }) => item), first.length);
+  const ordered = [...first, ...clean.items, ...queue.filter(({ tier }) => tier > 0).map(({ item }) => item)];
   const ranks = new Map<number, number>();
   ordered.forEach((item, index) => ranks.set(item.id, index + 1));
-  return { items: [...team, ...ordered], ranks, total: ordered.length, freshSlots: clean.slots };
+  return {
+    items: [...team, ...ordered],
+    ranks,
+    total: ordered.length,
+    freshFirst: first.length > 0,
+    freshSlots: clean.slots,
+  };
 }
 
 export function newColumnSection(rank: number | undefined): NewColumnSection {

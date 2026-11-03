@@ -64,7 +64,7 @@ Reguły, które łatwo cofnąć „przy okazji”:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
@@ -86,12 +86,22 @@ from app.models.pipeline_template import PipelineStageDef
 from app.models.recruitment_pipeline import CandidateStage
 from app.services import candidate_claim
 from app.services.board_stage_badges import board_column_for
+from app.services.candidate_added_date import (
+    AddedToBase,
+    is_new_in_base,
+    new_in_base_clause,
+)
+from app.services.job_proposals import proposal_threshold
 from app.services.pipeline_latest import current_hired_stage_clause, latest_stage_ids
 from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
 
 TARGET = 20
+# Tyle kart ponad ``TARGET`` może dojść wyłącznie osobami nowymi w bazie
+# (03.11.2026): 173 ze 189 rekrutacji miało pełne „Nowe”, więc świeża osoba
+# czekała poza Tablicą. Kart nie zdejmujemy (wygaszanie odrzucone 28.10.2026).
+FRESH_OVER_TARGET = 5
 # Co które miejsce w „Nowych” należy do najlepszej osoby bez procesu (03.11.2026).
 FRESH_EVERY = 5
 FULL_PASS_EVERY = timedelta(minutes=15)
@@ -184,6 +194,8 @@ class Pick:
     # Co przemawia przeciw, a system to wiedział (``_by_rules``) — migawka
     # ``entry_meta.cautions``.
     cautions: tuple[dict, ...] = ()
+    # Weszła z pierwszeństwem „nowa w bazie” — migawka ``entry_meta.fresh_first``.
+    fresh: bool = False
 
 
 def _names(evidence: Optional[dict], key: str) -> tuple[str, ...]:
@@ -235,10 +247,18 @@ async def _other_role_ids(db, job: Optional[Job], candidate_ids: list[int]) -> s
     return set(await mismatches_for_job(db, job, people))
 
 
-async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
+async def ranked_picks(
+    db,
+    job_id: int,
+    *,
+    limit: int,
+    new_in_base_at: Optional[datetime] = None,
+    min_score: Optional[float] = None,
+) -> list[Pick]:
     """Najlepsi z puli i otwartych propozycji, bez osób, których system nie
     dodaje (patrz docstring modułu, poza bramką kwalifikacji). Inna rola nie
-    zajmuje miejsca w ``limit``, więc wiersze idą paczkami."""
+    zajmuje miejsca w ``limit``, więc wiersze idą paczkami. Przy
+    ``new_in_base_at`` tylko osoby nowe w bazie, a przy ``min_score`` od tego wyniku."""
     pool = select(
         JobAutofillPool.candidate_id.label("candidate_id"),
         JobAutofillPool.score.label("score"),
@@ -280,6 +300,17 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
             == select(Job.client_id).where(Job.id == job_id).scalar_subquery(),
         )
     )
+    narrowing = []
+    if new_in_base_at is not None:
+        narrowing.append(
+            both.c.candidate_id.in_(
+                select(Candidate.id).where(
+                    new_in_base_clause(Candidate, new_in_base_at)
+                )
+            )
+        )
+    if min_score is not None:
+        narrowing.append(both.c.score >= min_score)
     rows = (
         await db.execute(
             select(both.c.candidate_id, both.c.score, both.c.run_id, both.c.evidence)
@@ -290,6 +321,7 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
                 both.c.candidate_id.not_in(hired_now),
                 both.c.candidate_id.not_in(refused_client),
                 both.c.candidate_id.not_in(not_looking_now()),
+                *narrowing,
             )
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )
@@ -316,6 +348,39 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
         if len(picks) >= limit:
             break
     return await _with_known_points(db, job_id, picks[:limit])
+
+
+def has_fresh_first(
+    meta: object, added: AddedToBase, *, threshold: float, now: datetime
+) -> bool:
+    """Karta od systemu z pierwszeństwem w kolejce: nowa w bazie, od progu, bez uwag."""
+    if not settings.NEW_COLUMN_FRESH_FIRST_ENABLED or not isinstance(meta, dict):
+        return False
+    score = meta.get("score")
+    return (
+        isinstance(score, (int, float))
+        and score >= threshold
+        and not meta.get("cautions")
+        and is_new_in_base(added, now)
+    )
+
+
+async def new_in_base_picks(db, job: Job, *, now: datetime) -> list[Pick]:
+    """Osoby z pierwszeństwem „nowa w bazie”: od progu, po regułach i bez uwag."""
+    if not settings.NEW_COLUMN_FRESH_FIRST_ENABLED:
+        return []
+    picks = await ranked_picks(
+        db,
+        job.id,
+        limit=_RULES_WINDOW,
+        new_in_base_at=now,
+        min_score=await proposal_threshold(db),
+    )
+    return [
+        replace(pick, fresh=True)
+        for pick in await _by_rules(db, job, picks)
+        if not pick.cautions
+    ]
 
 
 async def _with_known_points(db, job_id: int, picks: list[Pick]) -> list[Pick]:
@@ -484,7 +549,6 @@ async def _by_rules(db, job: Job, picks: list[Pick]) -> list[Pick]:
     w obrębie poziomu zostaje), tak samo osoby z ostrzeżeniem o biurze albo
     mieście. Czyta tylko potrzebne kolumny — okno ma do ``_RULES_WINDOW``
     osób, a pełny wiersz kandydata niesie tekst CV."""
-    from dataclasses import replace
     from types import SimpleNamespace
 
     from app.services import client_off_limits
@@ -625,7 +689,7 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
     rate, currency = effective_rate(candidate)
     availability = getattr(candidate, "availability_date", None)
     status = getattr(candidate, "availability_status", None)
-    return {
+    meta = {
         "kind": ENTRY_KIND,
         "score": round(pick.score, 2),
         "run_id": pick.run_id,
@@ -637,6 +701,9 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
         "availability_status": getattr(status, "value", status),
         "cautions": [dict(c) for c in pick.cautions],
     }
+    if pick.fresh:
+        meta["fresh_first"] = True
+    return meta
 
 
 # ── Dopełnienie jednej rekrutacji ───────────────────────────────────────────
@@ -645,8 +712,9 @@ def entry_meta(pick: Pick, candidate: Candidate) -> dict:
 async def fill_job(
     db, job_id: int, *, now: datetime, limit: Optional[int] = None
 ) -> list[int]:
-    """Dopełnij „Nowych” do ``TARGET`` (najwyżej ``limit`` osób naraz).
-    Zwraca id dodanych osób. Bez commitu."""
+    """Dopełnij „Nowych” do ``TARGET``, osobami nowymi w bazie także do
+    ``TARGET + FRESH_OVER_TARGET`` (najwyżej ``limit`` osób naraz). Nowi w bazie
+    wchodzą pierwsi. Zwraca id dodanych osób. Bez commitu."""
     from app.api.proposals_bulk import add_candidates_to_job
     from app.services.known_queue_points import without_process
 
@@ -659,22 +727,31 @@ async def fill_job(
         return []
     have = (await new_column_counts(db, [job_id])).get(job_id, 0)
     missing = TARGET - have
+    fresh_room = missing + FRESH_OVER_TARGET
     if limit is not None:
         missing = min(missing, limit)
-    if missing <= 0:
-        return []
-    picks = await _by_rules(
-        db, job, await ranked_picks(db, job_id, limit=_RULES_WINDOW)
-    )
-    picks = with_fresh_slots(
-        picks,
-        await without_process(
-            db, job_id=job_id, candidate_ids=[p.candidate_id for p in picks]
-        ),
-        start=have,
-    )
-    picks = picks[: missing * _PICK_HEADROOM + 10]
-    chosen = (await _allowed(db, job, picks, now))[:missing]
+        fresh_room = min(fresh_room, limit)
+    chosen: list[Pick] = []
+    if fresh_room > 0:
+        fresh = await new_in_base_picks(db, job, now=now)
+        fresh = fresh[: fresh_room * _PICK_HEADROOM + 10]
+        chosen = (await _allowed(db, job, fresh, now))[:fresh_room]
+    missing -= len(chosen)
+    if missing > 0:
+        taken = {pick.candidate_id for pick in chosen}
+        picks = await _by_rules(
+            db, job, await ranked_picks(db, job_id, limit=_RULES_WINDOW)
+        )
+        picks = [pick for pick in picks if pick.candidate_id not in taken]
+        picks = with_fresh_slots(
+            picks,
+            await without_process(
+                db, job_id=job_id, candidate_ids=[p.candidate_id for p in picks]
+            ),
+            start=have + len(chosen),
+        )
+        picks = picks[: missing * _PICK_HEADROOM + 10]
+        chosen += (await _allowed(db, job, picks, now))[:missing]
     if not chosen:
         return []
     candidates = {

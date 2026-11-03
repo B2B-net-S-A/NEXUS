@@ -1590,3 +1590,97 @@ def test_statuses_agree_everywhere() -> None:
         encoding="utf-8"
     )
     assert "STATUS_CONSTRAINT_DDL" in migration
+
+
+# ── Nowi w bazie najpierw (03.11.2026) ──────────────────────────────────────
+
+
+async def _new_in_base_world(scores: list[float]) -> dict:
+    """Pierwsza osoba jest w bazie od 2 lat, reszta jest świeża."""
+    world = await _world(people=len(scores))
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, world["candidate_ids"][0])
+        person.created_at = datetime.now(timezone.utc) - timedelta(days=730)
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [
+                {"candidate_id": cid, "score": score, "evidence": {}}
+                for cid, score in zip(world["candidate_ids"], scores)
+            ],
+            "full_base",
+        )
+        await db.commit()
+    return world
+
+
+async def test_inbox_puts_new_in_base_before_a_higher_score(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    old, low, high = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    response = await app_client.get(_inbox(world["job_id"]), headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [i["candidate"]["id"] for i in body["items"]] == [high, low, old]
+    assert body["new_in_base_total"] == 2
+    assert body["items"][0]["new_in_base_at"] is not None
+    assert body["items"][2]["new_in_base_at"] is None
+    # Procent zostaje wynikiem osoby: pierwszeństwo zmienia kolejność, nie ocenę.
+    assert body["items"][0]["score"] == 74.0
+
+
+async def test_inbox_new_in_base_total_leaves_out_people_on_the_postings_tab(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    _, from_base, from_posting = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [{"candidate_id": from_posting, "score": 74.0, "evidence": {}}],
+            "new_cv",
+        )
+        await db.commit()
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    by_id = {i["candidate"]["id"]: i for i in body["items"]}
+    assert by_id[from_posting]["posting_recent"] is True
+    assert by_id[from_posting]["new_in_base_at"] is not None
+    assert by_id[from_base]["posting_recent"] is False
+    assert body["new_in_base_total"] == 1
+
+
+async def test_inbox_new_in_base_needs_the_threshold(app_client: AsyncClient):
+    world = await _new_in_base_world([80.0, 60.0])
+    old, low = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, low]
+    assert body["new_in_base_total"] == 0
+    assert body["items"][1]["new_in_base_at"] is None
+
+
+async def test_inbox_new_in_base_switch_restores_score_order(
+    app_client: AsyncClient, monkeypatch
+):
+    world = await _new_in_base_world([95.0, 72.0])
+    old, fresh = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+    monkeypatch.setattr(
+        "app.services.new_column_autofill.settings.NEW_COLUMN_FRESH_FIRST_ENABLED",
+        False,
+    )
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, fresh]
+    assert body["new_in_base_total"] == 0

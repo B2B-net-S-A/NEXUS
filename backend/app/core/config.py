@@ -602,6 +602,10 @@ class Settings(BaseSettings):
     # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
     # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
     NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
+    # Nowi w bazie najpierw (decyzja Artura z 03.11.2026): osoba do 14 dni w bazie,
+    # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
+    # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
+    NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.

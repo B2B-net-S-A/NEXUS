@@ -116,6 +116,7 @@ import { AssessWithAiButton } from "./AiAssessmentPanel";
 import { useAiAssessmentWindow } from "./useAiAssessmentWindow";
 import { PersonPreview } from "./PersonPreview";
 import { alsoFitsSlot } from "./also-fits-block";
+import { NEW_IN_BASE_DAYS, addedToBaseView } from "@/lib/added-to-base";
 import { PickList, ScoreBadge, type PickRow } from "./pick-list";
 import { proposalReasonChips, withKeptRows } from "./reason-chips";
 import { RecruitmentSheet } from "./slideovers/RecruitmentSheet";
@@ -252,6 +253,9 @@ function proposalRow(
     note: clientHistoryLine(facts?.client_history) ?? row.reason ?? (facts ? null : detail.title),
     facts: proposalFactsLine(facts),
     cvBadge: cvYearBadge(facts?.cv_uploaded_on),
+    newInBaseDays: detail.newInBaseAt
+      ? (addedToBaseView({ at: detail.newInBaseAt, exact: true })?.days ?? null)
+      : null,
     sourceLabel: source ? PROPOSAL_SOURCE_LABEL[source] : null,
     employment,
     warnings,
@@ -622,6 +626,9 @@ function AddCandidatesPanelOpen({
       reportScoreRow(id);
     }
   }, [sortMode, listTab, unscoredNow, reportScoreRow]);
+  // Nowi w bazie najpierw (03.11.2026): „Najpierw byli u tego klienta” to jawny
+  // wybór innej kolejności, a „Nowi z ogłoszeń” mają własną zakładkę.
+  const freshSection = sortMode === "match" && listTab === "base";
   const listRows = useMemo(() => {
     // Wiersz niesie procent, który widać: zapisany albo policzony na ekranie
     // (osoba tylko z portalu ogłoszeń nie ma zapisanego — 27.10.2026). Tak
@@ -638,17 +645,22 @@ function AddCandidatesPanelOpen({
           : sortByShownScore(rows, (row) => row.fitScore);
       // Inna rola (tester przy programiście, 27.10.2026) zawsze pod osobami
       // z roli rekrutacji, niezależnie od procentu.
-      return [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
+      const rest = [...sorted.filter((r) => !r.roleMismatch), ...sorted.filter((r) => r.roleMismatch)];
+      if (!freshSection) return rest;
+      return [...rest.filter((r) => r.newInBaseDays != null), ...rest.filter((r) => r.newInBaseDays == null)];
     };
     // Najlepsze 40 (28.10.2026): osoby spod progu zawsze pod separatorem.
     return [
       ...order(shown.filter((r) => !belowIds.has(r.candidateId))),
       ...order(shown.filter((r) => belowIds.has(r.candidateId))),
     ];
-  }, [sortMode, unsortedRows, factsById, matchScores.scores, belowIds]);
+  }, [sortMode, freshSection, unsortedRows, factsById, matchScores.scores, belowIds]);
   const belowStart = listRows.findIndex((r) => belowIds.has(r.candidateId));
   const aboveRows = belowStart < 0 ? listRows : listRows.slice(0, belowStart);
+  const freshRows = freshSection ? aboveRows.filter((r) => r.newInBaseDays != null) : [];
+  const olderRows = freshSection ? aboveRows.filter((r) => r.newInBaseDays == null) : aboveRows;
   const belowRows = belowStart < 0 ? [] : listRows.slice(belowStart);
+  const newInBaseCount = Math.max(proposals.status.newInBaseTotal, freshRows.length);
   const hiddenRows = useMemo(
     () =>
       hiddenItems.map((item): PickRow => {
@@ -1045,7 +1057,37 @@ function AddCandidatesPanelOpen({
           </p>
         )}
         {aboveRows.length > 0 || belowRows.length === 0 ? (
-          <PickList label={label} rows={aboveRows} emptyText={emptyText} {...pickListProps} />
+          freshRows.length > 0 ? (
+            <>
+              <div
+                role="separator"
+                aria-label="Nowi w bazie"
+                className="rounded-md bg-success-muted px-3 py-1.5 text-xs text-success-muted-foreground"
+                data-testid="proposals-new-in-base"
+              >
+                <span className="font-semibold">
+                  Nowi w bazie · {newInBaseCount} {pluralPl(newInBaseCount, "osoba", "osoby", "osób")}
+                </span>{" "}
+                — dodani w ostatnich {NEW_IN_BASE_DAYS} dniach, wynik od {Math.round(threshold)}%, krytyczne spełnione.
+              </div>
+              <PickList label={`${label}: nowi w bazie`} rows={freshRows} emptyText="" {...pickListProps} />
+              {olderRows.length > 0 ? (
+                <>
+                  <div
+                    role="separator"
+                    aria-label="Pozostałe propozycje"
+                    className="rounded-md bg-muted px-3 py-1.5 text-xs font-semibold text-foreground"
+                    data-testid="proposals-older"
+                  >
+                    Pozostali
+                  </div>
+                  <PickList label={label} rows={olderRows} emptyText="" {...pickListProps} />
+                </>
+              ) : null}
+            </>
+          ) : (
+            <PickList label={label} rows={aboveRows} emptyText={emptyText} {...pickListProps} />
+          )
         ) : (
           <p className="text-xs text-muted-foreground">
             Nikt nie ma {Math.round(threshold)}% lub więcej — poniżej najlepsi spod progu.

@@ -19,8 +19,10 @@ z wynikiem −0,80, ujemna w 151 ze 166 rekrutacji). Z 3 231 kart od systemu rus
   które ktoś wziął („Dzwonię”, „Biorę”, `decided`, aktywna blokada). Tak zostaje
   decyzja z 16.10: osoba dodana ręcznie nie ląduje w środku kolumny.
 - **Pod nimi czekające karty od systemu:** od najwyższej sumy wyniku z migawki
-  `entry_autofill.score` i punktów `entry_autofill.known.points`; najpierw bez uwag, potem z ostrzeżeniem (`cautions`),
-  na końcu z brakiem krytycznej (`criticalGapMap`). Remis rozstrzyga numer osoby.
+  `entry_autofill.score` i punktów `entry_autofill.known.points`; najpierw nowi w bazie
+  od progu (`entry_autofill.fresh_first`, `nowi-w-bazie-najpierw.md`), potem pozostali bez uwag,
+  potem z ostrzeżeniem (`cautions`), na końcu z brakiem krytycznej (`criticalGapMap`).
+  Remis rozstrzyga numer osoby.
 - **Pierwszych pięć to „Zadzwoń najpierw”** z numerem na karcie
   (`CALL_FIRST_COUNT`). Nagłówki rysują się tylko wtedy, gdy kolejka ma choć
   jedną kartę. Procent na karcie się nie zmienia.
