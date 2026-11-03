@@ -43,7 +43,8 @@ pytestmark = pytest.mark.asyncio
 @pytest_asyncio.fixture
 async def care_on():
     previous = await _previous_modules()
-    await set_modules({key: True for key in HR_MODULE_KEYS})
+    # Kolejka back office zmienia rytm planu: te testy pilnują rytmu sprzed niej.
+    await set_modules({key: key != "back_office" for key in HR_MODULE_KEYS})
     yield
     await set_modules(previous or {key: False for key in HR_MODULE_KEYS})
 
