@@ -132,6 +132,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
@@ -1044,22 +1045,27 @@ export function CvToClientCard({
             <span>
               Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
             </span>
-            {readOnly ? null : state.attached ? (
-              <ConsentAttachButton
-                compact
-                generatedId={state.attached.id}
-                hasConsent={false}
-                onAttached={refresh}
-              />
-            ) : (
-              // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
-              // dokumentu generatora — zgoda idzie na CV etapu.
-              <ConsentAttachButton
-                compact
-                stageCopy={{ candidateId, stageId: cvStageId }}
-                hasConsent={false}
-                onAttached={refresh}
-              />
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-start gap-2">
+                <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
+                {state.attached ? (
+                  <ConsentAttachButton
+                    compact
+                    generatedId={state.attached.id}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                ) : (
+                  // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
+                  // dokumentu generatora — zgoda idzie na CV etapu.
+                  <ConsentAttachButton
+                    compact
+                    stageCopy={{ candidateId, stageId: cvStageId }}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                )}
+              </div>
             )}
           </div>
         ) : null}

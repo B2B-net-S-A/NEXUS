@@ -377,3 +377,250 @@ def test_all_pages_sandboxed_returns_none_when_worker_gives_up(monkeypatch):
 
     monkeypatch.setattr(cte, "_run_pdf_worker", lambda *_a, **_k: None)
     assert cte.extract_pdf_all_pages_sandboxed("umowa.pdf") is None
+
+
+# ── Word bez tekstu z python-docx (03.11.2026) ───────────────────────────────
+#
+# Binarny `.doc` python-docx odrzuca zawsze, a tekst w polach tekstowych
+# i kontrolkach pomija, więc `/from-cv` odpowiadał 400 i zgłoszenie z portalu
+# przepadało. Na kopii produkcji LibreOffice odczytał 65 z 65 takich `.doc`
+# i 28 z 28 takich `.docx`.
+
+
+@pytest.fixture
+def word_file(tmp_path):
+    path = tmp_path / "cv.doc"
+    path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 binarny Word")
+    return str(path)
+
+
+@pytest.fixture
+def libreoffice(monkeypatch):
+    """Proces odczytu udany: zwraca wywołane operacje, tekst podaje test."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    calls: list[str] = []
+
+    def _worker(op, _path, **_kwargs):
+        calls.append(op)
+        return {"text": "Tekst z LibreOffice. " * 10}
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: "/usr/bin/soffice")
+    monkeypatch.setattr(cte, "_run_pdf_worker", _worker)
+    return calls
+
+
+def test_word_python_docx_cannot_read_is_read_through_libreoffice(
+    monkeypatch, word_file, libreoffice
+):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: None)
+    assert cte.extract_text(word_file, "cv.doc").startswith("Tekst z LibreOffice.")
+    assert libreoffice == ["word"]
+
+
+def test_word_with_empty_body_is_read_through_libreoffice(
+    monkeypatch, word_file, libreoffice
+):
+    """Cała treść w polach tekstowych: python-docx nie zgłasza błędu, tylko pustkę."""
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: "")
+    assert cte.extract_text(word_file, "cv.docx").startswith("Tekst z LibreOffice.")
+
+
+def test_word_with_body_text_does_not_start_libreoffice(
+    monkeypatch, word_file, libreoffice
+):
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: "Doświadczenie " * 20)
+    assert cte.extract_text(word_file, "cv.docx").startswith("Doświadczenie")
+    assert libreoffice == []
+
+
+def test_word_worker_gets_the_memory_libreoffice_needs(monkeypatch, word_file):
+    """Przy limicie z PDF-a (1,5 GB) prawdziwe CV wywracało LibreOffice sygnałem 11."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    seen: dict[str, int] = {}
+
+    def _worker(_op, _path, *, memory_bytes):
+        seen["memory_bytes"] = memory_bytes
+        return {"text": "Tekst z LibreOffice"}
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: "/usr/bin/soffice")
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: None)
+    monkeypatch.setattr(cte, "_run_pdf_worker", _worker)
+    cte.extract_text(word_file, "cv.doc")
+    assert seen["memory_bytes"] == cte.WORD_WORKER_MEMORY_BYTES
+    assert cte.WORD_WORKER_MEMORY_BYTES > cte.PDF_WORKER_MEMORY_BYTES
+
+
+def test_word_short_text_stays_when_libreoffice_gives_less(monkeypatch, word_file):
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: "/usr/bin/soffice")
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: "Krótka treść pliku")
+    monkeypatch.setattr(cte, "_run_pdf_worker", lambda *_a, **_k: {"text": "x"})
+    assert cte.extract_text(word_file, "cv.docx") == "Krótka treść pliku"
+
+
+def test_word_worker_failure_keeps_empty_text(monkeypatch, word_file):
+    """Limit czasu albo pamięci: pusty tekst jak dotąd, bez wyjątku."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: "/usr/bin/soffice")
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: None)
+    monkeypatch.setattr(cte, "_run_pdf_worker", lambda *_a, **_k: None)
+    assert cte.extract_text(word_file, "cv.doc") == ""
+
+
+def test_word_without_libreoffice_does_not_start_the_worker(monkeypatch, word_file):
+    """Lokalnie i w CI LibreOffice'a nie ma: wynik jak przed zmianą."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    def _no_worker(*_a, **_k):
+        raise AssertionError("bez LibreOffice proces odczytu nie ma czego zrobić")
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: None)
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: None)
+    monkeypatch.setattr(cte, "_run_pdf_worker", _no_worker)
+    assert cte.extract_text(word_file, "cv.doc") == ""
+
+
+def test_word_conversions_wait_for_a_free_slot(monkeypatch, word_file):
+    """LibreOffice to ciężki proces: gdy miejsce zajęte, pusty tekst zamiast tłoku."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    def _no_worker(*_a, **_k):
+        raise AssertionError("zajęte miejsce nie uruchamia drugiej zamiany")
+
+    monkeypatch.setattr(cv_pdf_preview, "soffice_path", lambda: "/usr/bin/soffice")
+    monkeypatch.setattr(cte, "_extract_docx", lambda _p: None)
+    monkeypatch.setattr(cte, "_run_pdf_worker", _no_worker)
+    monkeypatch.setattr(cte, "_WORD_SLOT_WAIT_SECONDS", 0.01)
+    assert cte._word_slot.acquire(blocking=False)
+    try:
+        assert cte.extract_text(word_file, "cv.doc") == ""
+    finally:
+        cte._word_slot.release()
+
+
+def test_word_zip_bomb_never_reaches_libreoffice(monkeypatch, tmp_path):
+    """Strażnik z `_extract_docx` połyka wyjątek, więc proces odczytu sprawdza sam."""
+    import zipfile
+
+    from app.core import zip_guard
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    def _no_conversion(*_a, **_k):
+        raise AssertionError("bomba ZIP nie może dojść do LibreOffice")
+
+    monkeypatch.setattr(cv_pdf_preview, "docx_to_pdf", _no_conversion)
+    monkeypatch.setattr(zip_guard, "MAX_XML_PART_UNCOMPRESSED", 10)
+    path = tmp_path / "bomba.docx"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("word/document.xml", "<w:document>" + "x" * 100)
+    assert cte._worker_word(str(path)) is None
+
+
+def test_word_worker_reads_the_converted_pdf(monkeypatch, tmp_path):
+    """Wynik zamiany idzie zwykłą ścieżką PDF-a, więc skan w Wordzie dostaje OCR."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    seen: dict[str, bytes] = {}
+
+    def _read_pdf(path):
+        with open(path, "rb") as handle:
+            seen["pdf"] = handle.read()
+        return "Tekst z PDF-a"
+
+    monkeypatch.setattr(
+        cv_pdf_preview, "docx_to_pdf", lambda _data, **_k: b"%PDF-1.7 wynik"
+    )
+    monkeypatch.setattr(cte, "_extract_pdf_inprocess", _read_pdf)
+    path = tmp_path / "cv.doc"
+    path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    assert cte._worker_word(str(path)) == "Tekst z PDF-a"
+    assert seen["pdf"] == b"%PDF-1.7 wynik"
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"<html><body>CV</body></html>",
+        b"{\\rtf1\\ansi CV}",
+        b'<?xml version="1.0"?><office:document/>',
+    ],
+)
+def test_word_worker_converts_only_real_word_files(monkeypatch, tmp_path, content):
+    """Format wybiera LibreOffice po treści, więc plik pod nazwą `.doc` wybierałby filtr."""
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    def _no_conversion(*_a, **_k):
+        raise AssertionError("to nie jest Word")
+
+    monkeypatch.setattr(cv_pdf_preview, "docx_to_pdf", _no_conversion)
+    path = tmp_path / "cv.doc"
+    path.write_bytes(content)
+    assert cte._worker_word(str(path)) is None
+
+
+def test_word_worker_forces_the_import_filter_from_the_bytes(monkeypatch, tmp_path):
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    seen: dict[str, str] = {}
+
+    def _convert(_data, *, infilter):
+        seen["infilter"] = infilter
+        return b"%PDF-1.7"
+
+    monkeypatch.setattr(cv_pdf_preview, "docx_to_pdf", _convert)
+    monkeypatch.setattr(cte, "_extract_pdf_inprocess", lambda _p: "Tekst")
+    path = tmp_path / "cv.docx"
+    path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    assert cte._worker_word(str(path)) == "Tekst"
+    assert seen["infilter"] == "MS Word 97"
+
+
+def test_word_worker_returns_none_when_conversion_fails(monkeypatch, tmp_path):
+    from app.services import cv_pdf_preview, cv_text_extractor as cte
+
+    def _unavailable(_data, **_k):
+        raise cv_pdf_preview.PdfPreviewUnavailable("exit 1")
+
+    monkeypatch.setattr(cv_pdf_preview, "docx_to_pdf", _unavailable)
+    path = tmp_path / "cv.doc"
+    path.write_bytes(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    assert cte._worker_word(str(path)) is None
+
+
+def test_from_cv_logs_the_shape_of_a_file_it_could_not_read(
+    monkeypatch, tmp_path, caplog
+):
+    """Bez nazwy pliku w logu: format i rozmiar wystarczą do następnego dochodzenia."""
+    import asyncio
+    import logging
+
+    from fastapi import HTTPException
+
+    from app.api import candidates
+    from app.services import cv_text_extractor as cte
+
+    monkeypatch.setattr(candidates.settings, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(cte, "extract_text", lambda _path, _name: "")
+    content = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1 binarny Word"
+    with caplog.at_level(logging.WARNING, logger=candidates.logger.name):
+        with pytest.raises(HTTPException) as refused:
+            asyncio.run(
+                candidates._extract_uploaded_cv_text(
+                    content,
+                    safe_name="Jan_Kowalski.doc",
+                    client_filename="Jan_Kowalski.doc",
+                )
+            )
+    assert refused.value.status_code == 400
+    assert f"{len(content)} B" in caplog.text and ".doc" in caplog.text
+    assert "Kowalski" not in caplog.text

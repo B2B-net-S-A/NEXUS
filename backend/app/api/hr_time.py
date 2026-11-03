@@ -594,6 +594,20 @@ async def submit_my_month(
     return time_month.timesheet_payload(timesheet)
 
 
+@router.post("/me/{year}/{month}/withdraw")
+async def withdraw_my_month(
+    year: int, month: int, current_user: SelfUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    with _http_errors():
+        validate_period(year, month)
+        found = await find_timesheet(db, current_user.id, year, month)
+        if found is None:
+            raise TimeNotFound("Nie ma takiego raportu godzin.")
+        actor = await load_actor(db, current_user)
+        timesheet = await time_flow.withdraw(db, timesheet_id=found.id, actor=actor)
+    return time_month.timesheet_payload(timesheet)
+
+
 @router.get("/me/{year}/{month}/pdf")
 async def my_pdf(
     year: int, month: int, current_user: SelfUser, db: AsyncSession = Depends(get_db)

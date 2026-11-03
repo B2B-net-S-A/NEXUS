@@ -89,6 +89,7 @@ import {
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
+import { BookedCallsSection } from "@/components/v2/dashboard/BookedCallsSection";
 import {
   groupCproByJob,
   useBoardTasks,
@@ -231,6 +232,7 @@ export function BoardTasksPanel({
   }
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
+  const bookedCalls = data.booked_calls ?? [];
   // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
   // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
   const proposals =
@@ -245,6 +247,7 @@ export function BoardTasksPanel({
     data.cpro_sent.length +
     preps.length +
     followups.length +
+    bookedCalls.length +
     agreementTasksCount(data.agreements) +
     flowWorkCount(data.flow, data.finance) +
     departedCareCount(care.data) +
@@ -442,6 +445,7 @@ export function BoardTasksPanel({
             </li>
           </Section>
         )}
+        <BookedCallsSection rows={bookedCalls} />
         <NewPeopleSection rows={newPeople} />
         {newPeopleFailed ? <NewPeopleFailed /> : null}
         <AllocationProposalsSection

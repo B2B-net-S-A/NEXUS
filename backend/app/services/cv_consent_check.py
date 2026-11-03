@@ -40,13 +40,15 @@ from app.services.ai_models import fallbacks_for, model_for
 
 logger = logging.getLogger(__name__)
 
-CHECK_VERSION = "consent_check:v1"
+CHECK_VERSION = "consent_check:v2"
 # Mail sprzed otwarcia rekrutacji o więcej niż tyle dni = zgoda z innego
 # zapytania. Zapas na rekrutację założoną dzień–dwa po zapytaniu klienta.
 OLD_MAIL_GRACE_DAYS = 3
 TEXT_MAX = 2000
 OVERRIDE_REASON_MIN = 5
 OVERRIDE_REASON_MAX = 300
+# Po `fold`: wystarcza na „B2B.net S.A.”, „B2B.netS.A.” i „B2BNET”.
+SUPPLIER_MARK = "b2b"
 
 PROMPT = """Na obrazie jest zrzut ekranu, który rekruter wgrał jako mail ze zgodą kandydata na przetwarzanie danych przez klienta „{client}”.
 Przepisz dokładnie to, co widać — niczego nie oceniaj, nie poprawiaj i nie zgaduj.
@@ -348,6 +350,18 @@ def _document_checks(
             {
                 "code": "other_client",
                 "detail": f"Zgoda nie wymienia klienta {subject.client_name}.",
+            }
+        )
+
+    # Zapytania PKO niosą wzór z pustym „[Nazwa Dostawcy]” (03.11.2026: zgody
+    # bez nazwy firmy i z nazwiskiem kandydata jako Oferentem).
+    if SUPPLIER_MARK in fold(consent):
+        passed.append({"code": "supplier", "detail": "B2B.net jako Oferent"})
+    else:
+        problems.append(
+            {
+                "code": "no_supplier",
+                "detail": "W zgodzie nie ma B2B.net S.A. jako Oferenta.",
             }
         )
 

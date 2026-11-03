@@ -1096,9 +1096,11 @@ export function CandidateDetailV2({
           onOpenChange={setDeleteOpen}
           variant="destructive"
           title="Trwale usunąć profil kandydata?"
-          // Co zniknie ORAZ co zostanie: umowy i faktury przeżywają (odpięte,
-          // migracja 0224), payloady integracji Traffit nie mają FK na kandydata.
-          description={`${fullName} oraz powiązane dane rekrutacyjne (CV, notatki, historia procesu, oceny, komentarze) zostaną trwale usunięte z systemu. Umowy i faktury zostaną zachowane bez powiązania z osobą — retencja dokumentów księgowych nie zależy od obecności kandydata w bazie. Tej operacji nie można cofnąć.`}
+          // Co zniknie ORAZ co zostanie: CV nie kasujemy (decyzja Artura 26.09.2026,
+          // `retain_candidate_files`), wygenerowane CV, zgłoszenia i maile tracą tylko
+          // powiązanie (FK SET NULL); umowy i faktury przeżywają (odpięte, migracja
+          // 0224), payloady integracji Traffit nie mają FK na kandydata.
+          description={`${fullName}: profil, notatki, historia procesu, oceny i komentarze zostaną trwale usunięte z systemu. Nie wszystkie dane osoby znikają: pliki CV, wygenerowane CV, zgłoszenia z formularza i maile zostają w systemie bez powiązania z profilem. Umowy i faktury też zostają bez powiązania z osobą — retencja dokumentów księgowych nie zależy od obecności kandydata w bazie. Tej operacji nie można cofnąć.`}
           confirmLabel="Usuń trwale"
           cancelLabel="Anuluj"
           loading={deleteMut.isPending}

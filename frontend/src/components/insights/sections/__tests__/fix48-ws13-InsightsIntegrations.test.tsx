@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import type { IntegrationsSummary } from "@/lib/integrations-api";
+import type { IntegrationErrorRow, IntegrationsSummary } from "@/lib/integrations-api";
 import { InsightsIntegrations } from "@/components/insights/sections/InsightsIntegrations";
 
 // Traffit wyłączony na stałe 14.10.2026: runner JJIT nie zakłada już kandydatów
@@ -51,12 +51,20 @@ const summary: IntegrationsSummary = {
     },
   ],
   recent_errors: [],
+  unfinished_error_count: 0,
+  resolved_error_count: 0,
   top_jobs: [],
 };
 
+const { summaryMock } = vi.hoisted(() => ({ summaryMock: vi.fn() }));
+
 vi.mock("@/lib/integrations-api", () => ({
-  integrationsApi: { summary: vi.fn(async () => summary) },
+  integrationsApi: { summary: summaryMock },
 }));
+
+beforeEach(() => {
+  summaryMock.mockResolvedValue(summary);
+});
 
 function renderSection() {
   const queryClient = new QueryClient({
@@ -77,5 +85,54 @@ describe("InsightsIntegrations po wyłączeniu Traffita", () => {
     expect(screen.queryByText("Nowi w Traffit")).not.toBeInTheDocument();
     expect(screen.getByText("Duplikaty (znani w Traffit do 14.10.2026)")).toBeInTheDocument();
     expect(screen.queryByText("Duplikaty (znani w Traffit)")).not.toBeInTheDocument();
+  });
+});
+
+describe("InsightsIntegrations: niedokończone zgłoszenia", () => {
+  const stuck: IntegrationErrorRow = {
+    occurred_at: "2026-10-14T07:00:00Z",
+    source: "pracuj",
+    run_id: 7,
+    external_id: "300000001",
+    candidate_id: null,
+    candidate_name: "Osoba Fikcyjna",
+    offer_title: "Tester",
+    error: "NEXUS: ReadTimeout",
+    attempts: 3,
+  };
+
+  it("pokazuje liczbę prób i dokończone jednym zdaniem nad listą", async () => {
+    summaryMock.mockResolvedValue({
+      ...summary,
+      recent_errors: [stuck],
+      unfinished_error_count: 1,
+      resolved_error_count: 74,
+    });
+    renderSection();
+
+    expect(await screen.findByText("Niedokończone zgłoszenia")).toBeInTheDocument();
+    expect(screen.getByText("Zgłoszenia z błędem dokończone później: 74. Nie ma ich na liście.")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Próby" })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Osoba Fikcyjna/ })).toHaveTextContent("3");
+    expect(screen.queryByText(/Pokazano/)).not.toBeInTheDocument();
+  });
+
+  it("mówi, gdy lista jest przycięta, zamiast gubić starsze zgłoszenia", async () => {
+    summaryMock.mockResolvedValue({
+      ...summary,
+      recent_errors: [stuck],
+      unfinished_error_count: 60,
+    });
+    renderSection();
+
+    expect(await screen.findByText("Pokazano 1 najnowszych z 60.")).toBeInTheDocument();
+  });
+
+  it("gdy wszystko dokończono, pusta lista nadal podaje licznik", async () => {
+    summaryMock.mockResolvedValue({ ...summary, resolved_error_count: 5 });
+    renderSection();
+
+    expect(await screen.findByText("Brak niedokończonych zgłoszeń w wybranym oknie.")).toBeInTheDocument();
+    expect(screen.getByText("Zgłoszenia z błędem dokończone później: 5. Nie ma ich na liście.")).toBeInTheDocument();
   });
 });

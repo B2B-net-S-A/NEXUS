@@ -997,7 +997,10 @@ odczycie to nie awaria — to odmowa zgadywania.
 system obsługuje: w zamówieniach zbiorczych i w edycji zamówienia przyjmowany
 jest wyłącznie `.pdf`, a przy dodawaniu konsultanta i przy przedłużeniu
 pojedynczego zamówienia także `.docx`. O formacie decyduje treść pliku, nie
-jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Odczyt
+jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Plik Word,
+z którego nie da się wyjąć tekstu wprost (stary `.doc`, treść w polach
+tekstowych, skan wklejony do Worda), system zamienia na PDF i czyta jak PDF,
+w tych samych granicach co skany. Odczyt
 korzysta z modułu AI — jeżeli
 administrator go wyłączy albo ustawi miesięczny limit i ten się wyczerpie,
 zobaczysz komunikat „Odczyt AI jest chwilowo niedostępny (…). Wpisz dane

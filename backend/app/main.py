@@ -103,6 +103,7 @@ from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
+from app.api import insights_sources as insights_sources_api
 from app.api import insights_stage_breakdown
 from app.api import insights_board
 from app.api import autofill_quality as autofill_quality_api
@@ -144,6 +145,7 @@ from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
+from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
 from app.api import prep_review_config as prep_review_config_api
@@ -1584,6 +1586,12 @@ app.include_router(
     prefix="/api/candidate-followups",
     tags=["candidate-followups"],
 )
+# Umówiony telefon na screening (03.11.2026).
+app.include_router(
+    screening_calls_api.router,
+    prefix="/api/screening-calls",
+    tags=["screening-calls"],
+)
 app.include_router(
     interview_cycle_api.router,
     prefix="/api",
@@ -1804,6 +1812,11 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(
     insights_recruitment.router,
     prefix="/api/insights/recruitment",
+    tags=["insights"],
+)
+app.include_router(
+    insights_sources_api.router,
+    prefix="/api/insights",
     tags=["insights"],
 )
 app.include_router(

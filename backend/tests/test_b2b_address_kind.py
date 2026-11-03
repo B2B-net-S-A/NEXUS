@@ -11,7 +11,10 @@ import httpx
 import pytest
 
 from app.services.b2b_contract_generator import registry_lookup
-from app.services.b2b_contract_generator.address_format import format_registry_address
+from app.services.b2b_contract_generator.address_format import (
+    format_registry_address,
+    tidy_house_number,
+)
 from app.services.b2b_contract_generator.registry_lookup import (
     ADDRESS_PLACE_OF_BUSINESS,
     ADDRESS_SERVICE,
@@ -103,6 +106,72 @@ def test_registry_address_uses_street_field_when_the_registry_gave_it():
     assert (
         format_registry_address("NOWA WIEŚ 1, 00-001 NOWA WIEŚ", has_street=True)
         == "ul. Nowa Wieś 1, 00-001 Nowa Wieś"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        # Zapis z wydruku CEIDG, wklejany do formularza (zgłoszenie 03.11.2026).
+        ("ul. Polna, nr 12, 00-001 Warszawa", "ul. Polna 12, 00-001 Warszawa"),
+        ("ul. Polna, nr 12", "ul. Polna 12"),
+        ("ul. Polna, nr 5B, lok. 2, 00-001 Testowo", "ul. Polna 5B/2, 00-001 Testowo"),
+        ("ul. Polna nr 12 m. 3, 00-001 Testowo", "ul. Polna 12/3, 00-001 Testowo"),
+        ("ul. Polna nr 10 m 71, 00-001 Testowo", "ul. Polna 10/71, 00-001 Testowo"),
+        ("ul. Polna, Nr. 36 E, 00-001 Testowo", "ul. Polna 36 E, 00-001 Testowo"),
+        (
+            "Osiedle Testowe,nr 40, lok. 51, 31-636 Kraków",
+            "Osiedle Testowe 40/51, 31-636 Kraków",
+        ),
+        (
+            "do doręczeń: ul. Polna, nr 11, lok. 2; 84-208 Testowo",
+            "do doręczeń: ul. Polna 11/2; 84-208 Testowo",
+        ),
+        # Bez „nr” i bez cyfry po „nr”: adres zostaje taki, jaki jest.
+        ("ul. Polna 12, 00-001 Warszawa", "ul. Polna 12, 00-001 Warszawa"),
+        (
+            "ul. Polna 10 lok. 5, 00-001 Warszawa",
+            "ul. Polna 10 lok. 5, 00-001 Warszawa",
+        ),
+        ("ul. Generała Nr, 00-001 Warszawa", "ul. Generała Nr, 00-001 Warszawa"),
+        ("ul. Polnanr 12, 00-001 Warszawa", "ul. Polnanr 12, 00-001 Warszawa"),
+        (None, None),
+        ("", ""),
+    ],
+)
+def test_house_number_without_nr_word(raw, expected):
+    assert tidy_house_number(raw) == expected
+
+
+def test_registry_address_also_drops_nr_word():
+    assert (
+        format_registry_address("UL. POLNA, NR 12, LOK. 5, 00-001 WARSZAWA")
+        == "ul. Polna 12/5, 00-001 Warszawa"
+    )
+
+
+def test_partner_addresses_from_the_form_lose_nr_word():
+    from app.api.b2b_contract_generator import _tidy_partner_addresses
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+    payload = B2BRenderRequest(
+        partner_business_address="ul. Polna, nr 12, 00-001 Warszawa",
+        partner_correspondence_address="ul. Leśna, nr 3, lok. 4, 00-002 Warszawa",
+    )
+    _tidy_partner_addresses(payload)
+    assert payload.partner_business_address == "ul. Polna 12, 00-001 Warszawa"
+    assert payload.partner_correspondence_address == "ul. Leśna 3/4, 00-002 Warszawa"
+
+
+def test_stored_payload_of_an_issued_contract_keeps_its_address():
+    """Ponowne pobranie wydanej umowy buduje `B2BRenderRequest` z `render_payload`:
+    zapis „, nr” zostaje, bo plik ma być tym, co wydano."""
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+
+    stored = {"partner_business_address": "ul. Polna, nr 12, 00-001 Warszawa"}
+    assert (
+        B2BRenderRequest(**stored).partner_business_address
+        == "ul. Polna, nr 12, 00-001 Warszawa"
     )
 
 

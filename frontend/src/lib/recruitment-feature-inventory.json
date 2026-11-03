@@ -69,6 +69,14 @@
    "v3_home": "okno Historia i czat"
   },
   {
+   "id": "person.booked-call",
+   "area": "panel",
+   "opis": "Umów telefon: termin screeningu z przypomnieniem, plakietka na karcie, Przełóż i Odwołaj",
+   "file": "components/v2/recruitment/ScreeningCallControl.tsx",
+   "marker": "ScreeningCallControl",
+   "v3_home": "panel osoby → obok „Nie odebrał”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",

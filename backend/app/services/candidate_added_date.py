@@ -21,11 +21,11 @@ Reguła, jedna dla API, Tablicy, listy i praktykanta:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, time, timedelta
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 
 from app.core.scheduling import DEFAULT_TZ
 
@@ -34,6 +34,10 @@ from app.core.scheduling import DEFAULT_TZ
 FIRST_IMPORT_DAY = date(2026, 4, 16)
 
 IMPORTED_EXTERNAL_SOURCES = frozenset({"traffit", "tr_legacy"})
+
+# Do ilu dni kalendarzowych osoba jest „Nowa w bazie” (decyzja Artura z 13.10.2026).
+# Lustro: `NEW_IN_BASE_DAYS` w `frontend/src/lib/added-to-base.ts`.
+NEW_IN_BASE_DAYS = 14
 
 _ZONE = ZoneInfo(DEFAULT_TZ)
 
@@ -70,6 +74,30 @@ def added_to_base_of(candidate: Any) -> AddedToBase:
         getattr(candidate, "created_at", None),
         getattr(candidate, "source_created_at", None),
         getattr(candidate, "external_source", None),
+    )
+
+
+def is_new_in_base(added: AddedToBase, now: datetime) -> bool:
+    """Data dokładna i najwyżej ``NEW_IN_BASE_DAYS`` dni temu, w kalendarzu firmy."""
+    if added.at is None or not added.exact or added.at > now:
+        return False
+    days = (now.astimezone(_ZONE).date() - added.at.astimezone(_ZONE).date()).days
+    return days <= NEW_IN_BASE_DAYS
+
+
+def new_in_base_clause(candidate_cls: Any, now: datetime) -> Any:
+    """To samo co ``is_new_in_base`` w SQL, dla osób założonych po starcie importów."""
+    first_day = now.astimezone(_ZONE).date() - timedelta(days=NEW_IN_BASE_DAYS)
+    added = added_to_base_sql(candidate_cls)
+    return and_(
+        added >= datetime.combine(first_day, time.min, tzinfo=_ZONE),
+        added <= now,
+        or_(
+            candidate_cls.source_created_at.is_not(None),
+            func.coalesce(candidate_cls.external_source, "").not_in(
+                IMPORTED_EXTERNAL_SOURCES
+            ),
+        ),
     )
 
 

@@ -59,6 +59,8 @@ import {
   type CandidateCvPreview,
   type CvFormField,
 } from "@/lib/add-candidate-cv";
+import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 import { ExistingCandidateNotice } from "@/components/v2/candidates/ExistingCandidateNotice";
 import { ExistingClientNotice } from "@/components/clients/ExistingClientNotice";
@@ -1008,6 +1010,7 @@ export function AddCandidateModal({
   onCreated?: (candidateId: number, fullName?: string) => void;
 }) {
   const queryClient = useQueryClient();
+  const { askConfirm, confirmDialog } = useConfirmV2();
   const [form, setForm] = useState<CandidateFormData>(EMPTY_CANDIDATE);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1180,7 +1183,11 @@ export function AddCandidateModal({
    * jako jawne "") i reszta formularza w polu `candidate`. Serwer waliduje
    * całość przed odczytem i zapisem, więc błąd nie zostawia połowy kandydata.
    */
-  const saveFromCv = async (file: File, force: boolean): Promise<number> => {
+  const saveFromCv = async (
+    file: File,
+    force: boolean,
+    confirmErased: boolean,
+  ): Promise<number> => {
     const fd = new FormData();
     fd.append("file", file);
     for (const [key, value] of fromCvFormEntries(fromCvOverrides(form, cvKnown))) {
@@ -1195,8 +1202,9 @@ export function AddCandidateModal({
       ),
     );
     if (Object.keys(extra).length > 0) fd.append("candidate", JSON.stringify(extra));
+    const params = [force && "force=true", confirmErased && "confirm_erased=true"].filter(Boolean);
     const created = await api.post(
-      `/api/candidates/from-cv${force ? "?force=true" : ""}`,
+      `/api/candidates/from-cv${params.length ? `?${params.join("&")}` : ""}`,
       fd,
       // Bez odczytu w pamięci serwera (np. po wdrożeniu) zapis czyta CV modelem.
       { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
@@ -1208,7 +1216,7 @@ export function AddCandidateModal({
   // Ramka dotyczy e-maila, który jest w polu TERAZ — nie wyniku sprzed poprawki.
   const existingNow = currentKey === checkedKey ? existing : null;
 
-  const saveCandidate = async () => {
+  const saveCandidate = async (confirmErased = false) => {
     if (cvReading) { setError("Poczekaj, aż skończymy czytać CV."); return; }
     if (!form.name || !form.lastname) { setError("Imię i nazwisko są wymagane"); return; }
     setSaving(true); setError(""); setEmailError(null);
@@ -1218,8 +1226,15 @@ export function AddCandidateModal({
       // Ten sam e-mail = ta sama osoba: zamiast zapisu jest ramka z akcjami.
       if (hit) return;
       const createdId = cvFile
-        ? await saveFromCv(cvFile, cvForced)
-        : Number((await api.post("/api/candidates", candidateFormToPayload(form)))?.data?.id);
+        ? await saveFromCv(cvFile, cvForced, confirmErased)
+        : Number(
+            (
+              await api.post(
+                `/api/candidates${confirmErased ? "?confirm_erased=true" : ""}`,
+                candidateFormToPayload(form),
+              )
+            )?.data?.id,
+          );
       const noteSaved = Number.isFinite(createdId)
         ? await saveCandidateFormNote(createdId, form.notes)
         : !form.notes.trim();
@@ -1231,6 +1246,10 @@ export function AddCandidateModal({
       );
       onClose();
     } catch (err: any) {
+      if (erasedCandidateMessage(err)) {
+        if (await askConfirm(ERASED_CANDIDATE_CONFIRM)) await saveCandidate(true);
+        return;
+      }
       const emailMsg = emailFieldError(err);
       const nameMsgs = nameFieldErrors(err);
       const conflictMatches = duplicateMatchesFromConflict(err);
@@ -1401,6 +1420,7 @@ export function AddCandidateModal({
 
   return (
     <Modal title="Dodaj kandydata" onClose={onClose} wide>
+      {confirmDialog}
       <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80dvh] overflow-y-auto">
         {cvUploader}
         {error && <ErrorBanner error={error} />}

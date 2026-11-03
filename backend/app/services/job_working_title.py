@@ -407,6 +407,28 @@ async def cv_role_title_for_job(db: AsyncSession, job: Any) -> str:
     return role
 
 
+async def cv_position_for_form(db: AsyncSession, job: Any) -> str:
+    """Stanowisko, które pole „Stanowisko” generatora pokazuje na starcie (03.11.2026).
+
+    Ta sama wartość co w nagłówku CV. Pusty napis, gdy zostałaby nazwa usługi:
+    formularz prosi wtedy o wpisanie stanowiska, zamiast wysłać ją klientowi.
+    """
+    role = await cv_role_title_for_job(db, job)
+    return "" if is_service_title(role) else role
+
+
+def typed_cv_position(value: Optional[str], client_reference: Optional[str]) -> str:
+    """Stanowisko wpisane w generatorze, bez numeru zapytania klienta (03.11.2026).
+
+    Plik PKO ma numer ze wzoru, więc wpisane „ZOB-3103 Senior Developer” dawało
+    „ZOB-3156_ZOB-3103 Senior Developer_…”, a numer stał też w nagłówku. Lustro
+    na froncie: ``typedCvPosition``. Bez liter po wycięciu = pusto, czyli nagłówek
+    z rekrutacji.
+    """
+    text = _clean(_strip_reference(_clean(value), client_reference)).strip(" -–—,/_:")
+    return text if _LETTER.search(text) else ""
+
+
 def _is_role(text: str) -> bool:
     words = text.split()
     return len(words) >= 2 or (len(words) == 1 and len(words[0]) >= 4)

@@ -28,6 +28,7 @@ import {
   useSaveMyEntry,
   useSetAttendance,
   useSubmitMonth,
+  useWithdrawMonth,
   type FillResult,
   type MonthDay,
   type TimesheetEntry,
@@ -42,15 +43,17 @@ import { FillMonthDialog } from "./FillMonthDialog";
 import { TemplatesDialog } from "./TemplatesDialog";
 import { TimesheetArchive } from "./TimesheetArchive";
 import { useUrlMonth } from "./use-url-month";
-import { MonthGrid, type QuickEntryInput } from "./MonthGrid";
+import { LeaveLimitNotice, MonthGrid, type QuickEntryInput } from "./MonthGrid";
 import {
   STATUS_TONE,
   canEditMonth,
   currentYearMonth,
   formatHours,
+  overLeaveLimit,
   queueHoursFill,
   statusLine,
 } from "./time-format";
+import { useLeaveLimitFix } from "./use-leave-limit-fix";
 
 export interface MyMonthTabProps {
   config: HrConfig;
@@ -85,11 +88,13 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const templates = useMyTemplates(moduleOpen);
   const hint = useDayHint(editor ? editor.day.date : null);
   const save = useSaveMyEntry(period.year, period.month);
+  const fixDay = useLeaveLimitFix(save, (day, entry) => setEditor({ day, entry }));
   const remove = useDeleteMyEntry();
   const attendance = useSetAttendance();
   const fill = useFillMonth(period.year, period.month);
   const copy = useCopyPrevious(period.year, period.month);
   const submit = useSubmitMonth(period.year, period.month);
+  const withdraw = useWithdrawMonth(period.year, period.month);
   const today = warsawToday();
 
   const state = resolveViewState({
@@ -176,7 +181,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
   const runSubmit = async () => {
     if (!view) return;
     const missing = view.totals.days_missing;
-    const after = `Po wysłaniu poprawki wprowadza ${words.coordinator} albo zwraca ${words.timesheet_accusative} do Ciebie.`;
+    const after = `Dopóki ${words.coordinator} go nie przyjmie, możesz go wycofać i poprawić.`;
     const ok = await askConfirm({
       title: `Wysłać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()} do ${reviewNoun}?`,
       description:
@@ -191,6 +196,19 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
           apiErrorMessage(err, `Nie udało się wysłać: ${words.timesheet_accusative}.`),
           "error",
         ),
+    });
+  };
+
+  const runWithdraw = async () => {
+    const ok = await askConfirm({
+      title: `Wycofać ${words.timesheet_accusative} za ${monthTitlePl(period).toLowerCase()}?`,
+      description: `Wróci do szkicu, a ${words.coordinator} dostanie informację. Po poprawkach wyślij go ponownie.`,
+      confirmLabel: "Wycofaj",
+    });
+    if (!ok) return;
+    withdraw.mutate(undefined, {
+      onSuccess: () => showToast("Wycofano — możesz poprawiać wpisy", "success"),
+      onError: (err) => showToast(apiErrorMessage(err, "Nie udało się wycofać."), "error"),
     });
   };
 
@@ -229,6 +247,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
         </div>
         {view ? (
           <div className="flex flex-wrap items-center gap-1.5" data-help="hr.my_time.month_actions">
+            {status === "submitted" && !view.timesheet?.payroll_locked ? (
+              <Button variant="outline" size="sm" onClick={runWithdraw} disabled={withdraw.isPending}>
+                Wycofaj i popraw
+              </Button>
+            ) : null}
             {status === "approved" ? (
               <Button variant="outline" size="sm" onClick={downloadPdf}>
                 <Download className="mr-1.5 h-4 w-4" aria-hidden />
@@ -292,6 +315,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
               </Button>
             </div>
           ) : null}
+          <LeaveLimitNotice
+            days={view.days.filter(overLeaveLimit)}
+            onFix={editable ? fixDay : undefined}
+            busy={save.isPending}
+          />
           <MonthGrid
             view={view}
             today={today}

@@ -41,8 +41,15 @@ from app.api.recruitment_access import (
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.services.candidate_claim import link_claim_kwargs
+from app.services.candidate_erasure_leftovers import (
+    VIA_SCREEN,
+    email_was_erased,
+    erased_email_conflict,
+    record_recreated_after_erasure,
+)
 from app.services.candidate_name_rules import without_name_markers
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
+from app.services.dedup_service import find_candidate_by_email
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
 from app.models.activity import Activity
 from app.models.application_submission import (
@@ -89,6 +96,9 @@ ResolveAction = Literal["link", "merge", "create", "reject"]
 
 class ResolveRequest(BaseModel):
     action: ResolveAction
+    # „Utwórz kandydata” na adres z nagrobka: rekruter wie, że profil był
+    # trwale usunięty (decyzja 03.11.2026).
+    confirm_erased: bool = False
 
 
 class ResolveResponse(BaseModel):
@@ -596,13 +606,24 @@ async def resolve_application_submission_route(
     Every action is audited. A submission can only be resolved once — a second
     attempt returns 409.
     """
+    erased_email = False
 
     async def authorize(submission: ApplicationSubmission) -> None:
+        nonlocal erased_email
         # Resource scope: rozstrzygnięcie zgłoszenia zakłada kandydata, scala
         # go z istniejącym albo odrzuca — to działanie NA rekrutacji, nie
         # ogólna operacja rekrutera. `job_id` jest nullable (zgłoszenie spoza
         # konkretnej oferty) — patrz `ensure_optional_job_membership`.
         await ensure_optional_job_membership(db, current_user, submission.job_id)
+        # Zgłoszenie sprzed usunięcia zostaje w kolejce bez dopasowania, a
+        # „Utwórz kandydata” przywróciłoby dane osoby jednym kliknięciem.
+        # Adres z żywym właścicielem to nie powrót: profil powstaje bez adresu.
+        if payload.action == "create":
+            erased_email = not await find_candidate_by_email(
+                db, submission.submitted_email
+            ) and await email_was_erased(db, submission.submitted_email)
+            if erased_email and not payload.confirm_erased:
+                raise erased_email_conflict()
 
     resolution = await resolve_application_submission(
         db,
@@ -611,6 +632,10 @@ async def resolve_application_submission_route(
         author=WriteAuthor.person(current_user),
         authorize=authorize,
     )
+    if erased_email and resolution.candidate_id is not None:
+        record_recreated_after_erasure(
+            db, resolution.candidate_id, user_id=current_user.id, via=VIA_SCREEN
+        )
     await db.commit()
     schedule_primary_cv_read(background_tasks, resolution)
 

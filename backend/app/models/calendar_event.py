@@ -36,6 +36,21 @@ class EventStatus(str, enum.Enum):
     cancelled = "cancelled"
 
 
+# Umówiony telefon na screening (decyzja Artura 03.11.2026): zwykłe wydarzenie
+# `screening` z tym miejscem. Bez nowej wartości enuma i bez migracji; reguły
+# siedzą w `services/screening_calls.py`.
+BOOKED_CALL_LOCATION = "Telefon"
+
+
+def is_booked_call(event: "CalendarEvent") -> bool:
+    """Czy wydarzenie to telefon umówiony z panelu osoby."""
+    return (
+        getattr(event, "event_type", None) == EventType.screening
+        and getattr(event, "location", None) == BOOKED_CALL_LOCATION
+        and getattr(event, "operational_owner_id", None) is not None
+    )
+
+
 class CalendarEvent(Base, TimestampMixin):
     """
     Wydarzenie w kalendarzu rekrutacyjnym.

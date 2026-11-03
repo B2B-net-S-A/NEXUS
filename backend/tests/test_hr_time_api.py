@@ -390,6 +390,63 @@ async def test_contractor_paid_leave_becomes_standard_work_entry(app_client) -> 
 
 @pytest.mark.usefixtures("time_on")
 @pytest.mark.asyncio
+async def test_person_withdraws_sent_report_until_someone_takes_it(app_client) -> None:
+    boss, worker = await _team()
+    h = headers(worker)
+    missing = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert missing.status_code == 404
+    await app_client.post(f"{BASE}/entries", json=entry(3, 8), headers=h)
+    draft = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert draft.status_code == 409
+
+    sent = await app_client.post(f"{BASE}/submit", headers=h)
+    ts_id = sent.json()["id"]
+    outsider = await app_client.post(
+        f"{BASE}/withdraw", headers=headers(boss)
+    )  # własny, pusty miesiąc szefa: cudzego raportu ta trasa nie dosięga
+    assert outsider.status_code == 404
+
+    back = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert back.status_code == 200, back.text
+    assert back.json()["status"] == "draft"
+    assert back.json()["submitted_at"] is None
+    bell = await notifications_of(boss.id, "hr_timesheet_decided")
+    assert bell[-1][0] == "Wycofano do poprawy: raport godzin"
+    async with AsyncSessionLocal() as db:
+        trail = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_id == str(ts_id),
+                HrAuditEvent.action == "timesheet_withdrawn",
+            )
+        )
+    assert trail is not None
+    fixed = await app_client.post(f"{BASE}/entries", json=entry(4, 8), headers=h)
+    assert fixed.status_code == 201
+
+    assert (await app_client.post(f"{BASE}/submit", headers=h)).status_code == 200
+    approved = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/approve", headers=headers(boss)
+    )
+    assert approved.status_code == 200
+    late = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert late.status_code == 409
+    assert (
+        await app_client.post(
+            f"/api/hr/time/timesheets/{ts_id}/revoke", headers=headers(boss)
+        )
+    ).status_code == 200
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE timesheets SET payroll_locked = true WHERE id = :id"),
+            {"id": ts_id},
+        )
+        await db.commit()
+    locked = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert locked.status_code == 409
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
 async def test_submit_approve_return_revoke_with_conditional_updates(
     app_client,
 ) -> None:

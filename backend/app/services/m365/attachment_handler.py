@@ -695,6 +695,18 @@ async def try_create_candidate_from_cv(
             identity_proven=identity_proven,
         )
 
+    # Adres z nagrobka (decyzja Artura, 03.11.2026): mail mógł przesłać ktoś
+    # inny, więc automat nie zakłada profilu. `parse_error` zdejmuje załącznik
+    # z kolejki; rekruter może dodać osobę w oknie.
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
+
+    if await email_was_erased(db, email):
+        attachment.parse_error = ERASED_EMAIL_CODE
+        return None
+
     from app.models.activity import Activity
 
     candidate = Candidate(

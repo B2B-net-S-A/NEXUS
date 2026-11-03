@@ -75,13 +75,9 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocumentKind
 from app.models.job import Job
 from app.models.note import NoteType
-from app.models.purged_candidate import PurgedCandidate
 from app.schemas.candidate import CandidateCreate
 from app.schemas.note import NoteCreate
-from app.services.candidate_audit import (
-    EMAIL_TOMBSTONE_SOURCE,
-    candidate_email_tombstone,
-)
+from app.services.candidate_erasure_leftovers import email_was_erased
 from app.services.candidate_name_rules import (
     NAME_MARKER_ERROR_TYPE,
     find_name_markers,
@@ -267,21 +263,12 @@ async def _assert_new_email(db: AsyncSession, email: Optional[str]) -> None:
 async def _assert_not_erased(db: AsyncSession, email: Optional[str]) -> None:
     """Osoba, której dane usunięto na jej żądanie (RODO), nie wraca z automatu.
 
-    Ekran tego nie sprawdza — tam decyduje człowiek, który rozmawiał z osobą.
-    Automatyzacja zakłada kandydatów hurtem (np. z maili), więc nagrobek
-    adresu (``candidate_email_tombstone``, ten sam co przy imporcie) daje
-    409 ``candidate_erased`` bez żadnych danych osoby. Decyzja 15.10.2026.
+    Ekran pyta człowieka, który rozmawiał z osobą (od 03.11.2026, ten sam
+    nagrobek). Automatyzacja zakłada kandydatów hurtem (np. z maili), więc
+    nagrobek adresu (``candidate_email_tombstone``, ten sam co przy imporcie)
+    daje 409 ``candidate_erased`` bez żadnych danych osoby. Decyzja 15.10.2026.
     """
-    email_hash = candidate_email_tombstone(email)
-    if email_hash is None:
-        return
-    erased = await db.scalar(
-        select(PurgedCandidate.id).where(
-            PurgedCandidate.external_source == EMAIL_TOMBSTONE_SOURCE,
-            PurgedCandidate.external_id_hash == email_hash,
-        )
-    )
-    if erased is not None:
+    if await email_was_erased(db, email):
         raise HTTPException(
             409,
             detail={

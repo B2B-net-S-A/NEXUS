@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { CardAgreement } from "@/lib/b2b-agreement";
@@ -236,6 +237,10 @@ export interface KanbanItem {
   cautions?: { key: string; label: string; title: string }[];
   /** 02.11.2026: „znamy tę osobę” — punkty kolejki (`known_queue_points`). */
   known?: KnownFacts | null;
+  /** 03.11.2026: nowa w bazie, od progu, bez uwag — na początku kolejki. */
+  fresh_first?: boolean;
+  /** 03.11.2026: bez procesu w innej rekrutacji — co 5. miejsce w kolejce. */
+  fresh?: boolean;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
@@ -283,6 +288,8 @@ export interface KanbanItem {
  claim_user_name?: string | null;
  claim_until?: string | null;
  can_take?: boolean;
+ // Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+ booked_call?: BookedCallSummary | null;
  // Terminarz rozmowy u klienta — gotowa odznaka z serwera.
  interview_badge?: {
   kind: InterviewBadgeKind;

@@ -319,7 +319,9 @@ function CvGeneratePanelForm({
           position={g.position}
           onPositionChange={g.setPosition}
           positionRequired={g.positionRequired}
-          positionFromJob={!!g.recruitment && g.position === g.recruitment.job_title}
+          positionFromJob={!!g.recruitment && g.position === g.positionDefault}
+          positionDefault={g.positionDefault}
+          outcome={{ header: g.headerPreview, filename: g.filenamePreview }}
           projectRef={g.projectRef}
           onProjectRefChange={g.setProjectRef}
           projectRefVisible={g.projectRefVisible}

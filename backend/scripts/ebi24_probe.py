@@ -10,7 +10,8 @@ Odpowiada na pytania z ``docs/claude/integracje/ebi24-api-odczyt-i-pomiar.md``:
 * ile dokumentów każdego typu ma konto,
 * jaka część najnowszych faktur ma numer KSeF i status ``paid``,
 * czy ``getKsefData`` daje XML, który czyta parser NEXUSA,
-* czy ``bucket/index`` przyjmuje filtr zakresu dat (podręcznik tego nie opisuje).
+* w jakim formacie ``_createdDate`` działa filtr, po którym dostawca zaleca
+  pobierać nowe dokumenty (formatu wartości nie podał).
 
 Użycie (w kontenerze backendu, po ustawieniu ``EBI24_*``)::
 
@@ -54,6 +55,7 @@ DATE_FILTER_DAYS = 30
 #: przeszedł do wyniku.
 _TOKEN = re.compile(r"^[A-Z][A-Z_]{0,39}$")
 _MONTH = re.compile(r"^(\d{4}-\d{2})-\d{2}")
+_DATE_CHARS = re.compile(r"^[\dT:.+Z -]{4,35}$")
 MISSING = "(brak)"
 OTHER = "INNY"
 
@@ -62,6 +64,16 @@ def _token(value: object) -> str:
     if value in (None, ""):
         return MISSING
     return value if isinstance(value, str) and _TOKEN.match(value) else OTHER
+
+
+def _date_shape(value: object) -> str:
+    """``9999-99-99`` zamiast wartości; inny tekst liczymy jako „INNY”."""
+
+    if value in (None, ""):
+        return MISSING
+    if not isinstance(value, str) or not _DATE_CHARS.match(value):
+        return OTHER
+    return re.sub(r"\d", "9", value)
 
 
 def _has_valid_number(row: dict[str, Any]) -> bool:
@@ -92,6 +104,9 @@ def summarize(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
             row.get("paid") is True and bool(row.get("paidDate")) for row in rows
         ),
         "issued_month": dict(sorted(months.items())),
+        "created_date_shape": dict(
+            Counter(_date_shape(row.get("_createdDate")) for row in rows)
+        ),
         "with_custom_fields": sum(bool(row.get("customFields")) for row in rows),
         "with_tags": sum(bool(row.get("_documentTags")) for row in rows),
         "with_folder": sum(bool(row.get("_documentFolder")) for row in rows),
@@ -117,10 +132,9 @@ async def _newest(
     return rows
 
 
-async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]:
-    """Filtr nieopisany w podręczniku: odmowa jest wynikiem pomiaru, nie awarią."""
-
-    since = business_today() - timedelta(days=DATE_FILTER_DAYS)
+async def _created_since(
+    client: Ebi24Client, value: str, schema_total: int
+) -> dict[str, Any]:
     criteria = {
         "_constructor": "AdvancedCriteria",
         "operator": "and",
@@ -133,7 +147,7 @@ async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]
             {
                 "fieldName": "_createdDate",
                 "operator": "greaterOrEqual",
-                "value": since.isoformat(),
+                "value": value,
             },
         ],
     }
@@ -145,9 +159,19 @@ async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]
         return {"accepted": False}
     return {
         "accepted": True,
-        "days": DATE_FILTER_DAYS,
         "total": page.total,
         "narrowed": page.total < schema_total,
+    }
+
+
+async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]:
+    """Która forma wartości działa: odmowa jest wynikiem pomiaru, nie awarią."""
+
+    since = (business_today() - timedelta(days=DATE_FILTER_DAYS)).isoformat()
+    return {
+        "days": DATE_FILTER_DAYS,
+        "date": await _created_since(client, since, schema_total),
+        "datetime": await _created_since(client, f"{since}T00:00:00.000", schema_total),
     }
 
 
