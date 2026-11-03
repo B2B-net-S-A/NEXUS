@@ -439,6 +439,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   ustawiasz / nie usuwasz — zrobi to druga osoba z Płac albo administrator.”;
   administrator może (ślad w audycie jak zawsze). Na własnej kartotece
   `can_edit_rates = false`.
+- **„Mój czas → Premie i stawka” idzie po miesiącach płac** (zgłoszenie z 03.11.2026,
+  makieta wariant A wybrana przez Artura): rząd miesięcy, „podstawa + premie = razem”
+  z `/me/settlement` i lista wybranego miesiąca (`period_year`/`period_month`, prognoza
+  z `eligible_on`), „Wszystkie” przywraca pełną listę. Kwoty „w drodze” stoją poza sumą,
+  otwarty miesiąc bez godzin ma kreskę zamiast „0,00 zł”, a awaria rozliczenia nie
+  pokazuje sumy, bo byłaby zaniżona. Na start otwiera się najnowszy miesiąc z kwotą.
+  Kolumna „Etap” pokazuje bieżący i następny krok, cała ścieżka jest w dymku.
 - **Premia ręczna od przełożonego to propozycja** (decyzja Artura 19.10.2026,
   `payroll_bonuses.approval_refusal`): powstaje jako `proposed` (bez `assigned_by`,
   ślad `bonus_proposed`, bez dzwonka osobie); zatwierdzają ją tylko Płace, nigdy jej

@@ -10,7 +10,7 @@ import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
-import { BonusStagesTable } from "../me/BonusStagesTable";
+import { BonusMonths } from "../me/BonusMonths";
 import { MySettlementCard } from "../me/MySettlementCard";
 import { showsPreviousYear } from "../me/settlement-format";
 import {
@@ -82,9 +82,10 @@ export function myStats(
 }
 
 /**
- * „Mój czas → Premie i stawka”: moje premie z etapami (umowa → 21 dni →
- * decyzja Płac → wypłata), także „w drodze” od podpisania umowy i anulowane
- * z powodem; „Moje rozliczenie” i historia stawki. Tylko o sobie.
+ * „Mój czas → Premie i stawka”: moje premie po miesiącach z podstawą i sumą,
+ * z etapami (umowa → 21 dni → decyzja Płac → wypłata), także „w drodze” od
+ * podpisania umowy i anulowane z powodem; „Moje rozliczenie” i historia stawki.
+ * Tylko o sobie.
  */
 export function MyBonusesTab() {
   const today = warsawToday();
@@ -155,7 +156,13 @@ export function MyBonusesTab() {
           pojawi się tu od podpisania umowy z konsultantem.
         </div>
       ) : (
-        <BonusStagesTable items={items} />
+        <BonusMonths
+          items={items}
+          settlement={settlementState === "ready" ? settlementData : undefined}
+          settlementState={settlementState}
+          today={today}
+          form={form}
+        />
       )}
       <MySettlementCard
         state={settlementState}
