@@ -88,14 +88,14 @@ async def _leaving(*, admin: bool = False, last_day: date | None = None) -> dict
     async with AsyncSessionLocal() as db:
         hr = User(
             email=f"jobs-hr-{tag}@example.com",
-            name=f"Kadry {tag}",
+            name=f"Administracja współpracy {tag}",
             role=UserRole.recruiter,
             roles=["recruiter"],
             is_active=True,
         )
         boss = User(
             email=f"jobs-boss-{tag}@example.com",
-            name=f"Przełożona {tag}",
+            name=f"Koordynatorka {tag}",
             role=UserRole.recruiter,
             roles=["recruiter"],
             is_active=True,

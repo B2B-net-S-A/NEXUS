@@ -182,9 +182,9 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Mój czas"
+        title="Moja współpraca"
         // Przed wczytaniem kartoteki neutralnie (prawie wszyscy są na B2B).
-        description={`Nieobecności, miesiąc pracy i ${employmentTerms(form ?? "b2b").bonuses} w jednym miejscu.`}
+        description={`Przerwy, raport godzin i ${employmentTerms(form ?? "b2b").bonuses} w jednym miejscu.`}
         density="compact"
       />
       {state === "loading" ? (
@@ -197,7 +197,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
       ) : !me.data.has_profile ? (
         <>
           <Card className="p-5 text-sm text-muted-foreground">
-            Nie masz jeszcze kartoteki w NEXUSIE. Poproś Kadry o jej założenie —
+            Nie masz jeszcze kartoteki w NEXUSIE. Poproś Administrację współpracy o jej założenie —
             bez niej nie zgłosisz nieobecności ani nie wyślesz raportu godzin.
           </Card>
           {/* Admin bez kartoteki prosi o zgody jak dotąd (dawne „Moje zgody”). */}
@@ -213,7 +213,7 @@ export function MyTimeScreen({ config }: { config: HrConfig }) {
           {tabs.length > 1 ? (
             <div data-help="hr.my_time.tabs">
               <TabbedNav
-                ariaLabel="Mój czas"
+                ariaLabel="Moja współpraca"
                 overflow="scroll"
                 tabs={tabs}
                 value={current}

@@ -55,10 +55,10 @@ MAX_PROJECT = 200
 MAX_OVERTIME_REASON = 1000
 
 LOCKED_DETAIL = (
-    "Ten miesiąc jest zamknięty w płacach — zmiany wymagają ponownego otwarcia "
-    "miesiąca przez Płace."
+    "Ten miesiąc jest zamknięty w rozliczeniach — zmiany wymagają ponownego otwarcia "
+    "miesiąca przez Rozliczenia."
 )
-CHANGED_DETAIL = "Timesheet zmienił się w międzyczasie. Odśwież widok."
+CHANGED_DETAIL = "Raport godzin zmienił się w międzyczasie. Odśwież widok."
 
 
 def standard_description(employment_type: Optional[str]) -> str:
@@ -166,7 +166,7 @@ async def lock_timesheet(db: AsyncSession, timesheet_id: int) -> Timesheet:
         .execution_options(populate_existing=True)
     )
     if timesheet is None:
-        raise TimeNotFound("Nie ma takiego timesheetu.")
+        raise TimeNotFound("Nie ma takiego raportu godzin.")
     return timesheet
 
 
@@ -319,7 +319,7 @@ def clean_project(raw: Optional[str]) -> Optional[str]:
 def _assert_in_month(timesheet: Timesheet, work_date: date) -> None:
     if (work_date.year, work_date.month) != (timesheet.year, timesheet.month):
         raise TimeError(
-            f"Data {work_date.isoformat()} nie należy do miesiąca tego timesheetu "
+            f"Data {work_date.isoformat()} nie należy do miesiąca tego raportu godzin "
             f"({timesheet.year}-{timesheet.month:02d})."
         )
 
@@ -395,7 +395,7 @@ def _decide_overtime(
         raise TimeForbidden(
             f"Suma godzin {work_date.isoformat()} przekroczyłaby {STANDARD_DAY_HOURS} h "
             f"(już wpisane: {_fmt(other_hours)} h). {capitalize(words['overtime'])} "
-            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Kadry."
+            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Administracja współpracy."
         )
     if total > OVERTIME_MAX:
         raise TimeError(
@@ -448,10 +448,10 @@ def assert_editable(timesheet: Timesheet, *, as_approver: bool) -> None:
         return
     if timesheet.status == "approved":
         raise TimeConflict(
-            "Timesheet jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
+            "Raport godzin jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
         )
     raise TimeConflict(
-        "Timesheet czeka na akceptację — poprawki wprowadza akceptujący albo "
+        "Raport godzin czeka na akceptację — poprawki wprowadza akceptujący albo "
         "zwraca go do Ciebie."
     )
 
@@ -515,7 +515,7 @@ async def update_entry(
 ) -> TimesheetEntry:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     old_date = entry.work_date
     work_date = changes.get("work_date", entry.work_date)
@@ -584,7 +584,7 @@ async def delete_entry(
 ) -> None:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     # Przyjęte potwierdzenie godzin zlecenia po terminie wypłaty zostaje 3 lata
     # (art. 8c) — trasy i tak edytują tylko szkic, to pilnuje każdej ścieżki.

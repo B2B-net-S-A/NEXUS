@@ -257,12 +257,12 @@ async def _leave_events(
         package.todo.append(
             f"Nieobecność „{leave_policy.LEAVE_TYPE_LABELS.get(leave_type, leave_type)}” "
             f"({len(missing[leave_type])} os.) nie ma nazwy zdarzenia w Ustawieniach → "
-            "Płace — wpisz ją w Symfonii ręcznie albo uzupełnij słownik."
+            "Rozliczenia — wpisz ją w Symfonii ręcznie albo uzupełnij słownik."
         )
     if sick_skipped:
         package.notes.append(
             "Zwolnienia lekarskie (L4) nie są w pliku — Symfonia pobiera e-ZLA z PUE "
-            "ZUS (ustawienie w Ustawieniach → Płace)."
+            "ZUS (ustawienie w Ustawieniach → Rozliczenia)."
         )
 
 
@@ -330,7 +330,7 @@ async def _overtime_events(
     if not name:
         package.todo.append(
             f"Nadgodziny ({len(days)} os.) — brak nazwy zdarzenia w Ustawieniach → "
-            "Płace; wpisz je w Symfonii ręcznie."
+            "Rozliczenia; wpisz je w Symfonii ręcznie."
         )
         return
     start = _minutes(settings.symfonia.work_start) + STANDARD_DAY_HOURS * 60
@@ -415,7 +415,7 @@ async def _bonuses(
         )
     if unnamed:
         package.todo.append(
-            "Rodzaje premii bez kolumny w Ustawieniach → Płace: "
+            "Rodzaje premii bez kolumny w Ustawieniach → Rozliczenia: "
             + ", ".join(sorted(unnamed))
             + " — wpisz je ręcznie albo uzupełnij słownik."
         )
@@ -589,7 +589,7 @@ async def collect(
     else:
         package.notes.append(
             "Plik zdarzeń (nieobecności i nadgodziny) pobiera osoba z uprawnieniem "
-            "„Kadry” — rodzaj nieobecności widzą tylko Kadry."
+            "„Administracja współpracy” — rodzaj nieobecności widzi tylko Administracja współpracy."
         )
     if rights.amounts:
         await _bonuses(db, _identified(facts, (UOP,)), settings, year, month, package)
@@ -605,7 +605,7 @@ async def collect(
         )
     else:
         package.notes.append(
-            "Premie i rozliczenia zleceń (kwoty) pobiera osoba z uprawnieniem „Płace”."
+            "Premie i rozliczenia zleceń (kwoty) pobiera osoba z uprawnieniem „Rozliczenia”."
         )
     b2b = sum(1 for p in facts.values() if p.employment_type == B2B)
     if b2b:

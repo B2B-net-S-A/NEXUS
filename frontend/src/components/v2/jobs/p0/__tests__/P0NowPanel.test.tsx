@@ -1,5 +1,5 @@
 /**
- * Panel „P0 — ultrapilne teraz” (27.10.2026; propozycje Olafa 28.10.2026):
+ * Panel „Pilne u klientów” (27.10.2026; propozycje Olafa 28.10.2026):
  * znika bez P0 i przy błędzie, wiersze z tablicy requestów (Daily), 3 od razu
  * i „Pokaż wszystkie”, prośby DL o P0 — HoR zatwierdza, DL wycofuje.
  */
@@ -93,7 +93,7 @@ describe("P0NowPanel", () => {
     };
     state.board = { isSuccess: false, isError: true };
     render(<P0NowPanel />);
-    expect(screen.getByRole("heading")).toHaveTextContent("P0 — ultrapilne teraz · 1");
+    expect(screen.getByRole("heading")).toHaveTextContent("Pilne u klientów · 1");
     const rows = screen.getAllByTestId("p0-now-row");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toHaveTextContent("„Klient czeka na CV”");
@@ -110,7 +110,7 @@ describe("P0NowPanel", () => {
     render(<P0NowPanel />);
     expect(screen.getByTestId("p0-board")).toHaveTextContent("1");
     expect(screen.getAllByTestId("p0-now-row")).toHaveLength(1);
-    expect(screen.getByText("P0 Twoich rekrutacji · ustawia Head of Recruitment")).toBeInTheDocument();
+    expect(screen.getByText("Twoje rekrutacje")).toBeInTheDocument();
   });
 
   it("pokazuje 3 P0, „Pokaż wszystkie” rozwija resztę", async () => {

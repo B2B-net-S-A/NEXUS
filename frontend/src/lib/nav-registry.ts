@@ -446,7 +446,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
     id: "jobs-daily",
     href: "/jobs/daily",
-    label: "Na daily",
+    label: "Przegląd requestów",
     icon: Briefcase,
     section: "pipeline",
     placement: "primary",
@@ -623,7 +623,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
   {
     id: "my-time",
     href: "/my-time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     icon: CalendarClock,
     section: "system",
     featureFlag: "hrMyTime",

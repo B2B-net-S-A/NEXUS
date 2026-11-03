@@ -282,7 +282,7 @@ async def test_supervisor_chain_and_division_charges_agree(modules_on) -> None:
         assert chain[key].kind == "division_head"
         assert chain[key].label == head.name
     assert chain["other_division"].kind == "people_admin"
-    assert chain["other_division"].label == "Kadry"
+    assert chain["other_division"].label == "Administracja współpracy"
 
     mine = {people[key].id for key in ("alone", "inactive", "exited_boss")}
     assert mine <= charges

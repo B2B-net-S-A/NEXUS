@@ -370,7 +370,7 @@ export function DecisionPanel({
                         {row.edited ? " · kwota poprawiona" : ""}
                         {row.edited_recipient ? " · osoba zmieniona" : ""}
                         {tab === "later" ? ` · wypłata ${String(row.period_month).padStart(2, "0")}.${row.period_year}` : ""}
-                        {!can && open && !mine && row.can_approve === false ? " · zatwierdzi inna osoba z Płac" : ""}
+                        {!can && open && !mine && row.can_approve === false ? " · zatwierdzi inna osoba z Rozliczeń" : ""}
                       </span>
                       {row.flags?.length ? (
                         <span className="mt-1 flex flex-wrap gap-1">

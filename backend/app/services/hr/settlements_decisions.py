@@ -177,10 +177,10 @@ async def request_correction(
     await notify_each(
         db,
         [settlement.user_id],
-        title="Płace proszą o korektę faktury",
+        title="Rozliczenia proszą o korektę faktury",
         message=(
             f"Faktura za {label(period.year, period.month)} nie zgadza się z raportem "
-            "godzin. Porównanie znajdziesz w „Moim czasie” → Rozliczenie; korekta "
+            "godzin. Porównanie znajdziesz w „Mojej współpracy” → Rozliczenie; korekta "
             "z KSeF podepnie się sama."
         ),
         ntype=NotificationType.hr_settlement_correction,
@@ -232,8 +232,8 @@ async def request_override(
         settlement,
         title="Uznanie różnicy czeka na drugą osobę",
         message=(
-            f"{name} · {label(period.year, period.month)}: Płace proszą o drugą "
-            "parę oczu. Szczegóły w Płacach → Rozliczenia."
+            f"{name} · {label(period.year, period.month)}: Rozliczenia proszą o drugą "
+            "parę oczu. Szczegóły w Rozliczeniach → Rozliczenia."
         ),
         exclude=(actor.id,),
     )

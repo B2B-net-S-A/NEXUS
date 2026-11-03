@@ -32,9 +32,9 @@ from app.services.hr import people
 MODULE_DISABLED_DETAIL = "Ten moduł nie jest jeszcze włączony."
 SELF_EDIT_DETAIL = (
     "Swojej kartoteki i puli urlopowej nie zmieniasz sam — poproś inną osobę "
-    "z Kadr albo admina."
+    "z Administracji współpracy albo admina."
 )
-NO_PROFILE_DETAIL = "Nie masz kartoteki w NEXUSIE — poproś Kadry o jej założenie."
+NO_PROFILE_DETAIL = "Nie masz kartoteki w NEXUSIE — poproś Administrację współpracy o jej założenie."
 
 #: Uprawnienia, z którymi konto bez kartoteki i tak czyta katalog ludzi.
 _DIRECTORY_PERMISSIONS = (
@@ -160,7 +160,7 @@ def require_hr_people_records():
             return current_user
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Kartoteki zmieniają Kadry i Finanse.",
+            "Kartoteki zmieniają Administracja współpracy i Finanse.",
         )
 
     return _check

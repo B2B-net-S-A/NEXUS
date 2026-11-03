@@ -96,7 +96,7 @@ export function MyProofsCell({ row }: { row: LeaveRequestRow }) {
   const removeProof = async (proof: LeaveProof) => {
     const ok = await askConfirm({
       title: "Usunąć załącznik?",
-      description: `${proof.file_name} zniknie z wniosku i z Twoich dokumentów. Kadry zobaczą ślad, że plik był.`,
+      description: `${proof.file_name} zniknie z wniosku i z Twoich dokumentów. Administracja współpracy zobaczy ślad, że plik był.`,
       confirmLabel: "Usuń",
       cancelLabel: "Zostaw",
       variant: "destructive",

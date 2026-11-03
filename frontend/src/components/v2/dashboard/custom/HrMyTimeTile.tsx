@@ -169,7 +169,7 @@ export function HrMyTimeTile({ config }: { config: HrConfig }) {
         ) : null}
         {timeOpen ? (
           <Button asChild size="sm" variant="outline">
-            <Link href="/my-time?tab=month">Uzupełnij dzień</Link>
+            <Link href="/my-time?tab=month">Dodaj godziny</Link>
           </Button>
         ) : null}
       </div>

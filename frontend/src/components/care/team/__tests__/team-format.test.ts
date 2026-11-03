@@ -163,7 +163,7 @@ describe("Zespół opiekunów — teksty (makieta P6)", () => {
       },
     );
     expect(summary).toBe(
-      "pula (przełożony Kamil T.): 2 osoby · „Nie przypisuj”: 1 · próg: 20 rozmów / mies. · nowy kontrakt → automat: włączony · domyślni opiekunowie klientów: 1 z 2",
+      "pula (koordynator Kamil T.): 2 osoby · „Nie przypisuj”: 1 · próg: 20 rozmów / mies. · nowy kontrakt → automat: włączony · domyślni opiekunowie klientów: 1 z 2",
     );
   });
 });

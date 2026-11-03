@@ -94,7 +94,7 @@ describe("TimesheetCsvDialog", () => {
     expect(mocks.download).not.toHaveBeenCalled();
   });
 
-  it("Płace i Kadry: domyślnie cały zespół za miesiąc, potem jedna osoba", async () => {
+  it("Rozliczenia i Administracja współpracy: domyślnie cały zespół za miesiąc, potem jedna osoba", async () => {
     render(
       <TimesheetCsvDialog
         open
@@ -129,7 +129,7 @@ describe("TimesheetCsvDialog", () => {
     );
   });
 
-  it("przełożony nie ma eksportu całego zespołu", () => {
+  it("koordynator nie ma eksportu całego zespołu", () => {
     render(
       <TimesheetCsvDialog
         open

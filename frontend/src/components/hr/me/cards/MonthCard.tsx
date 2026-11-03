@@ -133,7 +133,7 @@ export function MonthCard({
     try {
       await downloadHrFile(
         timePaths.myPdf(item.year, item.month),
-        `timesheet-${item.year}-${String(item.month).padStart(2, "0")}.pdf`,
+        `raport-godzin-${item.year}-${String(item.month).padStart(2, "0")}.pdf`,
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać PDF."), "error");
@@ -156,7 +156,7 @@ export function MonthCard({
   }
   const view = month.data;
   const missing = missingDaysUntil(view, today);
-  const reviewer = view.approver_name ? shortName(view.approver_name) : "Kadry";
+  const reviewer = view.approver_name ? shortName(view.approver_name) : "Administracja współpracy";
   const lack = timesheetRequired ? missingLine(missing, today) : null;
   // Raport przyjmuje przełożony („akceptuje”) albo koordynator („potwierdza”) — D4.
   const progress = !timesheetRequired
@@ -213,7 +213,7 @@ export function MonthCard({
           className="font-medium text-primary underline-offset-2 hover:underline"
           onClick={() => onOpenTab("month")}
         >
-          Archiwum timesheetów
+          Archiwum raportów godzin
         </button>
         {history.isError ? (
           <PartError label="Nie udało się wczytać archiwum." onRetry={() => history.refetch()} />

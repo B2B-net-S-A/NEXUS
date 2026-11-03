@@ -1,7 +1,7 @@
 """Zgłoszenie zamiast wniosku na B2B i zleceniu (etap 2, D5, 17.10.2026).
 
 Na B2B i zleceniu termin wchodzi od razu (``approved`` bez decydującego),
-koordynator dostaje informację i może zgłosić kolizję — nie akceptuje, nie
+koordynator dostaje informację i może zgłosić uwagę — nie akceptuje, nie
 odrzuca i nie anuluje. Umowa o pracę bez zmian (wniosek czeka na akceptację).
 Dane fikcyjne (repo jest publiczne); daty w 2091, żeby nie zderzać się z „dziś”.
 """
@@ -257,7 +257,7 @@ async def test_coordinator_cannot_approve_reject_or_cancel_a_report(
         f"{BASE}/approvals/{row['id']}/cancel", headers=_headers(boss)
     )
     assert cancel.status_code == 403
-    assert "Kadry" in cancel.json()["detail"]
+    assert "Administracja współpracy" in cancel.json()["detail"]
     async with AsyncSessionLocal() as db:
         stored = await db.get(LeaveRequest, uuid.UUID(row["id"]))
         assert stored.status == "approved" and stored.decided_by is None
@@ -295,8 +295,8 @@ async def test_started_report_is_cancelled_by_hr_not_by_owner(
         f"{BASE}/requests/{row['id']}/cancel", headers=_headers(person)
     )
     assert refused.status_code == 422
-    assert "Kadry" in refused.json()["detail"]
-    assert "przełożony" not in refused.json()["detail"]
+    assert "Administracja współpracy" in refused.json()["detail"]
+    assert "koordynator" not in refused.json()["detail"]
 
 
 # ── Kolizja ───────────────────────────────────────────────────────────────────
@@ -472,7 +472,7 @@ async def test_only_hr_enters_absence_for_a_contractor(app_client, modules_on) -
         BASE + "/approvals/on-behalf", json=body, headers=_headers(boss)
     )
     assert refused.status_code == 403
-    assert "Kadry" in refused.json()["detail"]
+    assert "Administracja współpracy" in refused.json()["detail"]
     people = await app_client.get(BASE + "/approvals/people", headers=_headers(boss))
     flags = {row["user_id"]: row["can_enter"] for row in people.json()["items"]}
     assert flags[person.id] is False and flags[colleague.id] is True

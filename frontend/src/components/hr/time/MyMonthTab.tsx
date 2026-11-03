@@ -109,7 +109,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     return (
       <p className="rounded-lg border border-border/60 p-5 text-sm text-muted-foreground">
         „Mój miesiąc” ruszy po włączeniu modułu czasu pracy — do tego czasu
-        timesheet prowadzisz w dotychczasowym systemie.
+        raport godzin prowadzisz w dotychczasowym systemie.
       </p>
     );
   }
@@ -198,7 +198,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
     try {
       await downloadHrFile(
         timePaths.myPdf(period.year, period.month),
-        `timesheet-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
+        `raport-godzin-${period.year}-${String(period.month).padStart(2, "0")}.pdf`,
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać PDF."), "error");
@@ -280,11 +280,11 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
               <p className="min-w-0 flex-1 text-sm text-foreground">
                 <span className="font-semibold">
-                  Brakuje {countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}.
+                  {countPl(view.totals.days_missing, "dzień", "dni", "dni")} bez wpisu.
                 </span>{" "}
                 <span className="text-muted-foreground">
                   Wpisz dzień w wierszu albo wypełnij puste dni po 8 h opisem „{defaultDescription}” — wpisane
-                  dni, urlopy i święta zostają.
+                  dni, przerwy i święta zostają.
                 </span>
               </p>
               <Button size="sm" onClick={() => setFilling(true)} disabled={fill.isPending}>
@@ -316,8 +316,8 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
               </span>
               <span className="text-xs text-muted-foreground">
                 {view.totals.days_missing > 0
-                  ? `brakuje ${countPl(view.totals.days_missing, "dnia roboczego", "dni roboczych", "dni roboczych")}`
-                  : "wszystkie dni robocze wpisane"}
+                  ? `${countPl(view.totals.days_missing, "dzień", "dni", "dni")} bez wpisu`
+                  : "wszystkie dni wpisane"}
                 {view.totals.leave_paid_hours > 0
                   ? ` · ${view.employment_type === "uop" ? "urlop płatny" : "płatne dni z umowy"} ${formatHours(view.totals.leave_paid_hours)} h`
                   : ""}
@@ -330,7 +330,7 @@ export function MyMonthTab({ config, initialMonth, onMonthChange }: MyMonthTabPr
                 className="text-xs text-foreground"
                 title={capitalize(`${words.coordinator} przyjmuje ${words.timesheet_accusative}.`)}
               >
-                {view.approver_name ?? "Kadry"}
+                {view.approver_name ?? "Administracja współpracy"}
               </span>
             </div>
             {editable ? (

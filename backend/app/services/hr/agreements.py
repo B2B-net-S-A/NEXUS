@@ -660,7 +660,7 @@ async def validate_draft(
 def ensure_not_self(actor: User, user_id: int) -> None:
     if actor.id == user_id:
         raise AgreementError(
-            "Umowy ze sobą nie przygotowujesz — poproś drugą osobę z Kadr.", status=403
+            "Umowy ze sobą nie przygotowujesz — poproś drugą osobę z Administracji współpracy.", status=403
         )
 
 

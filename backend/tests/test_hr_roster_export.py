@@ -51,14 +51,14 @@ async def test_roster_carries_people_without_money_or_absences() -> None:
         )
         worker = User(
             email=f"roster-worker-{tag}@example.com",
-            name=f"Pracownik Przykładowy {tag}",
+            name=f"Osoba Przykładowy {tag}",
             role=UserRole.employee,
             roles=["employee"],
             is_active=True,
         )
         gone = User(
             email=f"roster-gone-{tag}@example.com",
-            name=f"Były Pracownik {tag}",
+            name=f"Były Osoba {tag}",
             role=UserRole.recruiter,
             roles=["recruiter"],
             is_active=False,

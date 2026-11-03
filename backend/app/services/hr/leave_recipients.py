@@ -86,7 +86,7 @@ def payroll_locked_warning(months: tuple[str, ...] | list[str]) -> Optional[str]
         head = f"Miesiące płac {labels} są już zamknięte"
     return (
         f"{head} — godziny w nim zostały bez zmian. "
-        "Korektę zrobią Płace, dostały powiadomienie."
+        "Korektę zrobią Rozliczenia, dostały powiadomienie."
     )
 
 
@@ -233,7 +233,7 @@ async def notify_requested(
             ),
             message=(
                 f"{subject.name}: {span} ({days_text}) — w zastępstwie za "
-                f"{stand_in.manager_name}." + ("" if decides else " Decydują Kadry.")
+                f"{stand_in.manager_name}." + ("" if decides else " Decyduje Administracja współpracy.")
             ),
             ntype=NotificationType.hr_leave_requested,
             link=link,
@@ -264,7 +264,7 @@ async def notify_reported(
         title=words["reported_title"],
         message=(
             f"{subject.name}: {span} ({days_text}). Termin jest już w kalendarzu — "
-            "jeśli koliduje z pracą, zgłoś kolizję w „Akceptacjach”."
+            "jeśli termin jest problemem, zgłoś uwagę w „Do potwierdzenia”."
         ),
         ntype=NotificationType.hr_absence_reported,
         link=LINK_APPROVALS,

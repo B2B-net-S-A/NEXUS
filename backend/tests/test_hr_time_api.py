@@ -374,7 +374,7 @@ async def test_contractor_paid_leave_becomes_standard_work_entry(app_client) -> 
         f"/api/hr/time/me/entries/{auto[0]['id']}", json={"hours": 6}, headers=h
     )
     assert blocked.status_code == 409
-    assert "płatnego urlopu" in blocked.json()["detail"]
+    assert "płatnego dnia przerwy" in blocked.json()["detail"]
     extra = await app_client.post(f"{BASE}/entries", json=entry(17, 1), headers=h)
     assert extra.status_code == 422  # pełny dzień urlopu, także płatnego
     assert by_day["2031-03-17"]["capacity"] is None
@@ -509,7 +509,7 @@ async def test_payroll_locked_month_refuses_every_change(app_client) -> None:
         await db.commit()
     add = await app_client.post(f"{BASE}/entries", json=entry(10, 8), headers=h)
     assert add.status_code == 409
-    assert "zamknięty w płacach" in add.json()["detail"]
+    assert "zamknięty w rozliczeniach" in add.json()["detail"]
     edit = await app_client.patch(
         f"/api/hr/time/me/entries/{created.json()['id']}", json={"hours": 7}, headers=h
     )
@@ -702,7 +702,7 @@ async def test_fill_month_skips_weekends_holidays_days_off_and_leave(
         await db.execute(
             text(
                 "INSERT INTO timesheet_role_defaults (label, applies_to_role, "
-                "default_description) VALUES ('Pracownik', 'employee', "
+                "default_description) VALUES ('Osoba', 'employee', "
                 "'Obsługa administracyjna biura')"
             )
         )

@@ -136,7 +136,7 @@ def alert_text(people: Sequence[Named]) -> tuple[str, str]:
         "-Identity <AppId NEXUS Kadry> -Resource <adres>, ma być InScope = True. "
         "Przy InScope = True i dalszym 403 przyczyna jest inna: nie dodawaj "
         "uprawnień w Entra, bo działałyby na całą firmę. Osoba, która ma zostać "
-        "poza grupą: „Zostaw poza grupą” w Ustawienia → Kadry → Microsoft 365."
+        "poza grupą: „Zostaw poza grupą” w Ustawienia → Administracja współpracy → Microsoft 365."
     )
     return title, message
 

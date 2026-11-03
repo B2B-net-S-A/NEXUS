@@ -261,7 +261,7 @@ async def notify_ready(db: AsyncSession, *, today: date) -> int:
             [bonus.recipient_user_id],
             title=terms(form)["bonus_ready_title"],
             message=(bonus.description or "Placement")
-            + ". Decyzja jest teraz po stronie Płac.",
+            + ". Decyzja jest teraz po stronie Rozliczeń.",
             ntype=NotificationType.hr_bonus_assigned,
             link="/my-time?tab=bonuses",
             related_entity_type="hr_bonus",

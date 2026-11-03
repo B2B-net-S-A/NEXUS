@@ -35,11 +35,11 @@ from app.services.contract_folder_docs.plan import (
     [
         (
             "/sites/Share_B2B/Shared%20Documents/Umowy%20pracownik%C3%B3w",
-            "Umowy pracowników",
+            "Umowy osób",
         ),
         (
             "/sites/Share_B2B/Shared%20Documents/Forms/AllItems.aspx?id=%2Fsites%2FShare_B2B%2FShared%20Documents%2FUmowy%20pracownik%C3%B3w&p=true",
-            "Umowy pracowników",
+            "Umowy osób",
         ),
         ("/sites/Share_B2B/Shared%20Documents/Forms/AllItems.aspx", None),
         ("/:f:/s/Share_B2B/sharing-token", None),

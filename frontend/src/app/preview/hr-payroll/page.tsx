@@ -42,15 +42,15 @@ const STATE_KEYS = ["month", "team", "months"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
-  { key: "month", label: "Płace: zamknięcie miesiąca" },
-  { key: "team", label: "Przełożona (bez stawek, D2)" },
+  { key: "month", label: "Rozliczenia: zamknięcie miesiąca" },
+  { key: "team", label: "Koordynatorka (bez stawek, D2)" },
   { key: "months", label: "Lista miesięcy" },
 ] as const;
 
 const NOTES: Record<State, string> = {
-  month: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Płace; do kwot wchodzą tylko zaakceptowane godziny.",
-  team: "Dane fikcyjne, bez zapytań. Ogląda przełożona bez Płac: godziny i premie zespołu, bez stawek (D2).",
-  months: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Płace.",
+  month: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Rozliczenia; do kwot wchodzą tylko zaakceptowane godziny.",
+  team: "Dane fikcyjne, bez zapytań. Ogląda koordynatorka bez Rozliczeń: godziny i premie zespołu, bez stawek (D2).",
+  months: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Rozliczenia.",
 };
 
 function prepare(params: URLSearchParams) {
@@ -79,7 +79,7 @@ export default function HrPayrollPreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Płace"
+      title="Ludzie → Rozliczenia"
       note={NOTES[state]}
       states={STATES}
       current={state}

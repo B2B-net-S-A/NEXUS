@@ -86,7 +86,7 @@ def close_warnings(people: list[PersonPayroll]) -> list[dict[str, Any]]:
             {
                 "code": "unapproved_timesheets",
                 "message": (
-                    f"{len(unapproved)} os. bez zatwierdzonego timesheetu — "
+                    f"{len(unapproved)} os. bez zatwierdzonego raportu godzin — "
                     "ich godziny nie wejdą do płac tego miesiąca."
                 ),
                 "count": len(unapproved),

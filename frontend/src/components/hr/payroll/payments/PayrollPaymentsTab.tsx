@@ -74,7 +74,7 @@ export function PayrollPaymentsTab({ year, month }: { year: number; month: numbe
         state={state}
         description={
           state === "forbidden"
-            ? "Przelewy i wyciągi widzą Płace (uprawnienie „Płace”)."
+            ? "Przelewy i wyciągi widzą Rozliczenia (uprawnienie „Rozliczenia”)."
             : "Moduł rozliczeń nie jest jeszcze włączony."
         }
       />
@@ -169,7 +169,7 @@ export function PayrollPaymentsTab({ year, month }: { year: number; month: numbe
       ) : finance.isSuccess ? (
         <p className="text-xs text-muted-foreground">
           Paczka przelewów jest wyłączona — przelewy robią Finanse w eBI24 albo w banku, a
-          „opłacono” przychodzi z wyciągu. Włączysz ją w Ustawieniach → Płace.
+          „opłacono” przychodzi z wyciągu. Włączysz ją w Ustawieniach → Rozliczenia.
         </p>
       ) : null}
     </div>

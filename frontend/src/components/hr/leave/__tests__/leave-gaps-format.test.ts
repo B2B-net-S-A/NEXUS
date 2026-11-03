@@ -45,7 +45,7 @@ const row = (overrides: Partial<LeaveRequestRow> = {}): LeaveRequestRow => ({
 });
 
 describe("plakietka źródła i liczniki statusów", () => {
-  it("nazywa wpis za pracownika, Outlook i import; zwykły wniosek bez plakietki", () => {
+  it("nazywa wpis za osoby, Outlook i import; zwykły wniosek bez plakietki", () => {
     expect(sourceBadge("on_behalf")).toBe("Wpis za konsultanta/kontraktora");
     expect(sourceBadge("outlook_oof")).toBe("Z Outlooka");
     expect(sourceBadge("compass_import")).toBe("Import z Compassa");
@@ -62,7 +62,7 @@ describe("plakietka źródła i liczniki statusów", () => {
   });
 });
 
-describe("edycja wniosku przez przełożonego i Kadry", () => {
+describe("edycja wniosku przez koordynatora i Administracja współpracy", () => {
   it("bez zmian nie ma czego wysłać", () => {
     expect(editChanges(row(), editValuesFrom(row()))).toBeNull();
   });
@@ -91,7 +91,7 @@ describe("edycja wniosku przez przełożonego i Kadry", () => {
     expect(editChanges(row(), { ...editValuesFrom(row()), end: "2026-11-01" })).toBeNull();
   });
 
-  it("zgłoszenie z B2B zmieniają tylko Kadry; zamknięty wniosek nikt", () => {
+  it("zgłoszenie z B2B zmieniają tylko Administracja współpracy; zamknięty wniosek nikt", () => {
     expect(canEditRow(row({ is_report: true }), false)).toBe(false);
     expect(canEditRow(row({ is_report: true }), true)).toBe(true);
     expect(canEditRow(row({ status: "pending" }), false)).toBe(true);

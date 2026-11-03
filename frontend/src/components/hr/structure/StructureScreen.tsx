@@ -78,7 +78,7 @@ export function StructureScreen({ config }: { config: HrConfig }) {
 
   if (!canManage) {
     return (
-      <QueryStateNotice state="forbidden" description="Strukturę widzą Kadry i admin." />
+      <QueryStateNotice state="forbidden" description="Strukturę widzą Administracja współpracy i admin." />
     );
   }
   if (state === "loading") {
@@ -214,7 +214,7 @@ function ChartGroup({
     const words = managerWords([dragged.employment_type]);
     const ok = await askConfirm({
       title: `Zmienić ${words.ofOne}?`,
-      description: `${dragged.name}: ${words.one} — ${target.name} (było: ${dragged.manager_name ?? "nikt"}). Zmiana działa od razu; wnioski i timesheety w toku przejdą do nowej osoby.`,
+      description: `${dragged.name}: ${words.one} — ${target.name} (było: ${dragged.manager_name ?? "nikt"}). Zmiana działa od razu; wnioski i raporty godzin w toku przejdą do nowej osoby.`,
       confirmLabel: "Zmień",
       cancelLabel: "Zostaw",
     });
@@ -267,7 +267,7 @@ function ChartGroup({
           {group.orphans.map((person) => (
             <OrgCard key={person.user_id} person={person} compact {...nodeProps} />
           ))}
-          <span className="text-xs text-muted-foreground">— ich wnioski trafiają do Kadr</span>
+          <span className="text-xs text-muted-foreground">— ich wnioski trafiają do Administracji współpracy</span>
         </div>
       ) : null}
       {confirmDialog}

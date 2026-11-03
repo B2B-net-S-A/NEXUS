@@ -35,20 +35,20 @@ describe("documents-format", () => {
     });
   });
 
-  it("krąg słowami: Kadry zawsze, reszta według znaczników", () => {
+  it("krąg słowami: Administracja współpracy zawsze, reszta według znaczników", () => {
     expect(audienceLabel({ person: true, payroll: true, equipment: false })).toBe(
-      "osoba, Kadry, Płace",
+      "osoba, Administracja współpracy, Rozliczenia",
     );
     expect(audienceLabel({ person: false, payroll: false, equipment: true })).toBe(
-      "Kadry, recepcja",
+      "Administracja współpracy, recepcja",
     );
   });
 
-  it("protokół sprzętu to odnośnik: rodzaj „protokół”, krąg osoba, Kadry, recepcja", () => {
+  it("protokół sprzętu to odnośnik: rodzaj „protokół”, krąg osoba, Administracja współpracy, recepcja", () => {
     const row = protocolRow(CELINA_PROTOCOLS[0]);
     expect(row.title).toBe("Protokół wydania sprzętu PZO/2026/10/004");
     expect(row.kindLabel).toBe("protokół");
-    expect(row.audience).toBe("osoba, Kadry, recepcja");
+    expect(row.audience).toBe("osoba, Administracja współpracy, recepcja");
     expect(row.document).toBeNull();
   });
 

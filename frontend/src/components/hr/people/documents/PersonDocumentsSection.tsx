@@ -130,7 +130,7 @@ export function PersonDocumentsSection({
             Dokumenty
           </h2>
           <span className="text-xs text-muted-foreground">
-            każdy dokument ma swój krąg widzących; przełożony ich nie widzi
+            każdy dokument ma swój krąg widzących; koordynator ich nie widzi
           </span>
         </div>
         {canManage ? (
@@ -206,8 +206,8 @@ export function PersonDocumentsSection({
       )}
       {canManage ? (
         <p className="text-xs text-muted-foreground">
-          „Ważny do” oświadczenia studenta zasila przypomnienie dla Płac 30 dni wcześniej. Po
-          odejściu osoby dokumenty zostają na czas przechowywania — usuwają je Kadry z listy w
+          „Ważny do” oświadczenia studenta zasila przypomnienie dla Rozliczeń 30 dni wcześniej. Po
+          odejściu osoby dokumenty zostają na czas przechowywania — usuwa je Administracja współpracy z listy w
           Ustawieniach.
         </p>
       ) : null}

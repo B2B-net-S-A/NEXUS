@@ -87,7 +87,7 @@ describe("własny pulpit", () => {
     expect(screen.getByText("treść today_cycle")).toBeInTheDocument()
     expect(screen.queryByText("Twój pulpit jest pusty")).toBeNull()
     expect(screen.getByRole("status")).toHaveTextContent("To jest pulpit ustawiony dla roli Rekruter.")
-    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+    expect(screen.getByRole("link", { name: "Przegląd requestów" })).toHaveAttribute("href", "/jobs/daily")
     expect(saveMock).not.toHaveBeenCalled()
   })
 

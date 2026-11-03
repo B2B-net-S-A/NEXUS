@@ -469,7 +469,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   },
   hr_my_time: {
     type: "hr_my_time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     description: "Ile urlopu zostało, najbliższy urlop i godziny wpisane w tym miesiącu.",
     category: "people",
     defaultSize: { w: 6, h: 3 },
@@ -480,7 +480,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   hr_approvals: {
     type: "hr_approvals",
     label: "Do akceptacji",
-    description: "Wnioski urlopowe i timesheety, które czekają na Twoją decyzję.",
+    description: "Zgłoszenia i raporty godzin do potwierdzenia.",
     category: "people",
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 3, h: 2 },
@@ -895,12 +895,12 @@ export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability 
       if (!open.leave && !open.time) return "hidden";
       return me.has_profile
         ? OK
-        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założą ją Kadry" };
+        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założy ją Administracja współpracy" };
     case "hr_approvals":
       if (!open.leave && !open.time) return "hidden";
       return me.is_admin || me.people_admin || me.timesheets === true || me.is_manager
         ? OK
-        : { ok: false, reason: "Dla koordynatorów i Kadr" };
+        : { ok: false, reason: "Dla koordynatorów i Administracji współpracy" };
     case "equipment_tasks":
       return open.equipment ? OK : "hidden";
     case "care_mine":

@@ -115,7 +115,7 @@ export function TeamScreen({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="me">Mój zespół</SelectItem>
+        <SelectItem value="me">Moje osoby</SelectItem>
         {(managers.data ?? []).map((item) => (
           <SelectItem key={item.user_id} value={String(item.user_id)}>
             {item.name} · {item.reports}
@@ -136,7 +136,7 @@ export function TeamScreen({
           state={state === "forbidden" || state === "not_found" ? state : "error"}
           description={
             state === "forbidden"
-              ? "„Mój zespół” widzą przełożeni i Kadry."
+              ? "„Koordynację” widzą koordynatorzy i Administracja współpracy."
               : state === "not_found"
                 ? "Moduł „Ludzie” nie jest jeszcze włączony albo nie ma takiej osoby."
                 : undefined
@@ -164,8 +164,8 @@ export function TeamScreen({
         </>
       )}
       <p className="text-xs text-muted-foreground">
-        Rodzaj nieobecności widzą tylko osoba, jej przełożony albo koordynator i Kadry. Kwoty
-        premii widać bez stawek godzinowych; o propozycjach premii decydują Płace.
+        Rodzaj nieobecności widzą tylko ta osoba, koordynator i Administracja współpracy. Kwoty
+        wynagrodzenia dodatkowego widać bez stawek; o propozycjach decydują Rozliczenia.
       </p>
     </div>
   );
@@ -338,7 +338,7 @@ function TeamTable({ data }: { data: MyTeam }) {
             <TableHead className={CALM_HEAD}>{monthName}</TableHead>
             <TableHead className={CALM_HEAD}>Nieobecności</TableHead>
             {data.sees_bonuses ? (
-              <TableHead className={CALM_HEAD}>Premie w drodze</TableHead>
+              <TableHead className={CALM_HEAD}>Wynagrodzenie dodatkowe</TableHead>
             ) : null}
           </TableRow>
         </TableHeader>

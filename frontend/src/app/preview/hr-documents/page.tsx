@@ -45,19 +45,19 @@ const STATE_KEYS = ["hr", "person", "payroll", "empty", "retention"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
-  { key: "hr", label: "Kadry: e-teczka" },
+  { key: "hr", label: "Administracja współpracy: e-teczka" },
   { key: "person", label: "Osoba: moje dokumenty" },
-  { key: "payroll", label: "Płace" },
-  { key: "empty", label: "Kadry: bez dokumentów" },
-  { key: "retention", label: "Kadry: po terminie" },
+  { key: "payroll", label: "Rozliczenia" },
+  { key: "empty", label: "Administracja współpracy: bez dokumentów" },
+  { key: "retention", label: "Administracja współpracy: po terminie" },
 ] as const;
 
 const NOTES: Record<State, string> = {
-  hr: "Dane fikcyjne, bez zapytań. Oglądają Kadry — wszystko, także ślad usuniętej pomyłki.",
+  hr: "Dane fikcyjne, bez zapytań. Oglądają Administracja współpracy — wszystko, także ślad usuniętej pomyłki.",
   person: "Dane fikcyjne, bez zapytań. Ogląda Celina — swoje dokumenty, bez zmian.",
-  payroll: "Dane fikcyjne, bez zapytań. Płace widzą dokumenty ze swoim znacznikiem, bez protokołów sprzętu.",
-  empty: "Dane fikcyjne, bez zapytań. Kadry, osoba jeszcze bez dokumentów.",
-  retention: "Dane fikcyjne, bez zapytań. Ustawienia → Kadry: lista do usunięcia po terminie.",
+  payroll: "Dane fikcyjne, bez zapytań. Rozliczenia widzą dokumenty ze swoim znacznikiem, bez protokołów sprzętu.",
+  empty: "Dane fikcyjne, bez zapytań. Administracja współpracy, osoba jeszcze bez dokumentów.",
+  retention: "Dane fikcyjne, bez zapytań. Ustawienia → Administracja współpracy: lista do usunięcia po terminie.",
 };
 
 const CELINA_USER: HarnessUser = { ...CELINA, role: "employee" };

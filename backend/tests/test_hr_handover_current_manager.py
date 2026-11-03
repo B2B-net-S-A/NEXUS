@@ -231,7 +231,7 @@ async def test_profile_edit_moves_default_receiver_but_not_kadry_choice(
     assert case.manager_user_id == ids["boss2"]
     assert rows["reports"] == ids["boss2"]
     assert rows["recruitments"] == ids["boss2"]
-    assert rows["my_people"] == ids["chosen"], "wybór Kadr zostaje"
+    assert rows["my_people"] == ids["chosen"], "wybór Administracji współpracy zostaje"
 
 
 @pytest.mark.asyncio

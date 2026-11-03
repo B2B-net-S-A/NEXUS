@@ -56,7 +56,7 @@ export function accountLabel(row: PayableRow): { text: string; tone: StatusDotTo
   if (row.account_source === "white_list") {
     return { text: `${masked} · biała lista VAT`, tone: "success" };
   }
-  return { text: `${masked} · wpisany przez Kadry`, tone: "neutral" };
+  return { text: `${masked} · wpisany przez Administracja współpracy`, tone: "neutral" };
 }
 
 export function periodLabel(year: number, month: number): string {

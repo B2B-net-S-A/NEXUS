@@ -121,7 +121,7 @@ export function DeactivateAccountDialog({ user, loading, onConfirm, onCancel }: 
           <p className="text-xs text-muted-foreground">
             „Prowadzi” zostaje przy tej osobie, więc domknięcie nie liczy się Delivery Leadom do
             Ligi, KPI ani premii. Odchodzi z firmy na dłużej? Lepiej założyć sprawę odejścia
-            w „Ludziach” — Kadry dostaną też zadania sprzętu i dostępu.
+            w „Ludziach” — Administracja współpracy dostanie też zadania sprzętu i dostępu.
           </p>
         </div>
       ) : null}

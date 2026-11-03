@@ -55,7 +55,7 @@ import { canSeeStructure, needsCompletion } from "./tidy-up";
 export { needsCompletion, pendingPeople } from "./tidy-up";
 
 const MODULE_OFF_NOTICE =
-  "Moduł „Ludzie” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
+  "Moduł „Ludzie” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Administracja współpracy.";
 
 /** „Składa raport godzin” — tylko w pełnym zakresie (Kadry); `null` = nie widać. */
 export function timesheetRequired(person: Person): boolean | null {
@@ -186,7 +186,7 @@ export function PeopleDirectory({
         state={state}
         description={
           state === "forbidden"
-            ? "Katalog ludzi widzą osoby z kartoteką w NEXUSIE i Kadry."
+            ? "Katalog ludzi widzą osoby z kartoteką w NEXUSIE i Administracja współpracy."
             : "Nie udało się wczytać katalogu ludzi."
         }
         onRetry={() => people.refetch()}

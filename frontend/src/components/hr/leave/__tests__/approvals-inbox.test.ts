@@ -47,7 +47,7 @@ function row(extra: Partial<PendingLeaveRow> = {}): PendingLeaveRow {
   };
 }
 
-describe("skrzynka „Akceptacji”", () => {
+describe("skrzynka „Do potwierdzenia”", () => {
   it("do decyzji: termin, dni, kolizja i załącznik; czas od złożenia", () => {
     const { decide, info } = inboxItems([row({ proof_count: 1 })], [], "2026-10-23");
     expect(info).toEqual([]);
@@ -59,7 +59,7 @@ describe("skrzynka „Akceptacji”", () => {
     expect(decide[0].waited).toBe("2 dni temu");
   });
 
-  it("zastępca przełożonego przy L4: „do wiadomości”, „w zastępstwie za …”", () => {
+  it("zastępca koordynatora przy L4: „do wiadomości”, „w zastępstwie za …”", () => {
     const { decide } = inboxItems(
       [row({ can_decide: false, as_substitute_for: "Kamil Testowy", department_absent: [] })],
       [],

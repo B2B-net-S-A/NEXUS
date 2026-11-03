@@ -57,7 +57,7 @@ export function OffboardingScreen({ userId, config }: { userId: number; config: 
         />
       ) : (
         <Card className="p-4 text-sm text-muted-foreground">
-          Ta osoba nie ma sprawy odejścia. Odejście zakładają Kadry.
+          Ta osoba nie ma sprawy odejścia. Odejście zakłada Administracja współpracy.
         </Card>
       )}
     </div>

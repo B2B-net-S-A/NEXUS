@@ -129,7 +129,7 @@ export function afterDecision(row: ApprovalRequestRow): {
 export function afterApproval(row: ApprovalRequestRow): string {
   if (row.kind === "bonus") {
     const month = payoutLine(row);
-    return `Wynagrodzenie dodatkowe trafi do Płac jako przyznane${month ? ` na ${month}` : ""} — bez drugiej akceptacji. ${row.beneficiary_name ?? "Osoba"} dostanie powiadomienie.`;
+    return `Wynagrodzenie dodatkowe trafi do Rozliczeń jako przyznane${month ? ` na ${month}` : ""} — bez drugiej akceptacji. ${row.beneficiary_name ?? "Osoba"} dostanie powiadomienie.`;
   }
   return `${row.requester_name ?? "Autor"} dostanie powiadomienie, że może kupić albo zapłacić.`;
 }

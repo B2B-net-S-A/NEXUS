@@ -42,7 +42,7 @@ async function openTab(user: ReturnType<typeof userEvent.setup>, name: string) {
 }
 
 describe("/preview/hr-person", () => {
-  it("Kadry i Płace: wizytówka z faktami, zakładki, odejście w menu ⋯ i sprzęt", async () => {
+  it("Administracja współpracy i Rozliczenia: wizytówka z faktami, zakładki, odejście w menu ⋯ i sprzęt", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-person");
     render(<HrPersonPreviewPage />);
@@ -79,7 +79,7 @@ describe("/preview/hr-person", () => {
     expect(within(equipment).getByText(/Laptop Dell Latitude 5520 \(153\)/)).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
 
-    await openTab(user, "Płace i wynagrodzenie dodatkowe");
+    await openTab(user, "Rozliczenia i wynagrodzenie dodatkowe");
     expect(screen.getByText("Aktualna stawka:")).toHaveTextContent(/120,00\szł/);
     expect(screen.getByText("od 01.07.2026", { selector: "td" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Nowa stawka od/ }));
@@ -89,7 +89,7 @@ describe("/preview/hr-person", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("`#place` z dzwonka Płac otwiera „Płace i premie”", async () => {
+  it("`#place` z dzwonka Rozliczeń otwiera „Rozliczenia i premie”", async () => {
     window.history.replaceState({}, "", "/preview/hr-person#place");
     render(<HrPersonPreviewPage />);
     expect(await heading()).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("/preview/hr-person", () => {
     const dialog = await screen.findByRole("dialog", { name: /Kartoteka · Ola Przykładowa/ });
     expect(within(dialog).getByRole("switch", { name: "Uczeń lub student do 26 lat" })).toBeChecked();
     expect(within(dialog).getByLabelText("Zwolnienie ze składek do")).toHaveValue("2027-06-30");
-    expect(within(dialog).getByText(/31\.05\.2027 Płace dostaną przypomnienie/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/31\.05\.2027 Rozliczenia dostaną przypomnienie/)).toBeInTheDocument();
     expect(within(dialog).getByText("Koordynator")).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
@@ -136,7 +136,7 @@ describe("/preview/hr-person", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona: premie bez stawek (D2), bez sprzętu i bez zakładania odejścia", async () => {
+  it("koordynatorka: premie bez stawek (D2), bez sprzętu i bez zakładania odejścia", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-person?as=manager");
     render(<HrPersonPreviewPage />);
@@ -149,8 +149,8 @@ describe("/preview/hr-person", () => {
     expect(screen.queryByRole("tab", { name: /^Sprzęt/ })).toBeNull();
     expect(screen.getByText("bez sprawy")).toBeInTheDocument();
 
-    await openTab(user, "Płace i wynagrodzenie dodatkowe");
-    expect(screen.getByRole("heading", { name: "Płace" })).toBeInTheDocument();
+    await openTab(user, "Rozliczenia i wynagrodzenie dodatkowe");
+    expect(screen.getByRole("heading", { name: "Rozliczenia" })).toBeInTheDocument();
     expect(screen.queryByText("Aktualna stawka:")).toBeNull();
     await user.click(screen.getByRole("button", { name: /Nowa premia/ }));
     expect(await screen.findByRole("dialog", { name: "Nowa premia" })).toBeInTheDocument();
@@ -179,7 +179,7 @@ describe("/preview/hr-person", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("„Dodaj za tę osobę”: Kadry otwierają wpis nieobecności z ustaloną osobą", async () => {
+  it("„Dodaj za tę osobę”: Administracja współpracy otwierają wpis nieobecności z ustaloną osobą", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-person?as=hr#czas");
     render(<HrPersonPreviewPage />);
@@ -194,7 +194,7 @@ describe("/preview/hr-person", () => {
     expect(person).toBeDisabled();
   });
 
-  it("przełożona: za B2B nie wpisuje (D5) — bez „Dodaj za tę osobę”; za UoP tak", async () => {
+  it("koordynatorka: za B2B nie wpisuje (D5) — bez „Dodaj za tę osobę”; za UoP tak", async () => {
     window.history.replaceState({}, "", "/preview/hr-person?as=manager#czas");
     const { unmount } = render(<HrPersonPreviewPage />);
     expect(await heading()).toBeInTheDocument();
@@ -236,9 +236,9 @@ describe("/preview/hr-person", () => {
 
     expect(await heading()).toBeInTheDocument();
     expect(
-      screen.getByText("Pełną kartotekę widzą ta osoba, jej przełożony, Kadry i Finanse."),
+      screen.getByText("Pełną kartotekę widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("tab", { name: /Płace/ })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Rozliczenia/ })).toBeNull();
     expect(screen.queryByText("Wejście i odejście")).toBeNull();
     expect(screen.queryByText(/Nie udało się|nie udało się/)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();

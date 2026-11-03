@@ -124,7 +124,7 @@ describe("statusy", () => {
     expect(progressPercent(null, 21)).toBe(0);
   });
 
-  it("timesheet: słownik i kolory te same co w „Moim miesiącu” i „Moim zespole”", () => {
+  it("raport godzin: słownik i kolory te same co w „Moim miesiącu” i „Koordynacji”", () => {
     expect(timesheetLabel(null, true)).toBe("nie założony");
     expect(timesheetTone(null, true)).toBe("warning");
     expect(timesheetLabel(null, false)).toBe("bez obowiązku");
@@ -287,18 +287,18 @@ describe("reguły premii — formularz", () => {
   });
 });
 
-describe("premia ręczna od przełożonego = propozycja dla Płac (19.10.2026)", () => {
+describe("premia ręczna od koordynatora = propozycja dla Rozliczeń (19.10.2026)", () => {
   const manual = (overrides: Partial<BonusRow> = {}) =>
     bonus({ status: "proposed", source: "manual", proposed_by: 5, ...overrides });
 
-  it("przełożony nie ma „Zatwierdź” przy swojej propozycji, tylko „Wycofaj”", () => {
+  it("koordynator nie ma „Zatwierdź” przy swojej propozycji, tylko „Wycofaj”", () => {
     expect(bonusDecision(manual({ can_approve: false }), 5)).toEqual({
       approve: false,
       rejectLabel: "Wycofaj",
     });
   });
 
-  it("Płace zatwierdzają propozycję ręczną i ją odrzucają", () => {
+  it("Rozliczenia zatwierdzają propozycję ręczną i ją odrzucają", () => {
     expect(bonusDecision(manual({ can_approve: true }), 9)).toEqual({
       approve: true,
       rejectLabel: "Odrzuć",
@@ -311,8 +311,8 @@ describe("premia ręczna od przełożonego = propozycja dla Płac (19.10.2026)",
     );
   });
 
-  it("komunikat po dodaniu mówi, czy premia czeka na Płace", () => {
-    expect(bonusCreatedToast(manual())).toBe("Premia czeka na zatwierdzenie Płac");
+  it("komunikat po dodaniu mówi, czy premia czeka na Rozliczenia", () => {
+    expect(bonusCreatedToast(manual())).toBe("Premia czeka na zatwierdzenie Rozliczeń");
     expect(bonusCreatedToast(bonus({ status: "assigned", source: "manual" }))).toBe("Premia przyznana");
   });
 });

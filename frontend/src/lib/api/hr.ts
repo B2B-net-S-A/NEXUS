@@ -222,7 +222,7 @@ export const HR_MODULE_LABELS: Record<HrModuleKey, string> = {
   people: "Ludzie (katalog i kartoteka)",
   leave: "Urlopy i zastępstwa",
   time: "Mój miesiąc (obecność i godziny)",
-  payroll: "Płace i premie",
+  payroll: "Rozliczenia i premie",
   lifecycle: "Wejście i odejście",
   care: "Opieka nad konsultantami",
   cases: "Sprawy administracja@",

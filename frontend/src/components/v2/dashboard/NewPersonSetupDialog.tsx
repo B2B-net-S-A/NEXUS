@@ -43,7 +43,7 @@ const DECISIONS: { id: Decision; label: string; hint: string; adminOnly?: boolea
   {
     id: "employee",
     label: "Zostaje Konsultantem/Kontraktorem",
-    hint: "Konsultant albo back office: swój czas, umowa, sprzęt. Bez kandydatów.",
+    hint: "Konsultant albo back office: swoje rozliczenia, umowa, sprzęt. Bez kandydatów.",
   },
   {
     id: "other",
@@ -230,12 +230,12 @@ export function NewPersonSetupDialog({ person, presetKeep = false, isAdmin, onCl
         {askManager ? (
           <li>
             <StepTitle n={++step} done={managerId !== null}>
-              Przełożony
+              Koordynator
             </StepTitle>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <select
                 id="new-person-manager"
-                aria-label="Przełożony"
+                aria-label="Koordynator"
                 value={managerId ?? ""}
                 onChange={(e) => setManagerId(e.target.value ? Number(e.target.value) : null)}
                 className="rounded-lg border border-border bg-background px-3 py-1.5 text-sm"
@@ -247,7 +247,7 @@ export function NewPersonSetupDialog({ person, presetKeep = false, isAdmin, onCl
                 ))}
               </select>
               <span className="text-xs text-muted-foreground">
-                Osoba trafi do „Mój zespół” przełożonego (urlopy, czas pracy).
+                Osoba do kontaktu w sprawie przerw i rozliczeń.
               </span>
             </div>
           </li>

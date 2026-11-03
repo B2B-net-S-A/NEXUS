@@ -365,7 +365,7 @@ const DELIVERY: NotificationDeliveryOverview = {
       id: "client_interview",
       label: "Rozmowy u klienta",
       module: "Rekrutacje",
-      trigger: "Terminy od klienta, wybrany i potwierdzony termin, przełożona albo odwołana rozmowa.",
+      trigger: "Terminy od klienta, wybrany i potwierdzony termin, koordynatorka albo odwołana rozmowa.",
       recipient_rule: "Rekruter kandydata i Delivery Lead rekrutacji.",
       required: true,
       email_enabled: false,

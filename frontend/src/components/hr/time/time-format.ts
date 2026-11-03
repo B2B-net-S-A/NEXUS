@@ -52,7 +52,7 @@ export const STATUS_TONE: Record<QueueStatus, StatusDotTone> = {
 /** Pasek statusu nad siatką („szkic · wyślij do 05.11”). */
 export function statusLine(view: MonthView): string {
   const status: TimesheetStatus = view.timesheet?.status ?? "draft";
-  if (view.timesheet?.payroll_locked) return "zamknięty w płacach";
+  if (view.timesheet?.payroll_locked) return "zamknięty w rozliczeniach";
   // B2B i zlecenie: koordynator potwierdza raport, nie akceptuje (D4).
   const confirms = reportsAbsence(view.employment_type);
   if (status === "approved") return confirms ? "potwierdzony" : "zaakceptowany";
@@ -210,7 +210,7 @@ export function isFirstLeaveDay(days: readonly MonthDay[], term: LeaveTerm, date
 /** Zdanie w oknie cofnięcia nieobecności: co dalej z godzinami przy tym stanie raportu. */
 export function afterLeaveCancelNote(status: TimesheetStatus, payrollLocked: boolean): string {
   if (payrollLocked) {
-    return "Miesiąc zamknięty w płacach: godziny w rozliczeniu się nie zmienią, a Płace dostaną powiadomienie.";
+    return "Miesiąc zamknięty w rozliczeniach: godziny w rozliczeniu się nie zmienią, a Rozliczenia dostaną powiadomienie.";
   }
   if (status === "approved") return "Zaakceptowane: żeby wpisać godziny, najpierw cofnij akceptację.";
   if (status === "submitted") {

@@ -172,7 +172,7 @@ async def remove_own(
     """Osoba zdejmuje plik, który sama dodała; zwraca plik do skasowania."""
 
     if document.added_by != actor.id:
-        raise HrDocumentError("Ten plik dodały Kadry — usunąć go mogą tylko one.", 403)
+        raise HrDocumentError("Ten plik dodała Administracja współpracy — usunąć go może tylko ona.", 403)
     orphan = await documents.mark_deleted(
         db, document, reason="mistake", note=REMOVED_NOTE, actor_id=actor.id
     )

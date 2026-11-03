@@ -92,14 +92,14 @@ async def _set_manager(
     if not program_enabled():
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "„Ludzie w NEXUSIE” są wyłączone — przełożonego nie da się ustawić.",
+            "„Ludzie w NEXUSIE” są wyłączone — koordynatora nie da się ustawić.",
         )
     if not actor.has_role(UserRole.admin) and manager_user_id != actor.id:
         manager = await db.get(User, manager_user_id)
         if manager is None or not manager.has_role(UserRole.head_of_recruitment):
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN,
-                "Jako przełożonego wskaż siebie albo innego kierownika rekrutacji.",
+                "Jako koordynatora wskaż siebie albo innego kierownika rekrutacji.",
             )
     profile = await account_profiles.ensure_profile(
         db, target, actor_id=actor.id, source="people_setup"
@@ -119,7 +119,7 @@ async def _set_manager(
     ):
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Ta osoba ma już przełożonego — zmienia go Kadry albo admin w „Strukturze”.",
+            "Ta osoba ma już koordynatora — zmienia go Administracja współpracy albo admin w „Strukturze”.",
         )
     try:
         await hr_structure.reassign(
@@ -130,7 +130,7 @@ async def _set_manager(
     except LookupError as exc:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Ta osoba nie ma kartoteki w „Ludziach w NEXUSIE” — ustaw przełożonego w „Strukturze”.",
+            "Ta osoba nie ma kartoteki w „Ludziach w NEXUSIE” — ustaw koordynatora w „Strukturze”.",
         ) from exc
 
 

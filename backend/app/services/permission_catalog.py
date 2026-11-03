@@ -201,12 +201,12 @@ PERMISSIONS: tuple[Permission, ...] = (
     ),
     Permission(
         PEOPLE_ADMIN,
-        "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+        "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
         "people",
     ),
     Permission(
         PAYROLL,
-        "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+        "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
         "people",
         # Decyzja Artura 16.10.2026 (D2): parytet z Compassem — Finanse
         # prowadzą stawki i rozliczenie; przełożony widzi godziny i premie

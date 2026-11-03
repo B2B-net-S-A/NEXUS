@@ -46,7 +46,7 @@ import { HARNESS_MISMATCHES, harnessPeopleCards, harnessPeopleDirectory } from "
 const AS = ["hr", "finance", "colleague"] as const;
 
 const STATES = [
-  { key: "hr", label: "Kadry: porządki i schemat" },
+  { key: "hr", label: "Administracja współpracy: porządki i schemat" },
   { key: "finance", label: "Finanse" },
   { key: "colleague", label: "Rekruterka (wizytówki)" },
 ] as const;

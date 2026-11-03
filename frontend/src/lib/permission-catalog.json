@@ -152,14 +152,14 @@
     },
     {
       "key": "people_admin",
-      "label": "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+      "label": "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
       "group": "people",
       "requires": [],
       "default_roles": []
     },
     {
       "key": "payroll",
-      "label": "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "label": "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
       "group": "people",
       "requires": [],
       "default_roles": [

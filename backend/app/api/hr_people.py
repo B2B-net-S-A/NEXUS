@@ -300,7 +300,7 @@ async def get_person(
 
 
 HISTORY_DETAIL = (
-    "Nieobecności i godziny widzą ta osoba, jej koordynator, Kadry i Finanse."
+    "Nieobecności i godziny widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."
 )
 
 

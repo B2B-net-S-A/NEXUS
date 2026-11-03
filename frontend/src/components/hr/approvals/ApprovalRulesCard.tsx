@@ -106,7 +106,7 @@ export function ApprovalRulesCard() {
       <div>
         <h2 className="text-base font-semibold text-foreground">Zgody — kto zatwierdza</h2>
         <p className="text-sm text-muted-foreground">
-          Do progu wydatek zatwierdza przełożony autora sam. Powyżej — i zawsze przy pustym polu —
+          Do progu wydatek zatwierdza koordynator autora sam. Powyżej — i zawsze przy pustym polu —
           decyduje zatwierdzający. Kwoty brutto w złotych; subskrypcja co miesiąc liczy się rocznie.
         </p>
       </div>

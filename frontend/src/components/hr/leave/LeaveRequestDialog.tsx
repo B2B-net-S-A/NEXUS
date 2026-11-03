@@ -286,7 +286,7 @@ export function LeaveRequestDialog({
               }
               description={
                 people.isSuccess && enterable.length === 0
-                  ? "Nie masz osób, którym wpisujesz nieobecność. Osoby na B2B i zleceniu zgłaszają nieobecność same — za nie wpisują Kadry."
+                  ? "Nie masz osób, którym wpisujesz nieobecność. Osoby na B2B i zleceniu zgłaszają nieobecność same — za nie wpisuje Administracja współpracy."
                   : undefined
               }
             >
@@ -431,7 +431,7 @@ export function LeaveRequestDialog({
             <FormField
               label="Załącznik (opcjonalnie)"
               htmlFor="leave-proof"
-              description="Trafi do Twoich dokumentów. Plik widzisz Ty i Kadry — przełożony widzi tylko, że jest."
+              description="Trafi do Twoich dokumentów. Plik widzisz Ty i Administracja współpracy — koordynator widzi tylko, że jest."
             >
               <FileDropZone
                 inputId="leave-proof"

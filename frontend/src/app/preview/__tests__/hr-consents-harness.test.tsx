@@ -34,18 +34,18 @@ afterEach(() => {
 });
 
 describe("/preview/hr-consents", () => {
-  it("zatwierdzający: premia z liczbami „NEXUS sprawdził” i zdanie o Płacach", async () => {
+  it("zatwierdzający: premia z liczbami „NEXUS sprawdził” i zdanie o Rozliczeniach", async () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=inbox&tab=consents");
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
-    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Rozliczeń jako przyznane/)).toBeInTheDocument();
     // Premia dla B2B ma podstawę w umowie (0491).
     expect(screen.getByText("§ 6 ust. 2 umowy z 01.03.2025")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
-  it("„Wszystko”: zgody i urlop w jednej liście, „Zdecydowane” — rozstrzygnięte zgody, bez zapytań", async () => {
+  it("„Wszystko”: zgody i urlop w jednej liście, „Załatwione” — rozstrzygnięte zgody, bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-consents?state=inbox");
     render(<HrConsentsPreviewPage />);
@@ -54,7 +54,7 @@ describe("/preview/hr-consents", () => {
     expect(screen.queryByRole("radiogroup", { name: "Co akceptujesz" })).toBeNull();
     expect(screen.getByRole("region", { name: "Raporty godzin" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    await user.click(screen.getByRole("radio", { name: "Załatwione" }));
     const decided = screen.getByRole("table", { name: "Zgody — zdecydowane" });
     expect(within(decided).getByText("Kurs negocjacji")).toBeInTheDocument();
     expect(within(decided).getByText("Odrzucona")).toBeInTheDocument();
@@ -74,7 +74,7 @@ describe("/preview/hr-consents", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona ponad próg: „Popieram” i zdanie o przekazaniu", async () => {
+  it("koordynatorka ponad próg: „Popieram” i zdanie o przekazaniu", async () => {
     window.history.replaceState({}, "", "/preview/hr-consents?state=supervisor&tab=consents");
     render(<HrConsentsPreviewPage />);
     expect(await screen.findByRole("button", { name: "Popieram" })).toBeInTheDocument();

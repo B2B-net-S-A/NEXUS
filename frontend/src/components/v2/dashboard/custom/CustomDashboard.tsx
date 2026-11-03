@@ -522,7 +522,7 @@ export function CustomDashboard() {
                 <Button asChild variant="outline">
                   <Link href="/jobs/daily">
                     <Users className="h-4 w-4" aria-hidden />
-                    Na daily
+                    Przegląd requestów
                   </Link>
                 </Button>
               ) : null}

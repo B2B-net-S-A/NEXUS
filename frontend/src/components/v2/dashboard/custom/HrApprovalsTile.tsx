@@ -18,9 +18,9 @@ import { resolveViewState } from "@/lib/view-state"
 export function approvalsLabel(count: number): string {
   return pluralPl(
     count,
-    "wniosek lub timesheet czeka",
-    "wnioski lub timesheety czekają",
-    "wniosków lub timesheetów czeka",
+    "wniosek lub raport godzin czeka",
+    "wnioski lub raporty godzin czekają",
+    "wniosków lub raportów godzin czeka",
   )
 }
 
@@ -42,11 +42,11 @@ export function HrApprovalsTile() {
   return (
     <div className="flex h-full flex-col gap-2">
       {state === "empty" ? (
-        <p className="text-sm text-muted-foreground">Nic nie czeka na Twoją decyzję.</p>
+        <p className="text-sm text-muted-foreground">Nic nie czeka na potwierdzenie.</p>
       ) : approvals === null ? (
         // Moduły urlopów i czasu pracy wyłączone dla tej osoby — kafelek wisi
         // z zapisanego układu (katalog by go nie zaproponował).
-        <p className="text-sm text-muted-foreground">Akceptacje nie są dla Ciebie włączone.</p>
+        <p className="text-sm text-muted-foreground">Lista „Do potwierdzenia” nie jest dla Ciebie włączona.</p>
       ) : (
         <div className="flex items-center gap-3 rounded-md border-l-2 border-warning py-1 pl-2">
           <span className="font-mono text-2xl font-semibold leading-none tabular-nums text-foreground">
@@ -61,7 +61,7 @@ export function HrApprovalsTile() {
         href="/people/approvals"
         className="mt-auto self-start text-sm font-medium text-primary hover:underline"
       >
-        Ludzie → Akceptacje
+        Ludzie → Do potwierdzenia
       </Link>
     </div>
   )

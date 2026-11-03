@@ -246,7 +246,7 @@ function LeaveDetail({
     void askConfirm({
       title: "Zaakceptować wniosek?",
       description: `${name} · ${formatRange(row.start_date, row.end_date)}.`,
-      confirmLabel: "Akceptuj",
+      confirmLabel: "Potwierdź",
       cancelLabel: "Jeszcze nie",
     }).then((ok) => (ok ? approve() : undefined));
     // Raz na wejście z linku; `approve` i `row` są stałe dla tej sprawy (`key`).
@@ -256,7 +256,7 @@ function LeaveDetail({
   const actions =
     item.kind === "decide" ? (
       row.can_decide === false ? (
-        <span className="text-sm text-muted-foreground">do wiadomości — decydują Kadry</span>
+        <span className="text-sm text-muted-foreground">do wiadomości — decyduje Administracja współpracy</span>
       ) : (
         <>
           {/* Zastępca przełożonego tylko decyduje — zmienia przełożony albo Kadry. */}
@@ -269,7 +269,7 @@ function LeaveDetail({
             Odrzuć
           </Button>
           <Button disabled={decide.isPending} onClick={approve}>
-            Akceptuj
+            Potwierdź
           </Button>
         </>
       )
@@ -283,7 +283,7 @@ function LeaveDetail({
         ) : null}
         {row.can_report_conflict ? (
           <Button variant="outline" onClick={() => setConflicting(row)}>
-            Zgłoś kolizję
+            Zgłoś uwagę
           </Button>
         ) : (
           <span className="text-sm text-muted-foreground">do wiadomości</span>
@@ -748,7 +748,7 @@ function ApprovalsInbox({
           state={leaveState as BlockingViewState}
           description={
             leaveState === "forbidden"
-              ? "Nieobecności do decyzji widzą koordynatorzy i Kadry."
+              ? "Nieobecności do decyzji widzą koordynatorzy i Administracja współpracy."
               : "Nie udało się wczytać nieobecności do decyzji — mogą czekać. Spróbuj ponownie za chwilę."
           }
           onRetry={() => pending.refetch()}
@@ -781,7 +781,7 @@ function ApprovalsInbox({
       >
         {chip === "info"
           ? "Nikt z zespołu na B2B ani na zleceniu nie ma zgłoszonej przerwy."
-          : "Nic nie czeka na Twoją decyzję."}
+          : "Nic nie czeka na potwierdzenie."}
         {linkedId !== null && consentsUsed
           ? " Zgoda z linku jest już rozpatrzona albo decyduje o niej ktoś inny."
           : null}
@@ -836,7 +836,7 @@ function ApprovalsInbox({
                   groups.urgent.length > 0 && "border-t border-border/60",
                 )}
               >
-                <h2 className={LABEL}>Do decyzji</h2>
+                <h2 className={LABEL}>Do potwierdzenia</h2>
                 <span
                   className={cn(
                     "rounded-full px-2 py-px text-[11px] font-semibold",
@@ -850,7 +850,7 @@ function ApprovalsInbox({
               </div>
               {groups.decide.length === 0 ? (
                 <p className="border-t border-border/60 px-3.5 py-3 text-sm text-muted-foreground">
-                  Nic nie czeka na Twoją decyzję.
+                  Nic nie czeka na potwierdzenie.
                 </p>
               ) : (
                 // Sama lista nieobecności zostaje pod dawną nazwą (e2e, czytniki).
@@ -909,7 +909,7 @@ function TimesheetsSection({ config }: { config: HrConfig }) {
   const initialMonth = yearMonthFromParams(params);
   return (
     <section
-      aria-label="Raporty godzin"
+      aria-label="Kolejka raportów godzin"
       className="space-y-3 rounded-xl border border-border bg-card p-4"
     >
       <TimesheetApprovalsSection
@@ -987,7 +987,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
   if (!access.leave && !access.time && !access.consents) {
     return (
       <p className="text-sm text-muted-foreground">
-        Akceptacje ruszą po włączeniu modułu nieobecności, czasu pracy albo zgód.
+        Lista „Do potwierdzenia” ruszy po włączeniu modułu nieobecności, czasu pracy albo zgód.
       </p>
     );
   }
@@ -1027,7 +1027,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
             onChange={(value) => setFilter({ chip, view: value })}
             options={[
               { value: "waiting", label: "Czeka" },
-              { value: "decided", label: "Zdecydowane" },
+              { value: "decided", label: "Załatwione" },
             ]}
           />
         ) : null}
@@ -1038,7 +1038,7 @@ export function ApprovalsScreen({ config }: { config: HrConfig }) {
           stats={[
             {
               id: "scope",
-              label: viewerIsHr || config.me.timesheets ? "zakres" : "mój zespół",
+              label: viewerIsHr || config.me.timesheets ? "zakres" : "moje osoby",
               value: viewerIsHr || config.me.timesheets
                 ? "wszyscy"
                 : countPl(config.me.direct_reports, "osoba", "osoby", "osób"),

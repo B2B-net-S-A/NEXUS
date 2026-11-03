@@ -73,7 +73,7 @@ describe("EntryDialog — poprawka opisu w dniu z nadgodzinami", () => {
     );
   });
 
-  it("przełożony bez prawa do nadgodzin poprawia opis wpisu nadgodzin", async () => {
+  it("koordynator bez prawa do nadgodzin poprawia opis wpisu nadgodzin", async () => {
     const onSave = renderDialog(EXTRA, false);
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
     expect(onSave).toHaveBeenCalledWith(
@@ -123,7 +123,7 @@ describe("EntryDialog — słowa godzin ponad 8 h według formy", () => {
     openNewEntry("b2b", false);
     fireEvent.click(screen.getByRole("button", { name: /Zapisz/ }));
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Godziny ponad 8 h wpisuje osoba z uprawnieniem do godzin ponad 8 h albo Kadry.",
+      "Godziny ponad 8 h wpisuje osoba z uprawnieniem do godzin ponad 8 h albo Administracja współpracy.",
     );
     expect(document.body.textContent).not.toMatch(/nadgodzin/i);
   });

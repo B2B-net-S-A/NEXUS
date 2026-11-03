@@ -36,13 +36,13 @@ afterEach(() => {
 });
 
 describe("/preview/hr-calendar", () => {
-  it("rekruterka: osoby i nieobecności bez rodzaju, bez chipa „Mój zespół”", async () => {
+  it("rekruterka: osoby i nieobecności bez rodzaju, bez chipa „Koordynacja”", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-calendar");
     render(<HrCalendarPreviewPage />);
 
     expect(await screen.findByRole("rowheader", { name: /Kamil Testowy/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Mój zespół/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Moje osoby/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Wszyscy/ })).toHaveAttribute("aria-pressed", "true");
     const bars = screen.getAllByRole("button", { name: /^Ewa Makietowa: Nieobecność/ });
     // Ciągły pasek: jedna nieobecność = jeden przycisk, nie kafelek na dzień.
@@ -50,7 +50,7 @@ describe("/preview/hr-calendar", () => {
     await user.click(bars[0]);
     expect(
       screen.getByText(
-        "Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.",
+        "Rodzaj nieobecności widzą tylko ta osoba, jej koordynator i Administracja współpracy.",
       ),
     ).toBeInTheDocument();
     // Wiersz „Nieobecnych” i panel tygodnia.
@@ -87,7 +87,7 @@ describe("/preview/hr-calendar", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona: domyślnie „Mój zespół”, rodzaj nieobecności swoich ludzi", async () => {
+  it("koordynatorka: domyślnie „Koordynacja”, rodzaj nieobecności swoich ludzi", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-calendar?as=manager");
     render(<HrCalendarPreviewPage />);
@@ -96,7 +96,7 @@ describe("/preview/hr-calendar", () => {
       name: /^Ewa Makietowa: Zwolnienie lekarskie/,
     });
     expect(sick.length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /^Mój zespół/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /^Moje osoby/ })).toHaveAttribute("aria-pressed", "true");
     const table = screen.getByRole("table");
     expect(within(table).queryByRole("rowheader", { name: /Kamil Testowy/ })).toBeNull();
     expect(within(table).getByRole("rowheader", { name: /Tomasz Podglądowy/ })).toBeInTheDocument();

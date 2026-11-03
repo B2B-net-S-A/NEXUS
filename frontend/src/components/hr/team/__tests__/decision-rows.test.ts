@@ -85,7 +85,7 @@ describe("decisionRows", () => {
       [
         "do wiadomości",
         "Adam Wzorcowy",
-        "wynagrodzenie dodatkowe · 2 propozycje — decydują Płace",
+        "wynagrodzenie dodatkowe · 2 propozycje — decydują Rozliczenia",
         undefined,
       ],
     ]);
@@ -102,7 +102,7 @@ describe("decisionRows", () => {
     ).toBe(false);
   });
 
-  it("słowa neutralne: bez „urlopu”, „premii” i „timesheetu” w znaczniku", () => {
+  it("słowa neutralne: bez „urlopu”, „premii” i „raportu godzin” w znaczniku", () => {
     for (const row of decisionRows(TEAM)) {
       expect(row.tag).not.toMatch(/urlop|premi|timesheet/i);
     }

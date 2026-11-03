@@ -415,7 +415,7 @@ async def _remove(actor_id: int, document_id: int) -> None:
     async with AsyncSessionLocal() as db:
         actor = await db.get(User, actor_id)
         row = await db.get(HrDocument, document_id)
-        orphan = await documents.remove(db, row, note="Pomyłka Kadr", actor=actor)
+        orphan = await documents.remove(db, row, note="Pomyłka Administracji współpracy", actor=actor)
         await db.commit()
     documents.delete_files([orphan])
 

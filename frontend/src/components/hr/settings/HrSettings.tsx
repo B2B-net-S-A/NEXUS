@@ -88,7 +88,7 @@ function DaysOffCard() {
   const removeDay = async (id: number, label: string) => {
     const ok = await askConfirm({
       title: "Usunąć dzień wolny?",
-      description: `${label} wróci do dni roboczych w urlopach i timesheetach.`,
+      description: `${label} wróci do dni roboczych w urlopach i raportach godzin.`,
       confirmLabel: "Usuń",
       variant: "destructive",
     });
@@ -106,7 +106,7 @@ function DaysOffCard() {
           <h2 className="text-base font-semibold text-foreground">Dni wolne firmy</h2>
           <p className="text-sm text-muted-foreground">
             Poza świętami ustawowymi (te NEXUS zna sam). Liczą się w urlopach,
-            timesheetach i tempie celów.
+            raportach godzin i tempie celów.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -212,7 +212,7 @@ function ModulesCard({ config }: { config: HrConfig }) {
       title: next ? "Włączyć moduł dla wszystkich?" : "Wyłączyć moduł?",
       description: next
         ? key === "approvals"
-          ? "Każdy z kartoteką poprosi o zgodę w „Mój czas → Zgody i wydatki”, a przełożeni i zatwierdzający dostaną je w „Akceptacjach”. Najpierw ustaw zasady niżej."
+          ? "Każdy z kartoteką poprosi o zgodę w „Moja współpraca → Zgody i wydatki”, a koordynatorzy i zatwierdzający dostaną je w „Do potwierdzenia”. Najpierw ustaw zasady niżej."
           : `„${HR_MODULE_LABELS[key]}” zobaczą wszyscy uprawnieni. Wcześniej zaimportuj dane z Compassa i przełącz Compass w tryb tylko do odczytu.`
         : `„${HR_MODULE_LABELS[key]}” zniknie wszystkim poza administratorem. Dane zostają.`,
       confirmLabel: next ? "Włącz" : "Wyłącz",
@@ -282,13 +282,13 @@ function BonusRulesSignpost({ config }: { config: HrConfig }) {
     <p className="text-sm text-muted-foreground">
       Reguły premii są w{" "}
       <Link href="/settings/payroll" className="font-medium text-primary hover:underline">
-        Ustawienia → Płace
+        Ustawienia → Rozliczenia
       </Link>
       .
     </p>
   ) : (
     <p className="text-sm text-muted-foreground">
-      Reguły premii są w Ustawienia → Płace — zmienia je osoba z uprawnieniem „Płace”.
+      Reguły premii są w Ustawienia → Rozliczenia — zmienia je osoba z uprawnieniem „Rozliczenia”.
     </p>
   );
 }
@@ -348,7 +348,7 @@ export function HrSettings({ config }: { config: HrConfig }) {
           tabs={tabs.map((value) => ({ value, label: TAB_LABELS[value] }))}
           value={tab}
           onValueChange={select}
-          ariaLabel="Kadry"
+          ariaLabel="Administracja współpracy"
         />
       ) : null}
       {open.payroll ? <BonusRulesSignpost config={config} /> : null}

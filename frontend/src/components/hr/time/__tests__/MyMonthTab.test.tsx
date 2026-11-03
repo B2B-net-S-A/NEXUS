@@ -107,7 +107,7 @@ function month(overrides: Partial<MonthView> = {}): MonthView {
     employment_type: "uop",
     default_location: "onsite",
     can_log_overtime: false,
-    approver_name: "Jan Przełożony",
+    approver_name: "Jan Koordynator",
     timesheet: null,
     days: [
       day("2031-03-03", 1, {
@@ -219,7 +219,7 @@ describe("MyMonthTab", () => {
     expect(within(leave).queryByRole("button", { name: /Dodaj wpis/ })).toBeNull();
     expect(screen.getByText("szkic · wyślij do 05.04")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Wyślij do akceptacji" })).toBeInTheDocument();
-    expect(screen.getByText("Jan Przełożony")).toBeInTheDocument();
+    expect(screen.getByText("Jan Koordynator")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pobierz PDF/ })).toBeNull();
   });
 
@@ -260,7 +260,7 @@ describe("MyMonthTab", () => {
     );
   });
 
-  it("wysłany timesheet nie ma akcji edycji, zaakceptowany ma PDF", async () => {
+  it("wysłany raport godzin nie ma akcji edycji, zaakceptowany ma PDF", async () => {
     const header = {
       id: 5,
       status: "approved" as const,
@@ -268,7 +268,7 @@ describe("MyMonthTab", () => {
       return_note: null,
       returned_at: null,
       approved_at: "2031-04-02T08:00:00Z",
-      approved_by_name: "Jan Przełożony",
+      approved_by_name: "Jan Koordynator",
       payroll_locked: false,
       pdf_hash: "a".repeat(64),
     };
@@ -403,7 +403,7 @@ describe("MyMonthTab", () => {
     expect(await screen.findByTestId("week-2031-03-03")).toHaveTextContent(
       "Tydzień 3–8.03 · 8 / 24 h",
     );
-    expect(screen.getByText("Brakuje 19 dni roboczych.")).toBeInTheDocument();
+    expect(screen.getByText("19 dni bez wpisu.")).toBeInTheDocument();
     expect(screen.getByText("8 / 168 h")).toBeInTheDocument();
   });
 
@@ -458,7 +458,7 @@ describe("MyMonthTab", () => {
     routeGet(month());
     renderTab();
     await screen.findByTestId("day-2031-03-03");
-    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Eksport CSV" }));
     expect(await screen.findByText("Eksport godzin do CSV")).toBeInTheDocument();
     expect((screen.getByLabelText("Od miesiąca") as HTMLInputElement).value).toBe("2031-03");
@@ -471,13 +471,13 @@ describe("MyMonthTab", () => {
     expect(screen.queryByTestId("day-2031-03-03")).toBeNull();
   });
 
-  it("archiwum timesheetów: pobierane po rozwinięciu, PDF tylko przy zaakceptowanym", async () => {
+  it("archiwum raportów godzin: pobierane po rozwinięciu, PDF tylko przy zaakceptowanym", async () => {
     routeGet(month());
     renderTab();
     await screen.findByTestId("day-2031-03-03");
     expect(mocks.get).not.toHaveBeenCalledWith("/api/hr/time/me/history");
 
-    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     const archive = await screen.findByRole("button", { name: "Pobierz PDF luty 2031" });
     expect(archive).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pobierz PDF marzec 2031" })).toBeNull();

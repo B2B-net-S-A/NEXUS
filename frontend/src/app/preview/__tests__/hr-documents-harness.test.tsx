@@ -33,7 +33,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-documents", () => {
-  it("Kadry: dokumenty, protokół jako odnośnik, ślad pomyłki i okno wgrania", async () => {
+  it("Administracja współpracy: dokumenty, protokół jako odnośnik, ślad pomyłki i okno wgrania", async () => {
     window.history.replaceState({}, "", "/preview/hr-documents");
     render(<HrDocumentsPreviewPage />);
     expect(await screen.findByText("Umowa zlecenia z 01.03.2026")).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe("/preview/hr-documents", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Płace: bez protokołów sprzętu", async () => {
+  it("Rozliczenia: bez protokołów sprzętu", async () => {
     window.history.replaceState({}, "", "/preview/hr-documents?state=payroll");
     render(<HrDocumentsPreviewPage />);
     expect(await screen.findByText("Umowa zlecenia z 01.03.2026")).toBeInTheDocument();
@@ -62,7 +62,7 @@ describe("/preview/hr-documents", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry: lista po terminie przechowywania i okresy", async () => {
+  it("Administracja współpracy: lista po terminie przechowywania i okresy", async () => {
     window.history.replaceState({}, "", "/preview/hr-documents?state=retention");
     render(<HrDocumentsPreviewPage />);
     expect(await screen.findByText("Dokumenty po terminie przechowywania")).toBeInTheDocument();
