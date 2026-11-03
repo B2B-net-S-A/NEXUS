@@ -2772,7 +2772,7 @@
   {
    "id": "panel.notes-earlier",
    "area": "panel",
-   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem i powodem, także zakończone rekrutacje bez notatek; licznik notatek ludzi na zakładce",
    "file": "components/v2/person/PersonNotesHistory.tsx",
    "marker": "Wcześniej u nas",
    "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
@@ -2844,7 +2844,7 @@
   {
    "id": "screening.before-call-earlier",
    "area": "panel",
-   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”); wynik i powód widać też po zwinięciu",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "Warunki — co już wiemy",
    "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
