@@ -7,8 +7,8 @@ złe liczby, choć staging działał normalnie.
 
 Przebieg (decyzja Artura z 02.11.2026, docs/claude/podstawy/staging-na-laptopie.md):
 flagi z procesu backendu produkcji → zrzut → nowa baza
-``nexus_staging_nightly_<RRRRMMDD>`` → przełączenie ``STAGING_DATABASE_NAME`` →
-wyrównanie Qdranta → strażnik rankingu → porządki.
+``nexus_staging_nightly_<RRRRMMDD>`` → dosłanie plików CV → przełączenie
+``STAGING_DATABASE_NAME`` → wyrównanie Qdranta → strażnik rankingu → porządki.
 
 Każdy błąd przed przełączeniem zostawia staging na poprzedniej kopii. Produkcja
 jest tylko czytana. Do raportu trafiają wyłącznie nasze komunikaty, a wyjście
@@ -94,6 +94,8 @@ PROD_WAIT_INTERVAL = 60
 # Pełne przeliczenie to ok. 70 tys. osób i kilka godzin w środku nocnych rutyn.
 # Tyle różnic oznacza zmianę tekstu albo modelu, a to decyzja człowieka.
 MAX_REEMBED_PEOPLE = 5000
+# Limit w skrypcie to 1 h (`--max-duration`). Tu zapas na start kontenera i ostatnie pliki.
+CV_FILES_TIMEOUT = 75 * 60
 
 POSTGRES_USER = "nexus"
 BACKEND = "nexus-staging-backend-1"
@@ -712,6 +714,53 @@ def wait_healthy(
     return reason
 
 
+def cv_files_stats(log: str) -> tuple[int, int]:
+    """(pliki, bajty) z ostatnich statystyk rclone. Compose pisze w tym samym strumieniu."""
+    for line in reversed(log.splitlines()):
+        try:
+            stats = json.loads(line)["stats"]
+        except (ValueError, LookupError, TypeError):
+            continue
+        return stats["transfers"], stats["bytes"]
+    raise SyncError("rclone nie wypisał statystyk, szczegóły w prywatnym logu")
+
+
+def send_cv_files(cfg: Config, report: Report) -> None:
+    """Pliki z dzisiejszej bazy, zanim ta baza zacznie działać na stagingu.
+
+    Błąd nie zatrzymuje kopii: świeża baza z brakami w nowych plikach jest lepsza niż
+    wczorajsza, a następna noc dosyła resztę. Wymaga `build_code`, bo skrypt i link do
+    pliku env leżą w katalogu kodu.
+    """
+    try:
+        result = run_cmd(
+            [
+                *compose(cfg),
+                "--profile",
+                "restore",
+                "run",
+                "--rm",
+                "-T",
+                "--no-deps",
+                "--entrypoint",
+                "/bin/sh",
+                "restore",
+                "/staging/sync_cv_files.sh",
+            ],
+            timeout=CV_FILES_TIMEOUT,
+            what="Dosłanie plików CV",
+        )
+        files, size = cv_files_stats(result.stderr)
+    except (SyncError, OSError, ValueError, LookupError, TypeError) as error:
+        report.waiting.append(
+            f"Pliki CV niedosłane: {error}. Nowe rekordy mogą dawać 503 w podglądzie oryginału, "
+            "a QC pisać „Brak tekstu oryginalnego CV”, więc nie opieraj na nich wniosków. "
+            "Warianty: 1) sprawdzić log i uruchomić krok ręcznie (rekomendowane), 2) poczekać na następną noc."
+        )
+        return
+    report.done.append(f"Pliki CV z produkcji: dosłane {files}, {size / 2**20:.0f} MB.")
+
+
 def run_parity() -> tuple[int, str, int, list[str]]:
     result = run_cmd(
         ["docker", "exec", BACKEND, "python", "-m", "scripts.staging_ranking_parity"],
@@ -892,6 +941,7 @@ def sync(cfg: Config, report: Report, now_utc: datetime, date: str) -> tuple[int
             f"odtworzenie {(time.monotonic() - dumped) / 60:.0f} min."
         )
         build_code(cfg, sha)
+        send_cv_files(cfg, report)
     except (SyncError, OSError, ValueError, LookupError) as error:
         report.waiting.append(
             f"Kopia nieudana przed przełączeniem: {error}. Staging został na poprzedniej kopii. "

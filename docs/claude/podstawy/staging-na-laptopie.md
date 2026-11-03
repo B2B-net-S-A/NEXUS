@@ -98,9 +98,9 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
    ustala przy każdym biegu. Wdrożenie restartuje Postgresa produkcji i zrywa zrzut
    (03.11.2026 w 9. minucie), więc skrypt czeka na nowy kontener i ponawia, najwyżej
    4 razy. Zrzut jest przerywany o 02:15 UTC, przed backupem produkcji.
-3. Buduje kod z `origin/main`, przełącza `STAGING_DATABASE_NAME`, odtwarza backend
-   i front. Sprawdza `/api/health` na nowej bazie. Gdy jest niezdrowy, cofa plik env
-   i flagi.
+3. Buduje kod z `origin/main`, dosyła brakujące pliki CV (niżej), przełącza
+   `STAGING_DATABASE_NAME`, odtwarza backend i front. Sprawdza `/api/health` na nowej
+   bazie. Gdy jest niezdrowy, cofa plik env i flagi.
 4. Wyrównuje Qdrant (`--target candidates --resume`, `--target jobs --only-missing`)
    i uruchamia strażnika. Powyżej 5 000 różnic nie liczy, tylko pyta w raporcie,
    bo to zwykle zmiana tekstu albo modelu.
@@ -129,8 +129,45 @@ w `~/.nexus-staging/logs/`.
   gałęzi wstaje na nowej kopii.
 - `nexus_sales`, `nexus_branch_*` i `nexus_staging_2026*` skrypt pomija. Stare kopie
   `nexus_staging_2026*` usuwa się ręcznie.
-- Pliki nie są częścią kopii: uploady i lokalny S3 zostają z pełnego odtworzenia,
-  więc CV dodane później są w bazie, a ich plików lokalnie nie ma.
+
+## Pliki CV jak na produkcji
+
+03.11.2026 podgląd oryginału dawał na stagingu 503, a QC pisał „Brak tekstu
+oryginalnego CV” i odkładał sprawdzenia, choć na produkcji pliki były. Baza była
+z tej nocy, a lokalny S3 z pełnego odtworzenia 23.10: brakowało 5 571 plików (1,5 GB).
+Rekordy z 23–27.10 mieszały 200 i 503, bo klucz `stage-cv/<kandydat>/<sha256>` jest
+wspólny dla tej samej osoby i treści, więc nowy wiersz trafiał czasem na stary plik.
+Brak pliku na stagingu nie mówi więc nic o produkcji, dopóki krok niżej nie przeszedł.
+
+- `scripts/staging/sync_cv_files.sh` biegnie co noc z `send_cv_files`, przed
+  przełączeniem bazy, w kontenerze `restore` (ten sam obraz, bez drugiego stosu):
+  `rclone copy --ignore-existing` z bucketu produkcji kluczem tylko do odczytu.
+  Zapis idzie wyłącznie do lokalnego S3.
+- **Nie zamieniaj na lustro w B2**: dzienny limit pobrań klasy B. Bez `CV_SOURCE_*`
+  skrypt kończy się błędem, nie szuka innego źródła.
+- **Koszt nocy** zmierzony 03.11: lista ok. 196 tys. obiektów to ok. 200 zapytań do
+  bucketu (25 s), a pobranie idzie tylko dla brakujących plików. 1 013 plików
+  i 257 MB trwało 46 s. Dobowy przyrost to kilkaset plików. Nie dodawaj porównania
+  czasu ani sumy kontrolnej, bo przy tej liczbie plików daje zapytanie na każdy
+  obiekt, a klucze nie zmieniają treści (uuid albo sha256).
+- **Błąd nie zatrzymuje kopii.** Trafia do „Czeka na Artura” w `staging-kopia.md`,
+  a następna noc dosyła resztę. Limit biegu to 1 h. Laptop uśpiony w trakcie kończy
+  się błędami DNS i kodem 1 (03.11: 913 plików), a kolejny bieg je dosyła.
+- Ręcznie, gdy brak pliku przeszkadza w ciągu dnia (z `~/.nexus-staging/code`, gdy
+  ma już ten skrypt):
+
+  ```bash
+  docker compose -p nexus-staging -f docker-compose.staging.yml --env-file .env.staging.local --profile restore run --rm -T --no-deps --entrypoint /bin/sh restore /staging/sync_cv_files.sh
+  ```
+
+- Błędy rclone niosą klucze z nazwami plików, a te bywają nazwiskami, więc wyjście
+  idzie tylko do prywatnego logu, nigdy do raportu ani repo.
+- `copy` nie kasuje: lokalne zapisy sesji zostają, a plik usunięty na produkcji zostaje
+  na laptopie do następnego pełnego odtworzenia. 03.11 takich plików nie było: 26
+  plików spoza produkcji to zapisy ze stagingu.
+- **Uploady nie są objęte tym krokiem.** Wolumen `uploads_data` (m.in. `branded_cvs/`)
+  zostaje z pełnego odtworzenia: 03.11 ze 358 ścieżek `branded_snapshot_path` lokalnie
+  było 168, więc gotowe PDF-y CV firmowego nowszych rekordów mogą na stagingu nie działać.
 
 ## Kopia bez klucza age i późniejsze przenoszenie zmian
 
