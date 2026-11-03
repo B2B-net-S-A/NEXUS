@@ -10,6 +10,8 @@
 import type { ChampionProfile, CvGeneratePayload } from "@/lib/api";
 import { isClientCvWordFile } from "@/lib/candidate-files";
 import type { CvAiSourceToggles } from "@/lib/cv-ai-sources";
+import { candidateJobNames, jobNameText } from "@/lib/job-name-text";
+import { clientReferenceParts } from "@/lib/job-names";
 import {
   clientRuleRequirementProblems,
   stageLabel,
@@ -40,8 +42,65 @@ export function defaultCvSourceId(
   return primary?.id ?? sources[0]?.id ?? null;
 }
 
+/** Stanowisko, które pole pokazuje po wyborze procesu. Serwer sprzed zmiany nie przysyła `cv_position`. */
+export function recruitmentPosition(recruitment: RecruitmentOption): string {
+  return recruitment.cv_position ?? recruitment.job_title;
+}
+
+function cleanSpaces(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/** Lustro `typed_cv_position`: wpisane stanowisko bez numeru zapytania klienta. */
+export function typedCvPosition(value: string, reference: string | null | undefined): string {
+  let text = cleanSpaces(value).replace(/\bZOB[\s_-]*\d+\b/gi, "");
+  for (const part of clientReferenceParts(reference)) {
+    const escaped = part.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+    text = text.replace(new RegExp(`[_\\s]*(?<![A-Za-z0-9])${escaped}(?![A-Za-z0-9])`, "gi"), "");
+  }
+  text = cleanSpaces(text.replace(/[([]\s*[)\]]/g, "")).replace(/^[\s\-–—,/_:]+|[\s\-–—,/_:]+$/g, "");
+  return /\p{L}/u.test(text) ? text : "";
+}
+
+export interface CvFilenamePreviewInput {
+  pattern: string | null | undefined;
+  spacesToUnderscores: boolean;
+  position: string;
+  project: string;
+  candidateName: string;
+}
+
+/** Lustro `build_filename` na żywo w formularzu. Wspólne przypadki: `cv-filename-preview-cases.json`. */
+export function cvFilenamePreview(input: CvFilenamePreviewInput): string | null {
+  const pattern = input.pattern?.trim();
+  if (!pattern) return null;
+  const word = (value: string) => {
+    const text = cleanSpaces(value);
+    return input.spacesToUnderscores ? text.replace(/ /g, "_") : text;
+  };
+  const project = pattern.startsWith("ZOB-{PROJEKT}")
+    ? input.project.trim().replace(/^(?:ZOB[\s_-]*)+/i, "")
+    : input.project;
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Warsaw" }).format(new Date());
+  const stem = pattern
+    .replaceAll("{STANOWISKO}", word(input.position))
+    .replaceAll("{IMIE_NAZWISKO}", word(input.candidateName))
+    .replaceAll("{PROJEKT}", word(project))
+    .replaceAll("{DATA}", today)
+    .replace(/[_-]{2,}/g, "_")
+    .replace(/^[_\- ]+|[_\- ]+$/g, "")
+    .replace(/[\\/:*?"<>|\x00-\x1f]/g, "")
+    .replace(/^[ .]+|[ .]+$/g, "");
+  return stem ? `${stem}.docx` : null;
+}
+
 /** Etykieta procesu w selekcie: „Stanowisko · Klient · Etap”. */
 export function processLabel(recruitment: RecruitmentOption): string {
+  // Lista jest wewnętrzna: rekrutacja nazywa się jak jej nagłówek. Nazwa od
+  // klienta bywała taka sama w dwóch procesach („ZOB-3103 usługi programistyczne”).
+  if (recruitment.job_working_title) {
+    return [jobNameText(candidateJobNames(recruitment)), stageLabel(recruitment.stage)].join(" · ");
+  }
   return [
     recruitment.job_title,
     recruitment.client_name || "bez klienta",
@@ -176,6 +235,7 @@ export function missingInputs(input: MissingInput): string[] {
     hasChampionInput: hasChampion,
   });
   for (const problem of ruleProblems) if (!items.includes(problem)) items.push(problem);
+  if (input.recruitment?.cv_position === "" && !input.position.trim()) items.push("Stanowisko");
   if (input.consentBlocksGeneration && !input.consentToken) items.push("Zrzut zgody kandydata (RODO)");
   // Awaria odczytu źródeł nie blokuje: serwer bierze wtedy ustawienia domyślne.
   if (input.aiSourcesLoading) items.push("Źródła dla AI — wczytuję…");

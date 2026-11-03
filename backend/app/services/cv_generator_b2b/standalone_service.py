@@ -2832,11 +2832,6 @@ async def load_candidate_generation_source(
 
     position = (position or "").strip()
     job_title = (job.title or "").strip() if job is not None else ""
-    # Pole „Stanowisko” jest w UI podpowiadane tytułem rekrutacji — ten sam
-    # tekst to nie decyzja rekrutera, więc nagłówek dalej dopasowuje model.
-    position_override = (
-        position if position and position.casefold() != job_title.casefold() else ""
-    )
     # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
     # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
     header_title = ""
@@ -2844,6 +2839,21 @@ async def load_candidate_generation_source(
         from app.services.job_working_title import cv_role_title_for_job
 
         header_title = await cv_role_title_for_job(db, job)
+    # Pole „Stanowisko” jest w UI podpowiadane nazwą roli (wcześniej tytułem
+    # rekrutacji) — ten sam tekst to nie decyzja rekrutera. Wpisany numer
+    # zapytania schodzi: nazwa pliku ma go już ze wzoru klienta.
+    position_override = position
+    if job is not None:
+        from app.services.job_working_title import typed_cv_position
+
+        position_override = typed_cv_position(
+            position, getattr(job, "client_reference", None)
+        )
+    if (
+        position.casefold() == job_title.casefold()
+        or position_override.casefold() == header_title.casefold()
+    ):
+        position_override = ""
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",

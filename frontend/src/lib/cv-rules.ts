@@ -123,6 +123,7 @@ export type ClientCvRuleForGeneration = Pick<
   | "require_position"
   | "require_champion"
   | "filename_pattern"
+  | "spaces_to_underscores"
   | "filename_preview"
   | "notes"
   | "generator_instructions"

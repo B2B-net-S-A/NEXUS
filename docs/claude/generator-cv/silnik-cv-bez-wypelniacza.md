@@ -69,8 +69,8 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   expert”), a gdy człony mają spacje — na „ – ”. Na stagingu zmieniło to 34
   z 207 otwartych rekrutacji, wszystkie Nordei; „Replacement Senior …” bez
   separatora zostaje (to mogłaby być rola „Replacement Planner”).
-  Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
-  `cv_role_title`, nie surowy tytuł.
+  Gdy rekruter zostawi w polu „Stanowisko” podpowiedź, nagłówek bierze
+  `cv_role_title`, nie surowy tytuł (pole: `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`).
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
   klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Rekrutacja
   z bazy idzie zawsze przez `cv_role_title_for_job(db, job)` — to samo
