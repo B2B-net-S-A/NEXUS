@@ -63,6 +63,8 @@ async def test_reparse_queues_the_upload_enrichment_for_the_primary_cv(
     assert task.await_args.args == (candidate_id, document_id, "a" * 64)
     # AI-07: odczyt CV liczy się na osobę, która go zleciła, nie na „system”.
     assert task.await_args.kwargs["actor_user_id"] is not None
+    # Wgranie pomija plik, którego odczyt profil już ma; „ponów odczyt” nie.
+    assert task.await_args.kwargs["force_read"] is True
 
 
 async def test_reparse_without_primary_cv_says_so(
