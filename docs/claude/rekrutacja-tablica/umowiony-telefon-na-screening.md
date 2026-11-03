@@ -1,8 +1,8 @@
 # Umówiony telefon na screening (03.11.2026)
-<!-- indeks: `services/screening_calls.py`, wydarzenie `screening` z miejscem „Telefon”, blokada do terminu + 2 h, Outlook bez zaproszenia, sprzątanie w pętli przypomnień -->
+<!-- indeks: `services/screening_calls.py`, wydarzenie `screening` z miejscem „Telefon”, blokada do terminu + 30 min, Outlook bez zaproszenia, sprzątanie w pętli przypomnień -->
 
 Pomysł rekrutera z czatu i decyzja Artura z 03.11.2026: wariant A, blokada do
-terminu + 2 h, wpis w Outlooku bez zaproszenia. Makiety:
+godziny rozmowy + 30 min, wpis w Outlooku bez zaproszenia. Makiety:
 https://claude.ai/artifact/8GhHfMcbqVmst9qDLWUyKb. Pomiar na kopii produkcji:
 36 notatek „oddzwonić / kontakt po 16” w 60 dni, 6 z 23 bez śladu pracy przez
 ponad 7 dni, a typ `screening` miał 0 wydarzeń w 120 dni.
@@ -17,13 +17,24 @@ ponad 7 dni, a typ `screening` miał 0 wydarzeń w 120 dni.
 - **Umawiać można tylko w „Nowych” i „Screeningu”** w otwartym procesie otwartej
   rekrutacji. Jedna para ma najwyżej jeden otwarty termin (409, „Przełóż”).
   Termin najdalej za 60 dni.
-- **Termin trzyma osobę do startu + 2 h, najwyżej 7 dni i nigdy krócej niż 12 h**
-  (`hold_until`). Cudzej aktywnej blokady nie przejmuje: rekruter dostaje 423,
-  a DL, HoR i admin 409 z prośbą o „Przejmij”, bo tam jest dzwonek do poprzedniej
-  osoby. Na osobie od systemu umówienie jest decyzją „Dzwonię” (`record_call`).
+- **Termin trzyma osobę do startu + 30 min, najwyżej 7 dni i nigdy krócej niż
+  12 h** (`hold_until`). Cudzej aktywnej blokady nie przejmuje: rekruter dostaje
+  423, a DL, HoR i admin 409 z prośbą o „Przejmij”, bo tam jest dzwonek do
+  poprzedniej osoby. Na osobie od systemu umówienie jest decyzją „Dzwonię”
+  (`record_call`). Odwołanie albo zapis screeningu skraca blokadę do 12 h od tej
+  chwili (`release_hold`), bo bez terminu nie ma powodu trzymać osoby dłużej.
+- **„Biorę” i „Przejmij” zabierają telefon** (`follow_claim`, założenie do
+  potwierdzenia przez Artura): nowy prowadzący ma przypomnienie, listę i „Przełóż”.
+  Blokada w Outlooku poprzedniej osoby znika, a nowa nie powstaje, bo ta trasa
+  nie woła Grapha.
+- **Edycja w kalendarzu nie rusza znacznika ani Outlooka** (`update_event`): typ,
+  miejsce, kandydat i rekrutacja dają 409, a do Outlooka idzie tylko termin.
+  Zmiana terminu przesuwa blokadę osoby.
 - **Zapis screeningu kończy termin od razu** (`screening_form.save`). Ruch karty
   i zamknięcie rekrutacji łapie `reconcile` w pętli przypomnień, co minutę:
   karta rusza się kilkunastoma ścieżkami i nie dokładamy haka do każdej.
+  `reconcile` to sama baza i biegnie przed skanem przypomnień. `clean_outlook`
+  biegnie po nich, z limitem 30 s i 20 wpisów, bo wywołanie Grapha trwa do 120 s.
   Staging ma tę pętlę zatrzymaną, więc tam termin po ruchu karty zostaje otwarty.
 - **Outlook jest dodatkiem i idzie po commicie** (`add_to_outlook`,
   `move_in_outlook`), bo `GraphClient` zatwierdza sesję przy odświeżeniu tokenu.

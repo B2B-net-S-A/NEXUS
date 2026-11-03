@@ -6,7 +6,7 @@ rekrutacji z sekcji pipeline'u.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -127,6 +127,7 @@ async def cancel_screening_call(
     event = await svc.load_call(db, event_id)
     await svc.assert_can_manage(db, event, current_user)
     event.status = EventStatus.cancelled
+    await svc.release_hold(db, event, datetime.now(timezone.utc))
     result = _out(event)
     actor_id = current_user.id
     job_id = event.job_id

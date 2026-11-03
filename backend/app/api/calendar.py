@@ -604,6 +604,27 @@ def _outlook_changed_fields(event: CalendarEvent, changes: dict) -> list[str]:
     )
 
 
+# Umówiony telefon: znacznik i para zostają, inaczej pętla i listy go zgubią.
+_BOOKED_CALL_LOCKED_FIELDS = frozenset(
+    {"event_type", "location", "candidate_id", "job_id"}
+)
+_BOOKED_CALL_OUTLOOK_FIELDS = frozenset({"start_time", "end_time"})
+
+
+def _reject_booked_call_changes(event: CalendarEvent, changes: dict) -> None:
+    if any(
+        field in changes and changes[field] != getattr(event, field)
+        for field in _BOOKED_CALL_LOCKED_FIELDS
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "To umówiony telefon. Możesz zmienić termin i opis, a typ, miejsce, "
+                "kandydata i rekrutację zostaw bez zmian."
+            ),
+        )
+
+
 def _reject_outlook_owned_changes(event: CalendarEvent, changes: dict) -> None:
     if not _is_outlook_event(event):
         return
@@ -667,6 +688,9 @@ async def update_event(
         _is_contact_handoff_event(event),
     )
     changes = body.model_dump(exclude_unset=True)
+    booked_call = is_booked_call(event)
+    if booked_call:
+        _reject_booked_call_changes(event, changes)
     _reject_outlook_owned_changes(event, changes)
 
     # CAL-01: KAŻDA lokalna odmowa (daty wynikowe, zakres rekrutacji) zapada
@@ -722,12 +746,22 @@ async def update_event(
 
     await _reject_teams_meeting_relink(db, event, changes)
     outlook_fields = _outlook_changed_fields(event, changes)
+    if booked_call:
+        # W Outlooku jest sama blokada: nazwisko i słowa kandydata tam nie idą.
+        outlook_fields = [f for f in outlook_fields if f in _BOOKED_CALL_OUTLOOK_FIELDS]
     previous_start = event.start_time
     previous_status = event.status
     if outlook_fields:
         await _push_outlook_changes(db, event, changes, outlook_fields)
     for field, value in changes.items():
         setattr(event, field, value)
+    if booked_call:
+        moment = datetime.now(timezone.utc)
+        if event.status != EventStatus.scheduled:
+            await screening_calls.release_hold(db, event, moment)
+        elif event.start_time != previous_start:
+            event.reminder_sent_at = None
+            await screening_calls.extend_hold(db, event, moment)
     if {"start_time", "end_time"} & set(outlook_fields):
         await _notify_prep_moved(db, event, current_user, previous_start)
     if normalize_all_day_range:
@@ -1156,6 +1190,8 @@ async def cancel_event(
             occurred_at=datetime.now(timezone.utc),
         )
     event.status = EventStatus.cancelled
+    if is_booked_call(event):
+        await screening_calls.release_hold(db, event, datetime.now(timezone.utc))
     if _upcoming(event.start_time):
         await notify_client_interview_change(
             db, actor=current_user, event=event, kind="cancelled"
@@ -1217,6 +1253,8 @@ async def delete_event(
         event_id=event.id,
         override=user_is_override(current_user),
     )
+    if is_booked_call(event):
+        await screening_calls.release_hold(db, event, datetime.now(timezone.utc))
     await db.delete(event)
     await db.commit()
 
@@ -1845,9 +1883,9 @@ async def calendar_reminder_loop():
             # Przed skanem: telefon osoby, która już poszła dalej, nie dzwoni.
             # Awaria porządków nie może zatrzymać przypomnień.
             try:
-                await screening_calls.run_housekeeping(now)
+                await screening_calls.reconcile_open_calls()
             except Exception:  # noqa: BLE001
-                logger.exception("Booked call housekeeping failed")
+                logger.exception("Booked call reconcile failed")
             async with AsyncSessionLocal() as db:
                 # Bez dolnej granicy `now+14min` — patrz docstring.
                 due_ids = await _due_reminder_ids(db, now)
@@ -1861,6 +1899,11 @@ async def calendar_reminder_loop():
                     logger.exception(
                         "calendar reminder dispatch failed for event %s", event_id
                     )
+
+            try:
+                await screening_calls.clean_outlook_copies(now)
+            except Exception:  # noqa: BLE001
+                logger.exception("Booked call Outlook cleanup failed")
 
         except asyncio.CancelledError:
             raise

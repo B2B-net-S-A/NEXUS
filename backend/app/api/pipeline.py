@@ -5151,6 +5151,7 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    await screening_calls.follow_claim(db, process=process, user=current_user, now=now)
     # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
     # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
     from app.services.autofill_decisions import record_call

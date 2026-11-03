@@ -49,9 +49,9 @@ async def test_hold_never_shorter_than_a_normal_claim() -> None:
     assert svc.hold_until(NOW + timedelta(hours=1), NOW) == NOW + timedelta(hours=12)
 
 
-async def test_hold_lasts_two_hours_after_the_call() -> None:
+async def test_hold_lasts_thirty_minutes_after_the_call() -> None:
     start = NOW + timedelta(days=2)
-    assert svc.hold_until(start, NOW) == start + timedelta(hours=2)
+    assert svc.hold_until(start, NOW) == start + timedelta(minutes=30)
 
 
 async def test_hold_is_capped_at_seven_days() -> None:
@@ -261,7 +261,7 @@ async def test_booking_makes_a_phone_event_and_holds_the_person(api_client):
 
         proc = await _process(cand_id, job_id)
         assert proc.claimed_by_user_id == owner_id
-        assert abs(proc.claimed_until - (start + timedelta(hours=2))) < timedelta(
+        assert abs(proc.claimed_until - (start + timedelta(minutes=30))) < timedelta(
             seconds=1
         )
 
@@ -382,15 +382,18 @@ async def test_only_owner_or_lead_moves_a_call_and_moving_rearms_reminder(api_cl
         # Przełożenie bez pola `note` zostawia to, co powiedział kandydat.
         assert event.description == "stara"
         proc = await _process(cand_id, job_id)
-        assert abs(proc.claimed_until - (new_start + timedelta(hours=2))) < timedelta(
-            seconds=1
-        )
+        assert abs(
+            proc.claimed_until - (new_start + timedelta(minutes=30))
+        ) < timedelta(seconds=1)
 
         cancelled = await api_client.post(
             f"/api/screening-calls/{event_id}/cancel", headers=owner_h
         )
         assert cancelled.status_code == 200, cancelled.text
         assert (await _event(event_id)).status == EventStatus.cancelled
+        # Bez terminu osoba nie jest trzymana dłużej niż zwykłe „Biorę”.
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_until - datetime.now(timezone.utc) <= timedelta(hours=12)
         again = await api_client.post(
             f"/api/screening-calls/{event_id}/cancel", headers=owner_h
         )
@@ -749,3 +752,158 @@ async def test_reminder_opens_the_panel_and_pops_up(api_client, monkeypatch):
             )
             await db.commit()
         await _cleanup(cand_id, job_id)
+
+
+async def test_saved_screening_shortens_the_hold(api_client):
+    _, job_id, cand_id, event_id = await _book_directly_for(api_client, days=5)
+    try:
+        async with AsyncSessionLocal() as db:
+            await svc.complete_for_pair(db, candidate_id=cand_id, job_id=job_id)
+            await db.commit()
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_until - datetime.now(timezone.utc) <= timedelta(hours=12)
+    finally:
+        await _cleanup(cand_id, job_id)
+
+
+async def _book_directly_for(api_client, *, days: int) -> tuple[int, int, int, int]:
+    owner_id, email, pw = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(owner_id)
+    cand_id = await _seed_candidate()
+    h = await _login(api_client, email, pw)
+    await _add(api_client, h, job_id, cand_id)
+    booked = await api_client.post(
+        "/api/screening-calls", headers=h, json=_body(cand_id, job_id, _in(days=days))
+    )
+    assert booked.status_code == 201, booked.text
+    return owner_id, job_id, cand_id, booked.json()["event_id"]
+
+
+async def test_taking_over_moves_the_call_to_the_new_owner(api_client):
+    owner_id, owner_email, owner_pw = await _seed_user(UserRole.recruiter)
+    dl_id, dl_email, dl_pw = await _seed_user(UserRole.delivery_lead)
+    job_id = await _seed_job(owner_id, others=(dl_id,))
+    cand_id = await _seed_candidate()
+    owner_h = await _login(api_client, owner_email, owner_pw)
+    dl_h = await _login(api_client, dl_email, dl_pw)
+    start = _in(days=2)
+    try:
+        await _add(api_client, owner_h, job_id, cand_id)
+        booked = await api_client.post(
+            "/api/screening-calls",
+            headers=owner_h,
+            json=_body(cand_id, job_id, start, note="po 16"),
+        )
+        old_id = booked.json()["event_id"]
+        taken = await api_client.post(
+            "/api/pipeline/claim",
+            headers=dl_h,
+            json={"candidate_id": cand_id, "job_id": job_id},
+        )
+        assert taken.status_code == 200, taken.text
+
+        # Stary wiersz odwołany: pętla zdejmie blokadę z Outlooka poprzedniej osoby.
+        assert (await _event(old_id)).status == EventStatus.cancelled
+        async with AsyncSessionLocal() as db:
+            new = await db.scalar(
+                select(CalendarEvent).where(
+                    CalendarEvent.candidate_id == cand_id,
+                    CalendarEvent.status == EventStatus.scheduled,
+                )
+            )
+        assert new is not None and is_booked_call(new)
+        assert new.operational_owner_id == dl_id
+        assert new.description == "po 16"
+        assert new.external_id is None
+        proc = await _process(cand_id, job_id)
+        assert proc.claimed_by_user_id == dl_id
+        assert abs(proc.claimed_until - (start + timedelta(minutes=30))) < timedelta(
+            seconds=1
+        )
+    finally:
+        await _cleanup(cand_id, job_id)
+
+
+@pytest.mark.parametrize(
+    "change", [{"location": "Biuro"}, {"event_type": "interview"}, {"job_id": None}]
+)
+async def test_calendar_edit_cannot_remove_the_marker(api_client, change):
+    owner_id, email, pw = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(owner_id)
+    cand_id = await _seed_candidate()
+    h = await _login(api_client, email, pw)
+    try:
+        await _add(api_client, h, job_id, cand_id)
+        booked = await api_client.post(
+            "/api/screening-calls", headers=h, json=_body(cand_id, job_id, _in(days=1))
+        )
+        event_id = booked.json()["event_id"]
+        resp = await api_client.patch(
+            f"/api/calendar/events/{event_id}", headers=h, json=change
+        )
+        assert resp.status_code == 409, resp.text
+        assert is_booked_call(await _event(event_id))
+    finally:
+        await _cleanup(cand_id, job_id)
+
+
+async def test_calendar_edit_sends_only_the_time_to_outlook(api_client, monkeypatch):
+    from app.api import calendar as calendar_api
+
+    owner_id, email, pw = await _seed_user(UserRole.recruiter)
+    job_id = await _seed_job(owner_id)
+    cand_id = await _seed_candidate()
+    h = await _login(api_client, email, pw)
+    pushed: list[list[str]] = []
+
+    async def fake_push(_db, _event, _changes, fields):
+        pushed.append(list(fields))
+
+    monkeypatch.setattr(calendar_api, "_push_outlook_changes", fake_push)
+    try:
+        await _add(api_client, h, job_id, cand_id)
+        booked = await api_client.post(
+            "/api/screening-calls", headers=h, json=_body(cand_id, job_id, _in(days=1))
+        )
+        event_id = booked.json()["event_id"]
+        await _with_outlook_copy(event_id, EventStatus.scheduled)
+
+        # Nazwisko i słowa kandydata zostają w NEXUSIE.
+        edited = await api_client.patch(
+            f"/api/calendar/events/{event_id}",
+            headers=h,
+            json={"description": "chce 200 zł", "title": "Telefon: Pełne Nazwisko"},
+        )
+        assert edited.status_code == 200, edited.text
+        assert pushed == [] or pushed == [[]]
+        assert (await _event(event_id)).description == "chce 200 zł"
+
+        start = _in(days=3)
+        moved = await api_client.patch(
+            f"/api/calendar/events/{event_id}",
+            headers=h,
+            json={
+                "start_time": start.isoformat(),
+                "end_time": (start + timedelta(minutes=15)).isoformat(),
+            },
+        )
+        assert moved.status_code == 200, moved.text
+        assert pushed[-1] == ["end_time", "start_time"]
+        assert (await _event(event_id)).reminder_sent_at is None
+        proc = await _process(cand_id, job_id)
+        assert abs(proc.claimed_until - (start + timedelta(minutes=30))) < timedelta(
+            seconds=1
+        )
+    finally:
+        await _cleanup(cand_id, job_id)
+
+
+async def test_slow_outlook_cleanup_is_cut_off(monkeypatch):
+    import asyncio
+
+    async def hangs(_db, _now):
+        await asyncio.sleep(60)
+
+    monkeypatch.setattr(svc, "clean_outlook", hangs)
+    monkeypatch.setattr(svc, "OUTLOOK_CLEAN_TIMEOUT_SECONDS", 0.01)
+    await svc.clean_outlook_copies(datetime.now(timezone.utc))

@@ -9,7 +9,7 @@ kandydata przy usunięciu działają jak przy każdym innym wydarzeniu. Tu są t
 reguły, których tamte ścieżki nie znają:
 
 - jedna para (osoba, rekrutacja) ma najwyżej jeden otwarty termin;
-- termin trzyma osobę przy rekruterze do startu + 2 h, najwyżej 7 dni;
+- termin trzyma osobę przy rekruterze do startu + 30 min, najwyżej 7 dni;
 - zapis screeningu kończy termin od razu, a ruch karty i zamknięcie rekrutacji
   przy następnym przebiegu pętli przypomnień (`reconcile`), bez dotykania
   kilkunastu ścieżek ruchu karty;
@@ -19,13 +19,14 @@ reguły, których tamte ścieżki nie znają:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -65,9 +66,13 @@ CALL_MINUTES = 15
 REMINDER_MINUTES = 15
 # Dalszy termin to już nie „proszę później”, tylko inna rozmowa (jak follow-up).
 MAX_DAYS_AHEAD = 60
-HOLD_AFTER_START = timedelta(hours=2)
+HOLD_AFTER_START = timedelta(minutes=30)
 HOLD_MAX = timedelta(days=7)
 HOUSEKEEPING_BATCH = 200
+# Zdejmowanie z Outlooka mieści się w jednym przebiegu pętli przypomnień:
+# jedno wywołanie Grapha może trwać do 120 s, a pętla nie może na nie czekać.
+OUTLOOK_CLEAN_BATCH = 20
+OUTLOOK_CLEAN_TIMEOUT_SECONDS = 30
 
 OutlookResult = Literal["added", "updated", "not_connected", "failed"]
 
@@ -323,9 +328,17 @@ def _outlook_body(job_id: int, candidate_id: int) -> str:
 
 
 async def load_call(db: AsyncSession, event_id: int) -> CalendarEvent:
-    event = await db.get(CalendarEvent, event_id, with_for_update=True)
+    """Telefon pod blokadą, w kolejności zapisu screeningu: kandydat, potem wiersz."""
+    event = await db.get(CalendarEvent, event_id)
     if event is None or not is_booked_call(event):
         raise HTTPException(status_code=404, detail="Nie ma takiego telefonu.")
+    if event.candidate_id is not None:
+        await db.scalar(
+            select(Candidate.id)
+            .where(Candidate.id == event.candidate_id)
+            .with_for_update()
+        )
+    await db.refresh(event, with_for_update=True)
     if event.status != EventStatus.scheduled:
         raise HTTPException(
             status_code=409, detail="Ten telefon jest już zamknięty albo odwołany."
@@ -359,16 +372,7 @@ async def reschedule(
     event.reminder_sent_at = None
     if note_given:
         event.description = _clean_note(note)
-    if event.candidate_id is not None and event.job_id is not None:
-        process = await candidate_claim.load_process(
-            db, candidate_id=event.candidate_id, job_id=event.job_id
-        )
-        if process is not None and process.claimed_by_user_id in (
-            None,
-            event.operational_owner_id,
-        ):
-            process.claimed_by_user_id = event.operational_owner_id
-            process.claimed_until = hold_until(start, now)
+    await extend_hold(db, event, now)
     await db.flush()
 
 
@@ -444,19 +448,100 @@ async def move_in_outlook(db: AsyncSession, event: CalendarEvent) -> OutlookResu
     return "updated"
 
 
+async def extend_hold(db: AsyncSession, event: CalendarEvent, now: datetime) -> None:
+    """Po zmianie terminu blokada idzie za nim, jeśli osoba jest przy właścicielu."""
+    if event.candidate_id is None or event.job_id is None:
+        return
+    process = await candidate_claim.load_process(
+        db, candidate_id=event.candidate_id, job_id=event.job_id
+    )
+    if process is not None and process.claimed_by_user_id in (
+        None,
+        event.operational_owner_id,
+    ):
+        process.claimed_by_user_id = event.operational_owner_id
+        process.claimed_until = hold_until(event.start_time, now)
+
+
+async def release_hold(db: AsyncSession, event: CalendarEvent, now: datetime) -> None:
+    """Termin zniknął, więc nie trzyma już osoby dłużej niż zwykłe „Biorę”."""
+    if event.candidate_id is None or event.job_id is None:
+        return
+    process = await candidate_claim.load_process(
+        db, candidate_id=event.candidate_id, job_id=event.job_id
+    )
+    if process is None or process.claimed_by_user_id != event.operational_owner_id:
+        return
+    latest = now + timedelta(hours=candidate_claim.CLAIM_HOURS)
+    if process.claimed_until is not None and process.claimed_until > latest:
+        process.claimed_until = latest
+
+
 async def complete_for_pair(
     db: AsyncSession, *, candidate_id: int, job_id: int
 ) -> None:
     """Zapis screeningu kończy termin. Blokadę w Outlooku zdejmie pętla."""
-    await db.execute(
-        update(CalendarEvent)
+    events = (
+        await db.scalars(
+            select(CalendarEvent).where(
+                *_open_calls_clause(),
+                CalendarEvent.candidate_id == candidate_id,
+                CalendarEvent.job_id == job_id,
+            )
+        )
+    ).all()
+    now = datetime.now(timezone.utc)
+    for event in events:
+        event.status = EventStatus.completed
+        await release_hold(db, event, now)
+
+
+async def follow_claim(
+    db: AsyncSession,
+    *,
+    process: RecruitmentProcess,
+    user: User,
+    now: datetime,
+) -> None:
+    """„Biorę” i „Przejmij”: telefon idzie z osobą.
+
+    Stary wiersz zostaje odwołany, żeby pętla zdjęła blokadę z Outlooka
+    poprzedniej osoby. Nowy powstaje bez wpisu w Outlooku, bo ta trasa nie
+    woła Grapha. Przypomnienie, lista i przełożenie są już u nowego prowadzącego.
+    """
+    event = await db.scalar(
+        select(CalendarEvent)
         .where(
             *_open_calls_clause(),
-            CalendarEvent.candidate_id == candidate_id,
-            CalendarEvent.job_id == job_id,
+            CalendarEvent.candidate_id == process.candidate_id,
+            CalendarEvent.job_id == process.job_id,
         )
-        .values(status=EventStatus.completed)
+        .limit(1)
+        .with_for_update()
     )
+    if event is None:
+        return
+    if event.operational_owner_id != user.id:
+        event.status = EventStatus.cancelled
+        event = CalendarEvent(
+            title=event.title,
+            description=event.description,
+            event_type=EventType.screening,
+            start_time=event.start_time,
+            end_time=event.end_time,
+            all_day=False,
+            attendees=[],
+            candidate_id=event.candidate_id,
+            job_id=event.job_id,
+            location=BOOKED_CALL_LOCATION,
+            status=EventStatus.scheduled,
+            external_source="manual",
+            created_by=user.id,
+            operational_owner_id=user.id,
+            reminder_minutes=event.reminder_minutes,
+        )
+        db.add(event)
+    process.claimed_until = hold_until(event.start_time, now)
 
 
 async def reconcile(db: AsyncSession) -> int:
@@ -526,7 +611,8 @@ async def clean_outlook(db: AsyncSession, now: datetime) -> int:
                 CalendarEvent.external_id.is_not(None),
                 CalendarEvent.start_time > now,
             )
-            .limit(HOUSEKEEPING_BATCH)
+            .order_by(CalendarEvent.start_time)
+            .limit(OUTLOOK_CLEAN_BATCH)
         )
     ).all()
     cleaned = 0
@@ -556,12 +642,23 @@ async def clean_outlook(db: AsyncSession, now: datetime) -> int:
     return cleaned
 
 
-async def run_housekeeping(now: datetime) -> None:
-    """Przebieg z pętli przypomnień, przed skanem należnych przypomnień."""
+async def reconcile_open_calls() -> None:
+    """Przed skanem przypomnień, sama baza: telefon osoby, która poszła dalej, nie dzwoni."""
     async with AsyncSessionLocal() as db:
         await reconcile(db)
-    async with AsyncSessionLocal() as db:
-        await clean_outlook(db, now)
+
+
+async def clean_outlook_copies(now: datetime) -> None:
+    """Po wysyłce przypomnień i z limitem czasu: Graph nie może ich wstrzymać."""
+
+    async def run() -> None:
+        async with AsyncSessionLocal() as db:
+            await clean_outlook(db, now)
+
+    try:
+        await asyncio.wait_for(run(), timeout=OUTLOOK_CLEAN_TIMEOUT_SECONDS)
+    except TimeoutError:
+        logger.warning("booked call: Outlook cleanup timed out, next pass continues")
 
 
 async def starts_by_candidate(
