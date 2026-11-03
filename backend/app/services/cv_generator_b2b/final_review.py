@@ -1,7 +1,7 @@
 """Niezależna kontrola AI gotowego CV — DODATEK, nigdy bramka.
 
-Recenzentem jest INNY model niż generator (`cv_factual_verification` = GPT Luna
-wobec `cv_generator` = Sonnet 5). Badanie modeli z 16.09.2026 zmierzyło, że
+Recenzentem jest INNY model niż generator (`cv_factual_verification` = Haiku 5.5
+wobec `cv_generator` = GPT-6.1 Sol). Badanie modeli z 16.09.2026 zmierzyło, że
 sędzia LLM faworyzuje własne wyjście, więc model oceniający własne CV jest
 systematycznie zbyt łagodny — niezależność recenzenta jest tu CAŁĄ funkcją,
 nie szczegółem konfiguracji.
@@ -15,7 +15,8 @@ nie może zabrać CV, za które już zapłacono. Twarda bramka istnieje osobno
 pomiaru, ile z uwag to fałszywe alarmy.
 
 Wyłącznik: `CV_FINAL_REVIEW_ENABLED` (domyślnie ON). Budżet całej recenzji:
-`CV_FINAL_REVIEW_TIMEOUT` (domyślnie 120 s, dzielony między paczki).
+`CV_FINAL_REVIEW_TIMEOUT` (domyślnie 120 s, dzielony między paczki). Wskazane pola
+poprawia potem `review_repair` z własnym wyłącznikiem.
 """
 
 from __future__ import annotations
@@ -37,6 +38,7 @@ from app.services.cv_generator_b2b.factual_verification import (
     verify_final_cv,
 )
 from app.services.cv_generator_b2b.provider import CVGeneratorAIError
+from app.services.cv_generator_b2b.review_repair import repair_after_review
 from app.services.cv_generator_b2b.review_coverage import (
     IN_SOURCE,
     MOSTLY,
@@ -84,6 +86,11 @@ FIELD_LABELS: dict[str, dict[str, str]] = {
     },
 }
 _FALLBACK_LABEL = {"pl": "dane kandydata", "en": "candidate data"}
+
+# Front rozpoznaje te prefiksy (`AUTO_REPAIR_WARNING` w lib/cv-generator.ts) i pokazuje
+# uwagę jako poprawkę z pierwotną treścią, nie jako rzecz „Do sprawdzenia”.
+_REWRITTEN_PREFIX = {"pl": "POPRAWIONO", "en": "AUTO-FIXED"}
+_REMOVED_PREFIX = {"pl": "USUNIĘTO", "en": "REMOVED"}
 
 _REASON_SUFFIX = {
     "pl": {
@@ -246,8 +253,9 @@ def review_warnings(
             if lang == "pl"
             else f"{prefix} (AI review): {label} —{quoted} ({suffix})"
         )
-    if not issues and covered:
-        # Wszystko, co recenzent zakwestionował, stoi w źródłach dosłownie.
+    if not issues and (covered or report.get("auto_repair")):
+        # Wszystko, co recenzent zakwestionował, stoi w źródłach dosłownie
+        # albo zostało już poprawione.
         return []
     if not issues:
         # Odrzucenie protokolarne (np. model oddał niepoprawny JSON): nie ma
@@ -272,6 +280,32 @@ def review_warnings(
             else f"… and {more} more items to verify"
         )
     return issues
+
+
+def repair_warnings(report: dict[str, Any], language: str | None = None) -> list[str]:
+    """Ślad poprawek z pełną pierwotną treścią, żeby rekruter mógł ją przywrócić."""
+
+    lang = _lang(language)
+    tag = "kontrola AI" if lang == "pl" else "AI review"
+    left, right = ("„", "”") if lang == "pl" else ('"', '"')
+    arrow = " → "
+    out: list[str] = []
+    for change in (report.get("auto_repair") or {}).get("changes") or []:
+        label = _field_label(change["path"], lang)
+        before = f"{left}{change['before']}{right}"
+        if change["action"] == "rewrite":
+            after = f"{left}{change['after']}{right}"
+            out.append(
+                f"{_REWRITTEN_PREFIX[lang]} ({tag}): {label} — {before}{arrow}{after}"
+            )
+        else:
+            suffix = _REASON_SUFFIX[lang].get(
+                change.get("status"), _REASON_SUFFIX[lang]["unsupported"]
+            )
+            out.append(
+                f"{_REMOVED_PREFIX[lang]} ({tag}): {label} — {before} ({suffix})"
+            )
+    return out
 
 
 def _declaration():
@@ -342,7 +376,18 @@ def run_final_review(
             err.reason,
             len(err.paths),
         )
-        return report, review_warnings(report, data, language)
+        # Poza `_declaration()`: poprawkę pisze generator, więc liczy się na jego kubełku.
+        report = repair_after_review(
+            report,
+            data,
+            cv_text=cv_text,
+            screening_notes=screening_notes,
+            request_id=request_id,
+        )
+        return report, [
+            *repair_warnings(report, language),
+            *review_warnings(report, data, language),
+        ]
     except CVGeneratorAIError as err:
         report = {
             "status": "unavailable",

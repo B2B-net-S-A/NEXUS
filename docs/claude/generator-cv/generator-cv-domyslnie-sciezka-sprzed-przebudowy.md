@@ -135,3 +135,18 @@ nierównomiernie, więc każda taka bramka to losowe „generator nie działa”
   modelu może wzbogacić dokument, podgląd albo audyt — ale ścieżka bez tego
   wyniku musi nadal oddać CV. Jeśli musi blokować (RODO, pieniądze), stoi za
   flagą domyślnie OFF (`CV_SOURCE_EVIDENCE_ENFORCED`, `CHAMPION_INTAKE_GATE_ENABLED`).
+
+## Poprawka po kontroli AI (decyzja Artura 03.11.2026)
+
+Po recenzji `final_review` wywołuje `review_repair.repair_after_review`: generator dostaje pola
+wskazane przez recenzenta i dla każdego wybiera „zostaw”, „popraw” albo „usuń”. Pomiar na 36 CV:
+poważne zdania bez pokrycia 0,56 → 0,25, w parach na ślepo 4 lepsze, 1 gorsza, 31 remisów, +0,013 USD
+i +16 s na CV. Wyłącznik `CV_REVIEW_REPAIR_ENABLED`, budżet `CV_REVIEW_REPAIR_TIMEOUT` (60 s).
+
+- Granice są w kodzie: tylko ścieżki z raportu, bez imienia, stanowiska, firmy, dat i wykształcenia,
+  a przepisany tekst nie może mieć słowa spoza poprzedniej wartości i źródeł. Awaria zostawia CV bez zmian.
+- Zostawione pola dalej są uwagami. Na 260 wskazań model zostawił 243, ale ocenia tam własny tekst,
+  więc nie ukrywaj tych uwag bez pomiaru.
+- Każda zmiana ma ślad w `factual_verification.auto_repair` i uwagę `USUNIĘTO`/`POPRAWIONO` (`AUTO-FIXED`,
+  `REMOVED`) z pierwotną treścią. Front pokazuje je w „Poprawione automatycznie”, poza „Do sprawdzenia”.
+  Przywrócenie to skopiowanie tekstu i wklejenie w edytorze; przycisku przywracającego nie ma.

@@ -24,7 +24,7 @@ function where(label: string): string {
   return `w stanowisku „${label}”`;
 }
 
-const REVIEW_FIELD_PL: Record<string, string> = {
+export const REVIEW_FIELD_PL: Record<string, string> = {
   summary: "podsumowanie",
   experience: "doświadczenie",
   certifications: "certyfikaty",

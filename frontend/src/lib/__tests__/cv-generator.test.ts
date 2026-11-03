@@ -257,3 +257,39 @@ describe("legacyCvGeneratorHref — stary adres /cv-generator (13.10.2026)", () 
     expect(legacyCvGeneratorHref({ candidate_id: ["21", "22"], job_id: "31" })).toBe("/jobs/31?candidate=21");
   });
 });
+
+describe("poprawki po kontroli AI", () => {
+  it("usunięcie: pierwotna treść i pole po polsku, poza „Do sprawdzenia”", () => {
+    const result = classifyCvWarnings([
+      "USUNIĘTO (kontrola AI): podsumowanie — „Zdanie ze „cudzysłowem” w środku” (brak potwierdzenia w CV i notatkach)",
+    ]);
+    expect(result.review).toEqual([]);
+    expect(result.info).toEqual([]);
+    expect(result.repairs[0]).toMatchObject({
+      action: "remove",
+      field: "podsumowanie",
+      before: "Zdanie ze „cudzysłowem” w środku",
+      after: "",
+    });
+  });
+
+  it("przepisanie w CV po angielsku: pole po polsku, obie wersje", () => {
+    const { repairs } = classifyCvWarnings([
+      'AUTO-FIXED (AI review): experience — "Led a team of 12 and owned the budget" → "Led a team of 12"',
+    ]);
+    expect(repairs[0]).toMatchObject({
+      action: "rewrite",
+      field: "doświadczenie",
+      before: "Led a team of 12 and owned the budget",
+      after: "Led a team of 12",
+    });
+  });
+
+  it("zwykła uwaga kontroli AI nadal jest „Do sprawdzenia”", () => {
+    const { review, repairs } = classifyCvWarnings([
+      "BRAK POKRYCIA (kontrola AI): doświadczenie — „bankowość” (brak potwierdzenia w CV i notatkach)",
+    ]);
+    expect(review).toHaveLength(1);
+    expect(repairs).toEqual([]);
+  });
+});

@@ -100,6 +100,8 @@ function cvItem(partial: Partial<GeneratedCvItem> & Pick<GeneratedCvItem, "id" |
 }
 
 const RESULT_WARNINGS = [
+  "USUNIĘTO (kontrola AI): podsumowanie — „Wdrażał rozwiązania oparte na Kubernetes w środowisku bankowym” (brak potwierdzenia w CV i notatkach)",
+  "POPRAWIONO (kontrola AI): doświadczenie — „Kierował zespołem 12 programistów i odpowiadał za budżet projektu” → „Kierował zespołem 12 programistów”",
   "BRAK POKRYCIA (kontrola AI): Doświadczenie — „bankowość” (branża przy stanowisku w Allegro nie wynika z CV źródłowego)",
   "MUST-HAVE: Kafka",
   "MUST-HAVE: Kubernetes",

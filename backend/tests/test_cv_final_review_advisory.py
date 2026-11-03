@@ -776,3 +776,321 @@ def test_soft_suffix_is_mirrored_in_the_frontend():
     ).read_text(encoding="utf-8")
     for suffix in final_review._MOSTLY_SUFFIX.values():
         assert f'"({suffix})"' in source
+
+
+# ── Poprawka po recenzencie (decyzja Artura 03.11.2026) ──────────────────────
+
+
+def _repair_doc():
+    return {
+        "name": "Jan Kowalski",
+        "why_points": ["Prawdziwy punkt", "Zmyślony punkt"],
+        "skills": [
+            {"label": "Backend", "content": "Python"},
+            {"label": "Chmura", "content": "AWS"},
+        ],
+        "experience": [
+            {
+                "company": "Acme",
+                "dates": "2015 – 2019",
+                "responsibilities": ["Utrzymanie API", "Kierowanie zespołem 20 osób"],
+                "technologies": ["Python", "Kafka", "Go"],
+            }
+        ],
+    }
+
+
+def _advisory(paths, statuses=None):
+    return {
+        "status": "advisory",
+        "reason": "semantic_rejection",
+        "paths": list(paths),
+        "statuses": statuses or {p: "unsupported" for p in paths},
+    }
+
+
+def _run_repair(monkeypatch, report, data, fixes, *, cv="Utrzymanie API Python"):
+    from app.services.cv_generator_b2b import review_repair
+
+    seen = {}
+
+    def fake(content, request_id, **kwargs):
+        seen["content"] = json.loads(content)
+        seen["kwargs"] = kwargs
+        return json.dumps({"fixes": fixes})
+
+    monkeypatch.setattr(review_repair, "analyze_with_ai", fake)
+    monkeypatch.delenv("CV_REVIEW_REPAIR_ENABLED", raising=False)
+    out = review_repair.repair_after_review(
+        report, data, cv_text=cv, screening_notes="", request_id="r"
+    )
+    return out, seen
+
+
+def test_repair_removes_and_rewrites_only_reported_fields(monkeypatch):
+    data = _repair_doc()
+    report = _advisory(
+        [
+            "/why_points/1",
+            "/experience/0/responsibilities/0",
+            "/experience/0/technologies/1",
+        ]
+    )
+
+    out, seen = _run_repair(
+        monkeypatch,
+        report,
+        data,
+        [
+            {"path": "/why_points/1", "action": "remove", "text": ""},
+            {"path": "/experience/0/responsibilities/0", "action": "keep", "text": ""},
+            {"path": "/experience/0/technologies/1", "action": "remove", "text": ""},
+            # Pole spoza listy recenzenta: model nie ma prawa go ruszyć.
+            {"path": "/why_points/0", "action": "remove", "text": ""},
+        ],
+    )
+
+    assert data["why_points"] == ["Prawdziwy punkt"]
+    assert data["experience"][0]["technologies"] == ["Python", "Go"]
+    assert data["experience"][0]["responsibilities"][0] == "Utrzymanie API"
+    assert [c["path"] for c in out["auto_repair"]["changes"]] == [
+        "/why_points/1",
+        "/experience/0/technologies/1",
+    ]
+    # Zostawione pole nadal jest uwagą dla rekrutera.
+    assert out["paths"] == ["/experience/0/responsibilities/0"]
+    assert {p["path"] for p in seen["content"]["problems"]} == set(report["paths"]) | {
+        "/why_points/1",
+        "/experience/0/technologies/1",
+    }
+
+
+def test_removing_a_list_item_keeps_later_paths_pointing_at_the_same_text(monkeypatch):
+    data = _repair_doc()
+    data["why_points"] = ["A", "B", "C"]
+
+    out, _ = _run_repair(
+        monkeypatch,
+        _advisory(["/why_points/0", "/why_points/2"]),
+        data,
+        [
+            {"path": "/why_points/0", "action": "remove", "text": ""},
+            {"path": "/why_points/2", "action": "keep", "text": ""},
+        ],
+    )
+
+    assert data["why_points"] == ["B", "C"]
+    assert out["paths"] == ["/why_points/1"]
+    assert out["statuses"] == {"/why_points/1": "unsupported"}
+
+
+def test_removing_two_items_of_one_list_removes_the_right_ones(monkeypatch):
+    data = _repair_doc()
+    data["experience"][0]["technologies"] = ["A", "B", "C", "D"]
+
+    _run_repair(
+        monkeypatch,
+        _advisory(["/experience/0/technologies/0", "/experience/0/technologies/2"]),
+        data,
+        [
+            {"path": "/experience/0/technologies/0", "action": "remove", "text": ""},
+            {"path": "/experience/0/technologies/2", "action": "remove", "text": ""},
+        ],
+    )
+
+    assert data["experience"][0]["technologies"] == ["B", "D"]
+
+
+def test_rewrite_cannot_add_a_word_from_outside_the_value_and_sources(monkeypatch):
+    data = _repair_doc()
+    path = "/experience/0/responsibilities/1"
+
+    out, _ = _run_repair(
+        monkeypatch,
+        _advisory([path]),
+        data,
+        [{"path": path, "action": "rewrite", "text": "Kierowanie zespołem 50 osób"}],
+    )
+
+    assert data["experience"][0]["responsibilities"][1] == "Kierowanie zespołem 20 osób"
+    assert "auto_repair" not in out
+    assert out["paths"] == [path]
+
+
+def test_rewrite_that_only_shortens_is_applied_and_traced(monkeypatch):
+    data = _repair_doc()
+    path = "/experience/0/responsibilities/1"
+
+    out, _ = _run_repair(
+        monkeypatch,
+        _advisory([path]),
+        data,
+        [{"path": path, "action": "rewrite", "text": "Kierowanie zespołem"}],
+    )
+
+    assert data["experience"][0]["responsibilities"][1] == "Kierowanie zespołem"
+    change = out["auto_repair"]["changes"][0]
+    assert change["before"] == "Kierowanie zespołem 20 osób"
+    assert change["after"] == "Kierowanie zespołem"
+    assert out["paths"] == []
+
+
+def test_empty_skill_category_disappears_with_its_label(monkeypatch):
+    data = _repair_doc()
+
+    _run_repair(
+        monkeypatch,
+        _advisory(["/skills/1/content"]),
+        data,
+        [{"path": "/skills/1/content", "action": "remove", "text": ""}],
+    )
+
+    assert data["skills"] == [{"label": "Backend", "content": "Python"}]
+
+
+@pytest.mark.parametrize(
+    "path", ["/name", "/experience/0/company", "/experience/0/dates"]
+)
+def test_identity_employers_and_dates_are_out_of_reach(monkeypatch, path):
+    from app.services.cv_generator_b2b import review_repair
+
+    called = []
+    monkeypatch.setattr(
+        review_repair, "analyze_with_ai", lambda *a, **k: called.append(1)
+    )
+    data = _repair_doc()
+
+    out = review_repair.repair_after_review(
+        _advisory([path]), data, cv_text="x", screening_notes="", request_id="r"
+    )
+
+    assert called == [] and out["paths"] == [path] and data == _repair_doc()
+
+
+def test_literal_quote_found_by_code_and_broken_citations_are_not_repaired(monkeypatch):
+    from app.services.cv_generator_b2b import review_repair
+    from app.services.cv_generator_b2b.review_coverage import IN_SOURCE
+
+    called = []
+    monkeypatch.setattr(
+        review_repair, "analyze_with_ai", lambda *a, **k: called.append(1)
+    )
+    report = _advisory(
+        ["/why_points/0", "/why_points/1"],
+        {"/why_points/0": "unsupported", "/why_points/1": "invalid_evidence"},
+    )
+    report["code_coverage"] = {"/why_points/0": IN_SOURCE}
+
+    review_repair.repair_after_review(
+        report, _repair_doc(), cv_text="x", screening_notes="", request_id="r"
+    )
+
+    assert called == []
+
+
+@pytest.mark.parametrize("boom", [ValueError("x"), CVGeneratorOverloadedError("x")])
+def test_broken_repair_leaves_the_cv_and_the_warnings_untouched(monkeypatch, boom):
+    from app.services.cv_generator_b2b import review_repair
+
+    def explode(*args, **kwargs):
+        raise boom
+
+    monkeypatch.setattr(review_repair, "analyze_with_ai", explode)
+    data = _repair_doc()
+    report = _advisory(["/why_points/1"])
+
+    out = review_repair.repair_after_review(
+        report, data, cv_text="x", screening_notes="", request_id="r"
+    )
+
+    assert data == _repair_doc() and out["paths"] == ["/why_points/1"]
+    assert "auto_repair" not in out
+
+
+def test_malformed_answer_changes_nothing(monkeypatch):
+    from app.services.cv_generator_b2b import review_repair
+
+    monkeypatch.setattr(review_repair, "analyze_with_ai", lambda *a, **k: "bez JSON")
+    data = _repair_doc()
+
+    out = review_repair.repair_after_review(
+        _advisory(["/why_points/1"]),
+        data,
+        cv_text="x",
+        screening_notes="",
+        request_id="r",
+    )
+
+    assert data == _repair_doc() and "auto_repair" not in out
+
+
+def test_switch_off_means_no_call(monkeypatch):
+    from app.services.cv_generator_b2b import review_repair
+
+    called = []
+    monkeypatch.setattr(
+        review_repair, "analyze_with_ai", lambda *a, **k: called.append(1)
+    )
+    monkeypatch.setenv("CV_REVIEW_REPAIR_ENABLED", "false")
+
+    review_repair.repair_after_review(
+        _advisory(["/why_points/1"]),
+        _repair_doc(),
+        cv_text="x",
+        screening_notes="",
+        request_id="r",
+    )
+
+    assert called == []
+
+
+@pytest.mark.parametrize(
+    "language,removed,fixed",
+    [
+        (
+            "pl",
+            "USUNIĘTO (kontrola AI): podsumowanie — „Zmyślony punkt” (brak potwierdzenia w CV i notatkach)",
+            "POPRAWIONO (kontrola AI): doświadczenie — „Kierowanie zespołem 20 osób” → „Kierowanie zespołem”",
+        ),
+        (
+            "en",
+            'REMOVED (AI review): summary — "Zmyślony punkt" (not confirmed in the CV or notes)',
+            'AUTO-FIXED (AI review): experience — "Kierowanie zespołem 20 osób" → "Kierowanie zespołem"',
+        ),
+    ],
+)
+def test_recruiter_sees_the_original_text_of_every_change(language, removed, fixed):
+    report = {
+        "auto_repair": {
+            "changes": [
+                {
+                    "path": "/why_points/1",
+                    "action": "remove",
+                    "before": "Zmyślony punkt",
+                    "after": "",
+                    "status": "unsupported",
+                },
+                {
+                    "path": "/experience/0/responsibilities/1",
+                    "action": "rewrite",
+                    "before": "Kierowanie zespołem 20 osób",
+                    "after": "Kierowanie zespołem",
+                    "status": "unsupported",
+                },
+            ]
+        }
+    }
+
+    assert final_review.repair_warnings(report, language) == [removed, fixed]
+
+
+def test_fully_repaired_review_does_not_claim_the_document_was_not_confirmed():
+    report = {
+        "status": "advisory",
+        "reason": "semantic_rejection",
+        "paths": [],
+        "statuses": {},
+        "auto_repair": {"changes": [{"path": "/why_points/1"}]},
+    }
+
+    assert final_review.review_warnings(report, _repair_doc(), "pl") == []

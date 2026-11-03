@@ -7,6 +7,7 @@
  */
 
 import { apiErrorMessage } from "@/lib/api-error";
+import { REVIEW_FIELD_PL } from "@/lib/cv-warning-text";
 
 /**
  * Interaktywne CV (kafelki wymagań, czat, przełącznik widoku) — wyłączone
@@ -385,6 +386,8 @@ export interface ClassifiedCvWarning {
 export interface ClassifiedCvWarnings {
   review: ClassifiedCvWarning[];
   info: ClassifiedCvWarning[];
+  /** Zmiany zrobione przez generator po kontroli AI, poza licznikiem „Do sprawdzenia”. */
+  repairs: CvAutoRepair[];
   /** Rodzaje informacji z liczbą — do jednej linii nagłówka „Informacje”. */
   infoKinds: Array<{ kind: string; count: number }>;
 }
@@ -415,15 +418,52 @@ function reviewKind(text: string): string {
   return "Uwaga";
 }
 
+/**
+ * Poprawka zrobiona przez generator po kontroli AI. Prefiksy MUSZĄ być zgodne
+ * z `_REWRITTEN_PREFIX` i `_REMOVED_PREFIX` w
+ * `backend/app/services/cv_generator_b2b/final_review.py`.
+ */
+const AUTO_REPAIR_WARNING =
+  /^(POPRAWIONO|USUNIĘTO|AUTO-FIXED|REMOVED) \((?:kontrola AI|AI review)\): (.+?) — [„"]([\s\S]*?)[”"](?: → [„"]([\s\S]*)[”"]| \(.*\))$/;
+
+export interface CvAutoRepair {
+  text: string;
+  action: "rewrite" | "remove";
+  field: string;
+  before: string;
+  after: string;
+}
+
+/** Rozkłada uwagę o poprawce; `null`, gdy to inna uwaga. */
+export function parseAutoRepairWarning(raw: string): CvAutoRepair | null {
+  const text = raw.trim();
+  const match = text.match(AUTO_REPAIR_WARNING);
+  if (!match) return null;
+  const rewrite = match[1] === "POPRAWIONO" || match[1] === "AUTO-FIXED";
+  return {
+    text,
+    action: rewrite ? "rewrite" : "remove",
+    field: REVIEW_FIELD_PL[match[2]] ?? match[2],
+    before: match[3],
+    after: match[4] ?? "",
+  };
+}
+
 /** Dzieli uwagi generatora na „Do sprawdzenia” i „Informacje”. */
 export function classifyCvWarnings(warnings: readonly string[] | null | undefined): ClassifiedCvWarnings {
   const review: ClassifiedCvWarning[] = [];
   const info: ClassifiedCvWarning[] = [];
+  const repairs: CvAutoRepair[] = [];
   const seen = new Set<string>();
   for (const raw of warnings ?? []) {
     const text = String(raw ?? "").trim();
     if (!text || seen.has(text)) continue;
     seen.add(text);
+    const repair = parseAutoRepairWarning(text);
+    if (repair) {
+      repairs.push(repair);
+      continue;
+    }
     const rule = INFO_RULES.find((r) => r.pattern.test(text));
     if (rule) info.push({ text, group: "info", kind: rule.kind });
     else review.push({ text, group: "review", kind: reviewKind(text) });
@@ -433,6 +473,7 @@ export function classifyCvWarnings(warnings: readonly string[] | null | undefine
   return {
     review,
     info,
+    repairs,
     infoKinds: [...counts.entries()].map(([kind, count]) => ({ kind, count })),
   };
 }
