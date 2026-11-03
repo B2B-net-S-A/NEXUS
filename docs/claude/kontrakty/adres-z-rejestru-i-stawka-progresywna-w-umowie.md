@@ -28,8 +28,26 @@ z generatora. Pole formularza dostaje teraz „ul. Testowa 12/3, 00-001 Warszawa
   i na początku członów („Bielsko-Biała”). Małe litery dostają tytuły (dr., św., gen.)
   i spójniki w środku nazwy („Żwirki i Wigury”, „Nowe Miasto nad Pilicą”).
   „Mieszka I 12” zostaje przy wielkim „I”, bo po nim stoi numer domu.
-- Wpisu człowieka i umów już wydanych nie zmieniamy. `addressKey` we froncie
-  ignoruje „ul.” i wielkość liter, więc okno sprawdzenia nie zgłasza różnicy.
+- Wpisu człowieka poza numerem domu (niżej) i umów już wydanych nie zmieniamy.
+  `addressKey` we froncie ignoruje „ul.” i wielkość liter, więc okno sprawdzenia
+  nie zgłasza różnicy.
+
+### „ul. Polna 12” zamiast „ul. Polna, nr 12”
+
+Kod NEXUSA tego zapisu nie składa, a Biała Lista dla tych samych NIP-ów podaje
+numer w zapisie „11/2”. Wzór „, nr 12, lok. 5” to najpewniej tekst z CEIDG wklejony
+do formularza (źródła wpisu nie zapisujemy): 5 ze 123 umów na kopii z 03.11.2026,
+ostatnia z 17.09.2026. `tidy_house_number`
+porządkuje go w `/render` i `/rerender` (adres z CEIDG i do korespondencji), więc
+poprawny zapis trafia do umowy i do `render_payload`.
+
+- **Nie w walidatorze `B2BRenderRequest`:** ten sam schemat odtwarza zapisany
+  `render_payload` przy ponownym pobraniu, a to ma dać dokument, który wydano.
+- **Formularz pokazuje wpis bez zmian do czasu pobrania.** Okno sprawdzenia widzi
+  wtedy różnicę względem rejestru i domyślnie proponuje jego zapis.
+- **Dokumentów pochodnych to nie obejmuje:** na tej samej kopii żaden z 5 dokumentów
+  nie ma takiego adresu.
+- Dalsza część wydruku („woj. …, pow. …, gm. …”) zostaje, jak ją wklejono.
 
 ## Stawka progresywna
 
