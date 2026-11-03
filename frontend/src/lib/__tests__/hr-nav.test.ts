@@ -103,7 +103,7 @@ describe("menu modułu „Ludzie w NEXUSIE”", () => {
   });
 
   it("kolejka back office tylko dla członka zespołu, reszta zostaje przy „Opiece”", () => {
-    const open = { ...MODULES, back_office: true, care: true };
+    const open = { ...MODULES, back_office: true, care: true, cases: true };
     const member = config({ back_office_member: true }, open);
     expect(hrNavState(member).backOffice).toBe(true);
     const outsider = config({ back_office_member: false, cases: true }, open);
