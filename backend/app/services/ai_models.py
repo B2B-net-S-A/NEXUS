@@ -259,8 +259,8 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         env_vars=("CV_B2B_MODEL",),
         fallbacks=("claude-opus-4-8",),
         rationale="F4. Generator CV: GPT-6.1 Sol od 03.11.2026 (audyt, 36 CV, jurorzy na ślepo): "
-        "lepszy od Sonneta 5 w 24 parach, gorszy w 2, krytyczne stwierdzenia bez pokrycia 1,75 "
-        "wobec 3,25 na CV, ok. 24% taniej. Reasoning `low`: medium i high nie poprawiły wyniku, "
+        "lepszy od Sonneta 5 w 24 parach, gorszy w 2, poważne zdania bez pokrycia 0,31 wobec "
+        "1,36 na CV, ok. 24% taniej. Reasoning `low`: medium i high nie poprawiły wyniku, "
         "a mediana czasu rosła z 41 do 60 i 137 s. "
         "Fallback nadpisywalny env CV_B2B_FALLBACK_MODELS w provider.py.",
     ),
