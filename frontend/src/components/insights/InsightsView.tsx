@@ -32,7 +32,7 @@ import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
-import { ZrodlaViewMock } from "@/components/insights/views/ZrodlaViewMock";
+import { ZrodlaView } from "@/components/insights/views/ZrodlaView";
 import { holdsCapabilityGrant } from "@/lib/capabilities";
 import { hasSectionAccess } from "@/lib/section-access";
 
@@ -108,7 +108,8 @@ const TABS: TabDef[] = [
     permission: FIRMA_PERMISSION,
     alsoRoles: FIRMA_ROLES,
   },
-  // MAKIETA: lustro `CandidatePIIAccess`, jak raport źródeł w `RaportyView`.
+  // „Źródła” (decyzja Artura 03.11.2026): widok z dostępem do kandydatów, lustro
+  // `CandidatePIIAccess` — `seesSources` niżej.
   { id: "zrodla", label: "Źródła", icon: Target, roles: null },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
@@ -161,7 +162,7 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
   praca: { tab: "raporty", report: "placementy" },
   placementy: { tab: "raporty", report: "placementy" },
   doplyw: { tab: "raporty", report: "doplyw" },
-  zrodla: { tab: "raporty", report: "doplyw" },
+  zrodla: { tab: "zrodla" },
   integracje: { tab: "raporty", report: "doplyw" },
   "podsumowanie-klientow": { tab: "raporty", report: "portfele-dl" },
   portfele: { tab: "raporty", report: "portfele-dl" },
@@ -377,7 +378,13 @@ export function InsightsView() {
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
-                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : undefined}
+                  data-tour={
+                    tab.id === "rytm"
+                      ? "insights.tabs.rhythm"
+                      : tab.id === "zrodla"
+                        ? "insights.tabs.sources"
+                        : undefined
+                  }
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
@@ -407,7 +414,7 @@ export function InsightsView() {
       </div>
 
       <div>
-        {location.tab === "zrodla" && <ZrodlaViewMock />}
+        {location.tab === "zrodla" && <ZrodlaView />}
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}

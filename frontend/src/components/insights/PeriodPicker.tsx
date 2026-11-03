@@ -86,6 +86,8 @@ interface Props {
    * jak utrata danych, a jest brakiem funkcji.
    */
   csv?: InsightsCsvExport | null;
+  /** Widok bez danych z DynaReportera (Źródła) nie pokazuje plakietki o nim. */
+  hideHistoryNote?: boolean;
 }
 
 /**
@@ -105,6 +107,7 @@ export function PeriodPicker({
   resolved,
   defaultValue,
   csv,
+  hideHistoryNote = false,
 }: Props) {
   const queryClient = useQueryClient();
   const offset = value.offset ?? 0;
@@ -126,8 +129,8 @@ export function PeriodPicker({
     setRangeOpen(false);
   };
   const applyLastDays = (days: number) => {
-    const today = zonedCalendarDate(new Date(), INSIGHTS_ANALYTICS_TIMEZONE);
-    applyRange(ymd(addDays(today, -(days - 1))), ymd(today));
+    onChange(lastDaysPeriod(days));
+    setRangeOpen(false);
   };
 
   const shift = (by: number) =>
@@ -169,7 +172,7 @@ export function PeriodPicker({
   const cappedAllTime = isAllTime;
 
   const canExport = Boolean(csv && csv.rows.length > 0);
-  const beforeNexus = startsBeforeNexus(value, resolved);
+  const beforeNexus = !hideHistoryNote && startsBeforeNexus(value, resolved);
 
   return (
     // Telefon: pasek na całą szerokość, wyrównany do lewej; od `sm` jak dawniej
@@ -358,6 +361,19 @@ export function buildAllTimePeriod(
   // mniejszy niż sufit — inaczej okno miałoby 367 dni i wróciłoby 422.
   const from = addDays(to, -(INSIGHTS_MAX_CUSTOM_PERIOD_DAYS - 1));
   return { period: "custom", date_from: ymd(from), date_to: ymd(to) };
+}
+
+/** Ostatnie `days` dni kalendarzowych, licząc dzisiejszy dzień. */
+export function lastDaysPeriod(
+  days: number,
+  now: Date = new Date(),
+): InsightsPeriodParams {
+  const today = zonedCalendarDate(now, INSIGHTS_ANALYTICS_TIMEZONE);
+  return {
+    period: "custom",
+    date_from: ymd(addDays(today, -(days - 1))),
+    date_to: ymd(today),
+  };
 }
 
 /** Długość okna custom w dniach (inclusive, jak liczy backend). 0 = brak dat. */
@@ -568,7 +584,7 @@ function windowFilenameSuffix(
   return `_${ymd(start)}_${ymd(addDays(endExclusive, -1))}`;
 }
 
-function downloadCsv(filename: string, content: string): void {
+export function downloadCsv(filename: string, content: string): void {
   // BOM — bez niego Excel czyta UTF-8 jako windows-1250 i psuje polskie znaki.
   const blob = new Blob([`\uFEFF${content}`], {
     type: "text/csv;charset=utf-8;",

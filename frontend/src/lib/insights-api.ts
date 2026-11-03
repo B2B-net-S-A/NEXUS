@@ -339,6 +339,76 @@ export interface AvailablePeriodsResponse {
   periods: Array<{ start: string; milestones: number }>;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Zakładka „Źródła” — `/api/insights/sources*` (decyzja Artura 03.11.2026).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SourceMetric =
+  | "people"
+  | "applications"
+  | "fresh"
+  | "in_process"
+  | "verified"
+  | "cv_sent"
+  | "hired";
+
+export type SourceCounts = Record<SourceMetric, number>;
+
+export type SourceKey = "pracuj" | "jjit" | "link_general" | "link_job";
+
+export interface SourceRow extends SourceCounts {
+  source: SourceKey;
+  label: string;
+}
+
+export interface SourcesResponse {
+  period: InsightsPeriod;
+  /** Początek liczenia: okno przycięte do 12.10.2026. */
+  counted_from: string;
+  portals: SourceRow[];
+  portals_total: SourceCounts;
+  career: SourceRow[];
+  career_total: SourceCounts;
+  new_candidates_total: number;
+  new_candidates_without_source: number;
+}
+
+export interface SourceOffersResponse {
+  total: number;
+  rows: Array<SourceCounts & { offer: string }>;
+}
+
+export interface SourceLinksResponse {
+  rows: Array<SourceCounts & { key: number | null; label: string }>;
+}
+
+export interface SourcePeopleFilter {
+  source: SourceKey;
+  metric: SourceMetric;
+  offer?: string;
+  owner_id?: number;
+  job_id?: number;
+}
+
+export interface SourcePerson {
+  candidate_id: number;
+  name: string;
+  applied_at: string;
+  applications: number;
+  offer: string | null;
+  link_owner: string | null;
+  link_job_id: number | null;
+  link_job_title: string | null;
+  stage: string | null;
+  job_id: number | null;
+  job_title: string | null;
+}
+
+export interface SourcePeopleResponse {
+  total: number;
+  rows: SourcePerson[];
+}
+
 function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
   const q: Record<string, string | number> = { period: p.period };
   if (p.offset !== undefined) q.offset = p.offset;
@@ -551,6 +621,32 @@ export const insightsApi = {
       .then((r) => r.data),
 
   /** Kto co przyniósł z linków. Trasa dla admina, Head of Recruitment i Delivery Leada. */
+  sources: (p: InsightsPeriodParams) =>
+    api
+      .get<SourcesResponse>("/api/insights/sources", { params: periodQuery(p) })
+      .then((r) => r.data),
+
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    api
+      .get<SourceOffersResponse>("/api/insights/sources/offers", {
+        params: { ...periodQuery(p), source, limit },
+      })
+      .then((r) => r.data),
+
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    api
+      .get<SourceLinksResponse>("/api/insights/sources/links", {
+        params: { ...periodQuery(p), source },
+      })
+      .then((r) => r.data),
+
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    api
+      .get<SourcePeopleResponse>("/api/insights/sources/people", {
+        params: { ...periodQuery(p), ...filter, limit },
+      })
+      .then((r) => r.data),
+
   linkPeople: (p: InsightsPeriodParams) =>
     api
       .get<LinkPeopleResponse>("/api/insights/recruitment/link-people", {
@@ -1109,6 +1205,13 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "invite-links", p] as const,
   linkPeople: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "link-people", p] as const,
+  sources: (p: InsightsPeriodParams) => ["insights", "sources", p] as const,
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    ["insights", "sources", "offers", p, source, limit] as const,
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    ["insights", "sources", "links", p, source] as const,
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    ["insights", "sources", "people", p, filter, limit] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata

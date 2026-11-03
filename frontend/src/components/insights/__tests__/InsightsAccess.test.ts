@@ -58,7 +58,7 @@ const user = (
   } as NonNullable<AuthUser>;
 };
 
-const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "raporty"];
+const ALL_TABS: TabId[] = ["rywalizacja", "moj-miesiac", "zespol", "rytm", "firma", "zrodla", "raporty"];
 
 describe("widoki Insights per rola", () => {
   it.each(ALL_ROLES)("rola %s widzi Rywalizację, Zespół i Raporty", (role) => {
@@ -324,10 +324,10 @@ describe("resolveInsightsLocation — adresy sprzed 24.09.2026", () => {
     });
   });
 
-  it("kotwica wygrywa z aliasem: #zrodla to raport Źródła", () => {
+  it("kotwica wygrywa z aliasem: #zrodla to zakładka Źródła (03.11.2026)", () => {
     expect(
       resolveInsightsLocation({ tab: "rekrutacja", hash: "#zrodla" }),
-    ).toMatchObject({ tab: "raporty", report: "doplyw", dropHash: true });
+    ).toMatchObject({ tab: "zrodla", dropHash: true });
   });
 
   it("rada#klienci (stary link MRR z DynaReportera) → Firma", () => {

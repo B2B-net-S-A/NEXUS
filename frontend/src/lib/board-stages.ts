@@ -186,6 +186,11 @@ const BY_ENUM: Record<string, BoardColumnKey> = {
   withdrawn: "closed",
 };
 
+/** Etap z bazy (enum) → kolumna Tablicy; nieznany etap = `null`. */
+export function boardColumnForEnum(stage: string): BoardColumnKey | null {
+  return BY_ENUM[stage] ?? null;
+}
+
 /** Etap szablonu → kolumna Tablicy i znacznik (bez znacznika = `null`). */
 export function placeStage(col: StageLike): StagePlacement {
   const raw = col.label ?? col.name ?? "";
