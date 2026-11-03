@@ -139,6 +139,7 @@ import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/Stag
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
+import type { CvEditorSourcesProps } from "@/components/v2/cv-editor/CvEditorSources";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
@@ -357,6 +358,8 @@ export interface CvToClientCardProps {
     stageId: number,
     opts?: { download?: CvDownloadSurface },
   ) => Promise<{ blob: Blob; filename?: string | null }>;
+  /** Oryginał w oknie stron („Pokaż oryginał”). Harness podaje plik z pamięci. */
+  originalLoaders?: CvEditorSourcesProps["loaders"];
 }
 
 /** Bez zgody RODO serwer i tak odpowie 409 — miniatura nie pyta wcale. */
@@ -394,6 +397,7 @@ export function CvToClientCard({
   onOpenPerson,
   lockedAfterSend = false,
   loadStageCvFile = fetchStageCvFile,
+  originalLoaders,
   loadStageCvPdf = fetchStageCvPdf,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
@@ -1391,6 +1395,8 @@ export function CvToClientCard({
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
           textAlign={normalizeCvAlign(branded?.text_align)}
+          originalStageId={cvStageId}
+          originalLoaders={originalLoaders}
         />
       ) : null}
       {originalOpen ? (

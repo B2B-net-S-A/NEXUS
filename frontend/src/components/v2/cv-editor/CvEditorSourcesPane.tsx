@@ -9,6 +9,7 @@
 
 import { JobNotesBlock, useJobNotes } from "@/components/v2/jobs/workbench-chrome";
 import {
+  CandidateCvPreview,
   CandidatePreviewPane,
   type CandidatePreviewPaneProps,
   type PreviewCvSource,
@@ -37,9 +38,25 @@ export interface CvEditorSourcesPaneProps {
   loaders?: Pick<CandidatePreviewPaneProps, "loadDocumentBlob" | "loadOriginalBlob">;
   /** „Pokaż w oryginale” z karty propozycji AI — wyszukanie cytatu w oryginalnym CV. */
   search?: CandidatePreviewPaneProps["searchRequest"];
+  /** Sam podgląd CV, bez zakładek — okno stron CV. */
+  cvOnly?: boolean;
 }
 
-export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders, search }: CvEditorSourcesPaneProps) {
+export function CvEditorSourcesPane({ candidateId, jobId, stageId, loaders, search, cvOnly }: CvEditorSourcesPaneProps) {
+  if (cvOnly) {
+    return (
+      <div className="flex h-full min-h-0 flex-col p-3">
+        <CandidateCvPreview
+          candidateId={candidateId}
+          jobId={jobId}
+          stageId={stageId}
+          sources={EDITOR_SOURCES}
+          loadDocumentBlob={loaders?.loadDocumentBlob}
+          loadOriginalBlob={loaders?.loadOriginalBlob}
+        />
+      </div>
+    );
+  }
   return (
     <CandidatePreviewPane
       candidateId={candidateId}

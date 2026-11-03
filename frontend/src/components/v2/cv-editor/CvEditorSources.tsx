@@ -41,9 +41,11 @@ export interface CvEditorSourcesProps {
   context?: CvEditorSourceContext | null;
   loaders?: CvEditorSourcesPaneProps["loaders"];
   search?: CvEditorSourcesPaneProps["search"];
+  /** Sam podgląd CV, bez zakładek — okno stron CV. */
+  cvOnly?: boolean;
 }
 
-export function CvEditorSources({ stageId, context, loaders, search }: CvEditorSourcesProps) {
+export function CvEditorSources({ stageId, context, loaders, search, cvOnly }: CvEditorSourcesProps) {
   const fromStage = !context && stageId != null;
   const original = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
@@ -56,7 +58,7 @@ export function CvEditorSources({ stageId, context, loaders, search }: CvEditorS
       ? { candidateId: original.data.candidate_id, jobId: original.data.job_id, stageId: stageId ?? null }
       : null);
 
-  if (pair) return <CvEditorSourcesPane {...pair} loaders={loaders} search={search} />;
+  if (pair) return <CvEditorSourcesPane {...pair} loaders={loaders} search={search} cvOnly={cvOnly} />;
   if (!fromStage) {
     return (
       <Note>

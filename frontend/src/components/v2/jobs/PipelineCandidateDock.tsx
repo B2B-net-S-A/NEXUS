@@ -2473,7 +2473,7 @@ export function PipelineCandidateDock({
                     ) : null}
                     {!readOnly ? (
                       stageCv === "ready" ? (
-                        <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                        <Button size="sm" variant="outline" data-tour="person.cv.edit" onClick={() => setOpenBranded(true)}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj CV
                         </Button>
                       ) : (
