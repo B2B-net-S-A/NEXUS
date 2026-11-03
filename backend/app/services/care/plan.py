@@ -57,6 +57,9 @@ from app.services.hr import audit
 #: Kamień po starcie i przed końcem zamówienia albo umowy.
 FIRST_WEEK_DAYS = 7
 PRE_END_DAYS = 30
+#: Moduł ``back_office`` (decyzja Artura 02.11.2026): kontakt przed końcem 60 dni
+#: wcześniej i bez rozmów z rytmu. Rytm wraca po ocenie 1–2 jako karta w kolejce.
+BACK_OFFICE_PRE_END_DAYS = 60
 #: Rozmowa z rytmu najwyżej tyle dni od kamienia to ta sama rozmowa.
 MILESTONE_MERGE_DAYS = 6
 LOOKAHEAD_DAYS = 120
@@ -101,27 +104,37 @@ def slots_between(
     periods: Sequence[PeriodLike],
     first: date,
     last: date,
+    *,
+    important_only: bool = False,
 ) -> list[PlannedSlot]:
-    """Punkty planu z terminem w [``first``, ``last``]: kamienie i rytm."""
+    """Punkty planu z terminem w [``first``, ``last``]: kamienie i rytm.
 
+    ``important_only``: same kamienie, kontakt przed końcem 60 dni wcześniej.
+    """
+
+    pre_end_days = BACK_OFFICE_PRE_END_DAYS if important_only else PRE_END_DAYS
     milestones: list[PlannedSlot] = []
     week = start + timedelta(days=FIRST_WEEK_DAYS)
     if end is None or week <= end:
         milestones.append(PlannedSlot("day_7", 0, week))
-    if end is not None and end - timedelta(days=PRE_END_DAYS) >= start:
+    if end is not None and end - timedelta(days=pre_end_days) >= start:
         # ``seq`` = dzień końca: przedłużenie daje nowy punkt, stary znika.
         milestones.append(
-            PlannedSlot("pre_end", end.toordinal(), end - timedelta(days=PRE_END_DAYS))
+            PlannedSlot("pre_end", end.toordinal(), end - timedelta(days=pre_end_days))
         )
     horizon = last if end is None else min(last, end)
-    regular = [
-        PlannedSlot("cadence", due.toordinal(), due)
-        for due in regular_dates(start, periods, horizon)
-        if all(
-            abs((due - stone.due_on).days) > MILESTONE_MERGE_DAYS
-            for stone in milestones
-        )
-    ]
+    regular = (
+        []
+        if important_only
+        else [
+            PlannedSlot("cadence", due.toordinal(), due)
+            for due in regular_dates(start, periods, horizon)
+            if all(
+                abs((due - stone.due_on).days) > MILESTONE_MERGE_DAYS
+                for stone in milestones
+            )
+        ]
+    )
     return sorted(
         (slot for slot in (*milestones, *regular) if first <= slot.due_on <= last),
         key=lambda slot: (slot.due_on, slot.kind),
@@ -136,6 +149,7 @@ def planned_slots(
     periods: Sequence[PeriodLike] = (),
     lookahead_days: int = LOOKAHEAD_DAYS,
     lookback_days: int = LOOKBACK_DAYS,
+    important_only: bool = False,
 ) -> list[PlannedSlot]:
     """Punkty planu, których termin wypada w oknie [dziś − wstecz, dziś + naprzód]."""
 
@@ -145,6 +159,7 @@ def planned_slots(
         periods,
         today - timedelta(days=lookback_days),
         today + timedelta(days=lookahead_days),
+        important_only=important_only,
     )
 
 
@@ -312,6 +327,11 @@ async def ensure_plans(
     ids = [contract.id for contract in items]
     periods = await periods_by_contract(db, ids)
     talked = await last_talk_days(db, ids)
+    from app.services.hr import modules as hr_modules  # noqa: PLC0415
+
+    important_only = (await hr_modules.load_modules(db)).get(
+        hr_modules.HrModule.back_office, False
+    )
     planned = {
         contract.id: [
             slot
@@ -320,6 +340,7 @@ async def ensure_plans(
                 contract.end_date,
                 today,
                 periods=periods.get(contract.id, ()),
+                important_only=important_only,
             )
             if contract.id not in talked or slot.due_on > talked[contract.id]
         ]

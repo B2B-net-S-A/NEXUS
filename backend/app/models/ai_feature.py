@@ -192,6 +192,9 @@ class AIFeatureKey(str, enum.Enum):
     candidate_ai_assessment = "candidate_ai_assessment"
     # 0628 (02.11.2026): podsumowanie transkryptu Teams spotkania handlowca.
     sales_meeting_summary = "sales_meeting_summary"
+    case_triage = "case_triage"
+    # Portal konsultanta (0643): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
+    portal_meeting_summary = "portal_meeting_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -238,6 +241,8 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
     AIFeatureKey.candidate_ai_assessment: "„Oceń z AI” — kolejność dzwonienia do zaznaczonych osób w rekrutacji",
     AIFeatureKey.sales_meeting_summary: "Sprzedaż — podsumowanie transkryptu spotkania z Teams",
+    AIFeatureKey.case_triage: "Back office — do którego zespołu trafia mail albo zgłoszenie",
+    AIFeatureKey.portal_meeting_summary: "Portal konsultanta — podsumowanie rozmowy do sprawy",
 }
 
 
@@ -431,9 +436,17 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Tytuł rekrutacji, umiejętności krytyczne, must-have, nice-to-have i opis projektu",
         "(bez stawek, nazwy klienta i danych kontaktowych z profilu)",
     ],
+    AIFeatureKey.case_triage: [
+        "Temat i początek treści maila albo zgłoszenia od konsultanta",
+        "(bez stawek i danych z kartoteki)",
+    ],
     AIFeatureKey.sales_meeting_summary: [
         "Temat spotkania handlowca i transkrypt z Teams z podpisami mówców",
         "(bez danych z kartoteki firmy, szans i kandydatów)",
+    ],
+    AIFeatureKey.portal_meeting_summary: [
+        "Transkrypt rozmowy konsultanta z back office z Teams i powód rezerwacji",
+        "(bez stawek, danych kontraktu i notatek wewnętrznych)",
     ],
 }
 

@@ -15,6 +15,7 @@ const ALL_ON: Record<HrModuleKey, boolean> = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>, open = ALL_ON): HrConfig {
@@ -102,7 +103,7 @@ describe("zakładki obszaru „Ludzie”", () => {
   });
 
   it("nie ma już zakładek „Struktura” i „Moje zgody” — Schemat jest w Katalogu, zgody w Moim czasie", () => {
-    const withConsents = { ...ALL_ON, approvals: true };
+    const withConsents = { ...ALL_ON, approvals: true, back_office: false };
     const got = values(config({ is_admin: true, people_admin: true }, withConsents));
     expect(got).not.toContain("structure");
     expect(got).not.toContain("consents");
@@ -122,7 +123,7 @@ describe("zakładki obszaru „Ludzie”", () => {
 });
 
 describe("zakładki przy module „Zgody” (0483)", () => {
-  const withConsents = { ...ALL_ON, approvals: true };
+  const withConsents = { ...ALL_ON, approvals: true, back_office: false };
   const onlyConsents = Object.fromEntries(
     Object.keys(ALL_ON).map((key) => [key, key === "approvals"]),
   ) as Record<HrModuleKey, boolean>;

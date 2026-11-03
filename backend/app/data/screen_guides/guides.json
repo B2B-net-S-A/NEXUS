@@ -1034,6 +1034,11 @@
     ],
     "anchors": [
       {
+        "id": "hr.care.queue",
+        "label": "Kolejka",
+        "describe": "Karty czterech zespołów po typie pracy, filtry Do wzięcia i Moje, przełącznik Po typie / Po statusie, lista Wszystko dla kierownika."
+      },
+      {
         "id": "hr.care.board",
         "label": "Do zrobienia",
         "describe": "Tablica spraw z kartami opieki: kolumny Nowa, W toku, Czeka na kogoś, Zrobione, chipy obszarów i przełącznik Tablica / Lista."
@@ -1053,7 +1058,7 @@
     "sources": [
       "frontend/src/components/care/CareScreen.tsx",
       "frontend/src/components/care/card/ConsultantCard.tsx",
-      "frontend/src/components/care/ConversationDialog.tsx"
+      "frontend/src/components/back-office/QueueBoard.tsx"
     ]
   }
 ]

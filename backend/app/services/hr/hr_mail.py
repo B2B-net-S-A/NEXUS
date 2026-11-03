@@ -101,6 +101,22 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Przypisano Ci sprawę administracja@",
         "Szczegóły sprawy znajdziesz w NEXUSIE.",
     ),
+    "back_office_escalated": (
+        "Sprawy do przydzielenia",
+        "Kolejka back office ma sprawy bez osoby po dniu roboczym.",
+    ),
+    "back_office_assigned": (
+        "Przydzielono Ci kartę back office",
+        "Szczegóły karty znajdziesz w NEXUSIE.",
+    ),
+    "portal_low_rating": (
+        "Niska ocena rozmowy z portalu",
+        "Konsultant źle ocenił rozmowę. Zadanie znajdziesz w zakładce „Jakość”.",
+    ),
+    "portal_monthly_review": (
+        "Przegląd rozmów za miesiąc",
+        "Twój miesięczny przegląd rozmów z portalu jest w zakładce „Jakość”.",
+    ),
     "equipment_task": (
         "Sprzęt: zadania do zrobienia",
         "Recepcja ma zadania sprzętu na dziś i najbliższe dni.",
@@ -160,7 +176,12 @@ _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 
 # Treść tych typów to zawsze wolny tekst.
 _FREE_TEXT_TYPES = frozenset(
-    {"admin_case_assigned", "hr_leave_conflict", "hr_approval_decided"}
+    {
+        "admin_case_assigned",
+        "back_office_assigned",
+        "hr_leave_conflict",
+        "hr_approval_decided",
+    }
 )
 _RETURNED_BODY = "Uwagi akceptującego znajdziesz w „Moim miesiącu”."
 

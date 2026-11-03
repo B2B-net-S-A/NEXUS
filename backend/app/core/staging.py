@@ -75,6 +75,9 @@ STAGING_ALLOWED_TASKS: frozenset[str] = frozenset(
 # drugi raz dziennie, a wynik i tak jest na produkcji).
 STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
     {
+        "consultant_portal_transcripts",
+        "consultant_portal_ratings",
+        "consultant_portal_mailbox",
         "cv_generation",
         "cv_approval",
         "cv_source_cleanup",
@@ -161,6 +164,8 @@ STAGING_BLOCKED_TASKS: frozenset[str] = frozenset(
         "equipment_reminders",
         "equipment_intune_sync",
         "admin_cases_mail_ingest",
+        # Zapisuje tylko w bazie, ale z dzwonkami; na stagingu odpala się ją ręcznie.
+        "back_office_sync",
         "hr_approval_mail_replies",
     }
 )

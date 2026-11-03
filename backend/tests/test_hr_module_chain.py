@@ -97,6 +97,18 @@ CHAIN = (
         "0621_pair_departure_care",  # down_revision — przepina rechain_migration.py
         "hr_leave_cpro_schema",
     ),
+    # Kolejka spraw back office'u (02.11.2026).
+    (
+        "0642_back_office",
+        "0641_career_link_channels",  # down_revision — przepina rechain_migration.py
+        "back_office_schema",
+    ),
+    # Portal konsultanta (02.11.2026).
+    (
+        "0643_consultant_portal",
+        "0642_back_office",  # down_revision — przepina rechain_migration.py
+        "consultant_portal_schema",
+    ),
 )
 
 

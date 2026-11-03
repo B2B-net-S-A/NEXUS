@@ -36,6 +36,7 @@
   "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
   "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
   "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDBDD",
-  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
+  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
+  "POST /api/cases/{case_id}/reply": "BDDDBDDDBDDDBBDDDDDDDDDDBDD"
  }
 }

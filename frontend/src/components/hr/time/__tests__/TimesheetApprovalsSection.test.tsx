@@ -36,6 +36,7 @@ const modules = {
   equipment: false,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {

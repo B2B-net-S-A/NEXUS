@@ -58,6 +58,8 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   const isEngagementPage = pathname?.startsWith("/engagement/") ?? false;
   // `/protocol/{token}` — publiczny podpis protokołu sprzętu („Ludzie w NEXUSIE”).
   const isProtocolPage = pathname?.startsWith("/protocol/") ?? false;
+  // `/konsultant` — strefa konsultanta: osobna sesja, bez konta pracownika.
+  const isConsultantPortal = pathname === "/konsultant" || (pathname?.startsWith("/konsultant/") ?? false);
   const isExtensionPrivacyPage = pathname === "/wtyczka/prywatnosc";
   // Strona kariery dla kandydatów (`/kariera/*`, host `kariera.dynaminds.pl`).
   // Na hoście kariery middleware PRZEPISUJE adres (`/r/x` → `/kariera/r/x`),
@@ -163,6 +165,7 @@ export function AppShellV2({ children }: { children: React.ReactNode }) {
   if (isClientPanelPage) return <>{children}</>;
   if (isEngagementPage) return <>{children}</>;
   if (isProtocolPage) return <>{children}</>;
+  if (isConsultantPortal) return <>{children}</>;
   if (isExtensionPrivacyPage) return <>{children}</>;
   if (isCareerPage) return <>{children}</>;
   // /preview/* — design-system prototype pages, rendered bare (no shell/auth).
