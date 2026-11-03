@@ -18,11 +18,22 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from app.core.background_leader import STANDBY_ALARM_SECONDS
+
 # Alarmy bramkowane na SLACK_WEBHOOK_URL (patrz docstring). Krótka, jawna lista —
 # NIE dopisuj tu integracji opt-in (LinkedIn, M365, CloudTalk…): ich wyłączenie
 # jest ŚWIADOME, a flagowanie go co godzinę to dokładnie ten fałszywy alarm,
 # przed którym ostrzega komentarz przy uptime-probe.
 SLACK_WEBHOOK_ALARM_TASKS: tuple[str, ...] = ("slack_sla_alerts",)
+
+
+def leader_check_value(*, is_leader: bool, standby_seconds: int) -> str | None:
+    """Wartość ``checks.background_tasks`` dla procesu bez pętli; lider = ``None``."""
+    if is_leader:
+        return None
+    if standby_seconds > STANDBY_ALARM_SECONDS:
+        return f"unhealthy: standby {standby_seconds}s — pętle w tle nie działają"
+    return "standby"
 
 
 def classify_background_tasks(
