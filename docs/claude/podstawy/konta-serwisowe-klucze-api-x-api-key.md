@@ -156,7 +156,7 @@ integratora: `docs/api/integracje-v1.md` (bez nazwisk — repo jest publiczne).
   zatrudnienia, wysyłki do klienta, Cpro, stawek i decyzji DL (403
   `requires_screen_decision`); `IntegrationActor` nigdy nie trafia do bramek ról
   (`NO_RIGHTS_VIEWER`). Nowy kandydat z klucza: duplikat e-mail 409
-  `duplicate_candidate`, nagrobek RODO 409 `candidate_erased`. Opis dla
+  `duplicate_candidate`, nagrobek adresu 409 `candidate_erased`. Opis dla
   integratora: `docs/api/integracje-v1.md`.
 - **Reszta procesów w v1 (15.10.2026, „rób wszystko”):** zakładanie rekrutacji
   (`recruitments:create`, `job_lifecycle.apply_job_create` wspólne z `POST /api/jobs`;

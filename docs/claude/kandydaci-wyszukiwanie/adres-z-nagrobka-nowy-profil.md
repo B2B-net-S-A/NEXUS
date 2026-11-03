@@ -20,7 +20,7 @@ wrócić z poczty, okna albo importu bez żadnego sygnału dla rekrutera. Decyzj
   `self_application`. Bez danych osoby.
 - **`force` nie pomija pytania**, bo dotyczy duplikatów, a nie nagrobka.
 - **Nagrobek nie dowodzi prośby osoby.** Stawia go każde trwałe usunięcie, także
-  duplikatu, dlatego tekst na ekranie mówi o usuniętym profilu. 6 z 12 trwałych usunięć
+  duplikatu, dlatego tekst na ekranie i w API v1 mówi o usuniętym profilu. 6 z 12 trwałych usunięć
   sprzed 20.10.2026 nagrobka nie ma i adresów już się nie odtworzy.
 - **Zostaje poza nagrobkiem:** wtyczka LinkedIn (profil bez adresu, decyzja Artura
   z 03.11.2026: sam e-mail wystarczy), zamówienie z maila i seed e-Zdrowie (sama nazwa)
