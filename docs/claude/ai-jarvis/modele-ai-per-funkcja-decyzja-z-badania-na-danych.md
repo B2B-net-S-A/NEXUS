@@ -112,6 +112,12 @@ zakończyło się decyzją Artura wdrożoną w rejestrze `services/ai_models.py`
 Bieg na danych produkcyjnych w `/root/nexus-model-eval`, wyniki w `results-nov/`,
 decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
 
+- **Sonnet 5.5 od 03.11.2026 w F3 kafelki CV, F9 parser CV i F10 `cv_backfill`**, z Sonnetem 5
+  jako zapasem; tabela na górze pliku pokazuje stan z 16.09. Parser przeszedł tylko dlatego,
+  że `cv_technology_grounding` odcina przed zapisem technologie bez śladu w CV (zmyślenia
+  0,34 wobec 0,20 na CV). Nie cofaj filtra bez cofnięcia modelu. Powrót bez deployu:
+  `CV_PARSER_MODEL`, `CV_REQUIREMENT_MAP_MODEL`, `CV_BACKFILL_MODEL`. `cv_name_backfill`
+  zostaje na Lunie, bo imiona nie zyskują na lepszym odczycie technologii.
 - **Sonnet 5.5 odrzuca `thinking: disabled` kodem 400.** Wołający zostają przy
   `disabled`, a `claude_client._sdk_request_kwargs` tłumaczy to na `between_tools`
   dla każdego modelu w łańcuchu osobno, bo `between_tools` przyjmuje tylko Sonnet 5.5.
