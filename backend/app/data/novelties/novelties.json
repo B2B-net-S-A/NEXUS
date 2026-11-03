@@ -767,7 +767,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-03",
     "where": "Mój czas → Wynagrodzenie dodatkowe i stawka",
-    "href": "/my-time?tab=bonuses",
+    "href": "/my-time",
     "dot_anchor": "my-time.bonus-months"
   }
 ]
