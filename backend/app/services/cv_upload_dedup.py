@@ -42,6 +42,7 @@ from app.models.candidate import Candidate
 from app.models.candidate_document import CandidateDocument
 from app.services.candidate_identity_quarantine import source_is_eligible_clause
 from app.services.dedup_service import find_candidate_by_email
+from app.services.profile_projection import is_rich_profile_parse
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,38 @@ def header_email(raw_text: str) -> Optional[str]:
 
     match = _EMAIL_RE.search(_header(raw_text))
     return match.group(0).lower() if match else None
+
+
+def profile_holds_read_of_file(
+    extracted: Any,
+    *,
+    raw_cv_text: Optional[str],
+    content_sha256: Optional[str],
+) -> bool:
+    """Czy profil stoi już na pełnym odczycie modelem DOKŁADNIE tego pliku.
+
+    Tu jest jedyna reguła, kiedy wolno nie płacić za odczyt pliku wgranego do
+    istniejącego profilu. Dowodem jest `cv_highlights.source_hash`: zapisuje go
+    wyłącznie `finish_cv_ingest`, czyli odczyt, który przeszedł bramkę tożsamości
+    i trafił do profilu. Sama obecność pliku w teczce nic nie mówi: import
+    z Traffita i poczty kładzie pliki, których model nigdy nie czytał.
+
+    Wątpliwość oznacza odczyt: regex to awaria modelu, ucięta odpowiedź ma
+    dziury, a znacznik po kwarantannie znika dopiero z nowym odczytem. Nowa
+    wersja promptu sama nie wymusza odczytu; od tego jest `/cv/reparse`.
+    """
+    if not content_sha256 or not (raw_cv_text or "").strip():
+        return False
+    if not isinstance(extracted, dict):
+        return False
+    if extracted.get("_truncated") or extracted.get("_identity_quarantine_source"):
+        return False
+    highlights = extracted.get("cv_highlights")
+    if not isinstance(highlights, dict):
+        return False
+    if highlights.get("source_hash") != content_sha256:
+        return False
+    return is_rich_profile_parse({"_source": highlights.get("extractor_version")})
 
 
 async def _duplicates_by_file_hash(
@@ -166,4 +199,5 @@ __all__ = [
     "content_digest",
     "find_duplicates_without_llm",
     "header_email",
+    "profile_holds_read_of_file",
 ]
