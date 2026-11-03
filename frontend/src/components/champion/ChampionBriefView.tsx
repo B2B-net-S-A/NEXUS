@@ -35,6 +35,7 @@ import { criticalBriefLine } from "@/lib/critical-skills";
 import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
 import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
+import { fillSupplierName } from "@/lib/consent-mail";
 import { officeDaysLabel } from "@/lib/office-days";
 import { buildGlossaryLookup } from "@/lib/plain-glossary-lookup";
 import { resolveViewState } from "@/lib/view-state";
@@ -434,7 +435,19 @@ export function ChampionBriefView({
                   Oryginalny opis od klienta
                 </summary>
                 <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-[13px] leading-relaxed text-foreground">
-                  {job.description}
+                  {fillSupplierName(job.description).map((part, index) =>
+                    part.filled ? (
+                      <mark
+                        key={index}
+                        title="W zapytaniu klienta: [Nazwa Dostawcy]"
+                        className="rounded bg-warning-muted px-0.5 text-warning-muted-foreground"
+                      >
+                        {part.value}
+                      </mark>
+                    ) : (
+                      part.value
+                    ),
+                  )}
                 </p>
               </details>
             ) : null}
