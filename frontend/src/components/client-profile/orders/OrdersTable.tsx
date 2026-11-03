@@ -94,8 +94,7 @@ function TileColumns({ scopedMd }: { scopedMd: boolean }) {
       <col className="w-[7rem]" />
       <col className="w-[7rem]" />
       {/* Pasek (96 px) + „22 / 60 MD” potrzebują 184 px treści — przy 11,5 rem
-          liczba wchodziła pod przycisk „Zużycie”. Dłuższe liczby z ułamkiem
-          („39,17 / 96,95 MD”) mieszczą się, bo zwęża się pasek. Dwa paski CeZ z etykietą
+          liczba wchodziła pod przycisk „Zużycie”. Dwa paski CeZ z etykietą
           i „184 / 190 MD 97%” to ok. 300 px, więc ta sekcja oddaje kolumnie
           część nazwiska: przy tabeli 958 px (ekran 1280) „Uwagi” mają ok. 85 px
           i nie ma przewijania w bok (pomiar na produkcji 13.10.2026). */}
