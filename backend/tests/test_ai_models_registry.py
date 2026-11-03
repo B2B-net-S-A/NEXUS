@@ -26,13 +26,12 @@ def test_registry_snapshot_covers_all_keys():
         )
 
 
-def test_cv_generator_is_sonnet_5_with_opus_fallback():
-    """F4 (decyzja 16.09.2026): Sonnet 5 z thinking=disabled — w badaniu na
-    danych produkcyjnych wymyślał fakty w 20% CV vs 41% u Sonneta 4.6 (rewert
-    #628 mierzył Sonneta 5 z WYMUSZONYM thinking). Fallback Opus zostaje."""
-    assert ai_models.model_for(AIFeatureKey.cv_generator) == "claude-sonnet-5"
+def test_cv_generator_is_sol_with_opus_fallback():
+    """F4 (decyzja 03.11.2026 po audycie): GPT-6.1 Sol, jurorzy na ślepo 24 lepsze
+    i 2 gorsze wobec Sonneta 5. Fallback Opus zostaje."""
+    assert ai_models.model_for(AIFeatureKey.cv_generator) == "gpt-6.1-sol"
     assert ai_models.model_chain_for(AIFeatureKey.cv_generator) == [
-        "claude-sonnet-5",
+        "gpt-6.1-sol",
         "claude-opus-4-8",
     ]
 
@@ -103,7 +102,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.scoring: ("F1", "claude-sonnet-5"),
     AIFeatureKey.champion_profile_parse: ("F2", "claude-sonnet-5"),
     AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5-5"),
-    AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
+    AIFeatureKey.cv_generator: ("F4", "gpt-6.1-sol"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
     # F7 — 21.09.2026 powrót z GPT-5.6 Luna na Sonneta, 22.09.2026 na GPT-6 Lunę
@@ -126,7 +125,7 @@ DECISION_2026_09_16 = {
     # F18 — decyzja 18.09.2026, POZA badaniem 16.09: recenzent gotowego CV
     # musi być INNYM modelem niż generator (F4), bo sędzia LLM faworyzuje
     # własne wyjście. Zmiana tego wpisu na model generatora cofa sens funkcji.
-    AIFeatureKey.cv_factual_verification: ("F18", "gpt-6-luna"),
+    AIFeatureKey.cv_factual_verification: ("F18", "claude-haiku-5-5"),
     # F19 — decyzja 21.09.2026: Jarvis woła `tools`, więc tylko Anthropic.
     AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
     # F20 — decyzja 21.09.2026: szkic opisu na stronę kariery, jak F6.
@@ -298,7 +297,7 @@ FALLBACKS_2026_11_02 = {
     AIFeatureKey.order_parser: "claude-sonnet-5-5",
     AIFeatureKey.cv_requirement_map: "claude-sonnet-5",
     AIFeatureKey.job_description_generator: "claude-sonnet-5-5",
-    AIFeatureKey.cv_factual_verification: "claude-haiku-5-5",
+    AIFeatureKey.cv_factual_verification: "claude-sonnet-5-5",
     AIFeatureKey.champion_profile_parse: "claude-haiku-5-5",
     AIFeatureKey.scoring: "claude-haiku-5-5",
     AIFeatureKey.cv_rule_lint: "claude-haiku-5-5",
