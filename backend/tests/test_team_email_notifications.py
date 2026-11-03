@@ -82,7 +82,7 @@ def test_prep_change_catalog_names_everyone_who_gets_the_mail():
         ("interview_slots_requested", "Terminy", "job", "client_interview"),
         ("interview_slot_chosen", "Termin", "job", "client_interview"),
         ("interview_slot_confirmed", "Rozmowa", "job", "client_interview"),
-        ("interview_changed", "Koordynatorka", None, "client_interview"),
+        ("interview_changed", "Przełożona", None, "client_interview"),
         ("interview_debrief_saved", "Debrief", "job", "client_interview"),
         ("post_interview_t15", "Zadzwoń", "calendar_event", "client_interview"),
         # Kolejne ponaglenia po rozmowie zostają w dzwonku.
