@@ -25,7 +25,9 @@ wariant A, próg 14 dni, zgoda na pobranie dat z Traffita.
   w „Nowych” i „Screeningu” (`lib/board-card-badges.ts`, klucz `new_in_base`, poza skracanymi do ikon);
   kolumna „Dodano” i kolejność „Najnowsi”/„Najstarsi” listy kandydatów.
 - **Próg 14 dni i dni kalendarzowe Europe/Warsaw** liczy `frontend/src/lib/added-to-base.ts`
-  (`NEW_IN_BASE_DAYS`). Serwer podaje datę i flagę dokładności, nie decyduje o pigułce.
+  (`NEW_IN_BASE_DAYS`). Serwer podaje datę i flagę dokładności, nie decyduje o pigułce. Lustro
+  progu po stronie serwera (`candidate_added_date.NEW_IN_BASE_DAYS`) decyduje o pierwszeństwie
+  w kolejce: `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
 - **API**: `CandidateResponse` ma `source_created_at`, `added_to_base_at`, `added_to_base_exact`,
   `added_via` — liczone w walidatorze schematu, więc lista, detal i odpowiedzi zapisu mają je same.
   Karta Tablicy (`build_kanban_view`) ma `candidate_added_at`, `candidate_added_exact`,

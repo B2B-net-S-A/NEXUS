@@ -56,6 +56,40 @@ describe("orderNewColumn", () => {
   });
 });
 
+describe("nowi w bazie najpierw (03.11.2026)", () => {
+  const fresh = (id: number, score: number) =>
+    system(id, score, { entry_autofill: { score, decided: false, cautions: [], fresh_first: true } });
+
+  it("nowa w bazie wyprzedza wyższy wynik, między nowymi liczy się wynik", () => {
+    const { items, ranks, freshFirst } = orderNewColumn([system(1, 95), fresh(2, 71), fresh(3, 74)]);
+    expect(items.map((i) => i.id)).toEqual([3, 2, 1]);
+    expect(ranks.get(3)).toBe(1);
+    expect(freshFirst).toBe(true);
+  });
+
+  it("wyprzedza też punkty „znamy tę osobę”", () => {
+    const familiar = system(1, 78, {
+      entry_autofill: {
+        score: 78,
+        decided: false,
+        cautions: [],
+        known: { points: 14, client_points: 6, note_points: 8, verified_at_client: 2, last_note_days: 5 },
+      },
+    });
+    expect(orderNewColumn([familiar, fresh(2, 70)]).items.map((i) => i.id)).toEqual([2, 1]);
+  });
+
+  it("brak krytycznej cofa nową na koniec", () => {
+    const { items, freshFirst } = orderNewColumn([fresh(1, 90), system(2, 70)], new Map([[10, ["angular"]]]));
+    expect(items.map((i) => i.id)).toEqual([2, 1]);
+    expect(freshFirst).toBe(false);
+  });
+
+  it("bez nowych w bazie kolejka jest jak dotąd", () => {
+    expect(orderNewColumn([system(1, 70), system(2, 80)]).freshFirst).toBe(false);
+  });
+});
+
 describe("znamy tę osobę", () => {
   const known = (points: number) => ({
     points,

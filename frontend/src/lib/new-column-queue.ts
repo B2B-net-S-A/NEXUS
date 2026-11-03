@@ -8,7 +8,8 @@
  * Osoby dodane przez zespół i karty od systemu, które ktoś już wziął, zostają
  * na górze od najmłodszego (decyzja z 16.10.2026). Pod nimi czekające karty od
  * systemu od najwyższego wyniku powiększonego o punkty „znamy tę osobę”
- * (`entry_autofill.known`, serwer): najpierw bez uwag, potem z ostrzeżeniem
+ * (`entry_autofill.known`, serwer): najpierw nowi w bazie od progu (03.11.2026,
+ * `entry_autofill.fresh_first`), potem pozostali bez uwag, potem z ostrzeżeniem
  * o budżecie albo biurze, na końcu z brakiem krytycznej. Procent na karcie się
  * nie zmienia. Zasady: docs/claude/rekrutacja-tablica/kolejka-w-nowych.md.
  */
@@ -33,6 +34,8 @@ type QueueItem = {
     decided: boolean;
     cautions?: unknown[];
     known?: KnownFacts | null;
+    /** Nowa w bazie, od progu, bez uwag — liczy serwer (`has_fresh_first`). */
+    fresh_first?: boolean;
   } | null;
 };
 
@@ -70,13 +73,14 @@ export function waitsInSystemQueue(item: QueueItem): boolean {
 
 function tier(item: QueueItem, criticalGaps: ReadonlyMap<number, string[]> | undefined): number {
   if (criticalGaps?.get(item.candidate_id)?.length) return 2;
-  return item.entry_autofill?.cautions?.length ? 1 : 0;
+  if (item.entry_autofill?.cautions?.length) return 1;
+  return item.entry_autofill?.fresh_first ? -1 : 0;
 }
 
 export function orderNewColumn<T extends QueueItem>(
   items: readonly T[],
   criticalGaps?: ReadonlyMap<number, string[]>,
-): { items: T[]; ranks: Map<number, number>; total: number } {
+): { items: T[]; ranks: Map<number, number>; total: number; freshFirst: boolean } {
   const team = items.filter((item) => !waitsInSystemQueue(item));
   const queue = items
     .filter(waitsInSystemQueue)
@@ -89,7 +93,12 @@ export function orderNewColumn<T extends QueueItem>(
     );
   const ranks = new Map<number, number>();
   queue.forEach(({ item }, index) => ranks.set(item.id, index + 1));
-  return { items: [...team, ...queue.map(({ item }) => item)], ranks, total: queue.length };
+  return {
+    items: [...team, ...queue.map(({ item }) => item)],
+    ranks,
+    total: queue.length,
+    freshFirst: queue.some(({ tier: t }) => t < 0),
+  };
 }
 
 export function newColumnSection(rank: number | undefined): NewColumnSection {

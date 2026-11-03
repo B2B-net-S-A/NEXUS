@@ -687,6 +687,18 @@
     "dot_anchor": "board.new-queue"
   },
   {
+    "id": "nowi-w-bazie-najpierw",
+    "title": "Nowi w bazie na początku kolejki",
+    "why": "Osoby do 14 dni w bazie, z wynikiem od progu i krytycznymi, stoją na początku „Zadzwoń najpierw” i „Propozycji z bazy”, także przed wyższym wynikiem. Wchodzą nawet przy pełnych „Nowych”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
+  },
+  {
     "id": "wyslani-a-system",
     "title": "Jakość podpowiedzi: czy system pokazał osoby wysłane do klienta",
     "why": "Widzisz, ile osób wysłanych do klienta system pokazał sam, ile było spoza bazy, a ile znał i minął, oraz w których rekrutacjach mija najwięcej.",

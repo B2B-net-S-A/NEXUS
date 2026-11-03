@@ -45,6 +45,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
   ticku od miejsca przerwania (także rekrutacja, przy której skończył się
   limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Nowi w bazie wchodzą pierwsi, także ponad 20 (decyzja Artura 03.11.2026).**
+  Do 5 kart ponad `TARGET`, wyłącznie osobami do 14 dni w bazie, od progu i bez uwag:
+  `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
 - **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
   dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
   droga” przy stawce, którą system znał; 31% osób od systemu miało znaną

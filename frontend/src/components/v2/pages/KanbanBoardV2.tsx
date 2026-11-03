@@ -1666,7 +1666,7 @@ interface ColProps {
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
  /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
- newQueue?: { ranks: Map<number, number>; total: number } | null;
+ newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1735,7 +1735,7 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
 }
 
 /** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
-function NewColumnSectionHeader({ section, total }: { section: NewColumnSection; total: number }) {
+function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
  const callFirst = Math.min(total, CALL_FIRST_COUNT);
  const label =
  section === "team"
@@ -1753,7 +1753,9 @@ function NewColumnSectionHeader({ section, total }: { section: NewColumnSection;
  {label}
  </div>
  {section === "call_first" ? (
- <div className="mt-0.5 text-[10.5px] text-muted-foreground">Wynik plus to, co o osobie wiemy</div>
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+ {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
+ </div>
  ) : null}
  </div>
  );
@@ -1961,7 +1963,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  return (
  <Fragment key={String(item.id)}>
  {startsSection && newQueue ? (
- <NewColumnSectionHeader section={section} total={newQueue.total} />
+ <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
  ) : null}
  <Draggable
  draggableId={String(item.id)}

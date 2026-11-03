@@ -236,6 +236,7 @@ export interface KanbanItem {
   cautions?: { key: string; label: string; title: string }[];
   /** 02.11.2026: „znamy tę osobę” — punkty kolejki (`known_queue_points`). */
   known?: KnownFacts | null;
+  fresh_first?: boolean;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
