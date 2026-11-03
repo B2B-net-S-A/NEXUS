@@ -221,7 +221,9 @@ async def test_render_and_rerender_store_address_without_nr_word(
     item = await _item_by_number(app_client, app_auth_headers, number)
     form = await app_client.get(f"{PATH}/{item['id']}/form", headers=app_auth_headers)
     assert form.status_code == 200, form.text
-    assert form.json()["partner_business_address"] == "ul. Polna 12, 00-001 Warszawa"
+    assert form.json()["form"]["partner_business_address"] == (
+        "ul. Polna 12, 00-001 Warszawa"
+    )
 
     body["partner_business_address"] = "ul. Polna, nr 12, lok. 5, 00-001 Warszawa"
     resp = await app_client.post(
@@ -229,7 +231,9 @@ async def test_render_and_rerender_store_address_without_nr_word(
     )
     assert resp.status_code == 200, resp.text
     form = await app_client.get(f"{PATH}/{item['id']}/form", headers=app_auth_headers)
-    assert form.json()["partner_business_address"] == "ul. Polna 12/5, 00-001 Warszawa"
+    assert form.json()["form"]["partner_business_address"] == (
+        "ul. Polna 12/5, 00-001 Warszawa"
+    )
 
 
 # ── Poprawka pod tym samym numerem ───────────────────────────────────────────
