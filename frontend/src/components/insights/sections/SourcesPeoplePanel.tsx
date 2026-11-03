@@ -15,6 +15,7 @@ import { DetailPanel } from "@/components/ds/DetailPanel";
 import { Button } from "@/components/ui/button";
 import { buildInsightsCsv, downloadCsv } from "@/components/insights/PeriodPicker";
 import { apiErrorMessage } from "@/lib/api-error";
+import { pluralPl } from "@/lib/plural-pl";
 import { BOARD_COLUMN_LABEL, boardColumnForEnum } from "@/lib/board-stages";
 import {
   insightsApi,
@@ -109,6 +110,8 @@ export function SourcesPeoplePanel({
   const column = SOURCE_METRICS.find((c) => c.key === metric);
   const rows = data?.rows ?? [];
   const total = data?.total ?? selection.total;
+  // „Zgłoszenia” portalu to liczba zgłoszeń, a lista ma wiersz na osobę.
+  const listedNumber = metric === "applications" ? (data?.total_applications ?? 0) : total;
 
   const handleExport = async () => {
     setExporting(true);
@@ -183,9 +186,16 @@ export function SourcesPeoplePanel({
             <SectionError label="Osoby" error={error} onRetry={() => void refetch()} />
           ) : (
             <>
-              {data.total !== selection.total && (
+              {metric === "applications" && data.total_applications !== data.total && (
+                <p className="text-xs text-foreground">
+                  {data.total_applications.toLocaleString("pl-PL")}{" "}
+                  {pluralPl(data.total_applications, "zgłoszenie", "zgłoszenia", "zgłoszeń")} od{" "}
+                  {data.total.toLocaleString("pl-PL")} {pluralPl(data.total, "osoby", "osób", "osób")}.
+                </p>
+              )}
+              {listedNumber !== selection.total && (
                 <p className="text-xs text-muted-foreground" data-testid="sources-people-reconcile">
-                  Na liście jest {data.total.toLocaleString("pl-PL")}, a liczba w tabeli to{" "}
+                  Na liście jest {listedNumber.toLocaleString("pl-PL")}, a liczba w tabeli to{" "}
                   {selection.total.toLocaleString("pl-PL")}, bo dane zmieniły się po jej policzeniu. Odśwież widok.
                 </p>
               )}

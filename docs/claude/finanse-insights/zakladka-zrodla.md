@@ -17,7 +17,8 @@ Kod: `api/insights_sources.py`, `services/insights_sources.py`, front
   z wglądem w cudze wyniki rekruterów albo rekrutacje linków.
 - **Liczba i lista to ten sam SQL.** Flagi biorą się z jednego CTE (`flags`), więc liczba
   po kliknięciu zgadza się z listą. Gdy dane zmienią się po policzeniu tabeli (cache 5 min),
-  panel pisze obie liczby. Nie ukrywaj tego zdania.
+  panel pisze obie liczby. Nie ukrywaj tego zdania. „Zgłoszenia” portalu mają wiersz na osobę,
+  więc porównują się z `total_applications`, a panel pisze „N zgłoszeń od M osób”.
 - **Etap portalu jest po osobie, nie po rekrutacji.** Zgłoszenie z portalu ma `job_id`
   puste, bo ogłoszenie na portalu nie jest połączone z rekrutacją. „CV wysłane” znaczy: po
   pierwszym zgłoszeniu w oknie osoba doszła do CV, w dowolnej rekrutacji. Ściślejszy pomiar

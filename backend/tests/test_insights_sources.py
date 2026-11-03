@@ -11,6 +11,7 @@ Pod ochroną:
 
 from __future__ import annotations
 
+import itertools
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -37,11 +38,16 @@ from app.services.insights_sources import (
 )
 
 
+# Baza testowa nie jest czyszczona, więc każdy test ma własne okno w przyszłości: los
+# rozdziela biegi, licznik testy jednego biegu.
+_WINDOW_BASE = datetime(2047, 1, 1, tzinfo=timezone.utc) + timedelta(
+    days=random.randint(0, 20_000)
+)
+_WINDOW_SLOT = itertools.count()
+
+
 def _window() -> tuple[datetime, datetime]:
-    # Baza testowa nie jest czyszczona, więc każdy test ma własne okno w przyszłości.
-    start = datetime(2047, 1, 1, tzinfo=timezone.utc) + timedelta(
-        days=random.randint(0, 5000)
-    )
+    start = _WINDOW_BASE + timedelta(days=6 * next(_WINDOW_SLOT))
     return start, start + timedelta(days=5)
 
 
@@ -338,6 +344,79 @@ async def test_links_agree_with_who_brought_what() -> None:
     assert [r["key"] for r in breakdown["rows"]] == [owner]
     assert scoped["total"] == 1
     assert scoped["rows"][0]["link_owner"] is not None
+
+
+@pytest.mark.asyncio
+async def test_link_list_matches_the_row_when_person_used_two_links() -> None:
+    """Wcześniejsze zgłoszenie z innego linku nie może zabrać osoby z wiersza."""
+    since, until = _window()
+    day = since + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        first_owner, second_owner = await _owner(db), await _owner(db)
+        first_job, second_job = await _job(db), await _job(db)
+        by_jobs = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=first_owner, job_id=first_job, candidate_id=by_jobs, at=day
+        )
+        await _link_application(
+            db,
+            owner_id=first_owner,
+            job_id=second_job,
+            candidate_id=by_jobs,
+            at=day + timedelta(hours=1),
+        )
+        by_owners = await _candidate(db, created_at=day)
+        await _link_application(
+            db, owner_id=first_owner, job_id=None, candidate_id=by_owners, at=day
+        )
+        await _link_application(
+            db,
+            owner_id=second_owner,
+            job_id=None,
+            candidate_id=by_owners,
+            at=day + timedelta(hours=1),
+        )
+        await db.commit()
+
+        for source, scope_key in (("link_job", "job_id"), ("link_general", "owner_id")):
+            breakdown = await compute_link_breakdown(
+                db, source=source, since=since, until=until
+            )
+            assert len(breakdown["rows"]) == 2, source
+            for row in breakdown["rows"]:
+                listed = await _people(
+                    db,
+                    since,
+                    until,
+                    source=source,
+                    metric="people",
+                    **{scope_key: row["key"]},
+                )
+                assert listed["total"] == row["people"], (source, row["key"])
+
+        whole = await _people(db, since, until, source="link_job", metric="people")
+    # Bez zawężenia osoba dalej liczy się raz.
+    assert whole["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_people_list_carries_the_number_of_applications() -> None:
+    since, until = _window()
+    day = since + timedelta(days=1)
+    async with AsyncSessionLocal() as db:
+        person = await _candidate(db, created_at=day - timedelta(days=30))
+        db.add(_event(person, day, "pracuj", "Tester"))
+        db.add(_event(person, day + timedelta(hours=1), "pracuj", "Analityk"))
+        other = await _candidate(db, created_at=day - timedelta(days=30))
+        db.add(_event(other, day, "pracuj", "Tester"))
+        await db.commit()
+
+        table = await compute_sources(db, since=since, until=until)
+        listed = await _people(db, since, until, source="pracuj", metric="applications")
+
+    pracuj = next(row for row in table["portals"] if row["source"] == "pracuj")
+    assert listed["total"] == 2
+    assert listed["total_applications"] == pracuj["applications"] == 3
 
 
 async def _login(client: AsyncClient, role: UserRole) -> dict[str, str]:

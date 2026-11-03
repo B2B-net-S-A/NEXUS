@@ -140,10 +140,19 @@ describe("ZrodlaView", () => {
   });
 
   it("gdy lista różni się od liczby, panel pisze obie", async () => {
-    sourcePeople.mockResolvedValue({ total: 4, rows: [] });
+    sourcePeople.mockResolvedValue({ total: 4, total_applications: 4, rows: [] });
     renderView();
     fireEvent.click(await screen.findByTestId("sources-cell-pracuj:cv_sent"));
     expect(await screen.findByTestId("sources-people-reconcile")).toBeTruthy();
+  });
+
+  it("Zgłoszenia portalu: osoba z kilkoma zgłoszeniami nie udaje zmiany danych", async () => {
+    sourcePeople.mockResolvedValue({ total: 200, total_applications: 201, rows: [] });
+    renderView();
+    fireEvent.click(await screen.findByTestId("sources-cell-pracuj:applications"));
+    const panel = await screen.findByTestId("sources-people-panel");
+    expect(await within(panel).findByText(/201 zgłoszeń od 200 osób/)).toBeTruthy();
+    expect(within(panel).queryByTestId("sources-people-reconcile")).toBeNull();
   });
 
   it("klik w portal rozwija ogłoszenia, a ich liczba zawęża osoby", async () => {

@@ -778,7 +778,7 @@
     "shipped_on": "2026-11-03",
     "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
     "where": "Insights → Źródła",
-    "href": "/insights?tab=zrodla",
+    "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.tabs.sources"
   }

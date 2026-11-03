@@ -414,6 +414,7 @@ async def compute_people(
     rows = result.all()
     return {
         "total": int(rows[0].total) if rows else 0,
+        "total_applications": int(rows[0].total_applications) if rows else 0,
         "rows": [
             {
                 "candidate_id": row.candidate_id,
@@ -486,7 +487,8 @@ def _portal_people_sql(
                flags.applications, NULLIF(flags.offer, '') AS offer,
                NULL::text AS link_owner, NULL::int AS link_job_id,
                NULL::text AS link_job_title,
-               st.stage, st.job_id, st.job_title, count(*) OVER () AS total
+               st.stage, st.job_id, st.job_title, count(*) OVER () AS total,
+               sum(flags.applications) OVER () AS total_applications
         FROM flags {stage}
         WHERE {where}
         {_PAGE}
@@ -505,13 +507,14 @@ def _link_people_sql(
     source: str,
 ) -> tuple[str, dict[str, Any]]:
     params: dict[str, Any] = {"since": since, "until": until, "source": source}
-    filters = ["flags.source = :source", where]
+    scope = ["flags.source = :source"]
     if owner_id is not None:
-        filters.append("flags.owner_id = :owner_id")
+        scope.append("flags.owner_id = :owner_id")
         params["owner_id"] = owner_id
     if job_id is not None:
-        filters.append("flags.link_job_id = :link_job_id")
+        scope.append("flags.link_job_id = :link_job_id")
         params["link_job_id"] = job_id
+    scope_sql = " AND ".join(scope)
     stage = _FURTHEST_STAGE.format(
         window=(
             "(flags.link_job_id IS NULL OR cs.job_id = flags.link_job_id) "
@@ -519,13 +522,15 @@ def _link_people_sql(
         ),
         excluded=excluded_hired_sql("cs"),
     )
-    # „Osoby” liczą kandydata raz, pozostałe liczby są po zgłoszeniu, jak w tabeli.
+    # „Osoby” liczą kandydata raz w tym samym zakresie co wiersz tabeli, pozostałe
+    # liczby są po zgłoszeniu. Zakres bez filtrów zabrałby wierszowi osobę, która
+    # wcześniej zgłosiła się z innego linku.
     one_per_person = ""
     if metric == "people":
-        one_per_person = """
+        one_per_person = f"""
             AND (flags.candidate_id, flags.first_at) IN (
-                SELECT candidate_id, min(first_at) FROM flags
-                WHERE source = :source GROUP BY candidate_id
+                SELECT flags.candidate_id, min(flags.first_at) FROM flags
+                WHERE {scope_sql} GROUP BY flags.candidate_id
             )
         """
     return (
@@ -535,13 +540,14 @@ def _link_people_sql(
                flags.first_at, 1 AS applications, NULL::text AS offer,
                u.name AS link_owner, flags.link_job_id,
                lj.title AS link_job_title,
-               st.stage, st.job_id, st.job_title, count(*) OVER () AS total
+               st.stage, st.job_id, st.job_title, count(*) OVER () AS total,
+               count(*) OVER () AS total_applications
         FROM flags
         JOIN candidates c ON c.id = flags.candidate_id
         LEFT JOIN users u ON u.id = flags.owner_id
         LEFT JOIN jobs lj ON lj.id = flags.link_job_id
         {stage}
-        WHERE {" AND ".join(filters)} {one_per_person}
+        WHERE {scope_sql} AND {where} {one_per_person}
         {_PAGE}
         """,
         params,

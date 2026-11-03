@@ -406,6 +406,8 @@ export interface SourcePerson {
 
 export interface SourcePeopleResponse {
   total: number;
+  /** Zgłoszenia osób z listy: na portalu jedna osoba ma ich kilka. */
+  total_applications: number;
   rows: SourcePerson[];
 }
 
