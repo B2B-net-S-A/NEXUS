@@ -124,17 +124,25 @@ def _declare_provider_calls():
 
 
 def test_default_chain_is_the_quality_pinned_pair(monkeypatch):
-    """Sonnet 4.6 jest przypięty ZMIERZONĄ decyzją (rewert #628), nie
-    przypadkiem. Test istnieje, żeby cicha zmiana domyślnej wartości nie
-    przeszła jako sprzątanie."""
+    """Model jest przypięty ZMIERZONĄ decyzją (audyt 03.11.2026), nie przypadkiem.
+    Test istnieje, żeby cicha zmiana domyślnej wartości nie przeszła jako sprzątanie."""
+    from app.services.cv_generator_b2b import provider
+
     monkeypatch.delenv("CV_B2B_MODEL", raising=False)
+    monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
+
+    assert provider._model() == "gpt-6.1-sol"
+    assert provider._fallback_models() == ["claude-opus-4-8"]
+
+
+def test_overloaded_model_falls_back_after_its_retries(monkeypatch):
+    monkeypatch.setenv("CV_B2B_MODEL", "claude-sonnet-5")
     monkeypatch.delenv("CV_B2B_FALLBACK_MODELS", raising=False)
     monkeypatch.setenv("CV_B2B_MAX_RETRIES", "1")
     seen = _install(monkeypatch, [_FakeErr(529), _FakeErr(529), _FakeMessage()])
 
     analyze_with_ai("dane", "req-1")
 
-    # Decyzja F4 z 16.09.2026: Sonnet 5 (thinking=disabled) + fallback Opus.
     assert [c["model"] for c in seen] == [
         "claude-sonnet-5",
         "claude-sonnet-5",
@@ -181,15 +189,20 @@ def test_model_override_does_not_inherit_the_cv_quality_pin(monkeypatch):
 
 def test_empty_model_env_falls_back_to_the_pin(monkeypatch):
     """Pusty CV_B2B_MODEL (typowe wstrzyknięcie Coolify) NIE zdejmuje generatora
-    — spada na pin z rejestru (Sonnet 5), zamiast blokować najdroższą funkcję.
+    — spada na pin z rejestru, zamiast blokować najdroższą funkcję.
 
     To świadoma zmiana kontraktu z C11: rejestr traktuje pusty env jak brak.
     Stary ai_client odmawiał tu twardo (guard „CV_B2B_MODEL jest pusty")."""
+    from unittest.mock import Mock
+
+    from app.services.cv_generator_b2b import provider
+
     monkeypatch.setenv("CV_B2B_MODEL", "   ")
-    called = _install(monkeypatch, [_FakeMessage()])
+    monkeypatch.setattr(provider, "api_key_configured", lambda model: True)
+    call = Mock(return_value="{}")
+    monkeypatch.setattr(provider, "call_claude_text", call)
     analyze_with_ai("dane", "req-5")
-    assert called, "wywołanie nie doszło do dostawcy mimo poprawnego pinu"
-    assert called[0]["model"] == "claude-sonnet-5"
+    assert call.call_args.kwargs["model"] == "gpt-6.1-sol"
 
 
 # ── Mapowanie na typy błędów generatora ──────────────────────────────────────

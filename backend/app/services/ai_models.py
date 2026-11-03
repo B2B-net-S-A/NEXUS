@@ -26,7 +26,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F1  | scoring                          | claude-sonnet-5          |
 | F2  | champion_profile_parse           | claude-sonnet-5 (z Haiku)|
 | F3  | cv_requirement_map               | claude-sonnet-5-5 (z 5)  |
-| F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
+| F4  | cv_generator                     | gpt-6.1-sol (z Opus 4.8) |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
@@ -39,7 +39,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F13 | champion_draft                   | gpt-6-luna (z Sonnet 5)  |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
 | F15 | mindy_chat                       | gpt-6-luna (z Sonnet 5)  |
-| F18 | cv_factual_verification          | gpt-6-luna (z Sonnet 5)  |
+| F18 | cv_factual_verification          | claude-haiku-5-5 (z 5.5) |
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F21 | screening_reassign_suggest       | gpt-6-luna (z Sonnet 5)  |
@@ -255,11 +255,13 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Haiku bez stacku wymyślał 82% pozycji (badanie 16.09).",
     ),
     AIFeatureKey.cv_generator: ModelChoice(
-        default=SONNET_5,
+        default=GPT_SOL,
         env_vars=("CV_B2B_MODEL",),
         fallbacks=("claude-opus-4-8",),
-        rationale="F4. Generator CV: Sonnet 5 z thinking=disabled (jak w badaniu) wymyślał "
-        "fakty w 20% CV vs 41% u Sonneta 4.6 (rewert #628 mierzył wymuszone thinking). "
+        rationale="F4. Generator CV: GPT-6.1 Sol od 03.11.2026 (audyt, 36 CV, jurorzy na ślepo): "
+        "lepszy od Sonneta 5 w 24 parach, gorszy w 2, krytyczne stwierdzenia bez pokrycia 1,75 "
+        "wobec 3,25 na CV, ok. 24% taniej. Reasoning `low`: medium i high nie poprawiły wyniku, "
+        "a mediana czasu rosła z 41 do 60 i 137 s. "
         "Fallback nadpisywalny env CV_B2B_FALLBACK_MODELS w provider.py.",
     ),
     AIFeatureKey.mindy_chat: ModelChoice(
@@ -286,14 +288,13 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "34% Luny, brak propozycji zapisu 2% wobec 60%, 8 z 8 przypadków z ryzykiem wykrytych.",
     ),
     AIFeatureKey.cv_factual_verification: ModelChoice(
-        default=GPT_LUNA,
+        default=HAIKU_55,
         env_vars=("CV_FACTUAL_VERIFICATION_MODEL",),
-        fallbacks=(HAIKU_55,),
+        fallbacks=(SONNET_55,),
         rationale="F18 (decyzja 18.09.2026, POZA badaniem 16.09). Recenzent gotowego CV "
-        "MUSI być innym modelem niż generator (F4 = Sonnet 5): badanie zmierzyło, że sędzia "
-        "LLM faworyzuje własne wyjście (~+30 pkt), więc kontrola własnej pracy jest "
-        "systematycznie za łagodna. Luna wygrała F7/F8 — zadania „znajdź i zacytuj”, czyli "
-        "dokładnie to, co robi weryfikator.",
+        "MUSI być od innego dostawcy niż generator (F4 = GPT-6.1 Sol): badanie zmierzyło, że "
+        "sędzia LLM faworyzuje własne wyjście (~+30 pkt). Haiku 5.5 od 03.11.2026 (audyt, 50 CV): "
+        "alarmy jak Luna (20,6% wobec 20,7%), 100% podłożonych błędów, 0 błędów protokołu.",
     ),
     AIFeatureKey.jarvis: ModelChoice(
         default=SONNET_5,

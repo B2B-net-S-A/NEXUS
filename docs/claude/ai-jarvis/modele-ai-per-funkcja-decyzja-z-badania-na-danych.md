@@ -118,6 +118,12 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   0,34 wobec 0,20 na CV). Nie cofaj filtra bez cofnięcia modelu. Powrót bez deployu:
   `CV_PARSER_MODEL`, `CV_REQUIREMENT_MAP_MODEL`, `CV_BACKFILL_MODEL`. `cv_name_backfill`
   zostaje na Lunie, bo imiona nie zyskują na lepszym odczycie technologii.
+- **Generator CV od 03.11.2026 na GPT-6.1 Sol, recenzent na Haiku 5.5.** Jurorzy na ślepo, 36 CV:
+  Sol lepszy od Sonneta 5 w 24 parach, gorszy w 2 (Sonnet 5.5: 22 i 7), krytyczne stwierdzenia bez
+  pokrycia 1,75 wobec 3,25 na CV. Recenzent musi być od innego dostawcy niż generator, stąd Haiku,
+  a nie Luna. **Wyższy reasoning nie pomaga:** medium i high wobec low dają remis (11/9/16 i 9/8/18),
+  krytyczne 1,81 i 1,80 wobec 1,94, a mediana czasu rośnie z 41 do 60 i 137 s przy limicie 300 s.
+  Nie podnoś go bez nowego pomiaru. Powrót bez deployu: `CV_B2B_MODEL`, `CV_FACTUAL_VERIFICATION_MODEL`.
 - **Funkcje QC od 03.11.2026 (decyzja Artura, małe próby, ocena po 2 tygodniach na produkcji):**
   F22 propozycje zdań i F24 ocena prepu na Sonnecie 5.5, F28 screening z notatki na Solu, wszędzie
   Sonnet 5 jako zapas. F24 nie na Solu mimo 0% złych cytatów, bo podnosił ocenę o 8 punktów bez wzorca.
