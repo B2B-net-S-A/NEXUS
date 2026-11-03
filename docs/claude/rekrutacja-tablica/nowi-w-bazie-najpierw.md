@@ -48,6 +48,10 @@ w wyniku, więc osoba może mieć braki: 293 z 381 osób z pierwszeństwem miał
   (pomiar z 25.09: „najnowsi” 33%, dopasowanie 83%, `kandydaci-wyszukiwanie/kolejnosc-dopasowanie-i-gorne-pole-listy.md`).
   Tamten wniosek dotyczy sortowania całej bazy, a nie pierwszeństwa wśród osób od progu.
   Zgłoszenia z portali (`job_board`) nadal nie dostają karty bez człowieka.
+- **Co 5. miejsce dla osoby bez procesu** (`kolejka-w-nowych.md`) działa dalej, za nowymi w bazie.
+  To dwie reguły o różnych osobach: tu liczy się data wejścia do bazy, tam brak wiersza etapu w innej
+  rekrutacji. Miejsce liczy się w całej kolejce, więc przy trzech nowych w bazie piąte miejsce nadal
+  należy do osoby bez procesu.
 - **Wyłącznik:** `NEW_COLUMN_FRESH_FIRST_ENABLED=false` (workflow „Coolify set env”) przywraca
   „Nowych” i skrzynkę sprzed zmiany. Karty dodane ponad 20 zostają, silnik po prostu nie dobiera.
 

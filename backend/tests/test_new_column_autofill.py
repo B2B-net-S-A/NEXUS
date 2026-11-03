@@ -177,6 +177,80 @@ async def test_fills_missing_places_with_the_best_of_the_pool(monkeypatch):
     assert event.details["count"] == 2 and event.details["had"] == 0
 
 
+def _pick(cid: int, score: float, cautions: tuple = ()) -> autofill.Pick:
+    return autofill.Pick(
+        candidate_id=cid,
+        score=score,
+        run_id=None,
+        matched_must=(),
+        missing_must=(),
+        cautions=cautions,
+    )
+
+
+def _ids(picks: list[autofill.Pick]) -> list[int]:
+    return [p.candidate_id for p in picks]
+
+
+def test_every_fifth_place_goes_to_the_best_person_without_a_process():
+    picks = [_pick(i, 100 - i) for i in range(1, 12)]
+    assert _ids(autofill.with_fresh_slots(picks, {9, 11})) == [
+        1,
+        2,
+        3,
+        4,
+        9,
+        5,
+        6,
+        7,
+        8,
+        11,
+        10,
+    ]
+
+
+def test_fresh_slot_counts_places_already_taken_in_the_column():
+    picks = [_pick(i, 100 - i) for i in range(1, 7)]
+    assert _ids(autofill.with_fresh_slots(picks, {6}, start=4))[0] == 6
+    assert _ids(autofill.with_fresh_slots(picks, {6}, start=3)) == [1, 6, 2, 3, 4, 5]
+
+
+def test_fresh_slot_takes_the_highest_score_not_the_queue_value():
+    # Kolejność z punktami „znamy”: 2 przed 3, choć 3 ma wyższy wynik.
+    picks = [
+        _pick(1, 90),
+        _pick(4, 89),
+        _pick(5, 88),
+        _pick(6, 87),
+        _pick(2, 60),
+        _pick(3, 70),
+    ]
+    assert _ids(autofill.with_fresh_slots(picks, {2, 3}))[4] == 3
+
+
+def test_person_with_a_caution_never_jumps_into_a_fresh_slot():
+    caution = ({"key": "budget"},)
+    picks = [_pick(i, 100 - i) for i in range(1, 6)] + [_pick(6, 50, caution)]
+    assert _ids(autofill.with_fresh_slots(picks, {6})) == [1, 2, 3, 4, 5, 6]
+
+
+def test_without_fresh_people_the_order_stays():
+    picks = [_pick(i, 100 - i) for i in range(1, 7)]
+    assert autofill.with_fresh_slots(picks, set()) == picks
+
+
+async def test_column_gets_a_person_without_a_process_on_the_fifth_place(monkeypatch):
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(6)
+    other = await _world(0)
+    *known, fresh = world["ids"]
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    for cid in known:
+        await _stage(cid, other["job_id"], PipelineStage.rejected, None)
+
+    assert await _fill(world["job_id"]) == [*known[:4], fresh]
+
+
 async def test_people_added_by_the_team_count_and_a_full_column_gets_nothing(
     monkeypatch,
 ):
@@ -1154,3 +1228,35 @@ def test_card_fresh_first_respects_switch(monkeypatch):
         )
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_goes_before_the_fifth_place_without_process():
+    """Nowi w bazie wchodzą pierwsi, a miejsce osoby bez procesu liczy się za nimi."""
+    world = await _world(9)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:3])
+    fresh, *older = ids[3:]
+    await _added(fresh, 1)
+    for cid in older:
+        await _added(cid, 300)
+    other = await _world(1)
+    for cid in older[:-1]:
+        await _stage(cid, other["job_id"], PipelineStage.new, None)
+    no_process = older[-1]
+    await _pool(
+        job_id,
+        {
+            fresh: 71.0,
+            older[0]: 95.0,
+            older[1]: 94.0,
+            older[2]: 93.0,
+            older[3]: 92.0,
+            no_process: 60.0,
+        },
+    )
+
+    added = await _fill(job_id)
+
+    # 3 karty + nowa w bazie = 4 zajęte, więc następna idzie na 5. miejsce.
+    assert added[:2] == [fresh, no_process]

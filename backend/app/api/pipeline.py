@@ -3742,6 +3742,15 @@ async def build_kanban_view(
         ],
         now=board_now,
     )
+    without_process_ids = await known_queue_points.without_process(
+        db,
+        job_id=job_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
     has_system_cards = any(
         p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
     )
@@ -4178,6 +4187,9 @@ async def build_kanban_view(
                         threshold=fresh_threshold,
                         now=board_now,
                     )
+                )
+                payload["entry_autofill"]["fresh"] = (
+                    e.candidate_id in without_process_ids
                 )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(

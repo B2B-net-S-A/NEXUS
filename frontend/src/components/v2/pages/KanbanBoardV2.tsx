@@ -716,6 +716,8 @@ interface CardProps {
  criticalGaps?: string[];
  /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
  callFirstRank?: number;
+ /** Przeskoczył na co 5. miejsce jako osoba bez procesu (`freshSlots`). */
+ freshSlot?: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -934,6 +936,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  overBudget,
  criticalGaps,
  callFirstRank,
+ freshSlot,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -1504,13 +1507,22 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ) : null}
 
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
- {callFirstRank != null && knownFactLabels(item.entry_autofill?.known).length > 0 ? (
+ {callFirstRank != null && (freshSlot || knownFactLabels(item.entry_autofill?.known).length > 0) ? (
  <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
  {knownFactLabels(item.entry_autofill?.known).map((label) => (
  <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
  {label}
  </span>
  ))}
+ {freshSlot ? (
+ <span
+ data-testid="card-fresh-slot"
+ title="Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji."
+ className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary"
+ >
+ Jeszcze bez procesu
+ </span>
+ ) : null}
  </div>
  ) : null}
  <NextActionRow
@@ -1666,7 +1678,7 @@ interface ColProps {
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
  /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
- newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean } | null;
+ newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1999,6 +2011,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  criticalGaps={criticalGapMap?.get(item.candidate_id)}
  callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
+ freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
