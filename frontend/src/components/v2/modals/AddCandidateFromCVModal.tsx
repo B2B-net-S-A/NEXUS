@@ -20,6 +20,8 @@ import {
 } from"lucide-react";
 import api, { candidateStageCvApi, phase3Api, type CandidatePipelineRow } from"@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { ERASED_CANDIDATE_CONFIRM, erasedCandidateMessage } from "@/lib/erased-candidate";
+import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { cn } from"@/lib/utils";
 import { celebrate } from"@/lib/celebrate";
 import { assignErrorMessage } from "@/lib/assign-error";
@@ -229,12 +231,22 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  if (!open) reset();
  }, [open]);
 
+ const { askConfirm, confirmDialog } = useConfirmV2();
  const uploadMut = useMutation({
- mutationFn: async ({ f, force }: { f: File; force?: boolean }) => {
+ mutationFn: async ({
+ f,
+ force,
+ confirmErased,
+ }: {
+ f: File;
+ force?: boolean;
+ confirmErased?: boolean;
+ }) => {
  const fd = new FormData();
  fd.append("file", f);
+ const params = [force &&"force=true", confirmErased &&"confirm_erased=true"].filter(Boolean);
  const r = await api.post<FromCVResponse>(
- `/api/candidates/from-cv${force ?"?force=true" :""}`,
+ `/api/candidates/from-cv${params.length ? `?${params.join("&")}` :""}`,
  fd,
  {
  headers: {"Content-Type":"multipart/form-data" },
@@ -257,7 +269,13 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  .catch(() => setNewCandidateAdd("failed"))
  .finally(() => onChanged?.());
  },
- onError: (err: AxiosError<{ detail?: ConflictDetail | string }>) => {
+ onError: (err: AxiosError<{ detail?: ConflictDetail | string }>, variables) => {
+ if (erasedCandidateMessage(err)) {
+ void askConfirm(ERASED_CANDIDATE_CONFIRM).then((confirmed) => {
+ if (confirmed) uploadMut.mutate({ ...variables, confirmErased: true });
+ });
+ return;
+ }
  // 409 → structured duplicate alert; other errors → plain message.
  if (err.response?.status === 409) {
  const detail = err.response.data?.detail;
@@ -714,6 +732,7 @@ export function AddCandidateFromCVModal({ open, onOpenChange, job, onChanged, on
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="md">
+ {confirmDialog}
  <DialogHeader>
  <div className="flex items-center gap-2">
  <Sparkles className="h-4 w-4 text-primary" />

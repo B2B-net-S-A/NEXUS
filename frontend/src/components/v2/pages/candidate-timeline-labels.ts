@@ -27,6 +27,7 @@ export function candidateStageLabel(stage: string | null | undefined): string {
 const ACTIVITY_ACTION_LABELS: Record<string, string> = {
   created: "Utworzono profil kandydata",
   created_from_cv: "Utworzono profil z CV",
+  recreated_after_erasure: "Adres należał do profilu trwale usuniętego",
   updated: "Zaktualizowano profil",
   deleted: "Usunięto",
   imported: "Zaimportowano kandydata",

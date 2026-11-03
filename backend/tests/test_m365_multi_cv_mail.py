@@ -104,7 +104,13 @@ class _NoopSavepoint:
 
 
 async def test_second_cv_of_new_person_creates_candidate(monkeypatch, tmp_path) -> None:
+    from app.services import candidate_erasure_leftovers
+
     parse = _patch(monkeypatch, tmp_path, [])
+    # Atrapa bazy nie zna nagrobków; adres z nagrobka testuje `test_auto_match.py`.
+    monkeypatch.setattr(
+        candidate_erasure_leftovers, "email_was_erased", AsyncMock(return_value=False)
+    )
     attachment, email = _inputs(tmp_path)
     db = AsyncMock()
     db.add = MagicMock()

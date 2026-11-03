@@ -40,11 +40,12 @@ kontaktuje.
   10 wierszy (22.03–14.04.2026), bo CloudTalka nie używamy
   (`integracje/cloudtalk-telefonia.md`). `emails` sięga 14.07.2025,
   `prep_meetings` 02.10.2026.
-- Nagrobek po trwałym usunięciu sprawdzają (stan z 03.11.2026) import z Traffita,
-  importer Talent Radaru i API integracji. Formularz aplikacyjny
-  (`services/public_apply.py`) i załącznik z maila
-  (`services/m365/attachment_handler.py`) go nie sprawdzają, więc mogą założyć
-  nowy profil bez śladu prośby.
+- Nagrobek po trwałym usunięciu czytają wszystkie drogi z adresem e-mail: import
+  i poczta nie zakładają profilu, okna pytają rekrutera, a formularz aplikacyjny
+  i portale przechodzą ze śladem w historii, bo osoba zgłasza się sama. Nagrobek
+  nie niesie powodu usunięcia, więc ślad nie mówi, że osoba prosiła o usunięcie.
+  Szczegóły i to, co zostaje poza nagrobkiem:
+  `kandydaci-wyszukiwanie/adres-z-nagrobka-nowy-profil.md`.
 - Decyzji z 26.09.2026, że usunięcie kandydata nie kasuje CV
   (`uprawnienia/integralnosc-i-uprawnienia-reguly-po-audytach.md`), ta procedura
   nie zmienia.

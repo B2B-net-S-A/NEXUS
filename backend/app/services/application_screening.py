@@ -234,6 +234,7 @@ def record_pending(
     first_name: str,
     last_name: str,
     utm_source: Optional[str],
+    erased_before: bool = False,
 ) -> ApplicationScreening:
     """Wiersz ``pending`` w transakcji zgłoszenia (commit robi wołający)."""
     row = ApplicationScreening(
@@ -251,6 +252,7 @@ def record_pending(
             "first_name": first_name,
             "last_name": last_name,
             "utm_source": utm_source,
+            "erased_before": erased_before,
         },
     )
     db.add(row)
@@ -521,6 +523,7 @@ async def _notify(
             blocked_reason=blocked_reason,
             extra=extra,
             in_job=in_job,
+            erased_before=bool(context.get("erased_before")),
         )
 
 

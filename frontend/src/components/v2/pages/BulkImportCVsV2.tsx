@@ -19,6 +19,7 @@ import { isClientTimeout, SLOW_ENDPOINT_TIMEOUT_MS } from"@/lib/http-timeouts";
 import { cn } from"@/lib/utils";
 import { Button } from"@/components/ui/button";
 import { useQueryClient } from"@tanstack/react-query";
+import { erasedCandidateMessage } from "@/lib/erased-candidate";
 
 /**
  * Per-file upload state shown in the progress table.
@@ -146,6 +147,9 @@ async function uploadOne(row: Row): Promise<Partial<Row>> {
  };
  } catch (err) {
  const axiosErr = err as AxiosError<{ detail?: ConflictDetail | string }>;
+ // Adres z nagrobka: masowy import pomija plik, decyzja zostaje w oknie „Dodaj”.
+ const erased = erasedCandidateMessage(err);
+ if (erased) return { status: "error", error: erased };
  if (axiosErr.response?.status === 409) {
  const detail = axiosErr.response.data?.detail;
  if (detail && typeof detail === "object" &&"existing_candidate_id" in detail) {
