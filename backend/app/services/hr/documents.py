@@ -314,7 +314,9 @@ def check_audience(kind: str, audience: Audience) -> None:
     """
 
     if kind == ABSENCE_PROOF and (audience.payroll or audience.equipment):
-        raise HrDocumentError("Potwierdzenie nieobecności widzą tylko osoba i Administracja współpracy.")
+        raise HrDocumentError(
+            "Potwierdzenie nieobecności widzą tylko osoba i Administracja współpracy."
+        )
 
 
 async def upload(

@@ -225,9 +225,7 @@ async def _validate_substitute(
     if substitute is None or not substitute.is_active:
         raise LeavePolicyError("Wybrany zastępca nie ma aktywnego konta.")
     if not await people.has_live_profile(db, substitute_id):
-        raise LeavePolicyError(
-            "Zastępcą może być osoba z kartoteką w NEXUSIE."
-        )
+        raise LeavePolicyError("Zastępcą może być osoba z kartoteką w NEXUSIE.")
     return substitute
 
 
@@ -1247,9 +1245,7 @@ async def set_forward_consent(
     return request
 
 
-ON_BEHALF_REPORT_FORBIDDEN = (
-    "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robi Administracja współpracy."
-)
+ON_BEHALF_REPORT_FORBIDDEN = "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robi Administracja współpracy."
 
 
 async def subject_for_on_behalf(

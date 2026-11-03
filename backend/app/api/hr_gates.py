@@ -34,7 +34,9 @@ SELF_EDIT_DETAIL = (
     "Swojej kartoteki i puli urlopowej nie zmieniasz sam — poproś inną osobę "
     "z Administracji współpracy albo admina."
 )
-NO_PROFILE_DETAIL = "Nie masz kartoteki w NEXUSIE — poproś Administrację współpracy o jej założenie."
+NO_PROFILE_DETAIL = (
+    "Nie masz kartoteki w NEXUSIE — poproś Administrację współpracy o jej założenie."
+)
 
 #: Uprawnienia, z którymi konto bez kartoteki i tak czyta katalog ludzi.
 _DIRECTORY_PERMISSIONS = (

@@ -326,7 +326,9 @@ async def revoke(db: AsyncSession, *, timesheet_id: int, actor: Actor) -> Timesh
 
     timesheet = await _locked_subject(db, timesheet_id, actor, deciding=True)
     if timesheet.status != "approved":
-        raise TimeConflict("Cofnąć można tylko zaakceptowany raport godzin. Odśwież listę.")
+        raise TimeConflict(
+            "Cofnąć można tylko zaakceptowany raport godzin. Odśwież listę."
+        )
     words = await _words(db, timesheet.user_id)
     profile = await people.profile_of(db, timesheet.user_id)
     # Potwierdzenie godzin zlecenia po terminie wypłaty to dokument z art. 8b —

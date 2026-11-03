@@ -186,7 +186,9 @@ async def remind_one(
 
     validate_period(year, month)
     if user_id == actor.user_id:
-        raise TimeForbidden("Sobie nie przypominasz — raport wysyłasz w „Mojej współpracy”.")
+        raise TimeForbidden(
+            "Sobie nie przypominasz — raport wysyłasz w „Mojej współpracy”."
+        )
     profile = await people.profile_of(db, user_id)
     if profile is None or not (
         actor.payroll or actor.approves_everyone or actor.can_approve(profile)

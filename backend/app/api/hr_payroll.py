@@ -76,9 +76,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 MODULE = HrModule.payroll
-NOT_MEMBER_DETAIL = (
-    "Rozliczenia widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Rozliczeń."
-)
+NOT_MEMBER_DETAIL = "Rozliczenia widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Rozliczeń."
 NOT_ADMIN_DETAIL = "Miesiąc płac otwiera ponownie tylko administrator."
 NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
 MONTHS_LISTED = 13
@@ -692,7 +690,9 @@ async def person_payroll(
     viewer = await load_viewer(db, current_user)
     profile = await people.profile_of(db, user_id)
     if profile is None or not viewer.sees_person(user_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Rozliczeniach.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Rozliczeniach."
+        )
     bonuses = await payroll_bonuses.list_bonuses(db, viewer, user_id=user_id, limit=200)
     payload: dict[str, Any] = {
         "user_id": user_id,

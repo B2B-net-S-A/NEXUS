@@ -76,7 +76,9 @@ from app.services.permission_denial import ensure_any_permission
 router = APIRouter()
 
 MODULE = HrModule.leave
-APPROVER_DETAIL = "Listę „Do potwierdzenia” widzą koordynatorzy i Administracja współpracy."
+APPROVER_DETAIL = (
+    "Listę „Do potwierdzenia” widzą koordynatorzy i Administracja współpracy."
+)
 INTERNAL_DETAIL = "Nieobecności widzą osoby z kartoteką."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak w „Dodaj osobę”).
 _NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}

@@ -299,9 +299,7 @@ async def get_person(
     return {**payload, "scope": scope}
 
 
-HISTORY_DETAIL = (
-    "Nieobecności i godziny widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."
-)
+HISTORY_DETAIL = "Nieobecności i godziny widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."
 
 
 @router.get("/people/{user_id}/history")

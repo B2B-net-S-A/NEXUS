@@ -233,7 +233,8 @@ async def notify_requested(
             ),
             message=(
                 f"{subject.name}: {span} ({days_text}) — w zastępstwie za "
-                f"{stand_in.manager_name}." + ("" if decides else " Decyduje Administracja współpracy.")
+                f"{stand_in.manager_name}."
+                + ("" if decides else " Decyduje Administracja współpracy.")
             ),
             ntype=NotificationType.hr_leave_requested,
             link=link,

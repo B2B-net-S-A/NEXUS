@@ -830,7 +830,8 @@ async def update_task(
     case, scope = await _scoped_case(db, task.case_id, current_user)
     if not can_toggle(scope, current_user, task):  # type: ignore[arg-type]
         raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "To zadanie odhacza jego wykonawca albo Administracja współpracy."
+            status.HTTP_403_FORBIDDEN,
+            "To zadanie odhacza jego wykonawca albo Administracja współpracy.",
         )
     if payload.status is not None and task.id in await service.task_mirrors(
         db, case, [task]

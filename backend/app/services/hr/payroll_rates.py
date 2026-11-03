@@ -65,9 +65,7 @@ from app.services.hr_foundation_schema import EmploymentType
 logger = logging.getLogger(__name__)
 
 RATE_BACKDATE_MAX_MONTHS = 12
-OWN_RATE_SET_DETAIL = (
-    "Własnej stawki nie ustawiasz — zrobi to druga osoba z Rozliczeń albo administrator."
-)
+OWN_RATE_SET_DETAIL = "Własnej stawki nie ustawiasz — zrobi to druga osoba z Rozliczeń albo administrator."
 OWN_RATE_DELETE_DETAIL = (
     "Własnej stawki nie usuwasz — zrobi to druga osoba z Rozliczeń albo administrator."
 )
