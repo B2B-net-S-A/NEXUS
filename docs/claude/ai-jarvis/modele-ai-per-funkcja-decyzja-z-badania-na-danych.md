@@ -118,6 +118,9 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   0,34 wobec 0,20 na CV). Nie cofaj filtra bez cofnięcia modelu. Powrót bez deployu:
   `CV_PARSER_MODEL`, `CV_REQUIREMENT_MAP_MODEL`, `CV_BACKFILL_MODEL`. `cv_name_backfill`
   zostaje na Lunie, bo imiona nie zyskują na lepszym odczycie technologii.
+- **Funkcje QC od 03.11.2026 (decyzja Artura, małe próby, ocena po 2 tygodniach na produkcji):**
+  F22 propozycje zdań i F24 ocena prepu na Sonnecie 5.5, F28 screening z notatki na Solu, wszędzie
+  Sonnet 5 jako zapas. F24 nie na Solu mimo 0% złych cytatów, bo podnosił ocenę o 8 punktów bez wzorca.
 - **GPT-6.1 Sol od 03.11.2026 w F8 znamiona UoP**, z Sonnetem 5 jako zapasem: fałszywe alarmy
   4,5% wobec 34% Luny, brak propozycji zapisu 2% wobec 60%, ok. +0,26 USD miesięcznie.
   Prawdziwych przypadków ryzyka w próbie było tylko 8. Sol nie ma `reasoning_effort: none`,

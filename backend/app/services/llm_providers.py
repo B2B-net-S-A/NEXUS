@@ -69,6 +69,7 @@ HEALTH_LABEL = {ANTHROPIC: "claude", OPENAI: "openai", DEEPSEEK: "deepseek"}
 
 # kwargi Anthropic bez odpowiednika u innych dostawców — pomijane świadomie.
 _IGNORED_KWARGS = frozenset({"thinking", "inference_geo", "speed", "metadata", "top_k"})
+_SOL_REASONING_TOKENS = 4000
 _UNSUPPORTED_KWARGS = frozenset({"tools", "tool_choice", "mcp_servers", "container"})
 _SAFE_CODE = re.compile(r"^[A-Za-z0-9_.\-]{1,60}$")
 _OPENAI_MODEL = re.compile(r"^(gpt-|chatgpt-|o\d)")
@@ -268,11 +269,14 @@ def build_request(
 
     body: dict[str, Any] = {"model": model}
     if provider == OPENAI:
-        body["max_completion_tokens"] = max_tokens
         # Konfiguracja z badania: bez rozumowania, bez retencji po stronie OpenAI.
-        # Sol 6.1 odrzuca `none` kodem 400, więc dostaje najniższy tryb, jaki ma.
-        # Rozumowanie liczy się do `max_completion_tokens`.
-        body["reasoning_effort"] = "low" if model.startswith("gpt-6.1-sol") else "none"
+        # Sol 6.1 odrzuca `none` kodem 400, więc dostaje najniższy tryb, jaki ma,
+        # a rozumowanie liczy się do limitu, stąd zapas z pomiaru z 03.11.2026.
+        is_sol = model.startswith("gpt-6.1-sol")
+        body["max_completion_tokens"] = max_tokens + (
+            _SOL_REASONING_TOKENS if is_sol else 0
+        )
+        body["reasoning_effort"] = "low" if is_sol else "none"
         body["store"] = False
         if schema is not None:
             body["response_format"] = {

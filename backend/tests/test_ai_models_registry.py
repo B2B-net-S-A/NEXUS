@@ -134,10 +134,10 @@ DECISION_2026_09_16 = {
     # F21 — decyzja 23.09.2026: podpowiedzi odpowiedzi przy przepięciu.
     AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
     # F22 — decyzja 23.09.2026: podpowiedzi dla zatwierdzającego DZ, jak F18.
-    AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
+    AIFeatureKey.dz_review: ("F22", "claude-sonnet-5-5"),
     # F23 — decyzja 24.09.2026: sortowanie zgłoszeń do akademii, jak F10.
     AIFeatureKey.academy_screening: ("F23", "gpt-6-luna"),
-    AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
+    AIFeatureKey.prep_review: ("F24", "claude-sonnet-5-5"),
     # F25 — decyzja 25.09.2026: jednorazowy import archiwum pytań z interview.
     AIFeatureKey.interview_question_import: ("F25", "gpt-6-luna"),
     # F26 — decyzja 29.09.2026: research „Champion po ludzku” (web_search → Anthropic).
@@ -145,7 +145,7 @@ DECISION_2026_09_16 = {
     # F27 — decyzja 29.09.2026: przegląd zgłoszeń z linku rekrutacji, jak F23.
     AIFeatureKey.application_screening: ("F27", "gpt-6-luna"),
     # F28/F29 — decyzja 06.10.2026: karta z notatki i „Ułóż w zdanie”.
-    AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6-luna"),
+    AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6.1-sol"),
     AIFeatureKey.screening_answer_phrasing: ("F29", "gpt-6-luna"),
     # F30 — decyzja 12.10.2026 (Edytor CV 2, PR 3): AI na zaznaczonym fragmencie CV.
     AIFeatureKey.cv_selection_edit: ("F30", "claude-sonnet-5"),
