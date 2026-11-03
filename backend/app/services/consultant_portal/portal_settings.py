@@ -9,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.app_setting import AppSetting
+from app.models.consultant_portal import CpSession
+from app.services.hr import modules as hr_modules
 from app.services.consultant_portal_schema import PORTAL_SETTING, STATES
 
 
@@ -61,10 +63,20 @@ def parse(raw: Any) -> PortalSettings:
 
 
 async def load(db: AsyncSession) -> PortalSettings:
-    raw = await db.scalar(
-        select(AppSetting.value).where(AppSetting.key == PORTAL_SETTING)
+    """Stan portalu. Wyłączony moduł ``back_office`` zamyka też portal, bo wycofanie
+    to wyłączenie modułu, a bez niego zgłoszenia i dokumenty nie mają odbiorcy."""
+
+    state = parse(
+        await db.scalar(
+            select(AppSetting.value).where(AppSetting.key == PORTAL_SETTING)
+        )
     )
-    return parse(raw)
+    if state.is_on and not (
+        hr_modules.program_enabled()
+        and (await hr_modules.load_modules(db)).get(hr_modules.HrModule.back_office)
+    ):
+        return PortalSettings()
+    return state
 
 
 async def save(
@@ -79,4 +91,7 @@ async def save(
         .values(key=PORTAL_SETTING, value=value)
         .on_conflict_do_update(index_elements=[AppSetting.key], set_={"value": value})
     )
+    if value["state"] == "off":
+        # Wyłącznik awaryjny: ponowne włączenie nie ożywia sesji sprzed wyłączenia.
+        await db.execute(delete(CpSession))
     return parse(value)

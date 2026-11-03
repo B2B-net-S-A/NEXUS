@@ -19,6 +19,7 @@ from app.services.care.announcement_mail import MailOutcome
 from app.services.consultant_portal import auth as portal_auth
 from app.services.consultant_portal import portal_mail, sms
 from app.services.consultant_portal_schema import PORTAL_SETTING
+from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.care_announcements_seed import (
     _get_setting,
     _set_setting,
@@ -42,9 +43,23 @@ async def set_portal(state: Optional[str], pilot: Iterable[int] = ()) -> None:
 
 @pytest_asyncio.fixture
 async def portal_restored():
+    """Stan portalu po teście jak przed nim; moduł ``back_office`` włączony, bo bez niego portal jest zamknięty."""
+
     previous = await _get_setting(PORTAL_SETTING)
+    modules = await _get_setting(HR_MODULES_SETTING)
+    await _set_setting(
+        HR_MODULES_SETTING,
+        {
+            **{key: False for key in HR_MODULE_KEYS},
+            **(modules or {}),
+            "back_office": True,
+        },
+    )
     yield
     await _set_setting(PORTAL_SETTING, previous)
+    await _set_setting(
+        HR_MODULES_SETTING, modules or {key: False for key in HR_MODULE_KEYS}
+    )
 
 
 @pytest_asyncio.fixture

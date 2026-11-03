@@ -10,6 +10,8 @@ w NEXUSIE: wchodzi linkiem z maila na `/konsultant`. Kod: `app/api/consultant_po
 zmienia admin przez `PUT /api/back-office/portal/settings`. Brak wiersza = `off`: każda publiczna
 trasa odpowiada 404, także przy poprawnej sesji, a pętle nic nie robią. Każdy mail do konsultanta idzie
 przez `portal_mail.send`, który sprawdza wyłącznik dla kontraktu, bo to wysyłka do ludzi spoza firmy.
+Wyłączony moduł `back_office` działa jak `off` (`portal_settings.load`), bo wycofanie to wyłączenie
+modułu. Stan `off` kasuje sesje, więc ponowne włączenie ich nie ożywia.
 
 ## Reguły bezpieczeństwa, które łatwo cofnąć
 

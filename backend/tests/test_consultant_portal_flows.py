@@ -20,13 +20,17 @@ from app.services import prep_availability
 from app.services.consultant_portal import (
     auth,
     content,
+    mailbox,
     meetings,
+    portal_mail,
     ratings,
     transcripts,
 )
 from app.services.m365 import teams_prep_graph
 from app.services.m365.graph_client import GraphRequestError
+from app.services.hr_foundation_schema import HR_MODULE_KEYS, HR_MODULES_SETTING
 from tests.care_announcements_seed import (  # noqa: F401  (fixture'y)
+    _set_setting,
     care_off,
     care_on,
     divisions_restored,
@@ -125,6 +129,51 @@ async def test_staff_routes_are_404_with_module_off(app_client) -> None:
 # ── Wyłącznik od strony admina ───────────────────────────────────────────────
 
 
+@pytest.mark.usefixtures("portal_all", "care_off")
+async def test_module_off_closes_the_portal_too(app_client, monkeypatch) -> None:
+    """Wycofanie to wyłączenie modułu: portal bez niego nie zostaje otwarty dla ludzi z zewnątrz."""
+
+    fake = install_mailer(monkeypatch)
+    person = await make_person()
+    status_response = await app_client.get(f"{BASE}/status")
+    assert status_response.status_code == 404
+    link = await app_client.post(f"{BASE}/link", json={"email": person.email})
+    assert link.status_code == 404
+    async with AsyncSessionLocal() as db:
+        outcome = await portal_mail.send(
+            db,
+            contract_id=person.contract_id,
+            to=person.email,
+            subject="Temat",
+            text="Treść",
+        )
+        assert outcome is None
+        assert (await ratings.run_once(db))["status"] == "disabled"
+        assert (await mailbox.run_once(db))["status"] == "disabled"
+    assert fake.sent == []
+
+
+@pytest.mark.usefixtures("portal_all", "care_on")
+async def test_switching_off_ends_open_sessions(app_client) -> None:
+    person = await make_person()
+    session = await session_headers(app_client, person)
+    admin = await make_user(UserRole.admin)
+    off = await app_client.put(
+        f"{STAFF}/settings",
+        headers=staff_headers(admin),
+        json={"state": "off", "pilot_contract_ids": []},
+    )
+    assert off.status_code == 200
+    back_on = await app_client.put(
+        f"{STAFF}/settings",
+        headers=staff_headers(admin),
+        json={"state": "all", "pilot_contract_ids": []},
+    )
+    assert back_on.status_code == 200
+    me = await app_client.get(f"{BASE}/me", headers=session)
+    assert me.status_code == 401
+
+
 @pytest.mark.usefixtures("portal_restored", "care_on", "clean_team")
 async def test_only_admin_flips_the_switch(app_client) -> None:
     member = await make_member("care")
@@ -185,8 +234,12 @@ async def test_new_request_lands_in_own_cases(app_client) -> None:
     assert "Od kiedy?" in (case.description or "")
 
 
-@pytest.mark.usefixtures("portal_all", "care_off")
+@pytest.mark.usefixtures("portal_all")
 async def test_new_request_refused_when_cases_module_is_dark(app_client) -> None:
+    await _set_setting(
+        HR_MODULES_SETTING,
+        {**{key: False for key in HR_MODULE_KEYS}, "back_office": True},
+    )
     person = await make_person()
     portal = await session_headers(app_client, person)
     response = await app_client.post(
