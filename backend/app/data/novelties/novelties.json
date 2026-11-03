@@ -9,7 +9,7 @@
     "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
     "where": "Generator CV → wynik → Poprawione automatycznie",
     "href": "/cv-generator",
-    "section": "pipeline",
+    "section": "sourcing",
     "dot_anchor": "cv.result.auto-repairs"
   },
   {
