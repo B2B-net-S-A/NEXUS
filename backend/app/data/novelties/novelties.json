@@ -732,7 +732,7 @@
   {
     "id": "prosba-o-zgode-pko",
     "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
-    "why": "Gdy pod CV brakuje zrzutu zgody, „Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata. Zrzut bez B2B.net dostanie ostrzeżenie.",
+    "why": "„Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata; zrzut bez B2B.net dostanie ostrzeżenie.",
     "tier": "dot",
     "shipped_on": "2026-11-03",
     "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
