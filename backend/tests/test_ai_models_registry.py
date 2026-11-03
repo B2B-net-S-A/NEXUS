@@ -58,7 +58,7 @@ def test_empty_env_override_is_ignored(monkeypatch):
     monkeypatch.setenv("UOP_CHECK_MODEL", "   ")
     # resolve() czyta env przy KAŻDYM wywołaniu — bez reloadu (reload config/rejestru
     # podmieniłby globalny singleton settings i zatruł kolejne testy w tym biegu).
-    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-6-luna"
+    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-6.1-sol"
 
 
 def test_narrow_override_splits_cv_parser_from_mindy(monkeypatch):
@@ -109,7 +109,7 @@ DECISION_2026_09_16 = {
     # F7 — 21.09.2026 powrót z GPT-5.6 Luna na Sonneta, 22.09.2026 na GPT-6 Lunę
     # po pomiarze, 25.09.2026 z powrotem na Sonneta (Luna 6 ciągle „niepewny”).
     AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
-    AIFeatureKey.uop_check: ("F8", "gpt-6-luna"),
+    AIFeatureKey.uop_check: ("F8", "gpt-6.1-sol"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5-5"),
     # F10 — pomiar gpt-6-luna 22.09.2026 na 96 CV: nie gorsza od Sonneta.
     AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5-5"),
