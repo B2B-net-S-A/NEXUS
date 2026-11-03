@@ -12,14 +12,17 @@ Definicje:
   doba harmonogramu + 2 h zapasu na opóźnienia z launchd/caffeinate) ALBO
   źródło nigdy nie raportowało. Run „running" starszy niż ``stale_after_hours``
   traktujemy jak martwy (proces zabity bez ``finish``).
+- **niedokończone zgłoszenie** — para ``source`` + ``external_id``, której
+  najnowsze zdarzenie w oknie to błąd. Przebiegi próbne (``NON_DELIVERY_MODES``)
+  nic nie zapisują, więc nie zamykają błędu i same go nie zgłaszają.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
-from sqlalchemy import desc, func, select, update
+from sqlalchemy import desc, func, or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.integration_run import (
@@ -43,6 +46,9 @@ STAT_KEYS: tuple[str, ...] = (
     "nexus_jobs",
     "nexus_errors",
 )
+NON_DELIVERY_MODES: tuple[str, ...] = ("test", "dry_run")
+#: Tyle wierszy listy błędów; resztę mówi ``unfinished_error_count``.
+RECENT_ERRORS_LIMIT = 50
 
 
 def _utcnow() -> datetime:
@@ -133,11 +139,98 @@ async def last_success_per_source(db: AsyncSession) -> dict[str, Optional[dateti
     return {source: found.get(source) for source in INTEGRATION_SOURCES}
 
 
+def collapse_error_events(
+    events: Iterable[Any], *, show_candidates: bool
+) -> tuple[list[dict], int]:
+    """Zdarzenia od najnowszego → (niedokończone zgłoszenia, liczba dokończonych).
+
+    Scraper ponawia zgłoszenie w kolejnych runach (a drugi Mac robi to samo),
+    więc surowe wiersze błędu to głównie zgłoszenia, które później się udały
+    (03.11.2026: 74 ze 114). Próby liczą się od ostatniego sukcesu.
+
+    Błąd bez ``external_id`` zostaje osobnym wierszem: nie wiadomo, czy to to
+    samo zgłoszenie ani czy później się udało.
+    """
+    rows: dict[Any, dict] = {}
+    finished: set[Any] = set()
+    resolved = 0
+    for event in events:
+        key = (event.source, event.external_id) if event.external_id else event.id
+        if key in finished:
+            continue
+        if event.action != "error":
+            finished.add(key)
+            resolved += key not in rows
+        elif key in rows:
+            rows[key]["attempts"] += 1
+        else:
+            rows[key] = {
+                "occurred_at": event.occurred_at,
+                "source": event.source,
+                "run_id": event.run_id,
+                "external_id": event.external_id,
+                # Sekcja Insights wpuszcza też konta bez odczytu kandydatów
+                # (Rada nadzorcza): zdarzenie zostaje, osoba znika.
+                "candidate_id": event.candidate_id if show_candidates else None,
+                "candidate_name": event.candidate_name if show_candidates else None,
+                "offer_title": event.offer_title,
+                "error": event.error,
+                "attempts": 1,
+            }
+    return list(rows.values()), resolved
+
+
+async def _load_error_events(db: AsyncSession, *, since: datetime) -> list[Any]:
+    """Błędy z okna i pozostałe zdarzenia zgłoszeń, które mają w oknie błąd.
+
+    Okno wystarcza: wszystko, co zamyka błąd z okna, jest od niego późniejsze.
+    Dlatego ``attempts`` to próby w wybranym oknie, nie w całej historii.
+    """
+    delivered = IntegrationRunEvent.run_id.in_(
+        select(IntegrationRun.id).where(IntegrationRun.mode.not_in(NON_DELIVERY_MODES))
+    )
+    failed_applications = select(
+        IntegrationRunEvent.source, IntegrationRunEvent.external_id
+    ).where(
+        IntegrationRunEvent.action == "error",
+        IntegrationRunEvent.occurred_at >= since,
+        IntegrationRunEvent.external_id != "",
+        delivered,
+    )
+    result = await db.execute(
+        select(
+            IntegrationRunEvent.id,
+            IntegrationRunEvent.action,
+            IntegrationRunEvent.occurred_at,
+            IntegrationRunEvent.source,
+            IntegrationRunEvent.run_id,
+            IntegrationRunEvent.external_id,
+            IntegrationRunEvent.candidate_id,
+            IntegrationRunEvent.candidate_name,
+            IntegrationRunEvent.offer_title,
+            IntegrationRunEvent.error,
+        )
+        .where(
+            IntegrationRunEvent.occurred_at >= since,
+            delivered,
+            or_(
+                IntegrationRunEvent.action == "error",
+                tuple_(IntegrationRunEvent.source, IntegrationRunEvent.external_id).in_(
+                    failed_applications
+                ),
+            ),
+        )
+        .order_by(desc(IntegrationRunEvent.occurred_at), desc(IntegrationRunEvent.id))
+    )
+    return list(result.all())
+
+
 async def build_summary(
     db: AsyncSession,
     *,
     days: int,
     stale_after_hours: float,
+    show_candidates: bool,
     now: Optional[datetime] = None,
 ) -> dict:
     """Wszystko, czego potrzebuje sekcja „Integracje" w Insights — w jednym obiekcie."""
@@ -197,19 +290,10 @@ async def build_summary(
             if key in day_bucket:
                 day_bucket[key] += value
 
-    # Ostatnie błędy per kandydat — to, co operator klika.
-    recent_errors = (
-        (
-            await db.execute(
-                select(IntegrationRunEvent)
-                .where(IntegrationRunEvent.action == "error")
-                .where(IntegrationRunEvent.occurred_at >= since)
-                .order_by(desc(IntegrationRunEvent.occurred_at))
-                .limit(20)
-            )
-        )
-        .scalars()
-        .all()
+    # Zgłoszenia wciąż niedokończone — to, co operator klika.
+    unfinished_errors, resolved_error_count = collapse_error_events(
+        await _load_error_events(db, since=since),
+        show_candidates=show_candidates,
     )
 
     # Rekrutacje, do których integracje dodały najwięcej kandydatów.
@@ -267,18 +351,8 @@ async def build_summary(
         "days": days,
         "generated_at": now,
         "sources": sources,
-        "recent_errors": [
-            {
-                "occurred_at": event.occurred_at,
-                "source": event.source,
-                "run_id": event.run_id,
-                "external_id": event.external_id,
-                "candidate_id": event.candidate_id,
-                "candidate_name": event.candidate_name,
-                "offer_title": event.offer_title,
-                "error": event.error,
-            }
-            for event in recent_errors
-        ],
+        "recent_errors": unfinished_errors[:RECENT_ERRORS_LIMIT],
+        "unfinished_error_count": len(unfinished_errors),
+        "resolved_error_count": resolved_error_count,
         "top_jobs": sorted(top_jobs.values(), key=lambda j: -j["count"])[:10],
     }

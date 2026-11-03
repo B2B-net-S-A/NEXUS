@@ -200,6 +200,42 @@ async def test_render_returns_the_register_row_id(app_client, app_auth_headers):
     assert "X-Generated-Contract-Id" in resp.headers["Access-Control-Expose-Headers"]
 
 
+async def test_render_and_rerender_store_address_without_nr_word(
+    app_client, app_auth_headers
+):
+    """Zapis „ul. Polna, nr 12” z wydruku CEIDG nie wchodzi do umowy ani do
+    formularza „Popraw umowę” (zgłoszenie działu umów 03.11.2026)."""
+    number = _number()
+    body = {
+        "language": "pl",
+        "contract_number": number,
+        "partner_name": "Zofia Wiśniewska",
+        "partner_business_address": "ul. Polna, nr 12, 00-001 Warszawa",
+        "client_name": "Nordea Bank",
+        "signing_date": "2026-08-01",
+    }
+    resp = await app_client.post(
+        "/api/b2b-generator/render?format=docx", headers=app_auth_headers, json=body
+    )
+    assert resp.status_code == 200, resp.text
+    item = await _item_by_number(app_client, app_auth_headers, number)
+    form = await app_client.get(f"{PATH}/{item['id']}/form", headers=app_auth_headers)
+    assert form.status_code == 200, form.text
+    assert form.json()["form"]["partner_business_address"] == (
+        "ul. Polna 12, 00-001 Warszawa"
+    )
+
+    body["partner_business_address"] = "ul. Polna, nr 12, lok. 5, 00-001 Warszawa"
+    resp = await app_client.post(
+        f"{PATH}/{item['id']}/rerender", headers=app_auth_headers, json=body
+    )
+    assert resp.status_code == 200, resp.text
+    form = await app_client.get(f"{PATH}/{item['id']}/form", headers=app_auth_headers)
+    assert form.json()["form"]["partner_business_address"] == (
+        "ul. Polna 12/5, 00-001 Warszawa"
+    )
+
+
 # ── Poprawka pod tym samym numerem ───────────────────────────────────────────
 
 
