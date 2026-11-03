@@ -701,3 +701,24 @@ describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () =
     expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
   });
 });
+
+describe("ContractDetailPage — odmowa dostępu to nie awaria", () => {
+  it("403 mówi o braku uprawnień, a nie o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Nie udało się wczytać kontraktu.")).toBeNull();
+  });
+
+  it("404 mówi, że rekordu nie ma", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 404 } });
+    renderPage();
+    expect(await screen.findByText("Nie znaleziono")).toBeInTheDocument();
+  });
+
+  it("awaria serwera zostaje komunikatem o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 500 } });
+    renderPage();
+    expect(await screen.findByText("Nie udało się wczytać kontraktu.")).toBeInTheDocument();
+  });
+});
