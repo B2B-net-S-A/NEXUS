@@ -94,6 +94,7 @@ AREA_BY_SCREEN: dict[str, str] = {
     **_screens(TABLICA, "calendar", "departed-care", "jobs", "manager"),
     **_screens(
         KONTRAKTY,
+        "back-office",
         "care",
         "clients",
         "contractors",
@@ -131,6 +132,7 @@ UNTRACKED_SCREENS: frozenset[str] = frozenset(
         "engagement",
         "k",
         "kariera",
+        "konsultant",
         "login",
         "microsoft365",
         "protocol",

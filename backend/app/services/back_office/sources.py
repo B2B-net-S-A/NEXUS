@@ -546,7 +546,7 @@ async def extend_cards(db: AsyncSession, today: date) -> list[CardSpec]:
             person=row["client"],
             client_label=f"{row['people']} os. na zamówieniu",
             due_on=row["end_date"],
-            href=f"/clients/{row['client_id']}?tab=orders",
+            href=f"/clients/{row['client_id']}?tab=zamowienia",
             client_id=row["client_id"],
         )
         for row in rows
