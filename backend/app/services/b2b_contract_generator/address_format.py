@@ -2,7 +2,8 @@
 
 Biała Lista i CEIDG zwracają adres WIELKIMI LITERAMI i zwykle bez „ul.”, a dział
 umów poprawiał to ręcznie w każdej umowie (zgłoszenie 03.11.2026). Formatujemy
-tylko to, co wypełnia generator z rejestru: wpis człowieka i wydane umowy zostają.
+tylko to, co wypełnia generator z rejestru. We wpisie człowieka porządkujemy sam
+numer domu (``tidy_house_number``), a wydane umowy zostają bez zmian.
 
 Moduł-liść, bez sieci i bazy, jak ``formatting``.
 """
@@ -33,6 +34,13 @@ _UNIT_WORDS = frozenset({"LOK", "M", "NR"})
 _ROMAN = re.compile(r"^M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})$")
 _LETTERS = re.compile(r"[^\W\d_]+")
 _STREET_TYPE_GLUED = re.compile(r"^(UL|AL|PL|OS)\.(?=\S)", re.IGNORECASE)
+# „, nr 12, lok. 5” z wydruku CEIDG. Litera po spacji należy do numeru („36 E”),
+# ale „m” już nie: w „nr 10 m 71” otwiera numer lokalu.
+_HOUSE_NUMBER = re.compile(
+    r"(?:,\s*|\s+)nr\.?\s*(\d[^\s,;]*(?:\s[a-ln-z](?=[\s,;]|$))?)"
+    r"(?:,?\s+(?:lok(?:al)?\.?|m\.?)\s*(\w[^\s,;]*))?",
+    re.IGNORECASE,
+)
 
 
 def _has_digit(word: str) -> bool:
@@ -105,6 +113,18 @@ def _with_street_type(
     return f"ul. {formatted}"
 
 
+def tidy_house_number(address: str | None) -> str | None:
+    """„ul. Polna, nr 12, lok. 5, …” → „ul. Polna 12/5, …”. Reszta bez zmian."""
+    if not address:
+        return address
+
+    def compact(match: re.Match[str]) -> str:
+        number, unit = match.groups()
+        return f" {number}/{unit}" if unit else f" {number}"
+
+    return _HOUSE_NUMBER.sub(compact, address, count=1)
+
+
 def format_registry_address(
     address: str | None, *, has_street: bool | None = None
 ) -> str | None:
@@ -119,6 +139,7 @@ def format_registry_address(
     text = re.sub(r"\s+", " ", address or "").strip()
     if not text:
         return None
+    text = tidy_house_number(text) or text
     text = _STREET_TYPE_GLUED.sub(lambda m: f"{m.group(0)} ", text)
     street, separator, tail = text.partition(",")
     tail = tail.strip()
