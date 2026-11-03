@@ -473,7 +473,7 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
     AIFeatureKey.case_triage: ModelChoice(
         default=SONNET_5,
         env_vars=("CASE_TRIAGE_MODEL",),
-        fallbacks=("claude-haiku-4-5",),
+        fallbacks=(HAIKU_55,),
         rationale="F42 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Do którego zespołu "
         "back office trafia mail, gdy reguły nie są pewne. Wynik jest tylko propozycją: "
         "niepewność albo awaria kończy się kartą „Do rozdzielenia”.",

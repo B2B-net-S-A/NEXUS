@@ -125,7 +125,9 @@ async def hr_config(
             ),
             # Head back office edytuje ścieżkę „Konsultant u klienta” (etap 3, O4).
             "back_office_head": await is_back_office_head(db, current_user),
-            "back_office_member": bool(back_office_viewer and back_office_viewer.has_access),
+            "back_office_member": bool(
+                back_office_viewer and back_office_viewer.has_access
+            ),
             "back_office_lead": bool(back_office_viewer and back_office_viewer.is_lead),
         },
     }

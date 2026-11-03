@@ -966,9 +966,7 @@ async def cancel_bonuses(
     cancelled = 0
     for bonus_id in sorted(set(payload.ids)):
         with _http_errors():
-            await payroll_bonuses.cancel_bonus(
-                db, viewer, bonus_id, note=payload.note
-            )
+            await payroll_bonuses.cancel_bonus(db, viewer, bonus_id, note=payload.note)
         cancelled += 1
     return {"cancelled": cancelled}
 
