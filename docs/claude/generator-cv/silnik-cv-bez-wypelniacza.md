@@ -320,3 +320,16 @@ zmianę rekruter wpisuje ręcznie w edytorze.
 Testy: `tests/test_cv_source_dates.py`, sekcja „Daty stanowisk” w `tests/test_cv_qc.py`,
 `CvQcDialog.test.tsx` („Daty stanowisk jak w oryginale”).
 
+## Jednorazowa poprawka CV z nazwą usługi (03.11.2026)
+
+CV powstałe przed #2872 miały nagłówek i plik „usługi programistyczne”. Decyzja Artura:
+wszystkie CV etapu w otwartych rekrutacjach, także zatwierdzone i z etapu „Rozmowa”.
+Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title_repair.py`.
+
+- Zły nagłówek w szkicu: podmiana w `<h1>` i w pliku. Zły nagłówek w CV zatwierdzonym:
+  zamrożona wersja zostaje, nowy szkic czeka na zatwierdzenie człowieka.
+- Dobry nagłówek: tylko nazwa pliku, także na zamrożonych wersjach, a plik bierze nazwę
+  z nagłówka. Bez ponownego zatwierdzania.
+- Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
+  w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
+- `cv_generated_documents` zostają historią generacji.

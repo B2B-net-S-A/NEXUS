@@ -11353,6 +11353,32 @@ async def rename():
 asyncio.run(rename())
 PY
 
+# CV etapu z nazwą usługi w nagłówku i pliku (03.11.2026, decyzja Artura: wszystkie
+# w otwartych rekrutacjach). Zatwierdzone ze złym nagłówkiem dostają nowy szkic do
+# zatwierdzenia, a zamrożona wersja zostaje. Reguła:
+# `app/services/cv_service_title_repair.py`. Marker w `app_settings` + advisory
+# lock → drugi start kończy się od razu. Log: same liczby.
+startup_phase "cv-service-title-repair"
+echo "Stage CVs: one-shot role name instead of the service name..."
+run_unless_marked "cv_service_title_repair_2026_11" <<'PY' || echo "cv service title repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cv_service_title_repair import repair_service_title_cvs
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await repair_service_title_cvs(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"cv service title repair: {receipt or 'nothing to do'}")
+
+asyncio.run(repair())
+PY
+
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).
 # Decyzja Artura: zespół pracuje w czterech grupach z InfraReportera, a
 # „Dane i AI” oraz security należą do grupy Infra. SQL ma jedno źródło:
