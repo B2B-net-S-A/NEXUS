@@ -30,7 +30,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
-| F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
+| F8  | uop_check                        | gpt-6.1-sol (z Sonnet 5) |
 | F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
 | F10 | cv_backfill                      | claude-sonnet-5-5 (z 5)  |
 |     | cv_name_backfill                 | gpt-6-luna (z Sonnet 5)  |
@@ -112,6 +112,7 @@ SONNET_5 = "claude-sonnet-5"
 SONNET_55 = "claude-sonnet-5-5"
 HAIKU_55 = "claude-haiku-5-5"
 GPT_LUNA = "gpt-6-luna"
+GPT_SOL = "gpt-6.1-sol"
 DEEPSEEK_PRO = "deepseek-v4-pro"
 
 
@@ -276,11 +277,11 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "rozdziela od backfillu.",
     ),
     AIFeatureKey.uop_check: ModelChoice(
-        default=GPT_LUNA,
+        default=GPT_SOL,
         env_vars=("UOP_CHECK_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F8. Znamiona UoP: GPT Luna 100% nazewnictwa, recall 1.0 na podłożonych "
-        "znamionach (badanie 16.09).",
+        rationale="F8. Znamiona UoP: GPT-6.1 Sol od 03.11.2026 (audyt): fałszywe alarmy 4,5% wobec "
+        "34% Luny, brak propozycji zapisu 2% wobec 60%, 8 z 8 przypadków z ryzykiem wykrytych.",
     ),
     AIFeatureKey.cv_factual_verification: ModelChoice(
         default=GPT_LUNA,

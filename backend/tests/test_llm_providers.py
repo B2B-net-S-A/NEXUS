@@ -152,6 +152,31 @@ def _openai_strict(schema):
     return body["response_format"]["json_schema"]["strict"]
 
 
+@pytest.mark.parametrize(
+    "model,effort",
+    [("gpt-6-luna", "none"), ("gpt-6.1-terra", "none"), ("gpt-6.1-sol", "low")],
+)
+def test_reasoning_effort_is_the_lowest_the_model_accepts(model, effort):
+    """Sol 6.1 odrzuca `none` kodem 400, a najniższy tryb to `low` (sprawdzone 03.11.2026)."""
+    body = build_request(OPENAI, model=model, messages=[], max_tokens=1, kwargs={})
+    assert body["reasoning_effort"] == effort
+    assert "temperature" not in body
+
+
+def test_sol_has_its_own_price():
+    from decimal import Decimal
+
+    from app.services.ai_metering import response_event
+
+    message = parse_response(
+        OPENAI, "gpt-6.1-sol", _openai_payload(prompt=1000, cached=0, completion=100)
+    )
+    message.model = "gpt-6.1-sol"
+    event = response_event("op-sol", message, model="gpt-6.1-sol", latency_ms=1)
+    # (2 × 1000 + 10 × 100) / 1e6
+    assert event["estimated_cost_usd"] == Decimal("0.00300000")
+
+
 def test_strict_mode_only_for_schemas_that_allow_it():
     """AI-02 (audyt 22.09 r2): ``strict: true`` dla zgodnych schematów.
 

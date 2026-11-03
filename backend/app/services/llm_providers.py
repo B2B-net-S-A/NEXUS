@@ -270,7 +270,9 @@ def build_request(
     if provider == OPENAI:
         body["max_completion_tokens"] = max_tokens
         # Konfiguracja z badania: bez rozumowania, bez retencji po stronie OpenAI.
-        body["reasoning_effort"] = "none"
+        # Sol 6.1 odrzuca `none` kodem 400, więc dostaje najniższy tryb, jaki ma.
+        # Rozumowanie liczy się do `max_completion_tokens`.
+        body["reasoning_effort"] = "low" if model.startswith("gpt-6.1-sol") else "none"
         body["store"] = False
         if schema is not None:
             body["response_format"] = {

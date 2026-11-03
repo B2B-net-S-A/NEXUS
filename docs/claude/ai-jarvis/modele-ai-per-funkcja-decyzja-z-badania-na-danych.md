@@ -118,6 +118,13 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   0,34 wobec 0,20 na CV). Nie cofaj filtra bez cofnięcia modelu. Powrót bez deployu:
   `CV_PARSER_MODEL`, `CV_REQUIREMENT_MAP_MODEL`, `CV_BACKFILL_MODEL`. `cv_name_backfill`
   zostaje na Lunie, bo imiona nie zyskują na lepszym odczycie technologii.
+- **GPT-6.1 Sol od 03.11.2026 w F8 znamiona UoP**, z Sonnetem 5 jako zapasem: fałszywe alarmy
+  4,5% wobec 34% Luny, brak propozycji zapisu 2% wobec 60%, ok. +0,26 USD miesięcznie.
+  Prawdziwych przypadków ryzyka w próbie było tylko 8. Sol nie ma `reasoning_effort: none`,
+  więc `llm_providers` wysyła `low`, a rozumowanie liczy się do limitu tokenów; przy funkcji
+  z małym limitem trzeba go podnieść. W innych funkcjach Sol przegrał albo kosztował za dużo:
+  parser dodaje ogólne pojęcia (40 pozycji na CV, 88 bez śladu), zamówienia mają 71% odczytów
+  niepewnych, profile Championa recall MUST 65%, recenzent to ok. +86 USD miesięcznie.
 - **Sonnet 5.5 odrzuca `thinking: disabled` kodem 400.** Wołający zostają przy
   `disabled`, a `claude_client._sdk_request_kwargs` tłumaczy to na `between_tools`
   dla każdego modelu w łańcuchu osobno, bo `between_tools` przyjmuje tylko Sonnet 5.5.
