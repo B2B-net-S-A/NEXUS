@@ -198,6 +198,7 @@ async def add_run_events(
 
 @reader.get("/summary")
 async def integrations_summary(
+    current_user: CurrentUser,
     days: int = Query(30, ge=1, le=365),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
@@ -205,6 +206,7 @@ async def integrations_summary(
         db,
         days=days,
         stale_after_hours=float(settings.INTEGRATION_STALE_AFTER_HOURS),
+        show_candidates=user_has_candidate_read(current_user),
     )
 
 

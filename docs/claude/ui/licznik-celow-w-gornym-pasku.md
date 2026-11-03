@@ -138,7 +138,7 @@ https://claude.ai/artifact/X92X1KagSUsdb4EQ32F4Wv.
   po akceptacji to `approved_at`), „Liczy się” w zakresie zespołu i „Teraz”.
 - **„Teraz” liczy serwer** z najnowszego wiersza etapu pary (`DETAIL_STATES`):
   zatrudnienie, odrzucenie przez klienta (`ended_by='client'` albo stary wiersz
-  bez autora po wysyłce — ta sama reguła co `known_people_signal`), inne
+  bez autora po wysyłce; `known_people_signal` od 03.11.2026 liczy tylko jawne), inne
   zakończenie, zamknięta rekrutacja, u klienta, czeka na klienta, przed
   wysyłką. Filtr `state` zawęża wiersze; liczniki stanów (`states`) liczą cały
   okres. Filtr „Klient odrzucił” to lista osób do ponownego kontaktu (D5).

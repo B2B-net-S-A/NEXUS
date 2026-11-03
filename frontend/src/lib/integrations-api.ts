@@ -68,6 +68,7 @@ export interface IntegrationErrorRow {
   candidate_name: string | null;
   offer_title: string | null;
   error: string | null;
+  attempts: number;
 }
 
 export interface IntegrationTopJob {
@@ -81,6 +82,8 @@ export interface IntegrationsSummary {
   generated_at: string;
   sources: IntegrationSourceSummary[];
   recent_errors: IntegrationErrorRow[];
+  unfinished_error_count: number;
+  resolved_error_count: number;
   top_jobs: IntegrationTopJob[];
 }
 
