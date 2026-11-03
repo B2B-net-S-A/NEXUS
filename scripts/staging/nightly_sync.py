@@ -55,6 +55,13 @@ RANKING_POOL_FLAGS = (
     "KEYWORD_SEARCH_FOLDED_FTS",
     "MATCH_POOL_SIZE",
 )
+# Listy klientów decydują, co widać na karcie klienta. 03.11.2026 bez pierwszej z nich
+# staging pokazywał 8 zamówień klienta zamiast 50, bo chował stare bez `order_type`.
+CLIENT_LIST_FLAGS = (
+    "MULTI_CONSULTANT_ORDER_CLIENT_IDS",
+    "COST_ORDER_CLIENT_IDS",
+    "EXTENDED_ORDER_ALERT_CLIENT_IDS",
+)
 SECRET_NAME = r"(SECRET|PASSWORD|_TOKEN(_|$)|DSN|CREDENTIAL|_KEY(_|$)|_URL(_|$))"
 SAFE_VALUE = re.compile(r"[A-Za-z0-9._-]{1,64}\Z")
 # Sekret nie opuszcza serwera: filtr nazw działa już w procesie po stronie produkcji.
@@ -152,7 +159,15 @@ def scoring_inputs(source: str) -> tuple[str, ...]:
 
 
 def allowed_flags(source: str) -> tuple[str, ...]:
-    return scoring_inputs(source) + RANKING_POOL_FLAGS
+    return scoring_inputs(source) + RANKING_POOL_FLAGS + CLIENT_LIST_FLAGS
+
+
+def client_list_text(name: str, value: object) -> str:
+    """Same identyfikatory: inny wpis pomija też `config.py`, więc literówka nie zatrzyma kopii."""
+    if not isinstance(value, str):
+        raise SyncError(f"Lista {name} nie jest tekstem, plik flag nie powstał")
+    chunks = (chunk.strip() for chunk in value.split(","))
+    return ",".join(chunk for chunk in chunks if re.fullmatch(r"[0-9]+", chunk))
 
 
 def flag_lines(values: dict, allowed: tuple[str, ...]) -> str:
@@ -162,7 +177,9 @@ def flag_lines(values: dict, allowed: tuple[str, ...]) -> str:
         if name not in values:
             continue
         value = values[name]
-        if isinstance(value, bool):
+        if name in CLIENT_LIST_FLAGS:
+            text = client_list_text(name, value)
+        elif isinstance(value, bool):
             text = "true" if value else "false"
         elif isinstance(value, (int, float)):
             text = str(value)

@@ -62,6 +62,25 @@ a Qdrant był 10 dni starszy od bazy, co wyrzucało 2 247 osób z rankingu.
 - **Skrypt pomiarowy poza procesem web** wywołuje `refresh_alias_map()`
   i `critical_skills.refresh_cache()`, bo robi to dopiero lifespan.
 
+## Listy klientów jak na produkcji
+
+03.11.2026 `GET /api/clients/12/order-groups` dawał na stagingu 8 zamówień, a po
+ustawieniu `MULTI_CONSULTANT_ORDER_CLIENT_IDS` 50. Klient spoza tej listy nie widzi
+starych zamówień bez `order_type` (`list_order_groups`), a staging miał ją pustą.
+
+- `CLIENT_LIST_FLAGS` w `nightly_sync.py`: ta lista, `COST_ORDER_CLIENT_IDS`
+  i `EXTENDED_ORDER_ALERT_CLIENT_IDS`. Wartości przychodzą co noc z produkcji w
+  `.env.staging-flags.local`, razem z flagami rankingu, więc nowy klient pojawia się
+  na stagingu bez zmiany w repo.
+- Do pliku idą same identyfikatory, a wpis inny niż liczba jest pomijany, tak jak
+  w `config.py`. Pusta lista na produkcji daje pustą listę na stagingu.
+- Wartości nie wpisuj do repo ani do `env.staging.example`: repo jest publiczne.
+- `ORDER_MAIL_AUTOAPPLY_EXCLUDE_CLIENT_IDS` zostaje poza listą, bo poczta zamówień
+  na stagingu jest wyłączona.
+- Raport różnic ustawień (`other_differences`) porównuje tylko bool i liczby, więc
+  nowej listy tekstowej sam nie zgłosi. Nowa lista z wpływem na ekran wymaga wpisu
+  w `CLIENT_LIST_FLAGS` i w compose.
+
 ## Nocna kopia produkcji
 
 Decyzja Artura z 02.11.2026: staging co noc staje się aktualną kopią produkcji,
@@ -69,7 +88,7 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
 `scripts/staging/nightly_sync.py` (rutyna 00:00, `rutyny-nocne.md`) robi po kolei:
 
 1. Czyta z procesu backendu produkcji przez SSH ustawienia bool i liczbowe oraz
-   listę dozwolonych: `_SCORING_CACHE_INPUTS` i 4 flagi puli. Do
+   listę dozwolonych: `_SCORING_CACHE_INPUTS`, 4 flagi puli i listy klientów. Do
    `.env.staging-flags.local` obok głównego pliku env idzie tylko ta lista. Inne
    różnice trafiają do raportu, bez sekretów: filtr nazw działa już na serwerze.
    Przełączniki integracji i poczty są w compose na sztywno, więc flaga z produkcji
