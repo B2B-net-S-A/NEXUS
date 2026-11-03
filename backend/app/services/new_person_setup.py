@@ -53,7 +53,7 @@ def notification_text(user: User) -> tuple[str, str]:
     message = (
         f"Pierwsze logowanie przez Microsoft założyło konto „Konsultant/Kontraktor” "
         f"({user.email}). Jeśli to rekruter, nadaj rolę, kategorie kompetencji "
-        "i przełożonego. Jeśli konsultant albo back office, zostaw tak, jak jest."
+        "i koordynatora. Jeśli konsultant albo back office, zostaw tak, jak jest."
     )
     return title, message
 

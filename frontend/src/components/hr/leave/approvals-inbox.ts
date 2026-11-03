@@ -79,7 +79,7 @@ function infoChips(row: PendingLeaveRow): InboxChip[] {
 
 /**
  * Lista skrzynki: „Do decyzji” (wnioski z umowy o pracę) i „Do wiadomości ·
- * B2B i zlecenie” (zgłoszenia, D5 — bez akceptacji, z „Zgłoś kolizję”).
+ * B2B i zlecenie” (zgłoszenia, D5 — bez akceptacji, z „Zgłoś uwagę”).
  */
 export function inboxItems(
   pending: readonly PendingLeaveRow[],

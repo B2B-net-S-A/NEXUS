@@ -112,7 +112,7 @@ export function ReassignDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={`Zmień ${words.ofOne} (${people.length})`}
-      description="Zmiana działa od razu. Wnioski i timesheety w toku przejdą do nowej osoby — o akceptacji decyduje ten, kto jest wpisany w chwili decyzji."
+      description="Zmiana działa od razu. Wnioski i raporty godzin w toku przejdą do nowej osoby — o akceptacji decyduje ten, kto jest wpisany w chwili decyzji."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

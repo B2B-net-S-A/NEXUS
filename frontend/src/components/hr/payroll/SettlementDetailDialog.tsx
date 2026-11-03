@@ -330,7 +330,7 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
               </ul>
               <p className="mt-2 text-xs text-muted-foreground">
                 „Poproś o korektę” wysyła osobie wiadomość; korekta z KSeF podepnie się sama.
-                „Uznaj różnicę” wymaga powodu i drugiej osoby z Płac.
+                „Uznaj różnicę” wymaga powodu i drugiej osoby z Rozliczeń.
               </p>
             </section>
           ) : null}
@@ -340,7 +340,7 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
                 Uznanie różnicy: {detail.override.reason}
                 <span className="text-muted-foreground">
                   {" "}
-                  · {detail.override.requested_by_name ?? "Płace"}
+                  · {detail.override.requested_by_name ?? "Rozliczenia"}
                   {detail.override.confirmed_by_name
                     ? ` · potwierdził(a) ${detail.override.confirmed_by_name}`
                     : " · czeka na drugą osobę"}
@@ -361,7 +361,7 @@ export function SettlementDetailDialog({ settlementId, onClose }: SettlementDeta
           ) : null}
           {detail.mine ? (
             <p className="text-sm text-muted-foreground">
-              To Twoje rozliczenie — decyzje podejmuje inna osoba z Płac.
+              To Twoje rozliczenie — decyzje podejmuje inna osoba z Rozliczeń.
             </p>
           ) : null}
           {panel === "override" ? (

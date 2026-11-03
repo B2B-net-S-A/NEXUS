@@ -62,7 +62,7 @@ const config = (me: Partial<HrConfig["me"]>, open: Partial<HrConfig["open_module
   }) as HrConfig;
 
 describe("availableHrSettingsTabs — te same warunki co karty przed zakładkami", () => {
-  it("admin widzi wszystkie pięć, Kadry bez admina — bez modułów", () => {
+  it("admin widzi wszystkie pięć, Administracja współpracy bez admina — bez modułów", () => {
     expect(availableHrSettingsTabs(config({ is_admin: true, people_admin: true }))).toEqual([
       "kalendarz", "wejscie-odejscie", "urlopy", "dokumenty", "moduly",
     ]);
@@ -112,13 +112,13 @@ describe("HrSettings — zakładki zamiast ośmiu kart (20.10.2026)", () => {
     expect(screen.getByText("Karta: domyślne opisy godzin")).toBeInTheDocument();
   });
 
-  it("drogowskaz do Płac zostaje — z linkiem tylko przy uprawnieniu „Płace”", () => {
+  it("drogowskaz do Rozliczeń zostaje — z linkiem tylko przy uprawnieniu „Rozliczenia”", () => {
     const { unmount } = render(<HrSettings config={config({ people_admin: true })} />);
-    expect(screen.getByText(/Reguły premii są w Ustawienia → Płace/)).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Ustawienia → Płace" })).not.toBeInTheDocument();
+    expect(screen.getByText(/Reguły premii są w Ustawienia → Rozliczenia/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Ustawienia → Rozliczenia" })).not.toBeInTheDocument();
     unmount();
     render(<HrSettings config={config({ people_admin: true, payroll: true })} />);
-    expect(screen.getByRole("link", { name: "Ustawienia → Płace" })).toHaveAttribute("href", "/settings/payroll");
+    expect(screen.getByRole("link", { name: "Ustawienia → Rozliczenia" })).toHaveAttribute("href", "/settings/payroll");
   });
 
   it("zasady zgód tylko przy włączonym module „Zgody” (21.10.2026: wyłączony = ukryty także adminowi)", () => {

@@ -108,7 +108,7 @@ def revoke_refusal(
         f"Potwierdzenie godzin za {label(year, month)} jest już podstawą wypłaty "
         f"(termin {payment_due(year, month):%d.%m.%Y}) — NEXUS przechowuje je "
         f"bez zmian do {retention_until(year, month):%d.%m.%Y} (art. 8c ustawy "
-        "o minimalnym wynagrodzeniu). Korektę zrobią Płace."
+        "o minimalnym wynagrodzeniu). Korektę zrobią Rozliczenia."
     )
 
 

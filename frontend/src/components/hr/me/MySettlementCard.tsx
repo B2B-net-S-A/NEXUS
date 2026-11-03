@@ -118,9 +118,9 @@ export function MySettlementCard({ state, data, form, onRetry }: MySettlementCar
         </ul>
       )}
       <p className="text-xs text-muted-foreground">
-        {settlementBasisNote(form)} Zamknięty miesiąc to linie zamrożone przez Płace. Bieżący liczymy z godzin w „Moim
+        {settlementBasisNote(form)} Zamknięty miesiąc to linie zamrożone przez Rozliczenia. Bieżący liczymy z godzin w „Moim
         miesiącu” (wpisanych albo zaakceptowanych) i bieżącej stawki — zmienia się do zamknięcia,
-        a Płace biorą tylko godziny zaakceptowane.
+        a Rozliczenia biorą tylko godziny potwierdzone.
       </p>
     </Card>
   );

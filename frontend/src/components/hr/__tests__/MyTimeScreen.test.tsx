@@ -46,7 +46,7 @@ vi.mock("../me/MyOverviewTab", () => ({
         Wyślij raport godzin za sierpień 2026
       </button>
       <button type="button" onClick={() => onOpenTab("month")}>
-        Uzupełnij dzień
+        Dodaj godziny
       </button>
     </div>
   ),
@@ -85,11 +85,11 @@ describe("MyTimeScreen — przejście z Przeglądu do raportu godzin", () => {
     expect(router.push).not.toHaveBeenCalled();
   });
 
-  it("„Uzupełnij dzień” otwiera bieżący miesiąc, nie ten, który został w adresie", () => {
+  it("„Dodaj godziny” otwiera bieżący miesiąc, nie ten, który został w adresie", () => {
     window.history.replaceState(null, "", "/my-time?year=2026&month=8");
     render(<MyTimeScreen config={hrConfig()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Uzupełnij dzień" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dodaj godziny" }));
 
     const now = currentYearMonth();
     expect(screen.getByText(`Miesiąc: ${now.year}-${now.month}`)).toBeInTheDocument();

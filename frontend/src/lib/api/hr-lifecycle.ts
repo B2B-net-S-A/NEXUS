@@ -282,7 +282,7 @@ export const CATEGORY_LABELS: Record<TaskCategory, string> = {
 
 export const ASSIGNEE_LABELS: Record<AssigneeKind, string> = {
   manager: "Koordynator",
-  people_admin: "Kadry",
+  people_admin: "Administracja współpracy",
   reception: "Recepcja",
   person: "Osoba",
   it: "IT",
@@ -346,7 +346,7 @@ export const HANDOVER_ERROR_LABELS: Record<string, string> = {
   receiver_out_of_scope:
     "Przejmujący nie ma części tych klientów w portfelu — wybierz head back office, Talent Community Managera albo administratora.",
   receiver_excluded: "Tej osobie nie przypisujemy konsultantów (pula opiekunów) — wybierz kogoś innego.",
-  error: "Przekazanie nie wyszło — Kadry dostały dzwonek.",
+  error: "Przekazanie nie wyszło — Administracja współpracy dostały dzwonek.",
 };
 
 const BASE = "/api/hr/lifecycle";

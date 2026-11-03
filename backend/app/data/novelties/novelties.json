@@ -620,7 +620,7 @@
     "tier": "dot",
     "shipped_on": "2026-10-30",
     "audience": {"permissions": ["payroll"]},
-    "where": "Ludzie → Płace → Premie do decyzji",
+    "where": "Ludzie → Rozliczenia → Premie do decyzji",
     "href": "/people/payroll",
     "dot_anchor": "payroll.bonus-decisions"
   },
@@ -644,7 +644,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-02",
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
-    "where": "Ludzie → Akceptacje → Raporty godzin",
+    "where": "Ludzie → Do potwierdzenia → Raporty godzin",
     "href": "/people/approvals",
     "dot_anchor": "hr.timesheet-status"
   },
@@ -803,7 +803,7 @@
     "why": "Wybierasz miesiąc i od razu widzisz podstawę, wynagrodzenie dodatkowe albo premie oraz sumę. Lista pokazuje wtedy tylko pozycje z tego miesiąca, a „Wszystkie” wraca do pełnej listy.",
     "tier": "dot",
     "shipped_on": "2026-11-03",
-    "where": "Mój czas → Wynagrodzenie dodatkowe i stawka",
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
     "href": "/my-time",
     "dot_anchor": "my-time.bonus-months"
   },

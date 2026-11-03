@@ -50,7 +50,7 @@ describe("/preview/hr-settlements", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Płace: kolejka i porównanie rozbieżności", async () => {
+  it("Rozliczenia: kolejka i porównanie rozbieżności", async () => {
     window.history.replaceState({}, "", "/preview/hr-settlements?state=mismatch&settlement=5003");
     render(<HrSettlementsPreviewPage />);
     const dialog = await screen.findByRole("dialog");
@@ -60,7 +60,7 @@ describe("/preview/hr-settlements", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry: dane do rozliczeń z białą listą, rachunek tylko 4 cyframi", async () => {
+  it("Administracja współpracy: dane do rozliczeń z białą listą, rachunek tylko 4 cyframi", async () => {
     window.history.replaceState({}, "", "/preview/hr-settlements?state=billing");
     render(<HrSettlementsPreviewPage />);
     expect(await screen.findByText("Dane do rozliczeń")).toBeInTheDocument();

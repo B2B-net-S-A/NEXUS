@@ -171,7 +171,7 @@ export function SettlementsQueue({ year, month }: { year: number; month: number 
           state === "not_found"
             ? "Moduł rozliczeń nie jest jeszcze włączony."
             : state === "forbidden"
-              ? "Rozliczenia widzą Płace."
+              ? "Rozliczenia widzą Rozliczenia."
               : "Nie udało się wczytać rozliczeń."
         }
         onRetry={() => query.refetch()}

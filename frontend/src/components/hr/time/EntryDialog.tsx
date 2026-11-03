@@ -85,7 +85,7 @@ export function EntryDialog({
     }
     if (overtime && !noHoursLimit && !allowOvertime && !hoursUnchanged) {
       setError(
-        `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Kadry.`,
+        `Suma dnia przekroczyłaby 8 h. ${capitalize(words.overtime)} wpisuje osoba z uprawnieniem do ${words.overtime_genitive} albo Administracja współpracy.`,
       );
       return;
     }
@@ -115,7 +115,7 @@ export function EntryDialog({
     if (!entry || !onDelete) return;
     const ok = await askConfirm({
       title: "Usunąć wpis?",
-      description: `${formatWeekdayDayPl(day.date)} · ${formatHours(entry.hours)} h — wpis zniknie z timesheetu.`,
+      description: `${formatWeekdayDayPl(day.date)} · ${formatHours(entry.hours)} h — wpis zniknie z raportu godzin.`,
       confirmLabel: "Usuń",
       variant: "destructive",
     });
@@ -226,7 +226,7 @@ export function EntryDialog({
             description={
               allowOvertime
                 ? words.overtime_reason_hint
-                : `Nie masz uprawnienia do ${words.overtime_genitive} — popraw godziny albo poproś Kadry.`
+                : `Nie masz uprawnienia do ${words.overtime_genitive} — popraw godziny albo poproś Administrację współpracy.`
             }
           >
             <Input

@@ -282,7 +282,7 @@ async def set_attendance(
     leave = await bridge.leave_days(db, [subject.user_id], day, day)
     if any(item.is_full for item in leave):
         raise TimeError(
-            "W dniu urlopu nie ustawia się miejsca pracy — zmień wniosek urlopowy."
+            "W dniu nieobecności nie ustawia się miejsca — zmień zgłoszenie nieobecności."
         )
     existing = await db.scalar(
         select(AttendanceDay).where(

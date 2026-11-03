@@ -99,7 +99,7 @@ const TABS: TabDef[] = [
   // „Rytm dnia” (decyzje Artura 28–29.10.2026): kiedy i jak intensywnie pracują
   // rekruterzy. Na razie tylko Head of Recruitment i admin — lustro
   // `VIEWER_ROLES` w `backend/app/services/work_rhythm.py`.
-  { id: "rytm", label: "Rytm dnia", icon: Activity, roles: RHYTHM_ROLES },
+  { id: "rytm", label: "Aktywność w NEXUSIE", icon: Activity, roles: RHYTHM_ROLES },
   {
     id: "firma",
     label: "Firma",

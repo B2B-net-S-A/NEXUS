@@ -193,7 +193,7 @@ async def test_plan_counts_reports_and_defaults_to_leavers_manager(modules_on) -
     assert row.item_count == 2, "osoba, która odeszła, się nie liczy"
     assert counts["reports"] == 2
     work = {item["kind"]: item for item in payload["work"]}
-    assert work["reports"]["label"] == "Podwładni"
+    assert work["reports"]["label"] == "Osoby w zespole"
     assert work["reports"]["transferable"] is True
     assert work["reports"]["receiver_user_id"] == team["boss"]
 
@@ -227,7 +227,7 @@ async def test_handover_moves_reports_to_receiver_with_trail(modules_on) -> None
                 Notification.notification_type == NotificationType.hr_work_handover,
             )
         )
-        assert bell is not None and "podwładni: 2" in bell.message
+        assert bell is not None and "osoby w zespole: 2" in bell.message
         assert bell.link == "/people/team"
 
 
@@ -260,7 +260,7 @@ async def test_without_receiver_reports_fail_and_account_waits(modules_on) -> No
         case = await db.get(LifecycleCase, team["case"])
         await db.refresh(case)
         hr = await db.get(User, team["hr"])
-        with pytest.raises(service.LifecycleConflict, match="podwładni"):
+        with pytest.raises(service.LifecycleConflict, match="osoby w zespole"):
             await service.deactivate_now(db, case, actor=hr, despite_handover=False)
         await db.rollback()
 

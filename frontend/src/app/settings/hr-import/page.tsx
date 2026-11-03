@@ -26,7 +26,7 @@ export default function HrImportPage() {
         ) : (
           <QueryStateNotice
             state="forbidden"
-            description="Import z Compassa sprawdza osoba z uprawnieniem „Kadry”, a zapisuje administrator."
+            description="Import z Compassa sprawdza osoba z uprawnieniem „Administracja współpracy”, a zapisuje administrator."
           />
         )
       }

@@ -250,7 +250,7 @@ export function closingDetail(scene: PayrollScene, scope: "payroll" | "team"): P
     warnings: [
       {
         code: "unapproved_timesheets",
-        message: `${unapproved.length} os. bez zatwierdzonego timesheetu — ich godziny nie wejdą do płac tego miesiąca.`,
+        message: `${unapproved.length} os. bez zatwierdzonego raportu godzin — ich godziny nie wejdą do płac tego miesiąca.`,
         count: unapproved.length,
         people: unapproved.map((p) => ({ user_id: p.user_id, name: p.name, timesheet_status: p.timesheet_status })),
       },

@@ -70,7 +70,7 @@ export function OnboardingCaseView({ caseId }: { caseId: number }) {
   const cancel = async () => {
     const ok = await askConfirm({
       title: "Anulować wejście?",
-      description: "Zadania przestaną obowiązywać. Kartoteka zostaje do decyzji Kadr.",
+      description: "Zadania przestaną obowiązywać. Kartoteka zostaje do decyzji Administracji współpracy.",
       confirmLabel: "Anuluj wejście",
       variant: "destructive",
     });

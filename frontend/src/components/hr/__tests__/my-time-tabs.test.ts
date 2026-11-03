@@ -26,7 +26,7 @@ const open = (on: Partial<Record<HrModuleKey, boolean>>) => ({
   },
 });
 
-describe("zakładki „Mój czas”", () => {
+describe("zakładki „Moja współpraca”", () => {
   it("„Przegląd” zawsze pierwszy, urlopy przy otwartym module, bez zakładki „Kartoteka”", () => {
     expect(myTimeTabs(open({ leave: true })).map((tab) => tab.value)).toEqual([
       "overview",
@@ -35,7 +35,7 @@ describe("zakładki „Mój czas”", () => {
     expect(myTimeTabs(open({})).map((tab) => tab.value)).toEqual(["overview"]);
   });
 
-  it("zakładka Płac nazywa się „Premie i stawka”", () => {
+  it("zakładka Rozliczeń nazywa się „Premie i stawka”", () => {
     const tabs = myTimeTabs(open({ payroll: true }));
     expect(tabs.find((tab) => tab.value === "bonuses")?.label).toBe("Premie i stawka");
     expect(tabs[0]).toEqual({ value: "overview", label: "Przegląd" });

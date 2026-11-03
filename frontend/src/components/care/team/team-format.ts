@@ -147,7 +147,7 @@ export function settingsSummary(
   if (auto) {
     const manager = auto.config.manager?.name ? shortPersonName(auto.config.manager.name) : null;
     parts.push(
-      manager ? `pula (przełożony ${manager}): ${peopleText(auto.pool.length)}` : "pula: nie wskazano przełożonego",
+      manager ? `pula (koordynator ${manager}): ${peopleText(auto.pool.length)}` : "pula: nie wskazano przełożonego",
     );
     parts.push(`„Nie przypisuj”: ${auto.config.excluded_user_ids.length}`);
   }

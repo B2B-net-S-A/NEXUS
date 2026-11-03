@@ -176,7 +176,7 @@ export function AbsenceCard({ form, year, today }: { form: OwnProfile["employmen
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            Pula na {year} nie jest ustawiona — zrobią to Kadry.
+            Pula na {year} nie jest ustawiona — zrobi to Administracja współpracy.
           </p>
           <Legend data={data} />
         </>

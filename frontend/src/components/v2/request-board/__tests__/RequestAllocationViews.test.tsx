@@ -555,7 +555,7 @@ describe("RequestBoardView — wariant daily", () => {
     render(<Daily />)
     expect(screen.getAllByRole("region", { name: "Zmiany od wczoraj" })).toHaveLength(1)
     expect(screen.getByTestId("changes-since")).toHaveTextContent("od piątku 9:30")
-    expect(screen.queryByRole("link", { name: "Na daily" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "Przegląd requestów" })).not.toBeInTheDocument()
 
     const segments = screen.getByRole("group", { name: "Kategorie" })
     const pressed = () =>
@@ -580,7 +580,7 @@ describe("RequestBoardView — wariant daily", () => {
 
   it("kafelek ma link „Na daily”", () => {
     render(<Board />)
-    expect(screen.getByRole("link", { name: "Na daily" })).toHaveAttribute("href", "/jobs/daily")
+    expect(screen.getByRole("link", { name: "Przegląd requestów" })).toHaveAttribute("href", "/jobs/daily")
   })
 })
 
@@ -613,7 +613,7 @@ describe("RequestBoardView — sama tabela (panel P0, 28.10.2026)", () => {
       />,
     )
     expect(screen.queryByRole("heading", { name: "Requesty i obłożenie" })).toBeNull()
-    expect(screen.queryByRole("link", { name: "Na daily" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Przegląd requestów" })).toBeNull()
     expect(screen.queryByRole("button", { name: /Wyczyść filtry/ })).toBeNull()
     expect(screen.getByRole("link", { name: "Kotlin Developer" })).toBeInTheDocument()
     expect(screen.getByTestId("request-row-p0-reason")).toHaveTextContent(

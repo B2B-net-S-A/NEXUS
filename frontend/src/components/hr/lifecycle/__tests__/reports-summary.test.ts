@@ -11,7 +11,7 @@ const base = {
   result: null,
 };
 
-describe("podwładni przy odejściu (D5)", () => {
+describe("osoby w zespole przy odejściu (D5)", () => {
   it("odmienia liczbę osób", () => {
     expect(peopleCount(1)).toBe("1 osoba");
     expect(peopleCount(3)).toBe("3 osoby");
@@ -20,9 +20,9 @@ describe("podwładni przy odejściu (D5)", () => {
     expect(peopleCount(22)).toBe("22 osoby");
   });
 
-  it("mówi, kto zostanie przełożonym", () => {
+  it("mówi, kto zostanie koordynatorem", () => {
     expect(reportsSummary([base])).toBe(
-      "Osoby w zespole: 3 osoby. Po przekazaniu ich koordynatorem będzie Marta Fikcyjna — od tej chwili wnioski i timesheety idą do tej osoby.",
+      "Osoby w zespole: 3 osoby. Po przekazaniu ich koordynatorem będzie Marta Fikcyjna — od tej chwili wnioski i raporty godzin idą do tej osoby.",
     );
   });
 
@@ -38,7 +38,7 @@ describe("podwładni przy odejściu (D5)", () => {
     ).toBe("Zespół przekazany (2 osoby) — koordynatorem jest Marta Fikcyjna.");
   });
 
-  it("bez podwładnych albo bez liczby — nic", () => {
+  it("bez osób w zespole albo bez liczby — nic", () => {
     expect(reportsSummary([{ ...base, count: 0 }])).toBeNull();
     expect(reportsSummary([{ ...base, count: null }])).toBeNull();
     expect(reportsSummary([{ ...base, kind: "my_people" }])).toBeNull();

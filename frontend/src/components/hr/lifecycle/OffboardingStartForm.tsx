@@ -68,7 +68,7 @@ export function OffboardingStartForm({
     if (start) {
       const ok = await askConfirm({
         title: "Rozpocząć odejście?",
-        description: `Koordynator, Kadry, recepcja i IT dostaną zadania. Zadania przejdą na przejmujących ${formatWeekdayDayPl(lastDay)} o 18:00, konto wyłączy się następnego dnia. Do tego czasu można cofnąć odejście.`,
+        description: `Koordynator, Administracja współpracy, recepcja i IT dostaną zadania. Zadania przejdą na przejmujących ${formatWeekdayDayPl(lastDay)} o 18:00, konto wyłączy się następnego dnia. Do tego czasu można cofnąć odejście.`,
         confirmLabel: "Rozpocznij",
       });
       if (!ok) return;
@@ -167,7 +167,7 @@ export function OffboardingStartForm({
         <FormField
           label="Notatka"
           htmlFor="off-note"
-          description="Widzą ją Kadry i koordynator. Bez informacji o zdrowiu."
+          description="Widzą ją Administracja współpracy i koordynator. Bez informacji o zdrowiu."
           className="sm:col-span-2"
         >
           <Textarea

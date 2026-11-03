@@ -32,7 +32,7 @@ describe("linia puli w „Nieobecnościach <rok>”", () => {
     ).toBe("Pula 28 dni · wykorzystane 16,5 · zostało 8,5");
   });
 
-  it("zlecenie bez puli; bez salda — wiersz Kadr albo „nie jest ustawiona”", () => {
+  it("zlecenie bez puli; bez salda — wiersz Administracji współpracy albo „nie jest ustawiona”", () => {
     expect(poolSummary({ form: "zlecenie", ring, entitlement: undefined, year: 2026 })).toMatch(
       /^Na umowie zlecenie nie ma puli płatnych dni/,
     );

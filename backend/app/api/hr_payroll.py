@@ -76,9 +76,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 MODULE = HrModule.payroll
-NOT_MEMBER_DETAIL = (
-    "Płace widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Płac."
-)
+NOT_MEMBER_DETAIL = "Rozliczenia widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Rozliczeń."
 NOT_ADMIN_DETAIL = "Miesiąc płac otwiera ponownie tylko administrator."
 NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
 MONTHS_LISTED = 13
@@ -563,7 +561,7 @@ async def month_detail(
     if not viewer.payroll and not viewer.is_manager:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Miesiąc płac widzą Płace i przełożeni (swój zespół).",
+            "Miesiąc płac widzą Rozliczenia i koordynatorzy (swój zespół).",
         )
     report = await payroll_report.month_report(db, year, month)
     visible = [
@@ -692,7 +690,9 @@ async def person_payroll(
     viewer = await load_viewer(db, current_user)
     profile = await people.profile_of(db, user_id)
     if profile is None or not viewer.sees_person(user_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Płacach.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Rozliczeniach."
+        )
     bonuses = await payroll_bonuses.list_bonuses(db, viewer, user_id=user_id, limit=200)
     payload: dict[str, Any] = {
         "user_id": user_id,
@@ -1290,7 +1290,7 @@ async def refresh_proposals(
     if not loaded.get(MODULE):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Automat premii działa po włączeniu modułu Płac.",
+            "Automat premii działa po włączeniu modułu Rozliczeń.",
         )
     return await payroll_jobs.refresh_proposals(db, today=business_today())
 

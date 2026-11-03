@@ -158,7 +158,7 @@ describe("PeopleDirectory — „Składa raport godzin”", () => {
     expect(timesheetRequired(card)).toBeNull();
   });
 
-  it("Kadry zaznaczają osoby i ustawiają „nie” hurtem", async () => {
+  it("Administracja współpracy zaznaczają osoby i ustawiają „nie” hurtem", async () => {
     renderDirectory();
     const row = (await screen.findByText("Jan Testowy")).closest("tr");
     expect(row).not.toBeNull();
@@ -196,7 +196,7 @@ describe("PeopleDirectory — „Składa raport godzin”", () => {
     );
   });
 
-  it("bez uprawnienia Kadr nie ma zaznaczania ani kolumny", async () => {
+  it("bez uprawnienia Administracji współpracy nie ma zaznaczania ani kolumny", async () => {
     renderDirectory(false);
     await screen.findByText("Jan Testowy");
     expect(screen.queryByRole("checkbox")).toBeNull();
@@ -295,7 +295,7 @@ describe("PeopleDirectory — Lista | Schemat i filtry w adresie (22.10.2026)", 
     });
   });
 
-  it("przełącznik „Lista | Schemat” widzą tylko Kadry i admin", async () => {
+  it("przełącznik „Lista | Schemat” widzą tylko Administracja współpracy i admin", async () => {
     renderDirectory(true);
     await screen.findByText("Jan Testowy");
     const views = screen.getByRole("group", { name: "Widok katalogu" });
@@ -303,7 +303,7 @@ describe("PeopleDirectory — Lista | Schemat i filtry w adresie (22.10.2026)", 
     expect(within(views).getByRole("button", { name: "Schemat" })).toBeInTheDocument();
   });
 
-  it("bez Kadr nie ma przełącznika, a `?view=schemat` w adresie zostaje listą", async () => {
+  it("bez Administracji współpracy nie ma przełącznika, a `?view=schemat` w adresie zostaje listą", async () => {
     window.history.replaceState(null, "", "/people?view=schemat");
     renderDirectory(false);
     expect(await screen.findByText("Jan Testowy")).toBeInTheDocument();
@@ -313,7 +313,7 @@ describe("PeopleDirectory — Lista | Schemat i filtry w adresie (22.10.2026)", 
     expect(mocks.get).not.toHaveBeenCalledWith("/api/hr/structure");
   });
 
-  it("admin bez Kadr też widzi schemat", async () => {
+  it("admin bez Administracji współpracy też widzi schemat", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const base = config(false);
     render(
@@ -371,7 +371,7 @@ describe("PeopleDirectory — Lista | Schemat i filtry w adresie (22.10.2026)", 
     expect(screen.getByText("Jan Testowy")).toBeInTheDocument();
   });
 
-  it("Lista: zaznaczonym Kadry ustawiają pion i koordynatora (dawna lista Struktury)", async () => {
+  it("Lista: zaznaczonym Administracja współpracy ustawiają pion i koordynatora (dawna lista Struktury)", async () => {
     renderDirectory(true);
     await screen.findByText("Jan Testowy");
     fireEvent.click(screen.getByRole("checkbox", { name: "Zaznacz: Anna Przykładowa" }));

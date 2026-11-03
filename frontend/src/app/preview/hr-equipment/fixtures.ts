@@ -837,7 +837,7 @@ const UNRESOLVED_TEMPLATES: { sheet: string; data: (n: number) => ImportRowData;
       model: "Xiaomi Redmi A5",
       inventory_number: `T-0${n}`,
       imei: `TEST-00${n}`,
-      holder_text: "dawny pracownik",
+      holder_text: "dawny osoba",
       item_status: "na_stanie",
     }),
     reason: "Osoba z pliku nie ma konta w NEXUSIE",

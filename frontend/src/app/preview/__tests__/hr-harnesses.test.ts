@@ -27,7 +27,7 @@ const MOCKUPS: Record<string, string> = {
   "Mój miesiąc": "hr-my-time",
   Akceptacje: "hr-approvals",
   "Kartoteka osoby": "hr-person",
-  "Płace i premie": "hr-payroll",
+  "Rozliczenia i premie": "hr-payroll",
   Odejście: "hr-offboarding",
   "Opieka nad konsultantem": "hr-care",
   "Technologie klienta": "hr-client-tech",

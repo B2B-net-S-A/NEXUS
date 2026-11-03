@@ -366,7 +366,7 @@ async def reassign(
         raise people.HrPeopleError("Wybierz co najmniej jedną osobę.")
     if len(ids) > MAX_REASSIGN:
         raise people.HrPeopleError(
-            f"Naraz można zmienić przełożonego najwyżej {MAX_REASSIGN} osobom."
+            f"Naraz można zmienić koordynatora najwyżej {MAX_REASSIGN} osobom."
         )
     await people.lock_structure(db)
     profiles = list(

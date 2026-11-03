@@ -217,7 +217,7 @@ export default function HrMyTimePreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Mój czas"
+      title="Moja współpraca"
       note={
         state === "request"
           ? "Kamil Testowy (Delivery Lead, umowa o pracę) składa wniosek. Dane fikcyjne, bez zapytań."

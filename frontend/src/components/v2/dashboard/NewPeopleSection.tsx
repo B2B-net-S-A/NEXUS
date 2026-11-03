@@ -33,8 +33,8 @@ export function newPersonLabel(row: NewPersonSetupRow): string {
   }
   const categories = row.missing.includes("categories");
   const manager = row.missing.includes("manager");
-  if (categories && manager) return "Rekruter bez kategorii i przełożonego";
-  return categories ? "Rekruter bez kategorii" : "Rekruter bez przełożonego";
+  if (categories && manager) return "Rekruter bez kategorii i koordynatora";
+  return categories ? "Rekruter bez kategorii" : "Rekruter bez koordynatora";
 }
 
 export function NewPeopleSection({ rows }: { rows: NewPersonSetupRow[] }) {

@@ -102,7 +102,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     ),
     NotificationCategory.people: CategoryInfo(
         "Czas i ludzie",
-        "Urlopy i zastępstwa, timesheety, premie, wejścia i odejścia, sprawy administracja@ i sprzęt.",
+        "Nieobecności i zastępstwa, raporty godzin, rozliczenia, wejścia i odejścia, sprawy administracja@ i sprzęt.",
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",

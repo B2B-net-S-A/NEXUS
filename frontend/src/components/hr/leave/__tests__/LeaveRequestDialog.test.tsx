@@ -232,7 +232,7 @@ describe("LeaveRequestDialog — ładunek zapisu i podglądu", () => {
     });
   });
 
-  it("wpis za pracownika: bez osoby zablokowany; kilka dni = cały dzień, bez zastępcy i notatki, bez OOF", async () => {
+  it("wpis za osoby: bez osoby zablokowany; kilka dni = cały dzień, bez zastępcy i notatki, bez OOF", async () => {
     const user = userEvent.setup();
     const dialog = open("on_behalf");
 
@@ -352,13 +352,13 @@ describe("LeaveRequestDialog — załącznik do własnego wniosku", () => {
     expect(mocks.attach).not.toHaveBeenCalled();
   });
 
-  it("wpis za pracownika nie ma pola załącznika", () => {
+  it("wpis za osoby nie ma pola załącznika", () => {
     const dialog = open("on_behalf");
     expect(within(dialog).queryByLabelText("Załącznik (opcjonalnie)")).toBeNull();
   });
 });
 
-describe("wpis za pracownika — lista osób (audyt 19.10.2026)", () => {
+describe("wpis za osoby — lista osób (audyt 19.10.2026)", () => {
   it("koordynator samych kontraktorów widzi wyjaśnienie zamiast pustej listy", () => {
     mocks.people = {
       data: [{ user_id: 9, name: "Ola B2B", employment_type: "b2b", department: null, can_enter: false }],

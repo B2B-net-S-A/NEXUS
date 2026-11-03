@@ -92,7 +92,7 @@ function bonusesArrive(form: EmploymentType | null | undefined): string {
 export function nextStepText(month: MySettlementMonth): string {
   if (month.status === "estimate") {
     return month.hours_confirmed
-      ? `Miesiąc liczy się do zamknięcia przez Płace — kwota może się jeszcze zmienić, ${bonusesArrive(month.employment_type)}.`
+      ? `Miesiąc liczy się do zamknięcia przez Rozliczenia — kwota może się jeszcze zmienić, ${bonusesArrive(month.employment_type)}.`
       : "Pozycje pojawią się po potwierdzeniu raportu godzin.";
   }
   const due = month.due_on ? formatDayMonthPl(month.due_on) : null;
@@ -101,8 +101,8 @@ export function nextStepText(month: MySettlementMonth): string {
       return "Wystaw fakturę na kwotę netto z pozycji — trafi do NEXUSA z KSeF sama, nic nie wgrywasz.";
     case "mismatch":
       return month.correction_requested_at
-        ? `Płace poprosiły o korektę ${formatDayMonthPl(month.correction_requested_at)} — faktura korygująca z KSeF podepnie się sama.`
-        : "Faktura nie zgadza się z kwotą z NEXUSA — Płace to sprawdzają.";
+        ? `Rozliczenia poprosiły o korektę ${formatDayMonthPl(month.correction_requested_at)} — faktura korygująca z KSeF podepnie się sama.`
+        : "Faktura nie zgadza się z kwotą z NEXUSA — Rozliczenia to sprawdzają.";
     case "ready":
       return month.employment_type === "b2b"
         ? "Faktura zgodna — czeka na zatwierdzenie do zapłaty."

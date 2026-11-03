@@ -188,7 +188,7 @@ describe("licznik celów — rekruter", () => {
     const model = buildKpiTopbarModel([VERIFICATIONS, RECOMMENDATIONS, PLACEMENTS], null);
     expect(model?.panelTitle).toBe("Twoje cele");
     expect(model?.groups.map((g) => g.heading)).toEqual(["Dziś", "Ten tydzień", "Ten miesiąc"]);
-    expect(model?.groups[0].aside).toBe("do końca dnia pracy: 4 h 15 min");
+    expect(model?.groups[0].aside).toBe("do końca dnia: 4 h 15 min");
 
     const [verifications] = model!.groups[0].rows;
     expect(verifications).toMatchObject({
@@ -196,7 +196,7 @@ describe("licznik celów — rekruter", () => {
       rest: "/ 4",
       progressPct: 25,
       expectedPct: 50,
-      status: "Poniżej tempa (na tę godzinę: 2).",
+      status: "Poniżej planu (na tę godzinę: 2).",
       description: "Liczy się pierwsze przejście kandydata na „Zweryfikowany”.",
     });
     expect(model!.groups[1].rows[0]).toMatchObject({ status: "W tempie.", expectedPct: 30 });
@@ -222,7 +222,7 @@ describe("licznik celów — rekruter", () => {
     const legacy = kpi({ kpi_id: "daily_first_verifications", title_pl: "Weryfikacje dziś", current: 1, state: "behind" });
     const model = buildKpiTopbarModel([legacy], null);
     expect(model?.segments[0].label).toBe("Weryfikacje dziś");
-    expect(model?.groups[0].rows[0]).toMatchObject({ status: "Poniżej tempa.", expectedPct: null });
+    expect(model?.groups[0].rows[0]).toMatchObject({ status: "Poniżej planu.", expectedPct: null });
   });
 
   it("nazwa dla czytnika ekranu mówi to samo co segmenty", () => {

@@ -58,7 +58,7 @@ async def _cast() -> Cast:
     reception = await make_user(
         "recruiter", grants=("equipment",), profile=False, name="Rita Recepcja"
     )
-    boss = await make_user("recruiter", employment_type="uop", name="Marta Przełożona")
+    boss = await make_user("recruiter", employment_type="uop", name="Marta Koordynatorka")
     person = await make_user(
         "employee",
         employment_type="zlecenie",
@@ -217,7 +217,7 @@ async def test_document_hidden_from_person_stays_hidden(
         cast.hr,
         cast.person.id,
         kind="other",
-        title="Notatka Kadr",
+        title="Notatka Administracji współpracy",
         visible_to_person="false",
     )
     document_id = created.json()["document"]["id"]
@@ -276,7 +276,7 @@ async def test_absence_proof_stays_with_person_and_kadry(
     )
     payroll = await _list(app_client, cast.payroll, cast.person.id)
 
-    message = "Potwierdzenie nieobecności widzą tylko osoba i Kadry."
+    message = "Potwierdzenie nieobecności widzą tylko osoba i Administracja współpracy."
     for response in (for_payroll, for_reception, widened):
         assert response.status_code == 422, response.text
         assert response.json()["detail"] == message

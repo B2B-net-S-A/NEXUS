@@ -24,7 +24,7 @@ from tests.test_hr_time_support import (  # noqa: F401 — fikstury
 BASE = "/api/hr/leave"
 MON = date(2091, 11, 12)
 FRI = date(2091, 11, 16)
-SECRET = "Notatka tylko dla przełożonego i Kadr"
+SECRET = "Notatka tylko dla koordynatora i Administracji współpracy"
 
 
 def _body(**extra) -> dict:

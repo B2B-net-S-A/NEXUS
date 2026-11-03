@@ -55,7 +55,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     ),
     "hr_leave_decided": (
         "Zmiana w Twojej nieobecności",
-        "Szczegóły znajdziesz w „Moim czasie”.",
+        "Szczegóły znajdziesz w „Mojej współpracy”.",
     ),
     "hr_leave_cancelled": (
         "Nieobecność anulowana",
@@ -72,14 +72,14 @@ FALLBACK: dict[str, tuple[str, str]] = {
     # Notatka koordynatora to wolny tekst — do maila nie idzie (D5).
     "hr_leave_conflict": (
         "Kolizja z Twoją nieobecnością",
-        "Koordynator zgłosił kolizję z terminem — notatkę znajdziesz w „Moim czasie”.",
+        "Koordynator zgłosił uwagę do terminu — notatkę znajdziesz w „Mojej współpracy”.",
     ),
     # Tytuł powiadomienia mówi słowami formy (ewidencja / raport / potwierdzenie
     # godzin), treść — kto i za jaki miesiąc; zdanie zastępcze bez nich.
     "hr_timesheet_submitted": (
         "Godziny do akceptacji",
         "Osoba z Twojego zespołu wysłała godziny — akceptujesz je "
-        "w „Ludzie → Akceptacje”.",
+        "w „Ludzie → Do potwierdzenia”.",
     ),
     "hr_timesheet_decided": (
         "Zmiana w raporcie godzin",
@@ -91,7 +91,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     ),
     "hr_lifecycle_task": (
         "Zadania: wejście albo odejście",
-        "Masz zadania w sprawie wejścia albo odejścia pracownika.",
+        "Masz zadania w sprawie wejścia albo odejścia osoby.",
     ),
     "hr_work_handover": (
         "Przejmujesz pracę",
@@ -128,7 +128,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     "equipment_return_reminder": (
         "Zwrot sprzętu do recepcji",
         "Recepcja prosi o zwrot sprzętu firmy — listę rzeczy znajdziesz "
-        "w „Moim czasie” → Kartoteka.",
+        "w „Mojej współpracy” → Kartoteka.",
     ),
     "care_front_office_handoff": (
         "Konsultant dla front office",
@@ -139,12 +139,12 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Komunikat do konsultantów czeka na Ciebie — szczegóły znajdziesz w NEXUSIE.",
     ),
     "hr_settlement_correction": (
-        "Płace proszą o korektę faktury",
-        "Porównanie z raportem godzin znajdziesz w „Moim czasie” → Rozliczenie.",
+        "Rozliczenia proszą o korektę faktury",
+        "Porównanie z raportem godzin znajdziesz w „Mojej współpracy” → Rozliczenie.",
     ),
     "hr_settlement_review": (
         "Rozliczenie do sprawdzenia",
-        "Rozliczenie w Płacach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
+        "Rozliczenie w Rozliczeniach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
     ),
     "hr_agreement_update": (
         "Zmiana stanu umowy",
@@ -154,7 +154,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     # zdanie zastępcze tylko na wypadek, gdyby tamten go nie złożył.
     "hr_approval_requested": (
         "Zgoda do decyzji",
-        "Prośba o zgodę czeka na Twoją decyzję w „Ludzie → Akceptacje → Zgody”.",
+        "Prośba o zgodę czeka na Twoją decyzję w „Ludzie → Do potwierdzenia → Zgody”.",
     ),
     # Uwaga decydującego to wolny tekst — do maila nie idzie.
     "hr_approval_decided": (
@@ -164,7 +164,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     "hr_approval_topup_requested": (
         "Prośba o dopłatę do zgody",
         "Faktura wyszła drożej niż zgoda — dopłata czeka na Twoją decyzję "
-        "w „Ludzie → Akceptacje → Zgody”.",
+        "w „Ludzie → Do potwierdzenia → Zgody”.",
     ),
     "hr_subscription_renewal": (
         "Odnowienie subskrypcji",
@@ -183,7 +183,7 @@ _FREE_TEXT_TYPES = frozenset(
         "hr_approval_decided",
     }
 )
-_RETURNED_BODY = "Uwagi akceptującego znajdziesz w „Moim miesiącu”."
+_RETURNED_BODY = "Uwagi znajdziesz w „Moim miesiącu”."
 
 
 def _label_stem(label: str) -> str:
@@ -269,7 +269,7 @@ def bonus_text(
     """(tytuł, treść) maila o premii: za co i za który miesiąc, bez kwoty."""
 
     words = terms(employment_type)
-    where = f"„Moim czasie” → {capitalize(words['bonuses'])}"
+    where = f"„Mojej współpracy” → {capitalize(words['bonuses'])}"
     tail = (
         f"Szczegóły zobaczysz w NEXUSIE, w {where}."
         if event == "cancelled"

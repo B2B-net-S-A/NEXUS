@@ -158,7 +158,7 @@ describe("settlement-format", () => {
   });
 });
 
-describe("układ „Mój czas → Rozliczenie” (audyt A2, 19.10.2026)", () => {
+describe("układ „Moja współpraca → Rozliczenie” (audyt A2, 19.10.2026)", () => {
   const at = (y: number, m: number, extra: Partial<MySettlementMonth> = {}) =>
     month({ year: y, month: m, label: `${m}/${y}`, ...extra });
   const year = (y: number, months: MySettlementMonth[]): MySettlements => ({
@@ -171,7 +171,7 @@ describe("układ „Mój czas → Rozliczenie” (audyt A2, 19.10.2026)", () => 
     months,
   });
 
-  it("działanie osoby: czeka na fakturę albo Płace poprosiły o korektę", () => {
+  it("działanie osoby: czeka na fakturę albo Rozliczenia poprosiły o korektę", () => {
     expect(needsMyAction(month({ status: "awaiting_document" }))).toBe(true);
     expect(needsMyAction(month({ status: "mismatch", correction_requested_at: "2026-11-05" }))).toBe(true);
     expect(needsMyAction(month({ status: "mismatch", correction_requested_at: null }))).toBe(false);

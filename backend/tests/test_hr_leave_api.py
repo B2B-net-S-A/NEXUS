@@ -266,7 +266,7 @@ async def test_approvals_are_refused_outside_scope(app_client, modules_on) -> No
         BASE + "/approvals/pending", headers=_headers(colleague)
     )
     assert no_reports.status_code == 403
-    assert no_reports.json()["detail"] == "Akceptacje widzą przełożeni i Kadry."
+    assert no_reports.json()["detail"] == "Listę „Do potwierdzenia” widzą koordynatorzy i Administracja współpracy."
 
     wrong_team = await app_client.post(
         f"{BASE}/approvals/{request_id}/approve", headers=_headers(other_boss)
@@ -373,7 +373,7 @@ async def test_policy_refusals_are_422(app_client, modules_on) -> None:
         BASE + "/requests", json=_body("on_demand"), headers=_headers(contractor)
     )
     assert b2b.status_code == 422
-    assert "wyłącznie o urlop wypoczynkowy" in b2b.json()["detail"]
+    assert "wyłącznie przerwę" in b2b.json()["detail"]
     over = await app_client.post(
         BASE + "/requests", json=_body(), headers=_headers(employee)
     )
@@ -606,7 +606,7 @@ async def test_started_leave_is_cancelled_by_manager_not_by_owner(
         f"{BASE}/requests/{request_id}/cancel", headers=_headers(worker)
     )
     assert refused.status_code == 422
-    assert "przełożony albo Kadry" in refused.json()["detail"]
+    assert "koordynator albo Administracja współpracy" in refused.json()["detail"]
     # Termin się zaczął: bez powodu przełożony też nie cofnie (28.10.2026).
     for body in (None, {}, {"reason": "  "}, {"reason": "ab"}):
         missing = await app_client.post(
@@ -720,7 +720,7 @@ async def test_started_pending_request_is_not_cancelled_by_owner(
         f"{BASE}/requests/{started_id}/cancel", headers=_headers(worker)
     )
     assert refused.status_code == 422
-    assert "przełożony albo Kadry" in refused.json()["detail"]
+    assert "koordynator albo Administracja współpracy" in refused.json()["detail"]
     async with AsyncSessionLocal() as db:
         assert (await db.get(LeaveRequest, uuid.UUID(started_id))).status == "pending"
 

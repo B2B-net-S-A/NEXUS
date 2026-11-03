@@ -20,7 +20,7 @@ interface ReportConflictDialogProps {
 }
 
 /**
- * „Zgłoś kolizję” (D5): koordynator pisze, z czym termin koliduje. Zgłoszenie
+ * „Zgłoś uwagę” (D5): koordynator pisze, z czym termin koliduje. Zgłoszenie
  * osoby zostaje — to informacja, nie odrzucenie; osoba sama decyduje, czy
  * anulować i zgłosić inny termin.
  */
@@ -54,7 +54,7 @@ export function ReportConflictDialog({ request, onClose }: ReportConflictDialogP
     <AppModal
       open={request !== null}
       onOpenChange={(open) => (open ? undefined : close(false))}
-      title="Zgłoś kolizję z terminem"
+      title="Zgłoś uwagę do terminu"
       description={
         request
           ? `${request.user_name ?? "Osoba"} · ${formatRange(request.start_date, request.end_date)}. Termin zostaje — osoba dostanie Twoją notatkę i sama zdecyduje o zmianie.`
@@ -66,7 +66,7 @@ export function ReportConflictDialog({ request, onClose }: ReportConflictDialogP
             Anuluj
           </Button>
           <Button onClick={submit} disabled={report.isPending}>
-            {report.isPending ? "Wysyłanie…" : "Zgłoś kolizję"}
+            {report.isPending ? "Wysyłanie…" : "Zgłoś uwagę"}
           </Button>
         </>
       }

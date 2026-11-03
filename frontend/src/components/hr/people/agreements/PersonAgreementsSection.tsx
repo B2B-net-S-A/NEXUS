@@ -285,7 +285,7 @@ export function PersonAgreementsSection({ userId, enabled }: { userId: number; e
           <p className="text-xs text-muted-foreground">
             {data && !data.autenti_configured
               ? "Autenti nie jest ustawione — podpis oznaczasz ręcznie, ze skanem."
-              : "Generator NEXUSA i podpis przez Autenti. Widzą Kadry i Płace."}
+              : "Generator NEXUSA i podpis przez Autenti. Widzą Administracja współpracy i Rozliczenia."}
           </p>
         </div>
         {data?.can_write ? (

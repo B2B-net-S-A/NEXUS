@@ -211,7 +211,7 @@ function ModuleSwitch({ isAdmin }: { isAdmin: boolean }) {
         Umowy z ludźmi {enabled ? "włączone" : "wyłączone"}
         <span className="block text-xs text-muted-foreground">
           {autenti
-            ? "Podpis przez Autenti — wysyłka tylko na kliknięcie Kadr."
+            ? "Podpis przez Autenti — wysyłka tylko na kliknięcie Administracji współpracy."
             : "Autenti nie jest ustawione — podpis oznacza się ręcznie, ze skanem."}
           {isAdmin ? "" : " Moduł włącza administrator."}
         </span>
@@ -283,7 +283,7 @@ export function AgreementTemplatesCard({ isAdmin }: { isAdmin: boolean }) {
             Wzory umów
           </h2>
           <p className="text-sm text-muted-foreground">
-            B2B biura, zlecenie, umowa o pracę i aneks — pliki Word od Kadr z wersjami.
+            B2B biura, zlecenie, umowa o pracę i aneks — pliki Word od Administracji współpracy z wersjami.
           </p>
         </div>
         <Button onClick={() => setUpload({})} disabled={!query.data}>
@@ -303,7 +303,7 @@ export function AgreementTemplatesCard({ isAdmin }: { isAdmin: boolean }) {
         <QueryStateNotice state={state} onRetry={() => void query.refetch()} />
       ) : state === "empty" ? (
         <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-          Nie ma jeszcze wzorów umów — dodaj pierwszy plik Word od kancelarii albo Kadr.
+          Nie ma jeszcze wzorów umów — dodaj pierwszy plik Word od kancelarii albo Administracji współpracy.
         </div>
       ) : (
         <div className="relative overflow-x-auto">

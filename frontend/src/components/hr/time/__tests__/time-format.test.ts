@@ -149,7 +149,7 @@ describe("pasek statusu", () => {
     );
     expect(statusLine(view({ timesheet: { ...header, status: "approved" } }))).toBe("zaakceptowany");
     expect(statusLine(view({ timesheet: { ...header, payroll_locked: true } }))).toBe(
-      "zamknięty w płacach",
+      "zamknięty w rozliczeniach",
     );
   });
 
@@ -167,7 +167,7 @@ describe("pasek statusu", () => {
   });
 });
 
-describe("godziny w kolejce Akceptacji", () => {
+describe("godziny w kolejce Do potwierdzenia", () => {
   it("etykieta z normą i bez niej", () => {
     expect(queueHoursLabel(72, 176)).toBe("72 / 176 h");
     expect(queueHoursLabel(7.5, 168)).toBe("7,5 / 168 h");
@@ -321,7 +321,7 @@ describe("zdanie o godzinach po cofnięciu nieobecności", () => {
   });
 
   it("zamknięty miesiąc płac wygrywa ze stanem raportu", () => {
-    expect(afterLeaveCancelNote("approved", true)).toContain("zamknięty w płacach");
-    expect(afterLeaveCancelNote("draft", true)).toContain("zamknięty w płacach");
+    expect(afterLeaveCancelNote("approved", true)).toContain("zamknięty w rozliczeniach");
+    expect(afterLeaveCancelNote("draft", true)).toContain("zamknięty w rozliczeniach");
   });
 });

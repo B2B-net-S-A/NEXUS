@@ -57,7 +57,7 @@ export function myStats(
       title:
         transit.unknown > 0
           ? `${transit.unknown} bez kwoty — kontrakt nie ma jeszcze stawki klienta.`
-          : `Szacunek z reguł ${words.bonuses_genitive}; kwotę zatwierdzają Płace.`,
+          : `Szacunek z reguł ${words.bonuses_genitive}; kwotę zatwierdzają Rozliczenia.`,
     });
   }
   stats.push({
@@ -75,7 +75,7 @@ export function myStats(
       title:
         (settlement as MySettlement & { bonuses_rule?: string }).bonuses_rule === "paid_settlement"
           ? `${capitalize(words.bonuses)} z opłaconych rozliczeń miesięcy.`
-          : `${capitalize(words.bonuses)} z miesięcy zamkniętych w płacach.`,
+          : `${capitalize(words.bonuses)} z miesięcy zamkniętych w rozliczeniach.`,
     });
   }
   return stats;
@@ -129,7 +129,7 @@ export function MyBonusesTab() {
         state={state === "forbidden" || state === "not_found" ? state : "error"}
         description={
           state === "not_found"
-            ? "Moduł Płac nie jest jeszcze włączony."
+            ? "Moduł Rozliczeń nie jest jeszcze włączony."
             : state === "forbidden"
               ? `${capitalize(words.bonuses)} widzą osoby z kartoteką w NEXUSIE.`
               : undefined

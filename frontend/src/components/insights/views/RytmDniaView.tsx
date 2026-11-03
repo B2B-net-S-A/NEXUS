@@ -61,8 +61,8 @@ const DIAGNOSIS: Record<
     variant: "info",
   },
   more_work: {
-    label: "Za mało pracy",
-    hint: "Niska intensywność i słabe wyniki: rozmowa i plan dnia",
+    label: "Niska aktywność",
+    hint: "Niska intensywność i słabe wyniki: zapytaj, czy potrzebna pomoc",
     variant: "danger",
   },
 };
@@ -190,7 +190,7 @@ function OffBand({ day, compact = false }: { day: WorkRhythmDay; compact?: boole
       ? "przed startem"
       : "Przed założeniem konta — nie liczy się do wskaźnika"
     : compact
-      ? "urlop"
+      ? "przerwa"
       : "Urlop — dzień nie liczy się do wskaźnika";
   return (
     <span
@@ -254,10 +254,10 @@ function Legend({ rules }: { rules: WorkRhythmRules }) {
         <span className="h-[3px] w-5 rounded-full bg-warning" /> prep z NEXUSA ≥ 30 min
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="h-3 w-5 rounded-[3px] border border-dashed border-info/40 bg-info-muted" /> urlop
+        <span className="h-3 w-5 rounded-[3px] border border-dashed border-info/40 bg-info-muted" /> przerwa
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="h-3 w-4 rounded-[3px] bg-primary/20 ring-1 ring-inset ring-warning" /> drobiazgi — nie godzina pracy
+        <span className="h-3 w-4 rounded-[3px] bg-primary/20 ring-1 ring-inset ring-warning" /> drobiazgi — nie godzina aktywności
       </span>
       <span className="flex items-center gap-1.5">
         <span className="h-3 w-4 rounded-[3px] bg-destructive/10 ring-1 ring-inset ring-destructive/40" /> przerwa w środku dnia
@@ -789,8 +789,8 @@ function TrendBoard({ data }: { data: WorkRhythmResponse }) {
               <span className="text-muted-foreground">wynik jest, akcji w NEXUSIE mało: zapytaj, co działa poza systemem, i czy notuje rozmowy.</span>
             </p>
             <p>
-              <Badge variant="danger" size="sm">Za mało pracy</Badge>{" "}
-              <span className="text-muted-foreground">rozmowa 1:1, wspólny plan dnia, sprawdzenie po tygodniu w Trendzie.</span>
+              <Badge variant="danger" size="sm">Niska aktywność</Badge>{" "}
+              <span className="text-muted-foreground">zapytaj, czy potrzebna pomoc przy rekrutacjach.</span>
             </p>
           </Card>
         </div>
@@ -923,9 +923,9 @@ export function RytmDniaView() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-xl font-bold tracking-tight text-foreground">Kiedy i jak intensywnie zespół pracuje w NEXUSIE</h2>
+          <h2 className="text-xl font-bold tracking-tight text-foreground">Aktywność zespołu w NEXUSIE</h2>
           <p className="text-sm text-muted-foreground">
-            Punkty pracy godzina po godzinie i wskaźnik intensywności przy każdej osobie. Widzą to tylko Head of Recruitment i admin.
+            Punkty aktywności godzina po godzinie i wskaźnik intensywności przy każdej osobie. Widzą to tylko Head of Recruitment i admin.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -960,10 +960,10 @@ export function RytmDniaView() {
             ))}
           </div>
           <StatCardGrid>
-            <StatCard label="Pracowało w NEXUSIE" value={`${working.length} / ${counted.length}`} sub={onLeave ? `na urlopie: ${onLeave}` : fmtDay(date, true)} icon={Clock} />
+            <StatCard label="Aktywnych w NEXUSIE" value={`${working.length} / ${counted.length}`} sub={onLeave ? `na urlopie: ${onLeave}` : fmtDay(date, true)} icon={Clock} />
             <StatCard label="Start dnia (mediana)" value={medStart !== null ? fromMin(medStart) : "—"} sub="pierwsza akcja z punktami" icon={Sunrise} />
             <StatCard label="Koniec dnia (mediana)" value={medEnd !== null ? fromMin(medEnd) : "—"} sub="ostatnia akcja z punktami" icon={Sunset} />
-            <StatCard label="Intensywność zespołu" value={medIdx !== null ? Math.round(medIdx) : "—"} sub="mediana osób, które pracowały, 0–100" icon={Gauge} />
+            <StatCard label="Intensywność zespołu" value={medIdx !== null ? Math.round(medIdx) : "—"} sub="mediana aktywnych osób, 0–100" icon={Gauge} />
           </StatCardGrid>
           <Legend rules={data.rules} />
           <DayTable data={data} date={date} onOpen={onOpen} />

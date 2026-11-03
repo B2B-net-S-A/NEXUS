@@ -166,7 +166,7 @@ describe("/preview/hr-my-time", () => {
     expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
 
     // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.
-    await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    await user.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     expect(
       await screen.findByRole("button", {
         name: `Pobierz PDF ${monthTitlePl(shiftMonth(current, -2)).toLowerCase()}`,

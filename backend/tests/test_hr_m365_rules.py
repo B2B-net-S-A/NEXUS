@@ -175,7 +175,7 @@ def test_custom_text_is_stripped_of_html() -> None:
 
 
 def test_contact_lines_follow_the_chain_kind() -> None:
-    manager = oof_template.Contact("manager", "szef@example.com", "Jan Przełożony")
+    manager = oof_template.Contact("manager", "szef@example.com", "Jan Koordynator")
     office = oof_template.Contact("office", "biuro@example.com")
     internal_manager, _ = oof_template.default_messages(
         employee_name="A",
@@ -189,7 +189,7 @@ def test_contact_lines_follow_the_chain_kind() -> None:
         return_on=date(2026, 11, 9),
         contact=office,
     )
-    assert "proszę o kontakt: <strong>Jan Przełożony</strong>" in internal_manager
+    assert "proszę o kontakt: <strong>Jan Koordynator</strong>" in internal_manager
     assert 'z biurem: <a href="mailto:biuro@example.com">' in internal_office
     assert "our office" in external_office
 

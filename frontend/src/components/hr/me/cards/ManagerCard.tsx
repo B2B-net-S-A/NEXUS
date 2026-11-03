@@ -47,7 +47,7 @@ export function ManagerCard({
         {position ? (
           <span className="text-foreground">{position}</span>
         ) : (
-          <span className="text-muted-foreground">Stanowisko nieuzupełnione — uzupełnią je Kadry.</span>
+          <span className="text-muted-foreground">Stanowisko nieuzupełnione — uzupełni je Administracja współpracy.</span>
         )}
       </p>
       <p className="text-[11px] font-semibold uppercase tracking-[0.05em] text-muted-foreground">
@@ -84,7 +84,7 @@ export function ManagerCard({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground">
-          {capitalize(terms.coordinator)} nie jest ustawiony — ustawią go Kadry.
+          {capitalize(terms.coordinator)} nie jest ustawiony — ustawi go Administracja współpracy.
         </p>
       )}
       {leaveOpen ? (

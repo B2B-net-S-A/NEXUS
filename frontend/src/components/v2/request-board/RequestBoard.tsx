@@ -703,7 +703,7 @@ export function RequestBoardView({
               href="/jobs/daily"
               className="text-sm font-medium text-primary hover:underline"
             >
-              Na daily
+              Przegląd requestów
             </Link>
           )}
           <Link

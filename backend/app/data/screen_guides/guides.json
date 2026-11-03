@@ -733,14 +733,14 @@
   },
   {
     "key": "hr.my_time",
-    "title": "Mój czas",
+    "title": "Moja współpraca",
     "section": null,
     "roles": [],
     "what": "Twoje nieobecności i godziny w jednym miejscu: „Przegląd” (z kartą „Ja w firmie” — stanowisko, koordynator, kartoteka), nieobecności („Urlop”, „Przerwy” albo „Nieobecności”), miesiąc godzin, premie i „Zgody i wydatki”: prośby o zgodę.",
     "tasks": [
       {
         "q": "Jak zgłosić urlop albo przerwę?",
-        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Wrzucasz do Cpro? Wskaż zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na przełożonego; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
+        "a": "W zakładce „Urlop” (na B2B „Przerwy”, na zleceniu „Nieobecności”) kliknij przycisk po prawej. Wybierz daty, przy jednym dniu także pół dnia, i zastępcę. Wrzucasz do Cpro? Wskaż zastępcę. Panel z boku liczy dni i pulę. Na umowie o pracę wniosek czeka na koordynatora; na B2B i zleceniu zgłoszenie wchodzi od razu, a koordynator dostaje informację.",
         "anchor": "hr.my_time.leave_submit"
       },
       {
@@ -760,20 +760,20 @@
       },
       {
         "q": "Jak pobrać moje godziny do Excela albo PDF?",
-        "a": "Rozwiń „Archiwum timesheetów” pod siatką miesiąca. „Eksport CSV” daje plik do Excela za wybrane miesiące (najwyżej 24, bez kwot), a przy zaakceptowanym miesiącu jest PDF. Zaakceptowany miesiąc otwarty w siatce pobierzesz też przyciskiem „Pobierz PDF”.",
+        "a": "Rozwiń „Archiwum raportów godzin” pod siatką miesiąca. „Eksport CSV” daje plik do Excela za wybrane miesiące (najwyżej 24, bez kwot), a przy zaakceptowanym miesiącu jest PDF. Zaakceptowany miesiąc otwarty w siatce pobierzesz też przyciskiem „Pobierz PDF”.",
         "anchor": "hr.my_time.archive"
       }
     ],
     "pitfalls": [
-      "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje przełożony albo Kadry (na B2B i zleceniu — Kadry). Daty złożonego wniosku zmienia przełożony albo Kadry, zgłoszenia z B2B i zlecenia — tylko Kadry.",
-      "Rodzaj nieobecności widzisz Ty, Twój koordynator i Kadry. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
-      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z opisem i uprawnieniem (na umowie o pracę „nadgodziny”, na B2B i zleceniu „godziny ponad 8 h”) — bez niego poproś Kadry. Bez opisu i sufitu tylko z „Godzinami bez limitu” w kartotece.",
+      "Wniosek czekający anulujesz zawsze, zatwierdzony — przed pierwszym dniem. Termin, który już trwa, anuluje koordynator albo Administracja współpracy (na B2B i zleceniu — Administracja współpracy). Daty złożonego wniosku zmienia koordynator albo Administracja współpracy, zgłoszenia z B2B i zlecenia — tylko Administracja współpracy.",
+      "Rodzaj nieobecności widzisz Ty, Twój koordynator i Administracja współpracy. Zespół w kalendarzu widzi samą nieobecność, a Outlook pokazuje „Poza biurem”.",
+      "Ponad 8 godzin dziennie wpiszesz tylko wpisem dnia, z opisem i uprawnieniem (na umowie o pracę „nadgodziny”, na B2B i zleceniu „godziny ponad 8 h”) — bez niego poproś Administrację współpracy. Bez opisu i sufitu tylko z „Godzinami bez limitu” w kartotece.",
       "Na B2B i zleceniu nie zgłosisz przerwy na dni z wysłanego albo przyjętego raportu godzin — najpierw koordynator cofa raport do szkicu."
     ],
     "anchors": [
       {
         "id": "hr.my_time.tabs",
-        "label": "Zakładki „Mojego czasu”",
+        "label": "Zakładki „Mojej współpracy”",
         "describe": "Przegląd, nieobecności, miesiąc godzin, rozliczenie, premie oraz zgody i wydatki — widać tylko włączone."
       },
       {
@@ -783,7 +783,7 @@
       },
       {
         "id": "hr.my_time.leave_list",
-        "label": "Moje wnioski",
+        "label": "Moje zgłoszenia",
         "describe": "Terminy, status, zastępca, załącznik do wniosku (umowa o pracę), kopia poczty do zastępcy i anulowanie."
       },
       {
@@ -793,7 +793,7 @@
       },
       {
         "id": "hr.my_time.archive",
-        "label": "Archiwum timesheetów",
+        "label": "Archiwum raportów godzin",
         "describe": "Ostatnie 12 miesięcy, PDF zaakceptowanych i eksport CSV."
       }
     ],
@@ -806,42 +806,42 @@
   },
   {
     "key": "hr.approvals",
-    "title": "Akceptacje",
+    "title": "Do potwierdzenia",
     "section": null,
     "roles": [],
-    "what": "Jedna lista spraw do decyzji z chipami rodzaju: nieobecności, raporty godzin, zgody i zgłoszenia z B2B i zlecenia do wiadomości; po prawej szczegół. „Czeka | Zdecydowane” przełącza na historię.",
+    "what": "Jedna lista spraw do decyzji z chipami rodzaju: nieobecności, raporty godzin, zgody i zgłoszenia z B2B i zlecenia do wiadomości; po prawej szczegół. „Czeka | Załatwione” przełącza na historię.",
     "tasks": [
       {
         "q": "Jak zaakceptować albo odrzucić wniosek?",
-        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Akceptuj” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz z „Mojego zespołu” i z maila.",
+        "a": "Wybierz wniosek na liście „Do decyzji”. Po prawej widać zastępcę, pracę, która wypada w tym czasie, kto z działu też jest nieobecny i mini-kalendarz zespołu na ten termin. „Potwierdź” albo „Odrzuć” — odrzucenie wymaga powodu, który osoba zobaczy. O własnym wniosku nie decydujesz. Ten sam wniosek przyjmiesz z „Koordynacji” i z maila.",
         "anchor": "hr.approvals.pending"
       },
       {
         "q": "Co robię ze zgłoszeniem z B2B albo zlecenia?",
-        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Wybierz zgłoszenie w „Do wiadomości · B2B i zlecenie”; gdy koliduje z pracą, kliknij „Zgłoś kolizję” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Kadry.",
+        "a": "Nic nie akceptujesz — termin jest już w kalendarzu. Wybierz zgłoszenie w „Do wiadomości · B2B i zlecenie”; gdy jest problemem, kliknij „Zgłoś uwagę” i opisz problem: osoba dostanie powiadomienie, a termin zostaje. Zgłoszenie zmieniają tylko Administracja współpracy.",
         "anchor": "hr.approvals.reported"
       },
       {
         "q": "Jak poprawić złożony wniosek?",
-        "a": "„Edytuj” w szczególe sprawy albo w „Zdecydowane” zmienia rodzaj, daty, pół dnia i zastępcę; NEXUS przelicza dni i przesuwa autoodpowiedź. Inny zastępca zdejmuje zgodę na kopię poczty. Termin wpisany przez pomyłkę cofniesz też z „Podglądu” raportu godzin, od pierwszego dnia z powodem; zgłoszenie z B2B i zlecenia cofają tylko Kadry.",
+        "a": "„Edytuj” w szczególe sprawy albo w „Załatwione” zmienia rodzaj, daty, pół dnia i zastępcę; NEXUS przelicza dni i przesuwa autoodpowiedź. Inny zastępca zdejmuje zgodę na kopię poczty. Termin wpisany przez pomyłkę cofniesz też z „Podglądu” raportu godzin, od pierwszego dnia z powodem; zgłoszenie z B2B i zlecenia cofają tylko Administracja współpracy.",
         "anchor": "hr.approvals.history"
       },
       {
-        "q": "Jak przyjąć timesheet?",
-        "a": "W „Raportach godzin” wybierz miesiąc i status, otwórz „Podgląd”. Godziny poprawisz, klikając godziny albo opis dnia. „Akceptuj” przyjmuje, „Zwróć” z notatką odsyła, przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Kadry i „Raporty godzin”.",
+        "q": "Jak przyjąć raport godzin?",
+        "a": "W „Raportach godzin” wybierz miesiąc i status, otwórz „Podgląd”. Godziny poprawisz, klikając godziny albo opis dnia. „Potwierdź” przyjmuje, „Zwróć” z notatką odsyła, przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Administracja współpracy i „Raporty godzin”.",
         "anchor": "hr.approvals.timesheets"
       },
       {
         "q": "Jak wpisać komuś nieobecność, np. L4?",
-        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisują tylko Kadry — one zgłaszają nieobecność same. Zgody na kopię poczty nie dasz za tę osobę.",
+        "a": "Kliknij „Wpisz nieobecność za konsultanta/kontraktora”, wybierz osobę, rodzaj i daty. Wpis jest od razu zatwierdzony. Za osoby na B2B i zleceniu wpisuje tylko Administracja współpracy — one zgłaszają nieobecność same. Zgody na kopię poczty nie dasz za tę osobę.",
         "anchor": "hr.approvals.on_behalf"
       }
     ],
     "pitfalls": [
       "Dopisek „Z Outlooka” znaczy, że NEXUS założył wniosek z autoodpowiedzi, którą osoba ustawiła sama — decydujesz o nim jak o każdym innym.",
-      "W zastępstwie nieobecnego przełożonego akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
+      "W zastępstwie nieobecnego koordynatora akceptujesz i odrzucasz wnioski jego zespołu, ale ich nie zmieniasz; L4 i podobne widzisz tylko do wiadomości.",
       "Liczba przy chipie „Nieobecności” liczy tylko umowę o pracę — zgłoszenia z B2B i zlecenia („Do wiadomości”) nie czekają na nikogo.",
-      "Kopię poczty z cudzego wniosku wyłączają tylko Kadry („Wyłącz kopię poczty” z powodem, do końca urlopu); włączyć ją z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Kadry → Microsoft 365."
+      "Kopię poczty z cudzego wniosku wyłącza tylko Administracja współpracy („Wyłącz kopię poczty” z powodem, do końca urlopu); włączyć ją z powrotem może tylko sama osoba. Regułę, która została po urlopie, zamyka „Zamknij regułę” w Ustawieniach → Administracja współpracy → Microsoft 365."
     ],
     "anchors": [
       {
@@ -852,22 +852,22 @@
       {
         "id": "hr.approvals.reported",
         "label": "Do wiadomości · B2B i zlecenie",
-        "describe": "Przerwy i nieobecności z B2B i zlecenia; w szczególe „Zgłoś kolizję”."
+        "describe": "Przerwy i nieobecności z B2B i zlecenia; w szczególe „Zgłoś uwagę”."
       },
       {
         "id": "hr.approvals.timesheets",
-        "label": "Timesheety",
+        "label": "Raporty godzin",
         "describe": "Godziny zespołu za miesiąc wobec normy: filtr statusu, podgląd z cofnięciem nieobecności, akceptacja, zwrot, „Przypomnij”, CSV i ZIP."
       },
       {
         "id": "hr.approvals.history",
-        "label": "Zdecydowane",
-        "describe": "Przełącznik „Czeka | Zdecydowane”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
+        "label": "Załatwione",
+        "describe": "Przełącznik „Czeka | Załatwione”: zdecydowane nieobecności z filtrem statusu i osoby (200 najnowszych), edycja, anulowanie (od pierwszego dnia — z powodem), rozpatrzone zgody."
       },
       {
         "id": "hr.approvals.on_behalf",
         "label": "Wpis za konsultanta/kontraktora",
-        "describe": "Nieobecność wpisana przez koordynatora albo Kadry, od razu zatwierdzona."
+        "describe": "Nieobecność wpisana przez koordynatora albo Administracja współpracy, od razu zatwierdzona."
       }
     ],
     "help_slug": null,
@@ -896,7 +896,7 @@
       },
       {
         "q": "Jak zawęzić kalendarz do zespołu albo działu?",
-        "a": "Nad siatką są chipy „Mój zespół” (dla koordynatorów, domyślnie zaznaczony), „Wszyscy” i nazwy działów, a pole „Imię, stanowisko” zawęża listę. Wybór zostaje w adresie, więc link pokaże to samo. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
+        "a": "Nad siatką są chipy „Koordynacja” (dla koordynatorów, domyślnie zaznaczony), „Wszyscy” i nazwy działów, a pole „Imię, stanowisko” zawęża listę. Wybór zostaje w adresie, więc link pokaże to samo. Przełącznik „2 tygodnie / Miesiąc” zmienia zakres, strzałki go przesuwają, a „Dziś” wraca do bieżącego.",
         "anchor": "hr.team_calendar.filters"
       },
       {
@@ -906,7 +906,7 @@
       }
     ],
     "pitfalls": [
-      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej koordynator i Kadry.",
+      "Rodzaju nieobecności (np. L4) u innych nie zobaczysz — to nie błąd: widzą go tylko osoba, jej koordynator i Administracja współpracy.",
       "Domyślne dni zdalne z kartoteki się nie pokazuje — „Z” to tylko dni oznaczone w miesiącu godzin."
     ],
     "anchors": [
@@ -936,36 +936,36 @@
     "title": "Zgody",
     "section": null,
     "roles": [],
-    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Akceptacjach” zgody czekające na Twoją decyzję, w „Moim czasie” na karcie „Zgody i wydatki” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
+    "what": "Zgody na wydatki i wynagrodzenie dodatkowe: w „Do potwierdzenia” zgody czekające na Twoją decyzję, w „Mojej współpracy” na karcie „Zgody i wydatki” prośby, które wysłałeś, z przebiegiem i formularzem „Poproś o zgodę”.",
     "tasks": [
       {
         "q": "Jak poprosić o zgodę na wydatek albo wynagrodzenie dodatkowe?",
-        "a": "„Mój czas → Zgody i wydatki” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Płace same — o nie nie prosisz.",
+        "a": "„Moja współpraca → Zgody i wydatki” → „Poproś o zgodę”. Wybierz rodzaj, wpisz co dokładnie, kwotę i po co. Z boku „Kto zdecyduje” pokazuje, czy wystarczy koordynator, czy decyduje zatwierdzający. Wynagrodzenie z reguł umowy (placement, liga) liczą Rozliczenia same — o nie nie prosisz.",
         "anchor": "hr.consents.form"
       },
       {
         "q": "Jak zatwierdzić albo odrzucić zgodę?",
-        "a": "„Akceptacje” → chip „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
+        "a": "„Do potwierdzenia” → chip „Zgody”: wybierz zgodę z listy, obok liczby „NEXUS sprawdził”. „Zatwierdź” albo „Zatwierdź inną kwotę…”, „Dopytaj” wraca do autora z pytaniem, „Odrzuć” wymaga powodu. Przycisk z maila otwiera tę samą zgodę z oknem decyzji.",
         "anchor": "hr.consents.inbox"
       },
       {
         "q": "Dlaczego widzę „Popieram”, a nie „Zatwierdź”?",
-        "a": "Kwota jest ponad Twój próg koordynatora. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Kadry → Moduły.",
+        "a": "Kwota jest ponad Twój próg koordynatora. Poparcie przekazuje zgodę zatwierdzającemu — to on decyduje i tylko on może ustalić inną kwotę. Progi ustawia admin w Ustawieniach → Administracja współpracy → Moduły.",
         "anchor": "hr.consents.inbox"
       },
       {
         "q": "Co zrobić, gdy dostałem pytanie do zgody?",
-        "a": "W „Moim czasie → Zgody i wydatki” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
+        "a": "W „Mojej współpracy → Zgody i wydatki” zgoda jest w „Do zrobienia przez Ciebie” z pytaniem na żółtym tle. „Popraw i wyślij” otwiera formularz z danymi — po wysłaniu zgoda zaczyna drogę od nowa. „Wycofaj” zdejmuje ją ze skrzynki decydującego.",
         "anchor": "hr.consents.mine"
       },
       {
         "q": "Jak dołączyć fakturę albo paragon do zgody?",
-        "a": "W „Moim czasie → Zgody i wydatki” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
+        "a": "W „Mojej współpracy → Zgody i wydatki” zatwierdzona zgoda ma „Rozliczenie”: przeciągnij PDF albo zdjęcie — NEXUS odczyta kwotę i sprzedawcę, popraw w „Popraw”. Faktura z KSeF na NIP firmy przypnie się sama, gdy zgoda zna sprzedawcę. Wyszło drożej o ponad 10% — „Poproś o dopłatę”.",
         "anchor": "hr.consents.mine"
       }
     ],
     "pitfalls": [
-      "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Płacach — Płace nie zatwierdzają go drugi raz.",
+      "Zatwierdzone wynagrodzenie dodatkowe jest od razu przyznane w Rozliczeniach — Rozliczenia nie zatwierdzają go drugi raz.",
       "Wynagrodzenie dodatkowe dla osoby na B2B wymaga „Podstawy w umowie” — punktu umowy albo numeru aneksu; bez niej wniosek nie wyjdzie.",
       "O zgodzie dla siebie (także o wynagrodzeniu dodatkowym dla siebie) nie decydujesz — nawet jako zatwierdzający.",
       "Zgoda jednorazowa bez faktury i paragonu nie wygasa — rachunek z wyjazdu czy szkolenia dołączysz po wydarzeniu; cykliczna bez dokumentu wygasa po 30 dniach od startu. Rozliczają Finanse, nie autor; dopłatę zatwierdza zatwierdzający."

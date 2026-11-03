@@ -37,7 +37,7 @@ afterEach(() => {
 const data = () => olaBilling(settlementScene());
 
 describe("BillingDetailsSection", () => {
-  it("przełożony (bez dostępu) nie pyta serwera i nie widzi sekcji", () => {
+  it("koordynator (bez dostępu) nie pyta serwera i nie widzi sekcji", () => {
     wrap(<BillingDetailsSection userId={101} enabled={false} />);
     expect(mocks.get).not.toHaveBeenCalled();
     expect(screen.queryByText("Dane do rozliczeń")).toBeNull();
@@ -58,10 +58,10 @@ describe("BillingDetailsSection", () => {
     expect(screen.getByText("Dane do rozliczeń")).toBeInTheDocument();
     expect(screen.getByText("•• 4521 · z białej listy VAT")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Zapisz" })).toBeNull();
-    expect(screen.getByText(/zgłoś Kadrom/)).toBeInTheDocument();
+    expect(screen.getByText(/zgłoś Administracji współpracy/)).toBeInTheDocument();
   });
 
-  it("Kadry zapisują tylko zmienione pola", async () => {
+  it("Administracja współpracy zapisują tylko zmienione pola", async () => {
     const user = userEvent.setup();
     mocks.put.mockResolvedValue({ data: data() });
     wrap(<BillingDetailsSection userId={101} enabled />, (client) =>

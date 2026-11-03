@@ -217,7 +217,7 @@ async def test_oof_text_hides_absence_type_and_falls_back_to_manager_then_office
     monkeypatch.setattr(settings, "ADMIN_CASES_M365_MAILBOX", "kopia@example.com")
     fake = FakeMailboxOps()
     async with AsyncSessionLocal() as db:
-        boss = await make_user(db, name="Jan Przełożony")
+        boss = await make_user(db, name="Jan Koordynator")
         sick = await make_user(db, name="Anna Przykładowa", manager_user_id=boss.id)
         alone = await make_user(db, name="Ewa Samodzielna")
         for person in (sick, alone):
@@ -245,7 +245,7 @@ async def test_oof_text_hides_absence_type_and_falls_back_to_manager_then_office
             assert label.lower() not in text
         assert "l4" not in text and "chorob" not in text and "sick" not in text
         assert "9 listopada 2026" in setting["internalReplyMessage"]
-    assert "Jan Przełożony" in with_manager["internalReplyMessage"]
+    assert "Jan Koordynator" in with_manager["internalReplyMessage"]
     assert "mailto:biuro@example.com" in with_office["internalReplyMessage"]
     assert "kopia@example.com" not in with_office["externalReplyMessage"]
 

@@ -70,7 +70,7 @@ describe("teksty zgód", () => {
     expect(moneyPl("abc")).toBe("—");
   });
 
-  it("przełożony ponad próg popiera i nie zmienia kwoty; w progu i zatwierdzający — zatwierdza", () => {
+  it("koordynator ponad próg popiera i nie zmienia kwoty; w progu i zatwierdzający — zatwierdza", () => {
     expect(approveLabel(row())).toBe("Popieram");
     expect(canChangeAmount(row())).toBe(false);
     expect(afterDecision(row()).label).toBe("Po poparciu");
@@ -80,7 +80,7 @@ describe("teksty zgód", () => {
     expect(canChangeAmount(row({ decides_as: "final" }))).toBe(true);
   });
 
-  it("premia po zatwierdzeniu trafia do Płac bez drugiej akceptacji", () => {
+  it("premia po zatwierdzeniu trafia do Rozliczeń bez drugiej akceptacji", () => {
     const bonus = row({
       kind: "bonus",
       decides_as: "final",
@@ -89,7 +89,7 @@ describe("teksty zgód", () => {
       payout_month: 10,
     });
     expect(afterDecision(bonus).label).toBe("Po zatwierdzeniu");
-    expect(afterDecision(bonus).text).toContain("Płac");
+    expect(afterDecision(bonus).text).toContain("Rozliczeń");
     expect(afterDecision(bonus).text).toContain("październik 2026");
     // Zgody to ekran wielu osób: neutralnie, bez „premii poza umową” (21.10.2026).
     expect(afterDecision(bonus).text).not.toMatch(/premi/i);
@@ -210,7 +210,7 @@ describe("podstawa w umowie przy premii (0491)", () => {
   });
 });
 
-describe("próg przełożonego w Ustawieniach", () => {
+describe("próg koordynatora w Ustawieniach", () => {
   it("puste albo „nigdy” = zawsze zatwierdzający; liczby całkowite do miliona", () => {
     expect(parseLimit("")).toBeNull();
     expect(parseLimit("never")).toBeNull();

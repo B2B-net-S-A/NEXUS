@@ -440,7 +440,7 @@ async def _assert_bonus_allowed(
     viewer = await payroll_access.load_viewer(db, actor)
     if not viewer.manages_bonuses_of(data.beneficiary_user_id or 0):
         raise ApprovalForbidden(
-            "O wynagrodzenie dodatkowe prosi koordynator tej osoby albo Płace."
+            "O wynagrodzenie dodatkowe prosi koordynator tej osoby albo Rozliczenia."
         )
     profile = (
         await db.execute(
@@ -451,7 +451,7 @@ async def _assert_bonus_allowed(
         )
     ).first()
     if profile is None:
-        raise ApprovalNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise ApprovalNotFound("Ta osoba nie ma kartoteki.")
     if data.contract_basis is None and needs_contract_basis(
         profile.employment_type, bool(profile.employment_type_pending)
     ):

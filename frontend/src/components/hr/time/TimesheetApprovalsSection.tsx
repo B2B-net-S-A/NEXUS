@@ -113,19 +113,19 @@ export function TimesheetApprovalsSection({
   const approve = async (item: TeamQueueItem) => {
     if (!item.timesheet) return;
     const ok = await askConfirm({
-      title: `Zaakceptować timesheet: ${item.name}?`,
+      title: `Potwierdzić raport godzin: ${item.name}?`,
       description: `${monthTitlePl(period)} · ${formatHours(item.hours)} h${
         // Ekran wielu osób: neutralnie „ponad 8 h dziennie”, nie „nadgodziny” (21.10.2026).
         item.overtime_hours > 0 ? `, w tym ${formatHours(item.overtime_hours)} h ponad 8 h dziennie` : ""
       }. Po akceptacji powstaje PDF z sumą kontrolną.`,
-      confirmLabel: "Akceptuj",
+      confirmLabel: "Potwierdź",
     });
     if (!ok) return;
     decide.mutate(
       { id: item.timesheet.id, decision: "approve" },
       {
         onSuccess: () => {
-          showToast("Timesheet zaakceptowany", "success");
+          showToast("Raport godzin potwierdzony", "success");
           setPreviewId(null);
         },
         onError: (err) => showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error"),
@@ -137,7 +137,7 @@ export function TimesheetApprovalsSection({
     if (!item.timesheet) return;
     const ok = await askConfirm({
       title: "Cofnąć akceptację?",
-      description: `${item.name}, ${monthTitlePl(period).toLowerCase()}: timesheet wróci do akceptacji, a Płace dostaną powiadomienie.`,
+      description: `${item.name}, ${monthTitlePl(period).toLowerCase()}: raport godzin wróci do potwierdzenia, a Rozliczenia dostaną powiadomienie.`,
       confirmLabel: "Cofnij akceptację",
       variant: "destructive",
     });
@@ -161,12 +161,12 @@ export function TimesheetApprovalsSection({
       { id: returning.timesheet.id, decision: "return", note: note.trim() },
       {
         onSuccess: () => {
-          showToast("Timesheet zwrócony do poprawy", "success");
+          showToast("Raport godzin zwrócony do poprawy", "success");
           setReturning(null);
           setPreviewId(null);
           setNote("");
         },
-        onError: (err) => setNoteError(apiErrorMessage(err, "Nie udało się zwrócić timesheetu.")),
+        onError: (err) => setNoteError(apiErrorMessage(err, "Nie udało się zwrócić raportu godzin.")),
       },
     );
   };
@@ -197,7 +197,7 @@ export function TimesheetApprovalsSection({
     try {
       await downloadHrFile(
         timePaths.monthZip(period.year, period.month),
-        `timesheety-${period.year}-${String(period.month).padStart(2, "0")}.zip`,
+        `raporty-godzin-${period.year}-${String(period.month).padStart(2, "0")}.zip`,
       );
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się pobrać paczki PDF."), "error");
@@ -213,7 +213,7 @@ export function TimesheetApprovalsSection({
             Zwróć
           </Button>
           <Button size={size} onClick={() => approve(item)} disabled={decide.isPending}>
-            Akceptuj
+            Potwierdź
           </Button>
         </>
       );
@@ -233,7 +233,7 @@ export function TimesheetApprovalsSection({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <h2 id="timesheet-approvals-title" className="mr-2 text-base font-semibold text-foreground">
-            Timesheety
+            Raporty godzin
           </h2>
           <Button variant="ghost" size="icon-sm" aria-label="Poprzedni miesiąc" onClick={() => setPeriod((p) => shiftMonth(p, -1))}>
             <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -282,7 +282,7 @@ export function TimesheetApprovalsSection({
         <p className="text-sm text-muted-foreground">Wczytywanie zespołu…</p>
       ) : state === "empty" ? (
         <p className="text-sm text-muted-foreground">
-          W {monthTitlePl(period).toLowerCase()} nikt z Twojego zespołu nie prowadzi timesheetu.
+          W {monthTitlePl(period).toLowerCase()} nikt z Twojego zespołu nie prowadzi raportu godzin.
         </p>
       ) : state !== "ready" ? (
         <QueryStateNotice
@@ -325,7 +325,7 @@ export function TimesheetApprovalsSection({
                         item.timesheet?.submitted_at && item.status === "submitted"
                           ? `wysłany ${formatIsoDatePl(item.timesheet.submitted_at)}`
                           : item.timesheet?.payroll_locked
-                            ? "zamknięty w płacach"
+                            ? "zamknięty w rozliczeniach"
                             : undefined
                       }
                     >

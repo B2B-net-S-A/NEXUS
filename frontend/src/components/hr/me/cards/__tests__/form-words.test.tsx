@@ -123,7 +123,7 @@ describe("słowa formy w kartach Przeglądu", () => {
     expect(text()).toContain("Najbliższy urlop: 26–28.10.2026zatwierdzony");
   });
 
-  it("raport godzin B2B „potwierdza” koordynator, ewidencję UoP „akceptuje” przełożony", () => {
+  it("raport godzin B2B „potwierdza” koordynator, ewidencję UoP „akceptuje” koordynator", () => {
     const { unmount } = render(
       <MonthCard form="b2b" today="2026-10-17" timesheetRequired onOpenTab={() => undefined} />,
     );

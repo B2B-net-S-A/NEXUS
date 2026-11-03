@@ -289,7 +289,7 @@ def automation_since_change_error(
         return None
     if new is None:
         return (
-            "Data startu automatu jest potrzebna, dopóki w płacach są premie "
+            "Data startu automatu jest potrzebna, dopóki w rozliczeniach są premie "
             "z Compassa — bez niej automat zaproponuje drugi raz premie "
             "za placementy sprzed przełączenia."
         )

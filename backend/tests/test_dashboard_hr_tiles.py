@@ -201,7 +201,7 @@ async def test_substitution_refuses_technical_and_viewer_accounts(
 
     response = await app_client.get(URL, headers=_headers(account))
     assert response.status_code == 403
-    assert response.json()["detail"] == "Zastępstwa widzą pracownicy firmy."
+    assert response.json()["detail"] == "Zastępstwa widzą osoby z kartoteką."
 
 
 @pytest.mark.asyncio

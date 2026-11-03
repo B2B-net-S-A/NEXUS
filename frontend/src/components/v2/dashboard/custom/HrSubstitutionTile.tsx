@@ -26,7 +26,7 @@ import { formatWeekdayDayPl } from "@/lib/date-pl"
 export function warningText(warning: SubstitutionWarning): string {
   const owner = warning.owner_name ?? "Osoba z zespołu"
   if (warning.you_are_substitute) {
-    return `Jesteś zastępcą: ${owner}. Masz dziś nieobecność, więc ta praca czeka bez zastępcy — daj znać przełożonemu.`
+    return `Jesteś zastępcą: ${owner}. Masz dziś nieobecność, więc ta praca czeka bez zastępcy — daj znać koordynatorowi.`
   }
   const substitute = warning.substitute_name ?? "zastępca"
   return `${owner} — zastępca (${substitute}) też ma dziś nieobecność. Praca czeka bez zastępcy.`
