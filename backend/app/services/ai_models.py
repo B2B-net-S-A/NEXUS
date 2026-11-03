@@ -43,13 +43,13 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F21 | screening_reassign_suggest       | gpt-6-luna (z Sonnet 5)  |
-| F22 | dz_review                        | gpt-6-luna (z Sonnet 5)  |
+| F22 | dz_review                        | claude-sonnet-5-5 (z 5)  |
 | F23 | academy_screening                | gpt-6-luna (z Sonnet 5)  |
-| F24 | prep_review                      | gpt-6-luna (z Sonnet 5)  |
+| F24 | prep_review                      | claude-sonnet-5-5 (z 5)  |
 | F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
 | F26 | plain_knowledge_research         | claude-sonnet-5 (z Haiku)|
 | F27 | application_screening            | gpt-6-luna (z Sonnet 5)  |
-| F28 | recommendation_card_note_read    | gpt-6-luna (z Sonnet 5)  |
+| F28 | recommendation_card_note_read    | gpt-6.1-sol (z Sonnet 5) |
 | F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
 | F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
@@ -325,13 +325,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "podpowiedzią — rekruter przyjmuje albo poprawia każdą odpowiedź.",
     ),
     AIFeatureKey.dz_review: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_55,
         env_vars=("DZ_REVIEW_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F22 (decyzja 23.09.2026, POZA badaniem 16.09). Podpowiedzi dla "
         "zatwierdzającego DZ to zadanie „znajdź i zacytuj” (must-have w CV, pogrubienia, "
-        "pokrycie w rolach) — to samo, w czym Luna wygrała F7/F18; recenzent ma być innym "
-        "modelem niż generator CV (F4 = Sonnet 5). Wynik doradczy, nigdy bramka.",
+        "pokrycie w rolach); recenzent ma być innym modelem niż generator CV. Sonnet 5.5 od "
+        "03.11.2026 (audyt): użyteczna propozycja w 56% przypadków wobec 28% Luny (n=18). "
+        "Wynik doradczy, nigdy bramka.",
     ),
     AIFeatureKey.academy_screening: ModelChoice(
         default=GPT_LUNA,
@@ -343,14 +344,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "liczy kod; decyzję „nie” klika człowiek.",
     ),
     AIFeatureKey.prep_review: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_55,
         env_vars=("PREP_REVIEW_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F24 (decyzja Artura 23.09.2026, POZA badaniem 16.09). Ocena prepu "
         "z transkryptu Teams to „znajdź i zacytuj” (must-have i pytania klienta w "
         "rozmowie); cytat spoza transkryptu jest odrzucany, a poziom oceny liczy kod. "
-        "Pomiar Luna vs Sonnet na pierwszych prawdziwych prepach: "
-        "scripts/eval_prep_review.py. Wynik doradczy, nigdy bramka.",
+        "Sonnet 5.5 od 03.11.2026 (audyt, 30 prepów): cytaty spoza rozmowy 1,2% wobec 4% Luny, "
+        "średnia ocena bez zmiany. Sol miał 0%, ale podnosił ocenę o 8 punktów bez wzorca. "
+        "Wynik doradczy, nigdy bramka.",
     ),
     AIFeatureKey.interview_question_import: ModelChoice(
         default=GPT_LUNA,
@@ -381,13 +383,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Przed włączeniem pomiar na ~40 historycznych zgłoszeniach.",
     ),
     AIFeatureKey.recommendation_card_note_read: ModelChoice(
-        default=GPT_LUNA,
+        default=GPT_SOL,
         env_vars=("RECOMMENDATION_CARD_NOTE_READ_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F28 (decyzja Artura 06.10.2026, POZA badaniem 16.09). Odczyt "
         "notatki rekrutera to „znajdź i zacytuj” jak F21/F23: pole bez cytatu "
         "obecnego w notatce odrzuca kod, narodowość czyta wyłącznie reguła wzoru. "
-        "Wynik zatwierdza rekruter. Przed włączeniem pomiar na ~40 notatkach-kartach.",
+        "Wynik zatwierdza rekruter. GPT-6.1 Sol od 03.11.2026 (audyt, 40 notatek): pominięte "
+        "pola 0% wobec 3,7% Luny, zgodność bez istotnej zmiany.",
     ),
     AIFeatureKey.screening_answer_phrasing: ModelChoice(
         default=GPT_LUNA,

@@ -163,6 +163,18 @@ def test_reasoning_effort_is_the_lowest_the_model_accepts(model, effort):
     assert "temperature" not in body
 
 
+def test_sol_gets_room_for_reasoning_in_the_token_limit():
+    """Rozumowanie liczy się do limitu: przy 3000 tokenów ucięłoby odpowiedź."""
+    sol = build_request(
+        OPENAI, model="gpt-6.1-sol", messages=[], max_tokens=3000, kwargs={}
+    )
+    luna = build_request(
+        OPENAI, model="gpt-6-luna", messages=[], max_tokens=3000, kwargs={}
+    )
+    assert sol["max_completion_tokens"] == 7000
+    assert luna["max_completion_tokens"] == 3000
+
+
 def test_sol_has_its_own_price():
     from decimal import Decimal
 
