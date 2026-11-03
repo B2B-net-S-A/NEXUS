@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.recruitment_access import job_read_scope_clause
 from app.core.config import settings
-from app.core.scheduling import business_today
+from app.core.scheduling import business_date, business_today
 from app.models.call import Call
 from app.models.candidate import AvailabilityStatus, Candidate, CandidateStatus
 from app.models.candidate_consent import CandidateConsent
@@ -470,7 +470,7 @@ def rate_out(candidate: Candidate) -> Optional[RateOut]:
     )
     as_of = getattr(candidate, "rate_from_at", None)
     if isinstance(as_of, datetime):
-        as_of = as_of.date()
+        as_of = business_date(as_of)
     return RateOut(label=f"{amount:.0f} {symbol}/h", as_of=as_of)
 
 
@@ -482,7 +482,9 @@ async def rodo_out(db: AsyncSession, candidate_id: int) -> RodoOut:
     )
     if given is None:
         return RodoOut(status="none", label="brak zgody zapisanej w NEXUSIE")
-    return RodoOut(status="valid", label=f"zgoda z {given.strftime('%d.%m.%Y')}")
+    return RodoOut(
+        status="valid", label=f"zgoda z {business_date(given).strftime('%d.%m.%Y')}"
+    )
 
 
 async def contractor_out(
@@ -787,7 +789,9 @@ async def lookup(
             headline=candidate.linkedin_current_title or profile.headline,
             city=candidate.city,
             url=candidate_url(candidate.id),
-            in_nexus_since=created.date() if isinstance(created, datetime) else None,
+            in_nexus_since=business_date(created)
+            if isinstance(created, datetime)
+            else None,
         ),
         ambiguous=[],
         owner=await load_owner(db, user, open_pairs, contacts),

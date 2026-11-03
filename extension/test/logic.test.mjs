@@ -64,6 +64,8 @@ test("formatowanie dat: „W NEXUSIE od 03.2024”", () => {
   assert.equal(inNexusSinceLabel({ in_nexus_since: null }), "W NEXUSIE");
   assert.equal(formatMonthYear("2027-03-31"), "03.2027");
   assert.equal(formatDate("2026-10-27T21:30:00Z"), "27.10.2026");
+  // Backend wysyła chwilę z przesunięciem Warszawy, więc ciąg zaczyna się dniem firmy.
+  assert.equal(formatDate("2026-11-03T00:45:00+01:00"), "03.11.2026");
   assert.equal(formatDate(""), "");
   assert.equal(todayLabel(new Date("2026-10-28T23:30:00Z")), "29.10.2026"); // kalendarz Warszawy
 });

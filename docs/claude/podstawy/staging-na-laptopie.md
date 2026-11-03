@@ -76,8 +76,9 @@ bo stara kopia i inne flagi dawały złe liczby przy działającym stagingu.
    ich nie włączy.
 2. Zrzuca bazę do `~/.local/share/nexus-staging-nightly/<RRRRMMDD>/` i odtwarza ją
    z `sanitize.sql` do nowej `nexus_staging_nightly_<RRRRMMDD>`. Kontener produkcji
-   ustala przy każdym biegu, a gdy wdrożenie podmieni go w trakcie, ponawia raz.
-   Zrzut jest przerywany o 02:15 UTC, przed backupem produkcji.
+   ustala przy każdym biegu. Wdrożenie restartuje Postgresa produkcji i zrywa zrzut
+   (03.11.2026 w 9. minucie), więc skrypt czeka na nowy kontener i ponawia, najwyżej
+   4 razy. Zrzut jest przerywany o 02:15 UTC, przed backupem produkcji.
 3. Buduje kod z `origin/main`, przełącza `STAGING_DATABASE_NAME`, odtwarza backend
    i front. Sprawdza `/api/health` na nowej bazie. Gdy jest niezdrowy, cofa plik env
    i flagi.

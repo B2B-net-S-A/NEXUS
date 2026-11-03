@@ -46,6 +46,10 @@ Reguły, które łatwo cofnąć „przy okazji”:
 * „Nie szuka pracy” (decyzja Artura 28.10.2026): 9 z 44 odrzuceń, a ci sami
   ludzie czekali w „Nowych” innych rekrutacji. Profil „Nie szuka” bez daty
   albo z „Dostępny od” w przyszłości = system nie dodaje (``not_looking_now``).
+* Inna rola niż rekrutacja (decyzja Artura 29.10.2026, 03.11.2026 domknięta
+  w ``ranked_picks``): karta ląduje na tablicy bez człowieka, więc osoba z inną
+  rolą jej nie dostaje, także przy ≥ 80% „musi mieć” i z otwartą propozycją.
+  Propozycja zostaje w oknie z plakietką, tam decyduje rekruter.
 * Wejście ``entry_source = "system"``, ``moved_by`` puste (dodał nie
   człowiek), ``entry_meta`` = migawka tego, co system wiedział: wynik,
   wymagania, „Stawka od”, dostępność. Z niej raport odróżnia błąd
@@ -196,9 +200,42 @@ def not_looking_now():
     )
 
 
+async def _other_role_ids(db, job: Optional[Job], candidate_ids: list[int]) -> set[int]:
+    """Osoby z inną rolą niż rekrutacja, z samych kolumn tytułu (pełny wiersz
+    kandydata niesie tekst CV)."""
+    from types import SimpleNamespace
+
+    from app.services.role_family import family_of, mismatches_for_job
+
+    if job is None or family_of(job.title) is None or not candidate_ids:
+        return set()
+    rows = (
+        await db.execute(
+            select(
+                Candidate.id,
+                Candidate.cv_extracted_data["current_position"].label("position"),
+                Candidate.linkedin_current_title,
+                # `current_title` czyta tylko pierwszy wpis doświadczenia.
+                Candidate.experience[0].label("latest_experience"),
+            ).where(Candidate.id.in_(candidate_ids))
+        )
+    ).all()
+    people = [
+        SimpleNamespace(
+            id=row.id,
+            cv_extracted_data={"current_position": row.position},
+            linkedin_current_title=row.linkedin_current_title,
+            experience=[row.latest_experience] if row.latest_experience else None,
+        )
+        for row in rows
+    ]
+    return set(await mismatches_for_job(db, job, people))
+
+
 async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
     """Najlepsi z puli i otwartych propozycji, bez osób, których system nie
-    dodaje (patrz docstring modułu, poza bramką kwalifikacji)."""
+    dodaje (patrz docstring modułu, poza bramką kwalifikacji). Inna rola nie
+    zajmuje miejsca w ``limit``, więc wiersze idą paczkami."""
     pool = select(
         JobAutofillPool.candidate_id.label("candidate_id"),
         JobAutofillPool.score.label("score"),
@@ -254,21 +291,28 @@ async def ranked_picks(db, job_id: int, *, limit: int) -> list[Pick]:
             .order_by(both.c.score.desc(), both.c.candidate_id)
         )
     ).all()
-    picks: dict[int, Pick] = {}
+    best: dict[int, Pick] = {}
     for candidate_id, score, run_id, evidence in rows:
-        if candidate_id in picks:
+        if candidate_id in best:
             continue  # wiersze idą od najlepszego wyniku — pierwszy wygrywa
         evidence = evidence or {}
-        picks[candidate_id] = Pick(
+        best[candidate_id] = Pick(
             candidate_id=int(candidate_id),
             score=float(score),
             run_id=run_id,
             matched_must=_names(evidence, "matched_must"),
             missing_must=_names(evidence, "missing_must"),
         )
+    job = await db.get(Job, job_id)
+    ordered = list(best.values())
+    picks: list[Pick] = []
+    for start in range(0, len(ordered), limit):
+        page = ordered[start : start + limit]
+        other_role = await _other_role_ids(db, job, [p.candidate_id for p in page])
+        picks.extend(p for p in page if p.candidate_id not in other_role)
         if len(picks) >= limit:
             break
-    return await _with_known_points(db, job_id, list(picks.values()))
+    return await _with_known_points(db, job_id, picks[:limit])
 
 
 async def _with_known_points(db, job_id: int, picks: list[Pick]) -> list[Pick]:

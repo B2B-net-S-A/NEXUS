@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
     # tylko do hostów z listy (`app/core/staging.py`).
     NEXUS_ENV: str = "production"
+    # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
+    BACKGROUND_LEADER_LOCK_ENABLED: bool = True
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
     # (po przecinku). Na produkcji bez znaczenia.
     STAGING_EXTRA_ALLOWED_HOSTS: str = ""
@@ -213,9 +215,12 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    # 30.09.2026 (decyzja Artura, audyt wyszukiwania): 3000 — przy pomiarze
-    # pula 2000 obcinała osoby wysłane do klienta w szerokich rolach.
-    MATCH_POOL_SIZE: int = 3000
+    # 2000 = wartość z produkcji, ustawiona po pomiarze z 18.08.2026. Domyślne
+    # 3000 z audytu 30.09 porównywało pulę z 1000, a produkcja miała już 2000.
+    # Pomiar 03.11.2026 (decyzja Artura), 621 wysłanych ze 164 rekrutacji:
+    # 3000 daje w puli 90,8% zamiast 87,8%, ale w top 20 tylko 287 osób zamiast
+    # 286, a `/recommendations` i `/ai-matches` są o 30–40% wolniejsze.
+    MATCH_POOL_SIZE: int = 2000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
@@ -317,7 +322,7 @@ class Settings(BaseSettings):
     # i mapowanie błędów — `services/llm_providers.py`.
     OPENAI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie

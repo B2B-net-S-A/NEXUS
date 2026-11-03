@@ -22,10 +22,11 @@ function parsePoint(text, { isEnd }) {
 /**
  * „mar 2022 – obecnie · 2 lata 8 mies.” → {start: "2022-03", end: null, current: true}
  * „Jan 2018 - Dec 2021 · 4 yrs” → {start: "2018-01", end: "2021-12", current: false}
+ * Recruiter rozdziela czas trwania znakiem „•”: „Jan 2013 – Jun 2018 • 5 yrs”.
  * Zwraca null, gdy linia nie jest zakresem dat.
  */
 export function parseDateRange(line) {
-  const range = clean(line).split("·")[0].trim();
+  const range = clean(line).split(/[·•]/)[0].trim();
   const parts = range.split(/\s+[–—-]\s+|\s*[–—]\s*/);
   if (parts.length === 1) {
     const single = parsePoint(parts[0], { isEnd: false });

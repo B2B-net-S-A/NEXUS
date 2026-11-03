@@ -28,6 +28,8 @@ def _registry_names() -> list[str]:
             ast.unparse(t) == "app.state.background_tasks" for t in node.targets
         ):
             assert isinstance(node.value, ast.Dict)
+            if not node.value.keys:  # pusty słownik startowy przed przejęciem pętli
+                continue
             return [k.value for k in node.value.keys if isinstance(k, ast.Constant)]
     raise AssertionError("nie znaleziono rejestru app.state.background_tasks w main.py")
 

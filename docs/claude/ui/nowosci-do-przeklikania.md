@@ -48,6 +48,13 @@ Nowość ma więc wejść w drogę pracy i zaliczać się z pracy.
   wolno wykonać naprawdę (zapis zakończenia kontraktu), ma `ack: true`
   i przechodzi przyciskiem „Rozumiem”. Kotwica bez elementu we froncie
   oznacza czerwony test frontu.
+- **Podświetlenie to prawdziwy, widoczny element (zgłoszenie Artura, 02.11.2026).**
+  Pozycję mierzymy na żywo, nigdy ze zrzutu ani ze stałych pikseli. Sam rozmiar
+  elementu nie wystarcza, bo ludzie mają różne okna: przy 1280 × 650 krok bywał
+  poza ekranem, a przy otwartym panelu wycięcie świeciło na puste pole. Dlatego
+  krok raz przewija do elementu, wycięcie obejmuje tylko widoczną część, z wielu
+  elementów bierze widoczny, a element pod panelem nie dostaje podświetlenia,
+  tylko komunikat. Pomiar na stagingu robi nocny Tester.
 - **Odbiorcy:** `audience.roles` albo `audience.permissions` (wystarczy jedno,
   pusto = wszyscy). Przycisk widoczny dla uprawnienia opisujesz uprawnieniem.
   Nowość żyje 45 dni (`active_days`), a panel pokazuje ją do 90 dni.

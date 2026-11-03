@@ -403,3 +403,35 @@ def test_sampling_is_normalized_after_fallback_selection(monkeypatch):
     )
     assert seen[0]["extra_body"]["temperature"] == 0
     assert "extra_body" not in seen[1]
+
+
+def test_fallback_from_sonnet_55_goes_back_to_disabled_thinking(monkeypatch):
+    seen = _install(monkeypatch, [_FakeErr(529), _FakeMessage()])
+    call_claude(
+        messages=[{"role": "user", "content": "synthetic"}],
+        model="claude-sonnet-5-5",
+        fallback_models=["claude-sonnet-5"],
+        max_tokens=64,
+        api_key="synthetic",
+        max_retries=0,
+    )
+    assert seen[0]["thinking"] == {"type": "between_tools"}
+    assert seen[1]["thinking"] == {"type": "disabled"}
+
+
+def test_system_cache_can_ask_for_the_one_hour_lifetime(monkeypatch):
+    seen = _install(monkeypatch, [_FakeMessage()])
+    call_claude(
+        messages=[{"role": "user", "content": "x"}],
+        model="a",
+        max_tokens=64,
+        api_key="k",
+        max_retries=0,
+        system="długie statyczne instrukcje",
+        cache_system=True,
+        cache_system_ttl="1h",
+    )
+    assert seen[0]["system"][0]["cache_control"] == {
+        "type": "ephemeral",
+        "ttl": "1h",
+    }

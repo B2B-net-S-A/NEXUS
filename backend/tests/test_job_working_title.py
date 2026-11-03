@@ -584,7 +584,7 @@ def test_reference_fill_phase_runs_after_the_title_fixes_and_never_stops_the_boo
     assert fix < fill
     phase = entrypoint[fill : entrypoint.index("\nPY\n", fill)]
     assert "fill_client_references_from_titles" in phase
-    assert "python - <<'PY' || echo" in phase
+    assert "<<'PY' || echo" in phase
     assert "exit" not in phase
 
 
@@ -616,7 +616,7 @@ def test_prose_fix_phase_follows_the_names_backfill_and_never_stops_the_boot() -
     phase = entrypoint[fix : entrypoint.index("\nPY\n", fix)]
     assert "recompute_auto_working_titles" in phase
     # Awaria loguje i idzie dalej — nigdy nie zatrzymuje startu.
-    assert "python - <<'PY' || echo" in phase
+    assert "<<'PY' || echo" in phase
     assert "exit" not in phase
 
 

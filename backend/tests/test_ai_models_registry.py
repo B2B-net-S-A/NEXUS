@@ -102,7 +102,7 @@ def test_legacy_claude_model_cv_drives_the_cv_parser_but_no_longer_mindy(monkeyp
 DECISION_2026_09_16 = {
     AIFeatureKey.scoring: ("F1", "claude-sonnet-5"),
     AIFeatureKey.champion_profile_parse: ("F2", "claude-sonnet-5"),
-    AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5"),
+    AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5-5"),
     AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
@@ -110,9 +110,9 @@ DECISION_2026_09_16 = {
     # po pomiarze, 25.09.2026 z powrotem na Sonneta (Luna 6 ciągle „niepewny”).
     AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
     AIFeatureKey.uop_check: ("F8", "gpt-6-luna"),
-    AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5"),
+    AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5-5"),
     # F10 — pomiar gpt-6-luna 22.09.2026 na 96 CV: nie gorsza od Sonneta.
-    AIFeatureKey.cv_backfill: ("F10", "gpt-6-luna"),
+    AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5-5"),
     AIFeatureKey.cv_name_backfill: ("F10", "gpt-6-luna"),
     # Ta sama robota co F10 (odczyt CV), więc ten sam model. Osobny klucz jest
     # po to, żeby dało się zgasić ścieżkę użytkownika bez nocnego syncu.
@@ -182,7 +182,7 @@ def _clear_model_overrides(monkeypatch):
         for name in choice.env_vars:
             monkeypatch.delenv(name, raising=False)
     # Legacy pola settings: domyślne z config.py (F7 = Sonnet 5 od 25.09.2026).
-    monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-sonnet-5")
+    monkeypatch.setattr(settings, "CLAUDE_MODEL_CV", "claude-sonnet-5-5")
     monkeypatch.setattr(settings, "CLAUDE_MODEL_CV_BULK", "claude-sonnet-5")
     monkeypatch.setattr(settings, "ORDER_PARSER_MODEL", "claude-sonnet-5")
 
@@ -227,9 +227,7 @@ def test_legacy_settings_defaults_agree_with_the_registry():
         AIFeatureKey.mindy_chat,
         AIFeatureKey.notes_extraction,
         AIFeatureKey.candidate_summary,
-        AIFeatureKey.cv_factual_verification,
         AIFeatureKey.champion_draft,
-        AIFeatureKey.cv_backfill,
         AIFeatureKey.cv_name_backfill,
         AIFeatureKey.screening_reassign_suggest,
         AIFeatureKey.academy_screening,
@@ -289,3 +287,45 @@ def test_retrieval_defaults_f16_voyage_3_and_f17_reranker_off():
 
     assert Settings.model_fields["VOYAGE_MODEL"].default == "voyage-3"
     assert Settings.model_fields["RERANKER_ENABLED"].default is False
+
+
+# Modele zapasowe po audycie z 02.11.2026: wybrane na danych produkcyjnych,
+# nie „najnowszy z brzegu”, stąd Haiku 5.5 przy profilach Championa
+# (recall MUST 89% wobec 72% Sonneta 5.5).
+FALLBACKS_2026_11_02 = {
+    AIFeatureKey.cv_parser: "claude-sonnet-5",
+    AIFeatureKey.cv_backfill: "claude-sonnet-5",
+    AIFeatureKey.order_parser: "claude-sonnet-5-5",
+    AIFeatureKey.cv_requirement_map: "claude-sonnet-5",
+    AIFeatureKey.job_description_generator: "claude-sonnet-5-5",
+    AIFeatureKey.cv_factual_verification: "claude-haiku-5-5",
+    AIFeatureKey.champion_profile_parse: "claude-haiku-5-5",
+    AIFeatureKey.scoring: "claude-haiku-5-5",
+    AIFeatureKey.cv_rule_lint: "claude-haiku-5-5",
+    AIFeatureKey.jarvis: "claude-haiku-5-5",
+    AIFeatureKey.job_public_description: "claude-haiku-5-5",
+    AIFeatureKey.plain_knowledge_research: "claude-haiku-5-5",
+    AIFeatureKey.cv_selection_edit: "claude-haiku-5-5",
+    AIFeatureKey.cv_editor_command: "claude-haiku-5-5",
+    AIFeatureKey.expense_document_read: "claude-haiku-5-5",
+    AIFeatureKey.interview_slots_from_mail: "claude-haiku-5-5",
+    AIFeatureKey.autofill_quality_report: "claude-haiku-5-5",
+    AIFeatureKey.requirement_word_hints: "claude-haiku-5-5",
+    AIFeatureKey.consent_screenshot_check: "claude-haiku-5-5",
+    AIFeatureKey.linkedin_message_draft: "claude-haiku-5-5",
+}
+
+
+@pytest.mark.parametrize(
+    "feature,expected",
+    FALLBACKS_2026_11_02.items(),
+    ids=[f.value for f in FALLBACKS_2026_11_02],
+)
+def test_fallbacks_match_the_2026_11_02_audit(monkeypatch, feature, expected):
+    _clear_model_overrides(monkeypatch)
+    assert ai_models.model_chain_for(feature)[-1] == expected
+
+
+def test_no_fallback_points_at_the_retired_haiku_generation():
+    for choice in ai_models._REGISTRY.values():
+        assert not any(m.startswith("claude-haiku-4") for m in choice.fallbacks)

@@ -10,6 +10,8 @@ Kontrakty:
 - osoby dodane przez zespół też się liczą; pełna kolumna = nic;
 - system nie dodaje: kogoś, kto był w tej rekrutacji, pominiętej propozycji,
   zatrudnionego, zgłoszenia z portalu, osoby na czarnej liście ani off-limits;
+- osoba z inną rolą niż rekrutacja nie dostaje karty także wtedy, gdy ma otwartą
+  propozycję i ≥ 80% „musi mieć” (propozycja zostaje, decyduje rekruter);
 - rekrutacja poza pracą nie dostaje nikogo; rytm: dni robocze 7–19, pełny
   przebieg co 15 min, a między nimi rekrutacje z ruchem karty.
 
@@ -61,14 +63,16 @@ async def _user() -> int:
         return user.id
 
 
-async def _world(people: int, *, work_state: str = "searching") -> dict:
+async def _world(
+    people: int, *, work_state: str = "searching", title: str | None = None
+) -> dict:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"NCF client {tag}")
         db.add(client)
         await db.flush()
         job = Job(
-            title=f"NCF job {tag}",
+            title=title or f"NCF job {tag}",
             client_id=client.id,
             status=JobStatus.published,
             work_state=work_state,
@@ -270,6 +274,127 @@ async def test_open_proposals_from_new_cvs_join_the_pool(monkeypatch):
     assert await _fill(world["job_id"]) == [from_cv, from_pool]
     processes = await _processes(world["job_id"])
     assert processes[from_cv].entry_meta["matched_must"] == ["Kotlin"]
+
+
+async def _titles(titles: dict[int, dict]) -> None:
+    async with AsyncSessionLocal() as db:
+        for cid, values in titles.items():
+            candidate = await db.get(Candidate, cid)
+            for name, value in values.items():
+                setattr(candidate, name, value)
+        await db.commit()
+
+
+def _proposal(job_id: int, cid: int, score: str, *, evidence=None) -> JobProposal:
+    return JobProposal(
+        job_id=job_id,
+        candidate_id=cid,
+        source="full_base",
+        score=Decimal(score),
+        status="proposed",
+        evidence=evidence or {},
+    )
+
+
+async def test_other_role_from_an_open_proposal_gets_no_card(monkeypatch):
+    """Propozycja z ≥ 80% „musi mieć” zostaje w oknie, ale karty bez człowieka
+    nie dostaje: pula odrzuca każdą inną rolę, propozycje szły obok niej."""
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    world = await _world(3, title="Tester manualny")
+    developer, tester, unknown = world["ids"]
+    await _titles(
+        {
+            developer: {"cv_extracted_data": {"current_position": "Pega Developer"}},
+            tester: {"cv_extracted_data": {"current_position": "Manual QA Engineer"}},
+            unknown: {"cv_extracted_data": {"current_position": "Konsultant"}},
+        }
+    )
+    all_met = {
+        "matched_must": ["SQL"],
+        "requirements": [{"name": "SQL", "level": "must", "status": "met"}],
+    }
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _proposal(world["job_id"], developer, "95", evidence=all_met),
+                _proposal(world["job_id"], tester, "70"),
+                _proposal(world["job_id"], unknown, "60"),
+            ]
+        )
+        await db.commit()
+
+    assert await _fill(world["job_id"]) == [tester, unknown]
+    async with AsyncSessionLocal() as db:
+        kept = await db.scalar(
+            select(JobProposal.status).where(
+                JobProposal.job_id == world["job_id"],
+                JobProposal.candidate_id == developer,
+            )
+        )
+    assert kept == "proposed"
+
+
+async def test_other_role_is_read_from_every_title_source(monkeypatch):
+    """Te same źródła tytułu co plakietka w oknie, bez pełnego wiersza osoby."""
+    world = await _world(4, title="Tester manualny")
+    from_linkedin, from_experience, from_cv, tester = world["ids"]
+    await _titles(
+        {
+            from_linkedin: {"linkedin_current_title": "Java Developer"},
+            from_experience: {"experience": [{"role": "Backend Developer"}]},
+            # Odczyt CV wygrywa z tytułem z LinkedIna, tak jak `current_position`.
+            from_cv: {
+                "cv_extracted_data": {"current_position": "Software Engineer"},
+                "linkedin_current_title": "QA Engineer",
+            },
+            tester: {
+                "cv_extracted_data": {"current_position": "QA Engineer"},
+                "linkedin_current_title": "Java Developer",
+            },
+        }
+    )
+    await _pool(
+        world["job_id"],
+        {from_linkedin: 90, from_experience: 85, from_cv: 80, tester: 50},
+    )
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=10)
+    assert [p.candidate_id for p in picks] == [tester]
+
+
+async def test_other_role_does_not_take_a_place_in_the_window():
+    """Limit liczy osoby, które system może dodać; inaczej czołówka z inną rolą
+    zjadłaby okno i zabrakłoby kogo dodać."""
+    world = await _world(5, title="Tester manualny")
+    developers, testers = world["ids"][:3], world["ids"][3:]
+    await _titles(
+        {
+            **{c: {"linkedin_current_title": "Java Developer"} for c in developers},
+            **{c: {"linkedin_current_title": "QA Engineer"} for c in testers},
+        }
+    )
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _proposal(world["job_id"], cid, str(95 - i))
+                for i, cid in enumerate(developers)
+            ]
+        )
+        await db.commit()
+    await _pool(world["job_id"], {testers[0]: 60, testers[1]: 50})
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=2)
+    assert [p.candidate_id for p in picks] == testers
+
+
+async def test_role_is_not_compared_when_the_recruitment_has_no_family():
+    world = await _world(1, title="Konsultant SAP")
+    person = world["ids"][0]
+    await _titles({person: {"linkedin_current_title": "Java Developer"}})
+    await _pool(world["job_id"], {person: 70})
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=5)
+    assert [p.candidate_id for p in picks] == [person]
 
 
 async def test_job_out_of_work_gets_nobody(monkeypatch):

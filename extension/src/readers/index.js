@@ -33,6 +33,11 @@ function combine(page, first, second) {
   const b = second?.profile || null;
   const sameOrUnknown = b?.full_name && (!a?.full_name || a.full_name.toLowerCase() === b.full_name.toLowerCase());
   const profile = mergeProfiles(a, sameOrUnknown ? b : null) || a || b;
+  // Sekcja „Summary” w Recruiterze ma w aria-hidden tylko plakietki i ułamki,
+  // więc czytnik HTML zwraca skrawek, gdy cały opis stoi w tekście strony.
+  if (page.kind === PAGE_KINDS.RECRUITER_PROFILE && sameOrUnknown && (b.about?.length || 0) > (profile.about?.length || 0)) {
+    profile.about = b.about;
+  }
   return { ...page, profile, missing: profile ? missingFields(profile) : [] };
 }
 

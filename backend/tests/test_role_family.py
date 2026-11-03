@@ -128,6 +128,72 @@ def test_no_mark_for_the_same_related_or_unknown_role(job_family, position):
     assert rf.role_mismatch(job_family, position) is None
 
 
+@pytest.mark.parametrize(
+    "job_family,position",
+    [
+        ("design", "UX Designer / Business Analyst"),
+        ("design", "Lead UX/UI Designer / Business Analyst"),
+        ("design", "IT Business Analyst / UX Designer"),
+        ("design", "UX/UI Designer / Front End Developer"),
+        ("design", "Product Designer & Business Analyst (Freelance)"),
+        ("design", "UX/UI Designer | Tester manualny"),
+        ("developer", "Junior Python Developer / Junior QA Automation Tester"),
+        ("developer", "Tester / Programista .Net"),
+        ("analyst", "QA Engineer, Business Analyst"),
+    ],
+)
+def test_mixed_title_naming_the_job_role_is_not_another_role(job_family, position):
+    """Staging 02.11.2026: `family_of` zwraca jedną rodzinę, więc „UX Designer /
+    Business Analyst” przy rekrutacji UX wychodził jako analityk."""
+    assert rf.role_mismatch(job_family, position) is None
+
+
+@pytest.mark.parametrize(
+    "job_family,position,family",
+    [
+        # Jedna rola, tylko tytuł z „Developer” albo „Engineer” w nazwie.
+        ("developer", "Software Developer in Test", "qa"),
+        ("developer", "Software Engineer II — Test", "qa"),
+        ("developer", "Software Engineer - QA Automation", "qa"),
+        # Część bez roli albo dopisek do poprzedniej części.
+        ("developer", "Senior Test Engineer/Developer", "qa"),
+        ("developer", "QA Engineer / Backend", "qa"),
+        ("developer", "QA/Back End Support", "qa"),
+        ("developer", "Software Test Engineer I | Backend Quality", "qa"),
+        ("design", "Manual Tester, UX", "qa"),
+        ("design", "UI/API Automation Tester", "qa"),
+        # Część o testach, choć brzmi jak inna rola.
+        ("developer", "Test Lead / Test Developer / QA Consultant", "qa"),
+        ("developer", "Software Tester, Test Analyst, Test Developer", "qa"),
+        ("devops", "Senior SDET / Test Platform Engineer", "qa"),
+        # Sam „Tech Lead” nie mówi, że to programista.
+        ("developer", "Tech Lead / Test Manager", "qa"),
+        # Tytuł mieszany, ale bez roli rekrutacji.
+        ("developer", "QA Engineer / Business Analyst", "qa"),
+        ("design", "Tester / Business Analyst", "qa"),
+    ],
+)
+def test_title_not_naming_the_job_role_stays_another_role(job_family, position, family):
+    found = rf.role_mismatch(job_family, position)
+    assert found is not None
+    assert found.family == family
+
+
+def test_clear_history_still_beats_a_mixed_title():
+    """Reguła z 27.10.2026: wyraźna historia wygrywa z CV, także z tytułem
+    nazywającym obie role."""
+    titles = ["Analityk Systemowy", "Business Analyst", "Analityk Biznesowy"]
+    found = rf.role_mismatch("design", "UX Designer / Business Analyst", titles)
+    assert found is not None
+    assert found.family == "analyst"
+
+
+def test_mixed_title_does_not_change_the_single_family():
+    """Rekrutacje i historia dalej dostają jedną rodzinę z `family_of`."""
+    assert rf.family_of("UX Designer / Business Analyst") == "analyst"
+    assert rf.family_of("UX/UI Designer | Tester manualny") == "qa"
+
+
 def test_long_position_is_shortened_in_the_detail():
     found = rf.role_mismatch("developer", "Senior QA Automation Engineer " + "x" * 80)
     assert found is not None

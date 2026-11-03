@@ -7,7 +7,6 @@ kopia SQL-a w teście przechodziłaby niezależnie od tego, co jest w skrypcie.
 
 from __future__ import annotations
 
-import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,29 +17,25 @@ from sqlalchemy import delete, text, update
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.models.m365 import Email, EmailDirection
+from app.services.m365.startup_reset import RESET_PENDING_SENDS_SQL
 from app.models.user import User, UserRole
 
 ENTRYPOINT = Path(__file__).resolve().parents[1] / "entrypoint.sh"
 
 
 def _reset_sql() -> str:
+    return RESET_PENDING_SENDS_SQL
+
+
+def test_reset_runs_when_taking_over_the_loops_not_at_container_start() -> None:
+    """Przy nakładaniu kontenerów start nie znaczy, że poprzednik nie żyje."""
     source = ENTRYPOINT.read_text(encoding="utf-8")
-    match = re.search(
-        r'"(UPDATE emails SET send_state=\'uncertain\' )"\s*'
-        r'"(WHERE send_state=\'pending\' )"\s*'
-        r'"(AND created_at < now\(\) - interval \'1 minute\')"',
-        source,
+    assert "send_state='uncertain'" not in source
+    main = (ENTRYPOINT.parent / "app" / "main.py").read_text(encoding="utf-8")
+    takeover = main.index("async def _on_background_leader_acquired")
+    assert main.index("reset_interrupted_m365_state", takeover) < main.index(
+        "_start_background_tasks()", takeover
     )
-    assert match, "brak resetu pending → uncertain w entrypoint.sh"
-    return "".join(match.groups())
-
-
-def test_reset_lives_in_the_m365_reset_phase() -> None:
-    source = ENTRYPOINT.read_text(encoding="utf-8")
-    phase = source.index('startup_phase "m365-sync-reset"')
-    reset = source.index("UPDATE emails SET send_state='uncertain'")
-    nxt = source.index("startup_phase", phase + 1)
-    assert phase < reset < nxt
 
 
 @pytest.mark.asyncio

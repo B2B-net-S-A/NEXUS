@@ -248,6 +248,94 @@ def test_parity_line_is_parsed():
         sync.parse_parity("traceback")
 
 
+class FakeCfg:
+    ssh_host = "operator@production.example"
+    ssh_identity = Path("/key")
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    monkeypatch.setattr(sync.time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(sync, "prod_container", lambda cfg, prefix: "a" * 64)
+
+
+def _clone_results(monkeypatch, results):
+    calls = []
+
+    def fake(arguments, *, timeout, what):
+        calls.append(timeout)
+        result = results.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(sync, "clone_step", fake)
+    return calls
+
+
+def test_dump_interrupted_by_deploy_is_retried(no_sleep, monkeypatch):
+    terminated = sync.SyncError(
+        "Zrzut produkcji: source_connection_terminated (exit 1)"
+    )
+    calls = _clone_results(monkeypatch, [terminated, terminated, "/copy/manifest.json"])
+    result = sync.dump_production(FakeCfg, NEW_DB, Path("/copy"))
+    assert result == Path("/copy/manifest.json")
+    assert len(calls) == 3
+
+
+def test_dump_gives_up_after_limited_attempts(no_sleep, monkeypatch):
+    errors = [
+        sync.SyncError("source_connection_closed") for _ in range(sync.DUMP_ATTEMPTS)
+    ]
+    calls = _clone_results(monkeypatch, errors)
+    with pytest.raises(sync.SyncError):
+        sync.dump_production(FakeCfg, NEW_DB, Path("/copy"))
+    assert len(calls) == sync.DUMP_ATTEMPTS
+
+
+def test_dump_other_error_is_not_retried(no_sleep, monkeypatch):
+    calls = _clone_results(monkeypatch, [sync.SyncError("source_no_space")])
+    with pytest.raises(sync.SyncError):
+        sync.dump_production(FakeCfg, NEW_DB, Path("/copy"))
+    assert len(calls) == 1
+
+
+def test_dump_retry_keeps_the_first_deadline(no_sleep, monkeypatch):
+    """Po terminie `dump_deadline` dałby kolejny dzień, a zrzut wszedłby w backup."""
+    moments = iter(
+        [
+            datetime(2026, 11, 3, 2, 14, tzinfo=timezone.utc),
+            datetime(2026, 11, 3, 2, 14, 30, tzinfo=timezone.utc),
+            datetime(2026, 11, 3, 2, 16, tzinfo=timezone.utc),
+        ]
+    )
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(moments)
+
+    monkeypatch.setattr(sync, "datetime", Clock)
+    calls = _clone_results(monkeypatch, [sync.SyncError("source_connection_reset")])
+    with pytest.raises(sync.SyncError, match="termin"):
+        sync.dump_production(FakeCfg, NEW_DB, Path("/copy"))
+    assert calls == [30]
+
+
+def test_missing_production_container_is_awaited(monkeypatch):
+    monkeypatch.setattr(sync.time, "sleep", lambda seconds: None)
+    answers = [sync.SyncError("0 zamiast 1"), sync.SyncError("0 zamiast 1"), "id"]
+
+    def fake(cfg, prefix):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(sync, "prod_container", fake)
+    assert sync.wait_for_prod_container(FakeCfg, "postgres-ocgkw") == "id"
+
+
 def test_refresh_waits_for_copy_and_passes_flags():
     script = (ROOT / "scripts/staging/refresh_code.sh").read_text()
     assert script.index("nightly-sync.pid") < script.index('git -C "$REPO" fetch')

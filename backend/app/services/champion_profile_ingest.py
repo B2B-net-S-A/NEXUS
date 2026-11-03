@@ -30,7 +30,7 @@ from starlette.concurrency import run_in_threadpool
 from app.models.job import Job
 from app.models.ai_feature import AIFeatureKey
 from app.services import champion_view
-from app.services.ai_models import model_for
+from app.services.ai_models import model_chain_for, model_for
 from app.services.champion_job_sync import fill_job_columns_from_champion
 
 logger = logging.getLogger(__name__)
@@ -154,10 +154,9 @@ async def parse_champion_document(
     """LLM parse tekstu profilu → dict schematu v3. Rzuca ValueError na śmieci.
 
     ``model`` nadpisuje model z rejestru dla jednego przebiegu (backfill
-    plików z Traffita idzie GPT Luną — decyzja Artura 22.09.2026). Model spoza
-    Anthropic dostaje Sonneta 5 jako zapas na 429/5xx, jak funkcje rejestru.
+    plików z Traffita idzie GPT Luną — decyzja Artura 22.09.2026). Przy 429/5xx
+    schodzi na resztę łańcucha z rejestru.
     """
-    from app.services.ai_models import SONNET_5
     from app.services.claude_client import call_claude
 
     if len(text) > max_chars:
@@ -166,7 +165,11 @@ async def parse_champion_document(
     msg = await run_in_threadpool(
         call_claude,
         model=chosen,
-        fallback_models=[SONNET_5] if chosen != SONNET_5 else None,
+        fallback_models=[
+            m
+            for m in model_chain_for(AIFeatureKey.champion_profile_parse)
+            if m != chosen
+        ],
         # Dokument ponad limit ekranu importu (backfill) niesie więcej pytań
         # i obowiązków do przepisania — 6000 tokenów ucięłoby odpowiedź.
         max_tokens=6000 if len(text) <= 14_000 else 12_000,

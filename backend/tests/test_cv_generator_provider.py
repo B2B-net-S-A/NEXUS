@@ -264,7 +264,7 @@ def test_system_prompt_is_cached_because_instructions_are_static(monkeypatch):
 
     analyze_with_ai("dane", "req-11", system="instrukcje")
 
-    assert seen[0]["system"][0]["cache_control"] == {"type": "ephemeral"}
+    assert seen[0]["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
 
 
 def test_thinking_is_pinned_off_and_can_be_restored_by_env(monkeypatch):

@@ -1,5 +1,5 @@
 # Inna rola niż rekrutacja — tester przy programiście (27.10.2026)
-<!-- indeks: `services/role_family.py`, `role_mismatch` w `proposal-facts`, plakietka „Inna rola”, „musi mieć X/Y”, nocny przegląd i pula „Nowych” bez innej roli poniżej 80% must -->
+<!-- indeks: `services/role_family.py`, `role_mismatch` w `proposal-facts`, plakietka „Inna rola”, „musi mieć X/Y”, nocny przegląd bez innej roli poniżej 80% must, pula i karty „Nowych” bez innej roli -->
 
 Zgłoszenie Delivery Leada: okno „Kandydaci do dodania” proponowało Senior QA
 Automation Engineera do „Full Stack Developer (Java, Angular)” z 77%, a osobę,
@@ -92,3 +92,79 @@ zostaje: inna rola nie wchodzi, ale jej miejsce zajmują kolejni, paczkami
   były poniżej dawnego ucięcia, dostają teraz miejsce w puli zamiast „Poniżej
   puli 150”. Pule odświeżają się z przeglądami (48 na noc), więc przez pierwsze
   noce po wdrożeniu migawki mieszają obie głębokości.
+
+## Dopisek 03.11.2026 — tytuł mieszany nazywający też rolę rekrutacji
+
+`family_of` zwraca jedną rodzinę, więc „UX Designer / Business Analyst” przy
+rekrutacji UX wychodził jako analityk, a „Junior Python Developer / Junior QA
+Automation Tester” przy Pythonie jako tester. `role_mismatch` nie oznacza już
+osoby, której tytuł z CV nazywa rolę rekrutacji osobną częścią.
+
+- **Części** rozdzielają `/ | & , + ;` i spójniki. Myślnik nie rozdziela
+  („Software Engineer - QA Automation” to jedna rola).
+- **Nie liczy się jako rola:** część z jednego słowa („Senior Test
+  Engineer/Developer”, „Manual Tester, UX”), część ze słowem „test” przy innej
+  rodzinie niż tester („Test Developer”, „Test Platform Engineer”) i programista
+  bez nazwy roli („Tech Lead”, „Backend Quality”).
+- **Bez zmian:** `family_of` dla rekrutacji i historii. Wyraźna historia dalej
+  wygrywa z CV także przy tytule mieszanym („Tester manualny | UX/UI Designer”
+  z 9 z 10 rekrutacji testerskich zostaje oznaczony).
+- **Cena:** kilka osób z „QA Engineer / Software Engineer” przy programiście traci
+  oznaczenie, bo tytuł nazywa obie role. Zasada ta sama co wyżej: lepiej brak
+  znaku niż zły znak.
+- **Pomiar przed i po (kopia z 02.11.2026):** otwarte propozycje 1 264 → 1 253
+  z 50 442 oznaczonych, w tym z ≥ 80% must 422 → 418; historia 154 → 153 z 13 815
+  par „zweryfikowany / wysłany / zatrudniony”; pule 59 rekrutacji: 12 nowych osób
+  (UX Designer 6, UX Researcher 2, Python Developer 4), 3 nowe osoby w 20 kartach.
+  Żadne oznaczenie nie doszło.
+
+## Dopisek 03.11.2026 — karty bez innej roli także z propozycji i starej puli
+
+Decyzja z 29.10 („karta bez człowieka = bez innej roli”) trzymała tylko
+w `refresh_autofill_pool`. `new_column_autofill.ranked_picks` łączy pulę
+z otwartymi propozycjami (`full_base`, `new_cv`), a przegląd publikuje
+propozycję osoby z inną rolą przy ≥ 80% „musi mieć” (`keeps_despite_role`).
+Do kart dochodziły też wiersze puli sprzed 29.10, które czekały na swój przegląd.
+
+- **Reguła:** `ranked_picks` odrzuca każdą osobę, którą `mismatches_for_job`
+  oznacza przy tej rekrutacji, bez wyjątku 80% i bez względu na źródło wiersza.
+  Czyta tylko kolumny tytułu (`_other_role_ids`), paczkami, a inna rola nie zajmuje
+  miejsca w oknie `_RULES_WINDOW`. Przy rekrutacji bez rozpoznanej roli nic nie
+  porównuje.
+- **Bez zmian:** propozycje w oknie zostają z plakietką, decyduje rekruter.
+  Karty już wstawione zostają. `_by_rules` nie zna roli, więc „Odcięci regułami”
+  w migawce „Wysłani” (`sent_vs_system`) liczy to samo co dotąd.
+- **Pomiar przed i po (kopia z 03.11.2026, 112 rekrutacji w pracy z rozpoznaną
+  rolą, 20 kart na rekrutację):** kart 2 130 → 2 130, z oznaczeniem 82 → 0 (26
+  rekrutacji), średni wynik 70,6 bez zmian. Poniżej 20 kart te same 6 rekrutacji
+  z tą samą liczbą kart. Nowych osób w kartach 84: 82 na miejsce innej roli i 2 przed
+  osobami z wyższym wynikiem, bo okno sięga teraz dalej, a `_by_rules` stawia osoby
+  bez ostrzeżeń przed osobami z ostrzeżeniem. `ranked_picks` łącznie 3,1 → 4,8 s na
+  112 rekrutacji.
+- **Skąd te 82:** 16 tylko z propozycji (13 `full_base`, 3 `new_cv`), 66 z wierszy
+  puli zapisanych 25–29.10. Żaden wiersz puli młodszy niż 29.10 nie niesie innej
+  roli, więc nowa reguła puli działa, tylko pula odświeża się w cyklu ok. 8 dni.
+  Wcześniejszy pomiar (6 z 720 kart) przebudowywał pulę w transakcji, dlatego
+  pokazał same propozycje.
+- **Prawdziwe karty (kopia z 02.11.2026):** `entry_source = "system"` z inną rolą
+  102 (104 bez wyjątku tytułu mieszanego z #2945). Wszystkie mają inną rolę już
+  przy historii sprzed dodania karty, więc to nie skutek późniejszych rekrutacji.
+  5 kart z 30.10–02.11 ma `run_id` i wynik co do setnej z otwartej propozycji
+  `full_base` z ≥ 80% must, w puli ich nie ma.
+
+## Rola nieznana w 20 kartach „Nowych” (pomiar 03.11.2026)
+
+Reguła „nieznana rola = bez oznaczenia” zostaje. Po sięgnięciu puli głębiej
+(02.11) sprawdzone, ile takich osób dochodzi do kart: `ranked_picks` + `_by_rules`
++ `_allowed`, 36 rekrutacji w pracy z rozpoznaną rolą.
+
+- **Udział:** 111 z 720 kart (15,4%), przy dawnej puli 114 z 706 (16,1%). Na
+  prawdziwych kartach z 23.10–02.11 tyle samo: 312 z 1 977 (15,8%). Głębsza pula
+  nie podniosła udziału, ale skupia się on w kilku rekrutacjach („Ferryt Developer”
+  14 z 20, „Python Developer” 7 z 20 wobec 3).
+- **Kto to:** większość pasuje, tylko klasyfikator nie zna tytułu („Senior Android
+  Engineer”, „Python Engineer”, „Release Manager” przy PM). Wyraźnie nie ta rola:
+  ok. 25 ze 112 (ręczna ocena tytułów).
+- **Los kart:** z tkniętych przez rekrutera dalej poszło 37 z 200 przy tej samej lub
+  pokrewnej roli (18,5%), 5 z 41 przy nieznanej (12,2%), 0 z 9 przy innej. 88% kart
+  nietkniętych, więc to dane z 10 dni, nie wyrok.

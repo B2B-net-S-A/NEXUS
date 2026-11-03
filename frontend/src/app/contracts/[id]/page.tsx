@@ -583,7 +583,7 @@ export default function ContractDetailPage() {
   const [error, setError] = useState("");
 
   // Fetch contract
-  const { data: contract, isLoading, isError } = useQuery<ContractDetail>({
+  const { data: contract, isLoading, isError, error: contractError } = useQuery<ContractDetail>({
     queryKey: ["contract", id],
     queryFn: () => contractsApi.get(id).then((r) => r.data),
     enabled: !Number.isNaN(id),
@@ -947,6 +947,8 @@ export default function ContractDetailPage() {
   }
 
   if (isError || !contract) {
+    // Kontrakt spoza zakresu osoby (403) to nie awaria: inny komunikat niż przy 5xx.
+    const contractViewState = resolveViewState({ isLoading: false, isError, error: contractError });
     return (
       <div className="p-6">
         <Link
@@ -955,7 +957,11 @@ export default function ContractDetailPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Wróć do listy
         </Link>
-        <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        {contractViewState === "forbidden" || contractViewState === "not_found" ? (
+          <QueryStateNotice state={contractViewState} className="mt-4" />
+        ) : (
+          <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        )}
       </div>
     );
   }
