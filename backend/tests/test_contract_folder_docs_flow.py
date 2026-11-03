@@ -67,7 +67,7 @@ class FakeSharePoint:
         async def resolve_folder(
             client: Any, url: str, *, folder_name: str = ""
         ) -> Any:
-            return sp.ResolvedFolder(DRIVE, ROOT, "Umowy osób")
+            return sp.ResolvedFolder(DRIVE, ROOT, "Umowy pracowników")
 
         async def list_person_files(client: Any, drive_id: str, root: str, **_: Any):
             return sp.FolderListing(
