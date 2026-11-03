@@ -46,7 +46,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   linii pytań (`screening_text_without_questions`).
 - **Branża tylko ze źródła (D1).** Schemat promptu: branża tylko, gdy CV ją
   opisuje; brak = pusty string. `_normalize_candidate_data` nie wpisuje już
-  „IT”; blind drukuje wtedy samo „Firma”.
+  „IT”; blind drukuje wtedy samo „Firma”. Branża nie stoi obok nazwy firmy
+  w dokumencie (decyzja Artura 03.11.2026, po zgłoszeniu z zespołu): szablon
+  HTML doklejał `firma · branża` i przez edytor trafiało to do zatwierdzonego
+  Worda, a Word prosto z generatora drukował samą firmę. Pole `industry`
+  zostaje w danych, bo korzysta z niego blind („Firma z branży X”). Istniejące
+  szkice i zatwierdzone CV zostały bez zmian; branżę kasuje w nich rekruter.
 - **Nagłówek = nazwa roli od klienta (D2).**
   `job_working_title.cv_role_title(title, client_reference, client_names)`
   zdejmuje prefiks klienta (`job_public_profile._strip_client_prefix`), numer
