@@ -754,8 +754,8 @@
         "anchor": "hr.my_time.leave_list"
       },
       {
-        "q": "Jak szybko wypełnić miesiąc godzin?",
-        "a": "Pusty dzień wpiszesz w wierszu: godziny i opis, potem „Wpisz”. Wszystkie puste dni naraz — „Wypełnij puste dni…” nad siatką: godziny dziennie (najwyżej 8), opis i projekt. Dni z wpisem, weekendy, święta i nieobecności zostają. Szablony i „Wypełnij miesiąc…” są w „Więcej”. Gotowy miesiąc wyślij przyciskiem „Wyślij do…” pod siatką.",
+        "q": "Jak wypełnić i poprawić miesiąc godzin?",
+        "a": "Pusty dzień wpisz w wierszu, a wszystkie puste dni naraz przez „Wypełnij puste dni…” (najwyżej 8 h dziennie). Wpisane dni, weekendy, święta i nieobecności zostają, a pół dnia dostaje 4 h. Gotowy miesiąc wyślij przyciskiem pod siatką. Wysłany, którego nikt jeszcze nie przyjął, cofniesz przez „Wycofaj i popraw”.",
         "anchor": "hr.my_time.month_actions"
       },
       {
@@ -789,7 +789,7 @@
       {
         "id": "hr.my_time.month_actions",
         "label": "Akcje miesiąca",
-        "describe": "Szablony opisów, kopiowanie opisów, „Wypełnij miesiąc…”, wysyłka i PDF."
+        "describe": "Szablony opisów, kopiowanie opisów, „Wypełnij miesiąc…”, wysyłka, „Wycofaj i popraw” i PDF."
       },
       {
         "id": "hr.my_time.archive",
@@ -828,7 +828,7 @@
       },
       {
         "q": "Jak przyjąć timesheet?",
-        "a": "W „Raportach godzin” wybierz miesiąc strzałkami, a chipem status, np. „Do akceptacji”. Otwórz „Podgląd” i kliknij „Akceptuj” albo „Zwróć” z notatką; przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Kadry i „Raporty godzin”.",
+        "a": "W „Raportach godzin” wybierz miesiąc i status, otwórz „Podgląd”. Godziny poprawisz, klikając godziny albo opis dnia. „Akceptuj” przyjmuje, „Zwróć” z notatką odsyła, przyjęty cofniesz „Cofnij akceptację”. Przy szkicu i braku raportu „Przypomnij” wysyła przypomnienie (raz dziennie). Całą firmę przyjmują Kadry i „Raporty godzin”.",
         "anchor": "hr.approvals.timesheets"
       },
       {

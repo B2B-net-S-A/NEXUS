@@ -361,6 +361,17 @@ z odnośnikiem `hr_documents.leave_request_id`.
   blokada pełnego dnia urlopu, „Wypełnij miesiąc” ≤ 8 h dziennie.
 - Przejścia: szkic → wysłany → zaakceptowany; zwrot do szkicu z notatką; cofnięcie
   akceptacji. Nikt nie akceptuje własnego timesheetu (CHECK `approved_by <> user_id`).
+- **„Wycofaj i popraw”** (decyzja Artura 03.11.2026, makiety:
+  https://claude.ai/artifact/UpVkY1wB3yqT7yMpM8v725): osoba cofa własny wysłany raport
+  do szkicu, dopóki nikt go nie przyjął (`time_flow.withdraw`, przyjęty i zamknięty
+  w płacach = 409, ślad `timesheet_withdrawn`, dzwonek do akceptujących). Powód: osoba
+  po wysłaniu nie miała żadnej akcji, a poprawka jednego dnia szła wiadomością do koordynatora.
+- **Pół dnia i za dużo godzin widać** (`overLeaveLimit`, `LeaveLimitNotice`): wpis
+  sprzed #2764 (28.10.2026) zostaje, bo skracanie działa tylko przy nowym zgłoszeniu.
+  W całej firmie od września był jeden taki dzień; poprawia się go ręcznie, „Skróć do 4 h”.
+  Godziny ponad limit z uzasadnieniem to nadgodziny, nie ten przypadek. Wpis otwiera
+  kliknięcie w opis albo godziny; plus dokłada nowy wpis, więc na pełnym dniu pole
+  godzin jest puste, bo podpowiedź 8 h kończyła się odmową „przekroczyłaby 16 h”.
 - **`pdf_hash` = funkcja Compassa co do bajtu** (`time_hash.py`, sortowanie jak
   w JavaScripcie, `toFixed(2)`). Zmiana algorytmu = każdy zaimportowany PDF zgłosi
   rozbieżność. Wektory w `tests/test_hr_time_hash.py` policzono kodem Compassa.

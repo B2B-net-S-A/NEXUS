@@ -178,3 +178,38 @@ describe("EntryDialog — godziny bez limitu z kartoteki", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 });
+
+describe("EntryDialog: nowy wpis na dniu bez wolnych godzin", () => {
+  const halfDay = {
+    ...DAY,
+    leave: { full: false, label: "Przerwa w świadczeniu usług" },
+    entries: [BASE],
+    hours: 8,
+    capacity: 4,
+    overtime_hours: 4,
+  } as MonthDay;
+
+  function renderNew(day: MonthDay) {
+    render(
+      <EntryDialog
+        open
+        onOpenChange={() => undefined}
+        day={day}
+        entry={null}
+        allowOvertime
+        onSave={vi.fn(async () => undefined)}
+      />,
+    );
+  }
+
+  it("pole godzin puste, bo podpowiedź 8 h kończyła się odmową serwera; słowo z formy osoby", () => {
+    renderNew(halfDay);
+    expect(screen.getByLabelText("Godziny")).toHaveValue("");
+    expect(screen.getByText(/Pół dnia: przerwa w świadczeniu usług/)).toBeInTheDocument();
+  });
+
+  it("dzień z wolnymi godzinami podpowiada to, co zostało", () => {
+    renderNew({ ...halfDay, entries: [], hours: 0, overtime_hours: 0 });
+    expect(screen.getByLabelText("Godziny")).toHaveValue("4");
+  });
+});

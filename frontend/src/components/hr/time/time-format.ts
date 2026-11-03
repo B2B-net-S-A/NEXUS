@@ -68,6 +68,15 @@ export function canEditMonth(view: MonthView): boolean {
   return !ts || (ts.status === "draft" && !ts.payroll_locked);
 }
 
+/**
+ * Pół dnia nieobecności, a godzin więcej, niż zostawia: wpis sprzed zgłoszenia.
+ * Godziny ponad limit z uzasadnieniem to świadome nadgodziny, nie pomyłka.
+ */
+export function overLeaveLimit(day: MonthDay): boolean {
+  if (!day.leave || day.leave.full || day.capacity === null || day.capacity >= 8) return false;
+  return day.hours > day.capacity + 1e-9 && day.entries.every((entry) => !entry.is_overtime);
+}
+
 /** Dzień, w którym nie wpisuje się godzin (pełny urlop poza auto-wpisem). */
 export function isBlockedDay(day: MonthDay): boolean {
   return day.capacity === null;

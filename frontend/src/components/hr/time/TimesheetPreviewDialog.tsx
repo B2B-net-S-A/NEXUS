@@ -24,8 +24,15 @@ import { monthTitlePl, type YearMonth } from "@/lib/date-pl";
 import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { EntryDialog } from "./EntryDialog";
-import { MonthGrid } from "./MonthGrid";
-import { afterLeaveCancelNote, formatHours, isFirstLeaveDay, leaveTermForDay } from "./time-format";
+import { LeaveLimitNotice, MonthGrid } from "./MonthGrid";
+import {
+  afterLeaveCancelNote,
+  formatHours,
+  isFirstLeaveDay,
+  leaveTermForDay,
+  overLeaveLimit,
+} from "./time-format";
+import { useLeaveLimitFix } from "./use-leave-limit-fix";
 
 export interface TimesheetPreviewDialogProps {
   userId: number;
@@ -67,6 +74,7 @@ export function TimesheetPreviewDialog({
   const save = useSaveTeamEntry(userId, period.year, period.month);
   const remove = useDeleteTeamEntry();
   const [editor, setEditor] = useState<EditorState | null>(null);
+  const fixDay = useLeaveLimitFix(save, (day, entry) => setEditor({ day, entry }));
   const { showToast } = useToast();
   const canFixLeave = open && canEdit && leaveAccess;
   const history = useLeaveHistory({ status: null, user_id: userId }, canFixLeave);
@@ -142,6 +150,11 @@ export function TimesheetPreviewDialog({
               { id: "absence", label: "dni nieobecności", value: formatHours(view.totals.leave_days) },
               { id: "missing", label: "dni bez wpisów", value: view.totals.days_missing },
             ]}
+          />
+          <LeaveLimitNotice
+            days={view.days.filter(overLeaveLimit)}
+            onFix={editable ? fixDay : undefined}
+            busy={save.isPending}
           />
           <MonthGrid
             view={view}
