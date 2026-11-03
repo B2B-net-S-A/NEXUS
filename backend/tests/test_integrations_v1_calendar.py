@@ -123,6 +123,31 @@ def test_no_late_preps_after_an_interview_that_already_happened():
     assert on_time == [] and late == []
 
 
+def test_two_entries_of_one_interview_share_its_preps():
+    """Zgłoszenie 03.11.2026: rozmowa wpisana dwa razy na tę samą godzinę to
+    jedna runda — drugi wpis nie może zostać bez prepów."""
+    start = NOW - timedelta(hours=1)
+    entries = [(10, start), (11, start)]
+    preps = [
+        _prep(1, start - timedelta(days=4), prep_no=1),
+        _prep(2, start - timedelta(hours=1), prep_no=2),
+    ]
+    for event_id in (10, 11):
+        on_time, late = reads.split_round_preps(entries, preps, event_id, NOW)
+        assert [p.id for p in on_time] == [1, 2]
+        assert late == []
+
+
+def test_late_prep_counts_for_every_entry_of_one_interview():
+    start = NOW + timedelta(days=2)
+    entries = [(10, start), (11, start)]
+    preps = [_prep(1, start + timedelta(days=1), prep_no=1)]
+    for event_id in (10, 11):
+        on_time, late = reads.split_round_preps(entries, preps, event_id, NOW)
+        assert on_time == []
+        assert [p.id for p in late] == [1]
+
+
 def test_cancelled_or_unknown_interview_has_no_preps():
     assert reads.split_round_preps([], [_prep(1, NOW)], 10, NOW) == ([], [])
 

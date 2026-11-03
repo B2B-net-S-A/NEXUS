@@ -6,8 +6,8 @@ i rundy liczą te same funkcje co ekran „Rozmowy u klienta” i plakietka na
 Tablicy (``services/interview_cycle``: ``load_snapshots``, ``compute_steps``,
 ``compute_badge`` + ``badge_phase``, ``assign_prep_ordinals``; zamknięcie
 rundy — ``debrief_gate.debrief_closes_round``). Ten moduł niczego nie liczy
-po swojemu poza wyborem prepów jednej rozmowy (lustro ``_round_preps``
-i ``_late_preps`` z ``load_snapshots``, które działają tylko na bieżącej rundzie).
+po swojemu: prepy jednej rozmowy wybierają ``preps_of_round``
+i ``late_preps_of_round``, te same co w ``load_snapshots``.
 
 Reguły, które łatwo cofnąć:
 
@@ -56,7 +56,9 @@ from app.services.interview_cycle import (
     compute_badge,
     compute_steps,
     current_step_key,
+    late_preps_of_round,
     load_snapshots,
+    preps_of_round,
 )
 
 #: Faza jednej rozmowy: przed końcem, okno telefonu, po oknie bez debriefu,
@@ -404,7 +406,7 @@ def split_round_preps(
 ) -> tuple[list[EventRef], list[EventRef]]:
     """``(prepy rundy, prepy po rozmowie)`` dla rozmowy ``event_id``.
 
-    ``interviews`` = nieodwołane rozmowy pary rosnąco po starcie. Lustro
+    ``interviews`` = nieodwołane rozmowy pary rosnąco po starcie. Reguły
     ``load_snapshots``: prep należy do rozmowy, przed którą wypada (a po
     poprzedniej); prep po OSTATNIEJ rozmowie, która jest jeszcze przed nami,
     to jej spóźniony prep. Numeracja jak na ekranie: prepy rundy osobno,
@@ -414,16 +416,9 @@ def split_round_preps(
     if event_id not in ids:
         return [], []
     index = ids.index(event_id)
-    iv_start = _utc(interviews[index][1])
-    prev_start = _utc(interviews[index - 1][1]) if index > 0 else None
-    on_time = [
-        p
-        for p in preps
-        if p.start <= iv_start and (prev_start is None or p.start > prev_start)
-    ]
-    late: list[EventRef] = []
-    if index == len(ids) - 1 and iv_start > now:
-        late = [p for p in preps if p.start > iv_start]
+    starts = [_utc(start) for _iid, start in interviews]
+    on_time = preps_of_round(preps, starts, index)
+    late = late_preps_of_round(preps, starts, index, now)
     late_ids = {p.id for p in late}
     late_numbered = [
         p for p in assign_prep_ordinals([*on_time, *late]) if p.id in late_ids
