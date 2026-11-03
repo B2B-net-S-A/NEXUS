@@ -34,6 +34,7 @@ export const SOURCE_METRICS: { key: SourceMetric; label: string; means: string }
   { key: "people", label: "Osoby", means: "Każda osoba, która w tym okresie zgłosiła się z tego źródła." },
   { key: "applications", label: "Zgłoszenia", means: "Osoby ze zgłoszeniami w okresie. Jedna osoba może mieć kilka zgłoszeń." },
   { key: "fresh", label: "Nowi w bazie", means: "Osoby, których przed tym zgłoszeniem nie było w NEXUSIE." },
+  { key: "known", label: "Już w bazie", means: "Osoby, które były w NEXUSIE przed tym zgłoszeniem." },
   { key: "in_process", label: "W rekrutacji", means: "Osoby z ruchem na Tablicy po zgłoszeniu, poza etapem „Z ogłoszenia”." },
   { key: "verified", label: "Zweryfikowani", means: "Osoby, które po zgłoszeniu doszły do etapu „Zweryfikowany”." },
   { key: "cv_sent", label: "CV wysłane", means: "Osoby, których CV po zgłoszeniu poszło do klienta." },

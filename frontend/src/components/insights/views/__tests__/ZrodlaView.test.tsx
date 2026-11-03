@@ -56,6 +56,7 @@ const counts = (people: number, cv_sent = 0) => ({
   people,
   applications: people + 1,
   fresh: 1,
+  known: Math.max(people - 1, 0),
   in_process: 1,
   verified: 0,
   cv_sent,
@@ -137,6 +138,15 @@ describe("ZrodlaView", () => {
     expect(screen.queryByTestId("sources-cell-jjit:people")).toBeNull();
     expect(within(panel).getByRole("button", { name: /Pokaż więcej/ })).toBeTruthy();
     expect(within(panel).getByRole("button", { name: /Eksportuj/ })).toBeTruthy();
+  });
+
+  it("„Już w bazie” otwiera osoby znane przed zgłoszeniem", async () => {
+    sourcePeople.mockResolvedValue({ total: 199, total_applications: 199, rows: [] });
+    renderView();
+    fireEvent.click(await screen.findByTestId("sources-cell-pracuj:known"));
+    const panel = await screen.findByTestId("sources-people-panel");
+    expect(within(panel).getByText("Już w bazie: 199")).toBeTruthy();
+    expect(sourcePeople.mock.calls[0][1]).toMatchObject({ source: "pracuj", metric: "known" });
   });
 
   it("gdy lista różni się od liczby, panel pisze obie", async () => {

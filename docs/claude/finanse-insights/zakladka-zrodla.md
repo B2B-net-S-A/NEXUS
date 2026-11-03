@@ -24,6 +24,11 @@ Kod: `api/insights_sources.py`, `services/insights_sources.py`, front
   pierwszym zgłoszeniu w oknie osoba doszła do CV, w dowolnej rekrutacji. Ściślejszy pomiar
   da się zrobić tylko dla par z auto-matchem (`integration_run_events.matched_jobs`):
   staging 12.10–02.11 daje 9 CV zamiast 68 dla Pracuj.pl. Stąd „Jak liczymy?” przy tabeli.
+- **„Nowi w bazie” i „Już w bazie” to dwie strony tej samej flagi** (decyzja Artura 03.11.2026,
+  pytanie o duble). Na portalu nowy = założony najpóźniej 10 minut przed pierwszym
+  zgłoszeniem w oknie, więc obie kolumny sumują się do „Osoby”. Na linku flaga idzie po
+  zgłoszeniu (`was_duplicate`), więc sumują się do „Zgłoszenia”. Kafel „Duplikaty” w stanie
+  scraperów to co innego: zgłoszenia rozpoznane przy imporcie.
 - **Stempel `max(first_reached_at)`, nie `min`:** `analytics_first_milestones` ma wiersz na
   parę, a osoba zweryfikowana rok temu w innej rekrutacji i znowu po zgłoszeniu ma się
   liczyć. Etap sprzed zgłoszenia się nie liczy.

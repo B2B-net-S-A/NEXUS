@@ -178,6 +178,7 @@ async def test_portal_counts_only_stages_after_the_application() -> None:
     assert pracuj["people"] == 3
     assert pracuj["applications"] == 4
     assert pracuj["fresh"] == 1
+    assert pracuj["known"] == 2
     assert pracuj["in_process"] == 1
     assert pracuj["verified"] == 1
     assert pracuj["cv_sent"] == 1
@@ -262,6 +263,7 @@ async def test_people_list_matches_the_number_on_every_level() -> None:
             "people",
             "applications",
             "fresh",
+            "known",
             "in_process",
             "cv_sent",
             "hired",

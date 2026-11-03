@@ -347,6 +347,7 @@ export type SourceMetric =
   | "people"
   | "applications"
   | "fresh"
+  | "known"
   | "in_process"
   | "verified"
   | "cv_sent"

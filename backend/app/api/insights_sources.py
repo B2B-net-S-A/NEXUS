@@ -63,7 +63,7 @@ async def insights_sources_table(
 ) -> dict[str, Any]:
     """Portale i strona kariery z tym samym lejkiem."""
     resolved, since, until = _window(period, offset, anchor, date_from, date_to)
-    cache_key = f"insights:sources:v1:{resolved.cache_suffix}"
+    cache_key = f"insights:sources:v2:{resolved.cache_suffix}"
     async with cache_single_flight(cache_key, db=db):
         cached = await cache_get(cache_key)
         if cached is not None:

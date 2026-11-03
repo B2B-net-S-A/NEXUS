@@ -65,6 +65,7 @@ _STAGE_RANK = [
 
 _COUNTS = """
     count(*) FILTER (WHERE fresh) AS fresh,
+    count(*) FILTER (WHERE NOT fresh) AS known,
     count(*) FILTER (WHERE in_process) AS in_process,
     count(*) FILTER (WHERE verified) AS verified,
     count(*) FILTER (WHERE cv_sent) AS cv_sent,
@@ -76,6 +77,7 @@ _METRIC_WHERE = {
     "people": "TRUE",
     "applications": "TRUE",
     "fresh": "flags.fresh",
+    "known": "NOT flags.fresh",
     "in_process": "flags.in_process",
     "verified": "flags.verified",
     "cv_sent": "flags.cv_sent",
@@ -188,6 +190,7 @@ def _row_counts(row: Any) -> dict[str, int]:
         "people": int(row.people or 0),
         "applications": int(row.applications or 0),
         "fresh": int(row.fresh or 0),
+        "known": int(row.known or 0),
         "in_process": int(row.in_process or 0),
         "verified": int(row.verified or 0),
         "cv_sent": int(row.cv_sent or 0),
@@ -199,6 +202,7 @@ _EMPTY_COUNTS = {
     "people": 0,
     "applications": 0,
     "fresh": 0,
+    "known": 0,
     "in_process": 0,
     "verified": 0,
     "cv_sent": 0,
