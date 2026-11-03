@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
-from typing import Iterable, Literal, Optional
+from typing import Iterable, Literal, Optional, Sequence
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, true
@@ -130,6 +130,39 @@ def assign_prep_ordinals(preps: list[EventRef]) -> list[EventRef]:
         taken.add(next_free)
         out.append(replace(p, ordinal=next_free))
     return sorted(out, key=lambda e: (e.ordinal or 99, e.start))
+
+
+def preps_of_round(
+    preps: Sequence[EventRef], starts: Sequence[datetime], index: int
+) -> list[EventRef]:
+    """Prepy rozmowy ``starts[index]`` (starty rosnąco): przed nią, a po
+    poprzedniej rundzie — te po niej należą do następnej rundy, te sprzed
+    poprzedniej do poprzedniej.
+
+    Rozmowa wpisana dwa razy na tę samą godzinę to jedna runda (zgłoszenie
+    03.11.2026): „poprzednia runda” kończyła się wtedy o tej samej godzinie,
+    więc po starcie rozmowy odbyte prepy dostawały „pominięte”.
+    """
+    iv_start = starts[index]
+    prev_start = max((s for s in starts[:index] if s < iv_start), default=None)
+    return [
+        p
+        for p in preps
+        if p.start <= iv_start and (prev_start is None or p.start > prev_start)
+    ]
+
+
+def late_preps_of_round(
+    preps: Sequence[EventRef], starts: Sequence[datetime], index: int, now: datetime
+) -> list[EventRef]:
+    """Prep po OSTATNIEJ zaplanowanej rozmowie pary nie ma innej rundy, do
+    której mógłby należeć — to spóźniony prep tej rozmowy. Między dwiema
+    rozmowami prep należy do następnej (``preps_of_round``), a po rozmowie, która
+    już się odbyła, do kolejnej rundy (jeszcze bez terminu)."""
+    iv_start = starts[index]
+    if iv_start < starts[-1] or iv_start <= now:
+        return []
+    return [p for p in preps if p.start > iv_start]
 
 
 @dataclass(frozen=True)
@@ -1088,32 +1121,7 @@ async def load_snapshots(
             return fb
         return None
 
-    def _round_preps(
-        preps: list[EventRef], evs: list[CalendarEvent], index: int
-    ) -> list[EventRef]:
-        # Prepy liczą się do TEJ rozmowy: te po niej należą do następnej rundy,
-        # te sprzed poprzedniej — do poprzedniej.
-        iv_start = _as_utc(evs[index].start_time)
-        prev_start = _as_utc(evs[index - 1].start_time) if index > 0 else None
-        return [
-            p
-            for p in preps
-            if p.start <= iv_start and (prev_start is None or p.start > prev_start)
-        ]
-
     now = _as_utc(now) if now is not None else datetime.now(timezone.utc)
-
-    def _late_preps(
-        preps: list[EventRef], evs: list[CalendarEvent], index: int
-    ) -> list[EventRef]:
-        # Prep po OSTATNIEJ zaplanowanej rozmowie pary nie ma innej rundy, do
-        # której mógłby należeć — to spóźniony prep tej rozmowy. Między dwiema
-        # rozmowami prep należy do następnej (``_round_preps``), a po rozmowie,
-        # która już się odbyła, do kolejnej rundy (jeszcze bez terminu).
-        iv_start = _as_utc(evs[index].start_time)
-        if index != len(evs) - 1 or iv_start <= now:
-            return []
-        return [p for p in preps if p.start > iv_start]
 
     for key, evs in interviews.items():
         # Runda 8 (R8-N9-3): runda do debriefu wg jednej reguły z
@@ -1130,13 +1138,14 @@ async def load_snapshots(
         current = evs[index]
         snap = snaps[key]
         all_preps = snap.preps
+        starts = [_as_utc(ev.start_time) for ev in evs]
         snap.interview = _event_ref(current)
-        snap.preps = _round_preps(all_preps, evs, index)
+        snap.preps = preps_of_round(all_preps, starts, index)
         if prep_index is not None and prep_index != index:
             snap.prep_interview = _event_ref(evs[prep_index])
-            snap.prep_round_preps = _round_preps(all_preps, evs, prep_index)
+            snap.prep_round_preps = preps_of_round(all_preps, starts, prep_index)
         if prep_index is not None:
-            snap.late_preps = _late_preps(all_preps, evs, prep_index)
+            snap.late_preps = late_preps_of_round(all_preps, starts, prep_index, now)
         fb = _debrief_of(current)
         if fb is not None:
             snap.debrief = DebriefRef(
