@@ -38,7 +38,11 @@ OLD_DB = "nexus_staging_20261102"
 
 
 def test_allowlist_reads_scoring_inputs_without_importing_backend():
-    assert set(ALLOWED) == set(_SCORING_CACHE_INPUTS) | set(sync.RANKING_POOL_FLAGS)
+    assert set(ALLOWED) == (
+        set(_SCORING_CACHE_INPUTS)
+        | set(sync.RANKING_POOL_FLAGS)
+        | set(sync.CLIENT_LIST_FLAGS)
+    )
 
 
 def test_every_allowed_flag_is_a_setting_and_is_passed_by_compose():
@@ -93,6 +97,28 @@ def test_flag_file_contains_only_allowed_names_and_simple_values():
 def test_value_that_is_not_simple_stops_the_run(value):
     with pytest.raises(sync.SyncError):
         sync.flag_lines({"VOYAGE_MODEL": value}, ALLOWED)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("12,15", "12,15"),
+        (" 12, 15 ,", "12,15"),
+        ("", ""),
+        # Literówka na produkcji wyłącza tam jednego klienta i nie może zatrzymać kopii.
+        ("12,abc", "12"),
+        ("12,13\nTRAFFIT_SYNC_ENABLED=true", "12"),
+    ],
+)
+def test_client_list_keeps_only_ids_like_settings_do(value, expected):
+    name = "MULTI_CONSULTANT_ORDER_CLIENT_IDS"
+    assert sync.flag_lines({name: value}, ALLOWED) == f"{name}={expected}\n"
+
+
+@pytest.mark.parametrize("value", [None, 12, ["12"]])
+def test_client_list_of_other_type_stops_the_run(value):
+    with pytest.raises(sync.SyncError):
+        sync.flag_lines({"COST_ORDER_CLIENT_IDS": value}, ALLOWED)
 
 
 def test_settings_snippet_filters_secrets_on_the_server():
