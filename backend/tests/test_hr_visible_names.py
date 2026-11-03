@@ -63,8 +63,12 @@ def test_old_names_do_not_come_back(relative: str) -> None:
         cleaned = line
         for allowed in ALLOWED:
             cleaned = cleaned.replace(allowed, "")
-        found.extend(f"{relative}:{number}: {name}" for name in OLD_NAMES if name in cleaned)
-    assert found == [], "Stare nazwy, słownik w docs/claude/ui/nazwy-wspolpracy-…:\n" + "\n".join(found)
+        found.extend(
+            f"{relative}:{number}: {name}" for name in OLD_NAMES if name in cleaned
+        )
+    assert found == [], (
+        "Stare nazwy, słownik w docs/claude/ui/nazwy-wspolpracy-…:\n" + "\n".join(found)
+    )
 
 
 def test_new_person_window_says_coordinator() -> None:
