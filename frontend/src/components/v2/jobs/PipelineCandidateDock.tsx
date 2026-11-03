@@ -81,7 +81,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
-import { PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
+import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -539,9 +539,6 @@ export interface PipelineCandidateDockProps {
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
-
-/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
-const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
 
 /**
  * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
@@ -1851,6 +1848,7 @@ export function PipelineCandidateDock({
               >
                 Profil <span aria-hidden="true">↗</span>
               </Link>
+              <PairOwnerCompact item={item} />
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
