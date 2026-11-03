@@ -5989,6 +5989,8 @@ export interface EmailMessage {
   candidate_id?: number | null;
   /** Stan wysyłki z NEXUSA: pending / sent / uncertain; null = z synchronizacji. */
   send_state?: "pending" | "sent" | "uncertain" | null;
+  /** Wysłane z NEXUSA; false także dla poczty wysłanej wprost z Outlooka. */
+  sent_from_nexus?: boolean;
   attachments?: EmailAttachmentPreview[];
 }
 

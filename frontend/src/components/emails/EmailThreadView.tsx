@@ -209,7 +209,7 @@ function ThreadMessageCard({
               <span className="text-xs text-muted-foreground">
                 {formatRelativeTime(email.received_at)}
               </span>
-              {email.direction === "sent" && (
+              {email.sent_from_nexus && (
                 <span className="rounded bg-primary/15 text-primary text-[10px] px-1.5 py-0.5">
                   Wysłane z ATS
                 </span>

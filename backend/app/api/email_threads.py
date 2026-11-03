@@ -84,6 +84,10 @@ class EmailOut(BaseModel):
     # INT-04: stan wysyłki z NEXUSA (pending/sent/uncertain; None = wiersz
     # z synchronizacji albo sprzed zmiany).
     send_state: Optional[str] = None
+    # Wysłane z NEXUSA (wiersz ma klucz wysyłki z ``m365/sender.py``). Sync
+    # zapisuje też pocztę wysłaną wprost z Outlooka, też z direction=sent;
+    # ``send_state`` tego nie rozróżnia, bo wysyłki sprzed 0342 mają tam NULL.
+    sent_from_nexus: bool = False
     attachments: list[AttachmentOut] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -241,6 +245,7 @@ def _to_email_out(email: Email) -> EmailOut:
         match_confidence=email.match_confidence,
         candidate_id=email.candidate_id,
         send_state=email.send_state,
+        sent_from_nexus=email.idempotency_key is not None,
         attachments=[],  # filled by callers that eager-load
     )
 
