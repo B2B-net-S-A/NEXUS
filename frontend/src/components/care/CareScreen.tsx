@@ -175,7 +175,8 @@ function CareTabs({ config }: { config: HrConfig }) {
   // albo filtrem kanbanu (`?card=`, `?filter=`) dalej otwierają kanban.
   const kanbanLink = Boolean(searchParams?.get("card") || searchParams?.get("filter"));
   const teamOpen = canSeeTeam(config);
-  const backOffice = config.open_modules.back_office;
+  // Bez miejsca w zespole serwer odmawia kolejce: ta osoba pracuje na kanbanie jak dotąd.
+  const backOffice = config.open_modules.back_office && config.me.back_office_member === true;
   const leadOpen = backOffice && canSeeBackOfficeLead(config);
   const leadTab = route.tab === "teams" || route.tab === "review";
   // Zakładki portalu konsultanta stoją za modułem `back_office`; serwer ma własne bramki.
@@ -274,7 +275,7 @@ function CareTabs({ config }: { config: HrConfig }) {
     ...(leadOpen
       ? [
           { value: "teams", label: "Zespoły" },
-          { value: "przeglad", label: "Przegląd przed startem" },
+          { value: "przeglad", label: "Przegląd" },
         ]
       : []),
   ];

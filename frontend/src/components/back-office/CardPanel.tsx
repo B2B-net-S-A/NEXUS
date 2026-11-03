@@ -266,7 +266,7 @@ export function CardPanel({ cardId, board, commands, onClose }: CardPanelProps) 
                       </Button>
                     ) : null
                   ) : null}
-                  {own && card.case_id != null && MAIL_SOURCES.has(card.case_source ?? "") ? (
+                  {own && board.me.cases_handler && card.case_id != null && MAIL_SOURCES.has(card.case_source ?? "") ? (
                     <Button size="sm" variant="outline" onClick={() => setDialog("reply")}>
                       Odpowiedz
                     </Button>

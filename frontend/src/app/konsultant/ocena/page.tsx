@@ -75,8 +75,9 @@ export default function ConsultantPortalRatingPage() {
       {state === "form" && form ? (
         <section className="mx-auto max-w-lg space-y-5">
           <div className="text-center">
-            <h1 className="text-xl font-semibold">Jak oceniasz rozmowę{form.host ? ` z ${form.host}` : ""}?</h1>
+            <h1 className="text-xl font-semibold">Jak oceniasz tę rozmowę?</h1>
             <p className="mt-1 text-sm text-muted-foreground">
+              {form.host ? `${form.host} · ` : ""}
               {slotLabel(form.start_at)} · {form.topic_label}
             </p>
           </div>

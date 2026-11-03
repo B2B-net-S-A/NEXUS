@@ -108,6 +108,8 @@ export interface BoBoard {
     name: string;
     teams: BoTeamId[];
     is_lead: boolean;
+    /** Uprawnienie „Sprawy”: zakłada sprawy i odpowiada na maile w sprawie. */
+    cases_handler: boolean;
     sees_amounts: boolean;
     in_progress: number;
     limit: number;
@@ -236,6 +238,15 @@ export function useBoSync() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: async () => (await api.post("/api/back-office/sync", {})).data,
+    onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
+  });
+}
+
+/** Karta nowej sprawy od razu, bez czekania na pętlę. Pełny przebieg ma tylko kierownik. */
+export function useBoSyncCases() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async () => (await api.post("/api/back-office/sync/cases", {})).data,
     onSettled: () => client.invalidateQueries({ queryKey: boKeys.all }),
   });
 }

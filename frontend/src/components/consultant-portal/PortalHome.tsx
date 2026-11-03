@@ -140,7 +140,7 @@ function RateDialog({ meeting, onClose }: { meeting: PortalMeeting; onClose: () 
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      title={`Jak oceniasz rozmowę${meeting.host ? ` z ${meeting.host}` : ""}?`}
+      title={meeting.host ? `Jak oceniasz rozmowę? (${meeting.host})` : "Jak oceniasz rozmowę?"}
     >
       <RatingFields busy={busy} error={error} onSubmit={submit} />
     </AppModal>

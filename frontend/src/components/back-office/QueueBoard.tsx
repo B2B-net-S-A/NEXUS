@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiErrorMessage } from "@/lib/api-error";
-import { useBoBoard, useBoSync, type BoBoard, type BoCard, type BoTeam } from "@/lib/api/back-office";
+import { useBoBoard, useBoSync, useBoSyncCases, type BoBoard, type BoCard, type BoTeam } from "@/lib/api/back-office";
 import { useUrlWriter } from "@/lib/url-selection";
 import { resolveViewState } from "@/lib/view-state";
 import { cn } from "@/lib/utils";
@@ -224,6 +224,7 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
   const { showToast } = useToast();
   const query = useBoBoard();
   const sync = useBoSync();
+  const syncCases = useBoSyncCases();
   const commands = useCardCommands();
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
@@ -363,9 +364,11 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreating(true)}>
-                Nowa sprawa
-              </Button>
+              {board.me.cases_handler ? (
+                <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreating(true)}>
+                  Nowa sprawa
+                </Button>
+              ) : null}
               {board.me.is_lead ? (
                 <Button
                   size="sm"
@@ -440,7 +443,7 @@ export function QueueBoard({ careStatusBoard }: QueueBoardProps) {
           onClose={() => write((next) => next.delete("karta"))}
         />
       ) : null}
-      {creating ? <CaseFormDialog open onOpenChange={setCreating} onCreated={() => sync.mutate()} /> : null}
+      {creating ? <CaseFormDialog open onOpenChange={setCreating} onCreated={() => syncCases.mutate()} /> : null}
     </div>
   );
 }

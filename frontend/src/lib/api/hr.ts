@@ -559,7 +559,8 @@ export function hrNavState(config: HrConfig | undefined, careRole = false): HrNa
     equipment: open.equipment && (me.equipment || me.is_admin),
     // Role opieki albo same sprawy administracja@ (`casesInCare`).
     care: open.care && (careRole || casesInCare(config)),
-    backOffice: open.back_office && (me.back_office_member === true || careRole || casesInCare(config)),
+    // Kolejka tylko dla członka zespołu (serwer: `BackOfficeMember`); reszta zostaje przy „Opiece”.
+    backOffice: open.back_office && me.back_office_member === true,
   };
 }
 

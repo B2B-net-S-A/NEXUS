@@ -99,7 +99,6 @@ describe("liczniki zakładek „Ludzie”", () => {
   it("odpowiedź w innym kształcie to błąd zapytania, nie liczba", () => {
     expect(parseHrCounts({ approvals: 2, cases: null })).toEqual({
       approvals: 2,
-      back_office: false,
       consents: null,
       cases: null,
     });

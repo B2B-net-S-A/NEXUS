@@ -729,7 +729,7 @@ export const NAV_PRIMARY_GROUPS: readonly {
   {
     key: "clients",
     title: "Klienci i umowy",
-    ids: ["sales", "clients", "contracts", "care", "finance"],
+    ids: ["sales", "clients", "contracts", "care", "back-office", "finance"],
   },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];

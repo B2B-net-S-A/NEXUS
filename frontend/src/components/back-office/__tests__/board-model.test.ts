@@ -129,7 +129,7 @@ describe("opis na karcie", () => {
 
   it("kierownik startuje od całości, zespół od swojej tablicy", () => {
     const teams = [{ id: "care", label: "Opieka", lanes: [] }] as never;
-    const me = { user_id: 1, name: "A", in_progress: 0, limit: 5, sees_amounts: false };
+    const me = { user_id: 1, name: "A", in_progress: 0, limit: 5, sees_amounts: false, cases_handler: false };
     expect(defaultTeam({ teams, me: { ...me, teams: [], is_lead: true } })).toBe("all");
     expect(defaultTeam({ teams, me: { ...me, teams: ["finance"], is_lead: false } })).toBe("finance");
   });

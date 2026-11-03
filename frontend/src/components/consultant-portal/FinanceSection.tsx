@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { FileText, Lock, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
   portalKeys,
   usePortalQuery,
   type PortalDocument,
+  type PortalFinanceStatus,
   type PortalMonth,
 } from "@/lib/api/consultant-portal";
 
@@ -25,6 +26,15 @@ function saveBlob(blob: Blob, name: string) {
   link.download = name;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+/** Odblokowanie wygasa po 30 minutach także w trakcie pracy: wtedy wraca pole kodu. */
+function codeExpired(client: QueryClient, failure: unknown): boolean {
+  if (!(failure instanceof PortalApiError) || failure.code !== "sms_required") return false;
+  client.setQueryData<PortalFinanceStatus>(portalKeys.financeStatus, (status) =>
+    status ? { ...status, verified: false } : status,
+  );
+  return true;
 }
 
 function VerifyCode({ hint, supportEmail }: { hint: string | null; supportEmail: string | null }) {
@@ -51,7 +61,10 @@ function VerifyCode({ hint, supportEmail }: { hint: string | null; supportEmail:
     setError(null);
     try {
       await portalApi.verifyCode(code);
-      await client.invalidateQueries({ queryKey: portalKeys.financeStatus });
+      await Promise.all([
+        client.invalidateQueries({ queryKey: portalKeys.financeStatus }),
+        client.invalidateQueries({ queryKey: portalKeys.finance }),
+      ]);
     } catch (failure) {
       setError(apiErrorMessage(failure, "Nie udało się sprawdzić kodu. Spróbuj ponownie."));
       setCode("");
@@ -123,6 +136,7 @@ function MonthRow({ row }: { row: PortalMonth }) {
       setMessage(answer.duplicate ? "Ten plik już mamy." : "Dokument przyjęty. Damy znać po sprawdzeniu.");
       await client.invalidateQueries({ queryKey: portalKeys.finance });
     } catch (failure) {
+      if (codeExpired(client, failure)) return;
       setError(apiErrorMessage(failure, "Nie udało się wysłać dokumentu. Spróbuj ponownie."));
     } finally {
       setBusy(false);
@@ -134,6 +148,7 @@ function MonthRow({ row }: { row: PortalMonth }) {
     try {
       saveBlob(await portalApi.downloadDocument(document_.id), document_.file_name ?? "dokument");
     } catch (failure) {
+      if (codeExpired(client, failure)) return;
       setError(apiErrorMessage(failure, "Nie udało się pobrać dokumentu."));
     }
   };
