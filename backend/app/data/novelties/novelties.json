@@ -818,5 +818,17 @@
     "href": "/insights",
     "section": "insights",
     "dot_anchor": "insights.tabs.sources"
+  },
+  {
+    "id": "oryginal-obok-cv-firmowego",
+    "title": "Oryginalne CV obok CV firmowego",
+    "why": "Jednym przyciskiem stawiasz oryginał po lewej, na pół ekranu, obok CV firmowego. Porównujesz je przy poprawianiu, w widoku „Jak u klienta” i w oknie stron z karty „CV do klienta”. Drugim kliknięciem chowasz oryginał.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → Edytuj CV → Pokaż oryginał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.edit"
   }
 ]

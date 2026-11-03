@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, type RefObject } from "react";
 
 /**
  * Ctrl+F / Cmd+F w podglądzie dokumentu ustawia kursor w polu „Szukaj w CV”
@@ -13,7 +13,14 @@ import { useEffect, useRef, type RefObject } from "react";
  *   skrót przejmujemy tylko, gdy kursor myszy albo fokus jest w podglądzie.
  *   W pozostałej części strony Ctrl+F działa jak zawsze. Gdy nad stroną jest
  *   otwarte okno, które nie zawiera tego podglądu, skrót należy do okna.
+ *
+ * Dwa dokumenty w jednym oknie (oryginał obok CV firmowego, 03.11.2026): skrót
+ * dostaje ten pod kursorem albo z fokusem, a gdy to nie żaden osadzony, ten
+ * z zakresem okna. Stąd dwa miejsca nasłuchu niżej.
  */
+// Podgląd pod kursorem, wspólny dla wszystkich podglądów na ekranie.
+let hoveredViewer: HTMLElement | null = null;
+
 export function isFindShortcut(event: KeyboardEvent): boolean {
   return (
     (event.ctrlKey || event.metaKey) &&
@@ -34,26 +41,24 @@ export function useDocumentFindShortcut({
   containerRef: RefObject<HTMLElement | null>;
   inputRef: RefObject<HTMLInputElement | null>;
 }): void {
-  const hoveredRef = useRef(false);
-
   useEffect(() => {
-    if (!enabled || scope !== "container") return;
+    if (!enabled) return;
     const container = containerRef.current;
     if (!container) return;
     const enter = () => {
-      hoveredRef.current = true;
+      hoveredViewer = container;
     };
     const leave = () => {
-      hoveredRef.current = false;
+      if (hoveredViewer === container) hoveredViewer = null;
     };
     container.addEventListener("pointerenter", enter);
     container.addEventListener("pointerleave", leave);
     return () => {
-      hoveredRef.current = false;
+      leave();
       container.removeEventListener("pointerenter", enter);
       container.removeEventListener("pointerleave", leave);
     };
-  }, [enabled, scope, containerRef]);
+  }, [enabled, containerRef]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -66,7 +71,10 @@ export function useDocumentFindShortcut({
       if (scope === "container") {
         const active = document.activeElement;
         const focusedInside = active != null && container.contains(active);
-        if (!focusedInside && !hoveredRef.current) return;
+        const hovered = hoveredViewer === container;
+        // Fokus zostaje w polu po szukaniu, więc kursor nad innym podglądem
+        // jest ważniejszy: porównuje się ten sam wyraz w obu dokumentach.
+        if (!hovered && (!focusedInside || hoveredViewer != null)) return;
         const openDialogs = Array.from(
           document.querySelectorAll('[role="dialog"][data-state="open"]'),
         );
@@ -79,8 +87,11 @@ export function useDocumentFindShortcut({
       input.select();
     };
     // Capture: pierwszeństwo przed innymi skrótami strony nasłuchującymi na
-    // `window` (np. paleta poleceń).
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    // `window` (np. paleta poleceń). Zdarzenie idzie w capture z `window` do
+    // `document`, więc osadzony podgląd, który wziął skrót (`stopPropagation`),
+    // wyprzedza podgląd z zakresem okna niezależnie od kolejności montowania.
+    const target = scope === "dialog" ? document : window;
+    target.addEventListener("keydown", onKeyDown as EventListener, true);
+    return () => target.removeEventListener("keydown", onKeyDown as EventListener, true);
   }, [enabled, scope, containerRef, inputRef]);
 }

@@ -185,7 +185,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(input);
@@ -200,7 +200,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).not.toBe(screen.getByRole("searchbox"));

@@ -49,6 +49,11 @@
  * rozwinięte przy blokadach) nad asystentem. Zmiany asystenta są od razu na
  * kartce, w jednym kroku cofania na wiadomość.
  *
+ * Oryginał obok CV firmowego (03.11.2026, wariant A): „Pokaż oryginał” stawia
+ * źródła po lewej, na pół ekranu, także w „Jak u klienta”. Domyślnie schowane,
+ * bo każde pobranie liczy się w alarmie masowego przeglądania. Raz pokazane
+ * zostają zamontowane, żeby chowanie nie pobierało pliku drugi raz.
+ *
  * D6 (14.10.2026): z propem `handoff` (karta na „Zweryfikowany”) stopka ma
  * „Uwaga dla Delivery Leada”, stan QC, „Gotowe” i „Gotowe, przekaż do DL →”.
  * Zapis jest ten sam co „Gotowe” (szkic, pola w nawiasach); ruch karty robi
@@ -63,9 +68,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEditor, EditorContent } from "@tiptap/react";
 import {
   Check,
-  FileText,
   History,
   Loader2,
+  PanelLeftClose,
+  PanelLeftOpen,
   Printer,
   Download,
   RefreshCcw,
@@ -331,7 +337,8 @@ function CVBrandedEditContent({
   // Jedna kolumna obok kartki (Edytor CV 3, PR 3): „Do poprawy” albo oryginał
   // („Oryginał” w nagłówku). `null` = domyślnie: oryginał tylko, gdy edytor
   // nie ma panelu „Do poprawy” (wynik generatora bez uwag).
-  const [sourcesChoice, setSourcesChoice] = useState<boolean | null>(null);
+  const [sourcesSide, setSourcesSide] = useState(false);
+  const [sourcesSeen, setSourcesSeen] = useState(false);
   const issuesFirst = initialPanel === "issues";
   const issuesRef = useRef<CvEditorIssuesHandle>(null);
   const [issueCount, setIssueCount] = useState<CvIssueCount>(NO_ISSUES);
@@ -756,7 +763,6 @@ function CVBrandedEditContent({
   });
   const historyOpen = history.open;
   const hasIssuesPanel = hasCv && (!isGenerated || generatorWarnings !== undefined);
-  const sourcesSide = sourcesChoice ?? !hasIssuesPanel;
   const pane =
     (narrowPane === "issues" && !hasIssuesPanel) ||
     (narrowPane === "history" && !historyOpen)
@@ -766,6 +772,7 @@ function CVBrandedEditContent({
   const takeover = historyOpen;
   const showHistory = historyOpen && (sideBySide || pane === "history");
   const showSources = hasCv && (sideBySide ? sourcesSide && !takeover : pane === "sources");
+  if (showSources && !sourcesSeen) setSourcesSeen(true);
   const showIssues = hasIssuesPanel && !takeover && (sideBySide ? !sourcesSide : pane === "issues");
   const showCv = sideBySide || pane === "cv" || !hasCv;
   useEffect(() => {
@@ -781,15 +788,15 @@ function CVBrandedEditContent({
     historyFirst.current = false;
     history.show();
   }, [history]);
-  // „Oryginał”: kolumna pokazuje oryginał zamiast „Do poprawy” (i odwrotnie);
-  // otwarta historia ustępuje oryginałowi.
+  // „Pokaż oryginał”: oryginał po lewej, a „Do poprawy” chowa się na ten czas
+  // (i odwrotnie); otwarta historia ustępuje oryginałowi.
   const toggleSources = () => {
     if (historyOpen) {
       history.close();
-      setSourcesChoice(true);
+      setSourcesSide(true);
       return;
     }
-    setSourcesChoice(!sourcesSide);
+    setSourcesSide(!sourcesSide);
   };
   // Bez liczby, dopóki QC się liczy; „?” gdy nie odpowiada — zero znaczy zero.
   const issuesLabel =
@@ -952,12 +959,16 @@ function CVBrandedEditContent({
                   aria-pressed={showSources}
                   // Asystent liczy zmiany — kolumna z jego odpowiedzią zostaje na miejscu.
                   disabled={assistant.locked}
-                  title="Oryginalne CV, Champion, odpowiedzi i notatki — źródła tego CV"
+                  title="Oryginalne CV po lewej, obok CV firmowego, razem z wymaganiami i notatkami"
                   className={cn(showSources && "bg-primary/10 text-primary hover:bg-primary/10")}
                   onClick={toggleSources}
                 >
-                  <FileText className="h-3.5 w-3.5 mr-1.5" aria-hidden />
-                  Oryginał
+                  {showSources ? (
+                    <PanelLeftClose className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                  ) : (
+                    <PanelLeftOpen className="h-3.5 w-3.5 mr-1.5" aria-hidden />
+                  )}
+                  {showSources ? "Schowaj oryginał" : "Pokaż oryginał"}
                 </Button>
               ) : null}
               {!isFinalized && data?.status === "draft" ? (
@@ -1011,6 +1022,15 @@ function CVBrandedEditContent({
           </p>}
 
           <div ref={setBody} className="flex min-h-0 flex-1">
+            {hasCv && sourcesSeen ? (
+              <aside
+                aria-label="Źródła CV"
+                hidden={!showSources}
+                className={cn("min-h-0 min-w-0 flex-1 bg-card", sideBySide && "border-r border-border")}
+              >
+                {sources}
+              </aside>
+            ) : null}
             <div
               hidden={!showCv}
               data-cv-lang={language}
@@ -1060,17 +1080,6 @@ function CVBrandedEditContent({
                 </>
               ) : null}
             </div>
-            {showSources ? (
-              <aside
-                aria-label="Źródła CV"
-                className={cn(
-                  "min-h-0 min-w-0 bg-card",
-                  sideBySide ? "w-[440px] flex-none border-l border-border" : "flex-1",
-                )}
-              >
-                {sources}
-              </aside>
-            ) : null}
             {hasIssuesPanel && editor && data ? (
               // Zamontowany także ukryty: liczy znaczniki na kartce i liczbę w pasku.
               <aside

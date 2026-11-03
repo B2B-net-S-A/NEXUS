@@ -7,7 +7,7 @@
  * z poleceniem. Sam panel: `cv-editor/__tests__/CvEditorHistory.test.tsx`.
  *
  * Edytor CV 3, PR 3: JEDNA kolumna obok kartki — „Do poprawy” albo oryginał
- * („Oryginał” w nagłówku); historia i plan zajmują ją na czas decyzji.
+ * („Pokaż oryginał” w nagłówku); historia i plan zajmują ją na czas decyzji.
  * „Pogrub wymagania (N)” w pasku woła poprawkę panelu, „Więcej” ma polecenie,
  * historię, „Pobierz PDF” i „Drukuj”.
  */
@@ -215,8 +215,12 @@ async function open(
 
 // Po etykiecie, nie po roli: przełącznik kolumny na wąskim ekranie też nazywa się „Do poprawy (N)”.
 const panel = () => screen.getByLabelText("Do poprawy", { selector: "aside" });
-const sourcesShown = () => screen.queryByLabelText("Źródła CV", { selector: "aside" }) != null;
-const original = () => screen.getByRole("button", { name: "Oryginał" });
+const sources = () => screen.queryByLabelText("Źródła CV", { selector: "aside" });
+const sourcesShown = () => {
+  const aside = sources();
+  return aside != null && !aside.hidden;
+};
+const original = () => screen.getByRole("button", { name: /(Pokaż|Schowaj) oryginał/ });
 
 beforeEach(() => {
   Object.assign(state, {
@@ -238,15 +242,23 @@ beforeEach(() => {
 
 afterEach(() => vi.restoreAllMocks());
 
-it("laptop 1280: obok kartki jedna kolumna „Do poprawy”; „Oryginał” zamienia ją na źródła i z powrotem", async () => {
+it("laptop 1280: oryginał domyślnie schowany; „Pokaż oryginał” stawia go po lewej zamiast „Do poprawy” i z powrotem", async () => {
   await open();
   await waitFor(() => expect(panel()).not.toHaveAttribute("hidden"));
-  expect(sourcesShown()).toBe(false);
+  // Niezamontowany, nie tylko ukryty: bez kliknięcia plik nie jest pobierany.
+  expect(sources()).toBeNull();
   expect(original()).toHaveAttribute("aria-pressed", "false");
+  expect(original()).toHaveTextContent("Pokaż oryginał");
 
   fireEvent.click(original());
   expect(sourcesShown()).toBe(true);
   expect(original()).toHaveAttribute("aria-pressed", "true");
+  expect(original()).toHaveTextContent("Schowaj oryginał");
+  // Po lewej od kartki i na pół ekranu (kartka też ma `flex-1`).
+  const paper = document.querySelector(".cv-paper") as HTMLElement;
+  expect(sources()!.compareDocumentPosition(paper) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(sources()).toHaveClass("flex-1", "border-r");
+  expect(sources()).not.toHaveClass("flex-none");
   // Panel zostaje zamontowany (liczy znaczniki i licznik), tylko go nie widać.
   expect(panel()).toHaveAttribute("hidden");
   expect(screen.getByTestId("issues")).toBeInTheDocument();
@@ -254,6 +266,8 @@ it("laptop 1280: obok kartki jedna kolumna „Do poprawy”; „Oryginał” zam
   fireEvent.click(original());
   expect(panel()).not.toHaveAttribute("hidden");
   expect(sourcesShown()).toBe(false);
+  // Schowany zostaje zamontowany: powrót nie pobiera pliku drugi raz.
+  expect(sources()).not.toBeNull();
 });
 
 it.each([
@@ -371,12 +385,13 @@ it("wynik generatora: panel tylko z uwagami z listy; bez nich nie ma panelu ani 
   expect(state.issuesProps.at(-1)).toMatchObject({ stageId: undefined, generatorWarnings: ["MUST-HAVE: brak."] });
 });
 
-it("wynik generatora otwarty bez uwag z listy (np. z okna QC): kolumnę zajmuje oryginał", async () => {
+it("wynik generatora otwarty bez uwag z listy (np. z okna QC): sama kartka, oryginał na przycisk", async () => {
   await open({ generatedId: 9 });
   expect(screen.queryByTestId("issues")).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /Do poprawy/ })).not.toBeInTheDocument();
+  expect(sources()).toBeNull();
+  fireEvent.click(original());
   expect(sourcesShown()).toBe(true);
-  // „Oryginał” chowa kolumnę — kartka zostaje sama.
   fireEvent.click(original());
   expect(sourcesShown()).toBe(false);
 });
@@ -424,7 +439,7 @@ it("laptop 1280: historia zajmuje kolumnę zamiast „Do poprawy”; zamknięcie
   expect(panel()).not.toHaveAttribute("hidden");
 });
 
-it("przy otwartej historii „Oryginał” zamyka ją i pokazuje oryginał", async () => {
+it("przy otwartej historii „Pokaż oryginał” zamyka ją i pokazuje oryginał", async () => {
   await open();
   fireEvent.click(await screen.findByRole("button", { name: "Historia wersji" }));
   expect(original()).toHaveAttribute("aria-pressed", "false");

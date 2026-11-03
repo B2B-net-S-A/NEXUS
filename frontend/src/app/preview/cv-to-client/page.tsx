@@ -65,6 +65,9 @@ async function loadStatic(path: string): Promise<{ blob: Blob; filename: string 
 }
 const loadPreviewFile = () => loadStatic(PREVIEW_FILE);
 const loadPreviewPages = () => loadStatic(PREVIEW_PAGES);
+const ORIGINAL_LOADERS = {
+  loadOriginalBlob: () => loadPreviewPages().then((file) => file.blob),
+};
 const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
@@ -462,6 +465,7 @@ function Harness() {
               lockedAfterSend={person.variant === "sent"}
               loadStageCvFile={loadPreviewFile}
               loadStageCvPdf={loadPreviewPages}
+              originalLoaders={ORIGINAL_LOADERS}
             />
           </section>
         ))}

@@ -2248,7 +2248,7 @@
   {
    "id": "cv.editor-fullscreen",
    "area": "cv",
-   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Pokaż oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Edytor CV do klienta",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw"
@@ -2272,10 +2272,10 @@
   {
    "id": "cv.editor-sources",
    "area": "cv",
-   "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "opis": "Źródła po lewej od kartki, na przycisk (03.11.2026): oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
    "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
    "marker": "Notatki",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Oryginał"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Pokaż oryginał"
   },
   {
    "id": "cv.editor-pages-preview",
