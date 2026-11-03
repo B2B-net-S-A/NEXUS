@@ -271,9 +271,14 @@ export function InsightsIntegrations() {
       )}
 
       <div>
-        <h3 className="text-sm font-semibold text-foreground mb-2">Ostatnie błędy</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-2">Niedokończone zgłoszenia</h3>
+        {data.resolved_error_count > 0 && (
+          <p className="text-sm text-muted-foreground mb-2">
+            Zgłoszenia z błędem dokończone później: {fmtNumber(data.resolved_error_count)}. Nie ma ich na liście.
+          </p>
+        )}
         {data.recent_errors.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Brak błędów w wybranym oknie.</p>
+          <p className="text-sm text-muted-foreground">Brak niedokończonych zgłoszeń w wybranym oknie.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -283,6 +288,7 @@ export function InsightsIntegrations() {
                   <th className="py-1.5 pr-3 font-medium">Źródło</th>
                   <th className="py-1.5 pr-3 font-medium">Kandydat</th>
                   <th className="py-1.5 pr-3 font-medium">Oferta</th>
+                  <th className="py-1.5 pr-3 font-medium" title="Nieudane próby w wybranym oknie, od ostatniego sukcesu">Próby</th>
                   <th className="py-1.5 font-medium">Błąd</th>
                 </tr>
               </thead>
@@ -301,12 +307,18 @@ export function InsightsIntegrations() {
                       )}
                     </td>
                     <td className="py-1.5 pr-3 max-w-[16rem] truncate" title={e.offer_title ?? ""}>{e.offer_title || "—"}</td>
+                    <td className="py-1.5 pr-3 tabular-nums">{e.attempts}</td>
                     <td className="py-1.5 text-rose-500 break-words">{e.error || "—"}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+        {data.unfinished_error_count > data.recent_errors.length && (
+          <p className="text-xs text-muted-foreground mt-2">
+            Pokazano {data.recent_errors.length} najnowszych z {fmtNumber(data.unfinished_error_count)}.
+          </p>
         )}
       </div>
     </section>
