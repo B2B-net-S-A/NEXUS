@@ -936,9 +936,13 @@ async def lifespan(app: FastAPI):
             ),
             "contract_alerts": asyncio.create_task(contract_alerts_loop()),
             # 0510: kto jest poza zakresem aplikacji prepów w Teams (do adminów).
-            "teams_prep_scope_alerts": asyncio.create_task(teams_prep_scope_alerts_loop()),
+            "teams_prep_scope_alerts": asyncio.create_task(
+                teams_prep_scope_alerts_loop()
+            ),
             "fx_refresh": asyncio.create_task(fx_refresh_loop()),
-            "competition_autofreeze": asyncio.create_task(competition_autofreeze_loop()),
+            "competition_autofreeze": asyncio.create_task(
+                competition_autofreeze_loop()
+            ),
             "cc_centroid_sync": asyncio.create_task(cc_centroid_sync_loop()),
             "kpi_coach_nudger": asyncio.create_task(kpi_coach_nudger_loop()),
             "notification_triggers": asyncio.create_task(notification_triggers_loop()),
@@ -954,7 +958,9 @@ async def lifespan(app: FastAPI):
             "microsoft365_sync": asyncio.create_task(microsoft365_sync_loop()),
             "m365_cv_parse": asyncio.create_task(m365_cv_parse_loop()),
             "m365_rematch": asyncio.create_task(rematch_unlinked_emails_loop()),
-            "m365_webhook_renewal": asyncio.create_task(graph_subscription_renewal_loop()),
+            "m365_webhook_renewal": asyncio.create_task(
+                graph_subscription_renewal_loop()
+            ),
             "m365_recording_discovery": asyncio.create_task(
                 meeting_recording_discovery_loop()
             ),
@@ -962,11 +968,15 @@ async def lifespan(app: FastAPI):
             "saved_search_alerts": asyncio.create_task(saved_search_alerts_loop()),
             # Korpus słów kluczowych (0346) dla wierszy sprzed migracji; kończy się
             # sama, gdy nie zostaje nic do policzenia.
-            "keyword_corpus_backfill": asyncio.create_task(keyword_corpus_backfill_loop()),
+            "keyword_corpus_backfill": asyncio.create_task(
+                keyword_corpus_backfill_loop()
+            ),
             "note_kind_backfill": asyncio.create_task(note_kind_backfill_loop()),
             # „Wymagania do poprawy” (rare_word, 27.10.2026): liczby osób wierszy
             # otwartych rekrutacji co godzinę do pamięci — pulpit ich nie liczy.
-            "requirement_row_counts": asyncio.create_task(requirement_row_counts_loop()),
+            "requirement_row_counts": asyncio.create_task(
+                requirement_row_counts_loop()
+            ),
             # QC CV: nieudane przebiegi sprzed zmiany reguł (plakietki na Tablicy);
             # kończy się samo po jednym przejściu.
             "cv_qc_recompute": asyncio.create_task(cv_qc_recompute_loop()),
@@ -1031,7 +1041,9 @@ async def lifespan(app: FastAPI):
             "order_mail_ingest": asyncio.create_task(order_mail_ingest_loop()),
             # 0370: transkrypty prepów z Teams → notatka i ocena prepu. Kończy się
             # przed pętlą przy TEAMS_PREP_TRANSCRIPTS_ENABLED=false.
-            "teams_prep_transcripts": asyncio.create_task(teams_prep_transcripts_loop()),
+            "teams_prep_transcripts": asyncio.create_task(
+                teams_prep_transcripts_loop()
+            ),
             # 0402: dokumenty kontraktów z SharePointa — wznowienie pierwszego
             # pobrania i synchronizacja w obie strony. Bez rejestracji Azure
             # kończy się przed pętlą.
@@ -1042,7 +1054,9 @@ async def lifespan(app: FastAPI):
             # pierwszym odczekaniem, gdy wylaczona — nie budzi sie co interwal
             # tylko po to, zeby sprawdzic te sama flage.
             "compass_workdays_sync": asyncio.create_task(compass_workdays_sync_loop()),
-            "compass_lifecycle_sync": asyncio.create_task(compass_lifecycle_sync_loop()),
+            "compass_lifecycle_sync": asyncio.create_task(
+                compass_lifecycle_sync_loop()
+            ),
             # 22.10.2026: konto NEXUSA idzie za kontem M365 (404 / accountEnabled
             # = false → wyłączone). Niezależna od HR_PROGRAM_ENABLED; kończy się
             # przed pętlą przy M365_ACCOUNT_SWEEP_MODE=off.
@@ -1053,8 +1067,12 @@ async def lifespan(app: FastAPI):
             "notes_insights_sync": asyncio.create_task(notes_insights_sync_loop()),
             "weekly_eval": asyncio.create_task(weekly_eval_loop()),
             "match_digest": asyncio.create_task(match_digest_loop()),
-            "candidate_contact_queue": asyncio.create_task(candidate_contact_queue_loop()),
-            "candidate_contact_traffit": asyncio.create_task(traffit_contact_intake_loop()),
+            "candidate_contact_queue": asyncio.create_task(
+                candidate_contact_queue_loop()
+            ),
+            "candidate_contact_traffit": asyncio.create_task(
+                traffit_contact_intake_loop()
+            ),
             "index_outbox": asyncio.create_task(index_outbox_loop()),
             "candidate_auto_match": asyncio.create_task(candidate_auto_match_loop()),
             # 21.09.2026: nocny automatyczny pełny przegląd bazy → „Propozycje".
@@ -1062,7 +1080,9 @@ async def lifespan(app: FastAPI):
             # 23.10.2026: „System trzyma Nowych na 20” — kończy się przed pętlą
             # przy NEW_COLUMN_AUTOFILL_ENABLED=false.
             "new_column_autofill": asyncio.create_task(new_column_autofill_loop()),
-            "index_drift_reconciler": asyncio.create_task(index_drift_reconciler_loop()),
+            "index_drift_reconciler": asyncio.create_task(
+                index_drift_reconciler_loop()
+            ),
             "priority_work": asyncio.create_task(priority_work_loop()),
             "workforce_availability": asyncio.create_task(availability_loop()),
             "recruitment_allocation": asyncio.create_task(allocation_loop()),
@@ -1087,8 +1107,12 @@ async def lifespan(app: FastAPI):
             ),
             "hr_lifecycle": asyncio.create_task(hr_loops.hr_lifecycle_loop()),
             "hr_contract_hooks": asyncio.create_task(hr_loops.hr_contract_hooks_loop()),
-            "hr_bonus_proposals": asyncio.create_task(hr_loops.hr_bonus_proposals_loop()),
-            "equipment_reminders": asyncio.create_task(hr_loops.equipment_reminders_loop()),
+            "hr_bonus_proposals": asyncio.create_task(
+                hr_loops.hr_bonus_proposals_loop()
+            ),
+            "equipment_reminders": asyncio.create_task(
+                hr_loops.equipment_reminders_loop()
+            ),
             "equipment_intune_sync": asyncio.create_task(
                 hr_loops.equipment_intune_sync_loop()
             ),

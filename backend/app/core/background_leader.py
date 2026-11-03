@@ -118,9 +118,16 @@ class BackgroundLeader:
         if self._conn is None:
             return False
         try:
-            await asyncio.wait_for(self._conn.fetchval("SELECT 1"), _CHECK_TIMEOUT_SECONDS)
+            await asyncio.wait_for(
+                self._conn.fetchval("SELECT 1"), _CHECK_TIMEOUT_SECONDS
+            )
             return True
-        except (OSError, asyncpg.PostgresError, asyncpg.InterfaceError, asyncio.TimeoutError):
+        except (
+            OSError,
+            asyncpg.PostgresError,
+            asyncpg.InterfaceError,
+            asyncio.TimeoutError,
+        ):
             return False
 
     async def _recover_lost_connection(self) -> None:
