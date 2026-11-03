@@ -182,6 +182,9 @@ from app.services.hr import payroll_rates
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_esign.history import esign_history
+from app.services.b2b_contract_generator.address_format import (
+    format_registry_address,
+)
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -2341,7 +2344,12 @@ async def company_lookup(
             status_code=404,
             detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
         )
-    return data
+    return {
+        **data,
+        "address": format_registry_address(
+            data.get("address"), has_street=data.get("has_street")
+        ),
+    }
 
 
 @router.get("/company-verification", response_model=B2BCompanyVerificationResponse)
