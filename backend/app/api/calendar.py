@@ -17,7 +17,12 @@ from sqlalchemy.orm import selectinload
 from app.core.config import settings
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.rate_limit import limiter, user_or_ip_key
-from app.models.calendar_event import CalendarEvent, EventType, EventStatus
+from app.models.calendar_event import (
+    CalendarEvent,
+    EventStatus,
+    EventType,
+    is_booked_call,
+)
 from app.models.candidate import Candidate
 from app.models.candidate_contact import (
     CandidateContactCase,
@@ -55,6 +60,7 @@ from app.services.candidate_contact_hooks import (
     maybe_sync_calendar_handoff,
 )
 from app.services import loop_heartbeat
+from app.services import screening_calls
 from app.services.calendar_all_day import normalize_all_day
 from app.services.interview_change_notifications import notify_client_interview_change
 
@@ -1739,6 +1745,10 @@ async def _dispatch_reminder(event_id: int) -> None:
             await db.commit()
             return
         link = f"/calendar?event={event.id}"
+        booked_call = is_booked_call(event)
+        # Umówiony telefon prowadzi od razu do panelu osoby z formularzem.
+        if booked_call and event.job_id and event.candidate_id:
+            link = screening_calls.panel_link(event.job_id, event.candidate_id)
         recipient_id = await effective_owner_id(
             db, event.operational_owner_id or event.created_by
         )
@@ -1766,8 +1776,17 @@ async def _dispatch_reminder(event_id: int) -> None:
         minutes_left = max(1, round((event.start_time - now).total_seconds() / 60))
         notif = Notification(
             user_id=recipient_id,
-            title="Przypomnienie o wydarzeniu",
-            message=f"Za {_minutes_pl(minutes_left)}: {event.title}",
+            # Dymek pokazuje tytuł, więc telefon niesie w nim osobę i czas.
+            title=(
+                f"{event.title} za {_minutes_pl(minutes_left)}"
+                if booked_call
+                else "Przypomnienie o wydarzeniu"
+            ),
+            # Treść zaczyna się od „Za N minut:”, bo okienko czyta z niej start.
+            message=(
+                f"Za {_minutes_pl(minutes_left)}: "
+                f"{(event.description or 'umówiony telefon') if booked_call else event.title}"
+            ),
             # Link otwiera TO wydarzenie (`?event=`), nie sam kalendarz.
             link=link,
             notification_type=NotificationType.interview_scheduled,
@@ -1786,6 +1805,7 @@ async def _dispatch_reminder(event_id: int) -> None:
             "link": notif.link,
             "notification_type": NotificationType.interview_scheduled.value,
             "created_at": now.isoformat(),
+            "force_toast": booked_call,
         }
 
     await ws_manager.notify_user(user_id, {"type": "notification", "data": payload})
@@ -1822,6 +1842,12 @@ async def calendar_reminder_loop():
         beat.tick()
         try:
             now = datetime.now(timezone.utc)
+            # Przed skanem: telefon osoby, która już poszła dalej, nie dzwoni.
+            # Awaria porządków nie może zatrzymać przypomnień.
+            try:
+                await screening_calls.run_housekeeping(now)
+            except Exception:  # noqa: BLE001
+                logger.exception("Booked call housekeeping failed")
             async with AsyncSessionLocal() as db:
                 # Bez dolnej granicy `now+14min` — patrz docstring.
                 due_ids = await _due_reminder_ids(db, now)

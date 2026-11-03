@@ -144,6 +144,7 @@ from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
+from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
 from app.api import prep_review_config as prep_review_config_api
@@ -1583,6 +1584,12 @@ app.include_router(
     candidate_followups_api.router,
     prefix="/api/candidate-followups",
     tags=["candidate-followups"],
+)
+# Umówiony telefon na screening (03.11.2026).
+app.include_router(
+    screening_calls_api.router,
+    prefix="/api/screening-calls",
+    tags=["screening-calls"],
 )
 app.include_router(
     interview_cycle_api.router,

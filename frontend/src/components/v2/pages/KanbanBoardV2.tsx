@@ -41,6 +41,7 @@ import {
  UserPlus,
  UserX,
  XCircle,
+ PhoneCall,
 } from"lucide-react";
 import {
  api,
@@ -830,6 +831,7 @@ const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  source: UserPlus,
  claim: Lock,
  recommendation_card: ClipboardList,
+ booked_call: PhoneCall,
 };
 
 function CardV4Badges({

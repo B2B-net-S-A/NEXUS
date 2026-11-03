@@ -83,7 +83,7 @@ def test_cycle_handler_reports_at_error_level() -> None:
 
 
 def test_notification_links_to_the_event_in_both_places() -> None:
-    body = _source_of("async def _dispatch_reminder", 4000)
+    body = _source_of("async def _dispatch_reminder", 5000)
     assert 'link = f"/calendar?event={event.id}"' in body
     assert body.count("link=link") == 2, (
         "kontrola dostępu i zapisane powiadomienie muszą oceniać TEN SAM link"

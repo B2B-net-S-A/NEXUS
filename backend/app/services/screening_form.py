@@ -81,6 +81,7 @@ from app.services import (
 )
 from app.services import candidate_rate_change as rate_change
 from app.services import recommendation_cards as cards
+from app.services import screening_calls
 from app.services import screening_form_rules as rules
 from app.services.move_requirements import sheet_filled
 from app.services.recommendation_card_assist import (
@@ -1680,6 +1681,10 @@ async def save(
     )
     if outcome.saved_version is not None:
         outcome.claimed = await _claim_on_save(db, state=state, user=user)
+        # Zapisany screening to odbyty telefon: termin gaśnie sam.
+        await screening_calls.complete_for_pair(
+            db, candidate_id=candidate.id, job_id=job.id
+        )
     return outcome
 
 

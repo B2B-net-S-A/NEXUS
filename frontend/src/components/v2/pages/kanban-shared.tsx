@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { CardAgreement } from "@/lib/b2b-agreement";
@@ -283,6 +284,8 @@ export interface KanbanItem {
  claim_user_name?: string | null;
  claim_until?: string | null;
  can_take?: boolean;
+ // Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+ booked_call?: BookedCallSummary | null;
  // Terminarz rozmowy u klienta — gotowa odznaka z serwera.
  interview_badge?: {
   kind: InterviewBadgeKind;

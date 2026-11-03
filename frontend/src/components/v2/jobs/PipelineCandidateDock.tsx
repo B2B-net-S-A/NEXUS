@@ -172,6 +172,7 @@ import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
+import { ScreeningCallControl } from "@/components/v2/recruitment/ScreeningCallControl";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
 import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/PersonInBase";
@@ -1611,6 +1612,11 @@ export function PipelineCandidateDock({
         >
           <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
         </Button>
+        <ScreeningCallControl
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          call={item.booked_call}
+        />
       </div>
     ) : null;
 

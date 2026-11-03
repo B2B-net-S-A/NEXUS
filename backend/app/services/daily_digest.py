@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import html
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Optional
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.core.scheduling import business_today
 from app.services.cv_in_transit import RETURNED_TO_FIX_KINDS
 from app.services.dl_send_queue import local_date
@@ -66,6 +68,14 @@ def _waiting_suffix(row: Any, today: date) -> str:
     if days < 1:
         return ""
     return f" · czeka {'1 dzień' if days == 1 else f'{days} dni'}"
+
+
+def _call_when(start: datetime, today: date) -> str:
+    """„dziś 16:00” albo „zaległy, 02.11 15:00” w kalendarzu firmy."""
+    local = start.astimezone(ZoneInfo(settings.BUSINESS_TZ))
+    if local.date() < today:
+        return f"zaległy, {local:%d.%m %H:%M}"
+    return f"dziś {local:%H:%M}"
 
 
 def _section(
@@ -270,6 +280,19 @@ def build_sections(
             )
         )
 
+    out.append(
+        _section(
+            "Umówione telefony na dziś",
+            tuple(
+                Row(
+                    f"{c.candidate_name} — {_call_when(c.start_time, today)}",
+                    f"/jobs/{c.job_id}?candidate={c.candidate_id}",
+                )
+                for c in tasks.booked_calls
+                if local_date(c.start_time) <= today
+            ),
+        )
+    )
     out.append(
         _section(
             "Telefony do kandydatów (klient milczy)",

@@ -542,6 +542,20 @@ export interface FlowPostingRow {
 export type FlowMissing = "sheet" | "why_candidate" | "rate";
 
 /** Jedna osoba w jednej rekrutacji (Nowi z blokadą, Screening, Zweryfikowany, DL). */
+/** Umówiony telefon na screening w „Czeka na Ciebie” (03.11.2026). */
+export interface BookedCallRow {
+  event_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  start_time: string;
+  note?: string | null;
+  in_outlook?: boolean;
+}
+
 export interface FlowPairRow {
   candidate_id: number;
   candidate_name: string;
@@ -552,6 +566,8 @@ export interface FlowPairRow {
   since: string;
   claimed_until?: string | null;
   missing?: FlowMissing[];
+  /** Umówiony telefon tej osoby. */
+  call_at?: string | null;
   qc_status?: string | null;
 }
 
@@ -662,6 +678,7 @@ export interface BoardTasksResponse {
   prep_attention?: PrepAttentionRow[];
   /** 0372: follow-upy z kandydatami do zrobienia przez Ciebie (termin do
    *  jutra). Opcjonalne w typie — brak = pusta lista. */
+  booked_calls?: BookedCallRow[];
   followups?: FollowupRow[];
   /** 0372: Twoi kandydaci, z którymi follow-up robi ktoś inny. */
   followups_by_others?: FollowupRow[];
