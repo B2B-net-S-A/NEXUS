@@ -154,7 +154,7 @@ async def read_order_document(
         raise OrderDocumentError(
             400,
             "Nie udało się odczytać tekstu z dokumentu "
-            "(skan, plik zaszyfrowany lub nieobsługiwany format .doc?).",
+            "(skan, plik zaszyfrowany lub nieobsługiwany format?).",
         )
     return document
 

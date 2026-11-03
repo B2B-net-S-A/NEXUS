@@ -7610,6 +7610,7 @@ async def _extract_uploaded_cv_text(
     """
     import asyncio
 
+    from app.core.log_safety import safe_filename as log_safe_filename
     from app.services import cv_text_extractor
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -7640,6 +7641,14 @@ async def _extract_uploaded_cv_text(
             pass
 
     if not raw_text or not raw_text.strip():
+        # Bez tego 5 zgłoszeń z portalu (10.2026) nie dało się zdiagnozować: scraper
+        # kasuje pliki, a w logu nie było ani formatu, ani rozmiaru.
+        logger.warning(
+            "[from-cv] brak tekstu: %s, format %s, %d B",
+            log_safe_filename(safe_name),
+            cv_text_extractor.sniff_extension_bytes(content),
+            len(content),
+        )
         raise HTTPException(
             status_code=400,
             detail="Nie udało się odczytać tekstu z pliku CV.",
