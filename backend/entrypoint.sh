@@ -10907,6 +10907,48 @@ async def run():
 asyncio.run(run())
 PY
 
+# Kroki jednorazowe bez Pythona po znaczniku (pomiar 02.11.2026). 42 naprawy
+# zabierały 131 ze 170 s startu: każda to osobny proces z importem `app.models`
+# (3–4 s) tylko po to, żeby odczytać własny znacznik w `app_settings` i wyjść,
+# a API leży przez cały start. Listę znaczników czytamy raz. Odczyt padł albo
+# znacznika brak = krok uruchamia się jak dawniej i sam sprawdza znacznik pod
+# advisory lockiem, więc to wyłącznie skrót, nie nowe źródło prawdy. Nowa naprawa:
+# `run_unless_marked "<jej znacznik>"` zamiast `python -`, inaczej dokłada
+# przerwy każdemu wdrożeniu (`test_entrypoint_repair_markers.py`).
+startup_phase "read-repair-markers"
+REPAIR_MARKERS_FILE=/tmp/nexus-repair-markers
+python - > "$REPAIR_MARKERS_FILE" <<'PY' || { echo "repair markers unreadable; running every repair"; : > "$REPAIR_MARKERS_FILE"; }
+import asyncio
+import os
+
+import asyncpg
+
+
+async def read():
+    url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(url)
+    try:
+        rows = await conn.fetch("SELECT key FROM app_settings")
+    finally:
+        await conn.close()
+    print("\n".join(row["key"] for row in rows))
+
+
+asyncio.run(read())
+PY
+
+run_unless_marked() {
+    local marker
+    for marker in "$@"; do
+        if ! grep -qxF -- "$marker" "$REPAIR_MARKERS_FILE" 2>/dev/null; then
+            python -
+            return
+        fi
+    done
+    cat > /dev/null
+    echo "already done: $*"
+}
+
 # Rozdzielenie zamówień MD i okresowych — jednorazowa naprawa danych
 # (safety-net dla migracji 0262, gdy alembic na prodzie stoi na starszej
 # rewizji). Blok SQL jest ten sam co w migracji — jedno źródło w
@@ -10915,7 +10957,7 @@ PY
 # drugie wywołanie kończy się natychmiast.
 startup_phase "repair-md-periodic-orders"
 echo "Separating MD and periodic client orders (one-shot, idempotent)..."
-python - <<'PY' || echo "md/periodic order separation skipped; continuing"
+run_unless_marked "0262_separate_md_periodic" <<'PY' || echo "md/periodic order separation skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -10943,7 +10985,7 @@ PY
 # marker w `app_settings` + advisory lock → drugi start kończy się natychmiast.
 startup_phase "repair-kpi-catalog-unification"
 echo "KPI targets: unify panel and coach ids (one-shot, idempotent)..."
-python - <<'PY' || echo "kpi catalog unification skipped; continuing"
+run_unless_marked "0346_kpi_catalog_unification" <<'PY' || echo "kpi catalog unification skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -10970,7 +11012,7 @@ PY
 # `app/services/contract_ended_tab_repair.py`; blok jest idempotentny.
 startup_phase "repair-ended-tab-contracts"
 echo "Repairing contracts ended by an order period, not by administration (one-shot)..."
-python - <<'PY' || echo "ended-tab contract repair skipped; continuing"
+run_unless_marked "0274_ended_tab_contract_repair" <<'PY' || echo "ended-tab contract repair skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -11000,7 +11042,7 @@ PY
 # rusza dopiero po markerze, więc porażka tego bloku niczego nie nadpisze.
 startup_phase "repair-contract-order-sync"
 echo "Contract ↔ order sync: report snapshot + draft contract repair (one-shot)..."
-python - <<'PY' || echo "contract-order sync repair skipped; continuing"
+run_unless_marked "0304_contract_order_sync_repair" <<'PY' || echo "contract-order sync repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11026,7 +11068,7 @@ PY
 # + advisory lock. Log: same liczby.
 startup_phase "repair-notification-backlog"
 echo "Notifications: one-shot mark-as-read of stale backlog..."
-python - <<'PY' || echo "notification backlog repair skipped; continuing"
+run_unless_marked "notification_backlog_read_2026_10" <<'PY' || echo "notification backlog repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11053,7 +11095,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: same liczby per typ.
 startup_phase "repair-notification-topics-backlog"
 echo "Notifications: one-shot mark-as-read of week-old backlog (topbar icons)..."
-python - <<'PY' || echo "notification topics backlog repair skipped; continuing"
+run_unless_marked "notification_topics_backlog_read_2026_10" <<'PY' || echo "notification topics backlog repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11079,7 +11121,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: same liczby i ID.
 startup_phase "repair-job-creator-delivery-lead"
 echo "Jobs: one-shot reassignment of the Delivery Lead to the creating DL..."
-python - <<'PY' || echo "job creator delivery lead repair skipped; continuing"
+run_unless_marked "job_creator_delivery_lead_2026_10" <<'PY' || echo "job creator delivery lead repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11108,7 +11150,7 @@ PY
 # lock. Log: same liczby.
 startup_phase "repair-proposals-added-by-integration"
 echo "Proposals: one-shot revert of 'added' set by integration cards..."
-python - <<'PY' || echo "proposal added repair skipped; continuing"
+run_unless_marked "proposal_added_from_integration_2026_10" <<'PY' || echo "proposal added repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11137,7 +11179,7 @@ PY
 # + advisory lock. Log: same liczby.
 startup_phase "repair-closed-job-proposals"
 echo "Job proposals: one-shot expiry on closed recruitments..."
-python - <<'PY' || echo "closed job proposal expiry skipped; continuing"
+run_unless_marked "job_proposals_closed_jobs_expired_2026_10" <<'PY' || echo "closed job proposal expiry skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11166,7 +11208,7 @@ PY
 # sprzed tej daty nadal go potrzebują. Log: same liczby.
 startup_phase "repair-pending-verification-promotion"
 echo "Pending verifications: one-shot promotion to active (gate removed)..."
-python - <<'PY' || echo "pending verification promotion skipped; continuing"
+run_unless_marked "pending_verification_promotion_2026_09_17" <<'PY' || echo "pending verification promotion skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11195,7 +11237,7 @@ PY
 # od razu. Log: same liczby.
 startup_phase "job-names-backfill"
 echo "Job names: one-shot working titles and client references..."
-python - <<'PY' || echo "job names backfill skipped; continuing"
+run_unless_marked "job_names_backfill_0380" <<'PY' || echo "job names backfill skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11222,7 +11264,7 @@ PY
 # → drugi start kończy się od razu. Log i paragon: same liczby.
 startup_phase "working-title-prose-fix"
 echo "Working titles: one-shot recompute of automatic titles..."
-python - <<'PY' || echo "working title prose fix skipped; continuing"
+run_unless_marked "job_working_title_prose_fix_2026_10" <<'PY' || echo "working title prose fix skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11250,7 +11292,7 @@ PY
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
 startup_phase "client-reference-from-title"
 echo "Client references: one-shot fill from client job titles..."
-python - <<'PY' || echo "client reference from title skipped; continuing"
+run_unless_marked "client_reference_from_title_2026_10" <<'PY' || echo "client reference from title skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11280,7 +11322,7 @@ PY
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
 startup_phase "stage-cv-copy-filenames"
 echo "Stage CV copies: one-shot file names from the role name..."
-python - <<'PY' || echo "stage cv copy filenames skipped; continuing"
+run_unless_marked "stage_cv_copy_filename_2026_10" <<'PY' || echo "stage cv copy filenames skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11309,7 +11351,7 @@ PY
 # Log: same liczby.
 startup_phase "competence-categories-four"
 echo "Competence categories: four team groups + initial request work states..."
-python - <<'PY' || echo "competence categories four skipped; continuing"
+run_unless_marked "competence_categories_four_2026_09" "request_work_state_initial_2026_09" <<'PY' || echo "competence categories four skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11340,7 +11382,7 @@ PY
 # Kolejne serie wykrywa pętla po imporcie Traffita. Log: wyłącznie liczby.
 startup_phase "seed-placement-exclusions"
 echo "Placement exclusions: one-shot seed (bulk hired series)..."
-python - <<'PY' || echo "placement exclusion seed skipped; continuing"
+run_unless_marked "0343_placement_exclusions" <<'PY' || echo "placement exclusion seed skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11384,7 +11426,7 @@ PY
 # nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
 startup_phase "repair-pfron-split"
 echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
-python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
+run_unless_marked "0306_pfron_renewal_split_repair" <<'PY' || echo "pfron renewal split repair skipped; continuing"
 import asyncio
 import json
 import sys
@@ -11425,7 +11467,7 @@ PY
 # 0304); własny marker + advisory lock, jednorazowy. Log: tylko liczby.
 startup_phase "repair-pfron-resync"
 echo "PFRON 507-509: contract revenue schedule resync after the split (one-shot)..."
-python - <<'PY' || echo "pfron revenue resync skipped; continuing"
+run_unless_marked "0306_pfron_revenue_resync" <<'PY' || echo "pfron revenue resync skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11490,7 +11532,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-b2b-end-dates"
 echo "B2B contracts: ticket terminations + indefinite end dates (one-shot)..."
-python - <<'PY' || echo "b2b end-date repair skipped; continuing"
+run_unless_marked "0307_b2b_indefinite_end_date" <<'PY' || echo "b2b end-date repair skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11527,7 +11569,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-contract-start-dates"
 echo "Contracts: start-date correction from 21.09 sheet (one-shot)..."
-python - <<'PY' || echo "contract start-date repair skipped; continuing"
+run_unless_marked "0334_contract_start_date_correction" <<'PY' || echo "contract start-date repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11562,7 +11604,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
 startup_phase "repair-md-import-order-number"
 echo "Orders: correct MD import rows assigned across orders (one-shot)..."
-python - <<'PY' || echo "md import order-number repair skipped; continuing"
+run_unless_marked "md_import_order_number_repair_2026_09_23" <<'PY' || echo "md import order-number repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11597,7 +11639,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
 startup_phase "repair-md-import-split-rows"
 echo "Orders: move MD import rows to the orders named in them (one-shot)..."
-python - <<'PY' || echo "md import split-rows repair skipped; continuing"
+run_unless_marked "md_import_split_rows_repair_2026_09_24" <<'PY' || echo "md import split-rows repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11632,7 +11674,7 @@ PY
 # niczego — następny start ponawia. Log: wyłącznie liczby i ID.
 startup_phase "repair-termination-reversal"
 echo "Contracts: termination reversal from 23.09 ticket (one-shot)..."
-python - <<'PY' || echo "termination reversal repair skipped; continuing"
+run_unless_marked "0368_termination_reversal_ticket_2026_09_23" <<'PY' || echo "termination reversal repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11667,7 +11709,7 @@ PY
 # nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
 startup_phase "repair-stale-termination"
 echo "Contracts: stale termination data from 02.11 decision (one-shot)..."
-python - <<'PY' || echo "stale termination repair skipped; continuing"
+run_unless_marked "stale_termination_cleanup_2026_11_02" <<'PY' || echo "stale termination repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11701,7 +11743,7 @@ PY
 # przypięta do ID, numeru i dat. Plik PDF kasowany po commicie. Log: ID.
 startup_phase "repair-alior-reversed-order"
 echo "Orders: reversed-period duplicate from 28.09 ticket (one-shot)..."
-python - <<'PY' || echo "alior reversed order repair skipped; continuing"
+run_unless_marked "0397_alior_reversed_period_order" <<'PY' || echo "alior reversed order repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11742,7 +11784,7 @@ PY
 # `app/services/nordea_pentesty_scope_repair.py`, przypięta do ID. Log: ID.
 startup_phase "repair-nordea-pentesty-scope"
 echo "Clients: pin Nordea Pentesty contract to its scope (one-shot)..."
-python - <<'PY' || echo "nordea pentesty scope repair skipped; continuing"
+run_unless_marked "0397_nordea_pentesty_scope_pin" <<'PY' || echo "nordea pentesty scope repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11776,7 +11818,7 @@ PY
 # przypięta do id. Marker + advisory lock; porażka nie zapisuje niczego.
 startup_phase "repair-contact-duplicates"
 echo "Contacts: merge Traffit duplicates from 25.09 (one-shot)..."
-python - <<'PY' || echo "contact duplicate merge skipped; continuing"
+run_unless_marked "contact_duplicates_merge_2026_09_25" <<'PY' || echo "contact duplicate merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11810,7 +11852,7 @@ PY
 # przypięta do id; marker + advisory lock; porażka nie zapisuje niczego.
 startup_phase "repair-ezdrowie-merge"
 echo "Clients: finish E-Zdrowie merge 37721 -> 115 (one-shot)..."
-python - <<'PY' || echo "ezdrowie client merge skipped; continuing"
+run_unless_marked "ezdrowie_client_merge_2026_09" "ezdrowie_client_merge_2026_09_processes" <<'PY' || echo "ezdrowie client merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11862,7 +11904,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-m365-email-duplicates"
 echo "M365: merge duplicated email rows by internetMessageId (one-shot)..."
-python - <<'PY' || echo "m365 email dedupe skipped; continuing"
+run_unless_marked "0342_m365_email_dedupe" <<'PY' || echo "m365 email dedupe skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11899,7 +11941,7 @@ PY
 # następny start spróbuje ponownie. Log: wyłącznie liczby, ID i kody powodów.
 startup_phase "repair-contract-duplicate"
 echo "Contracts: merge the duplicate contract from the ticket (one-shot)..."
-python - <<'PY' || echo "contract duplicate merge skipped; continuing"
+run_unless_marked "0308_contract_duplicate_merge" <<'PY' || echo "contract duplicate merge skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11931,7 +11973,7 @@ PY
 # (ta sama logika, własny marker i lista par `TICKET_MERGES_2026_10`).
 startup_phase "repair-contract-duplicate-2026-10"
 echo "Contracts: merge the duplicate contract from the 2026-10 ticket (one-shot)..."
-python - <<'PY' || echo "contract duplicate merge 2026-10 skipped; continuing"
+run_unless_marked "0521_contract_duplicate_merge_2026_10" <<'PY' || echo "contract duplicate merge 2026-10 skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11976,7 +12018,7 @@ PY
 # w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody powodów.
 startup_phase "repair-cez-standalone-md-duplicates"
 echo "Orders: cancel CeZ standalone orders duplicating group lines (one-shot)..."
-python - <<'PY' || echo "cez standalone md duplicate repair skipped; continuing"
+run_unless_marked "0325_cez_standalone_md_duplicates" <<'PY' || echo "cez standalone md duplicate repair skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -12053,7 +12095,7 @@ PY
 # ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
 startup_phase "repair-billing-hours-168"
 echo "Contracts/orders: unify billing hours to 168 h/month (one-shot)..."
-python - <<'PY' || echo "billing hours unification skipped; continuing"
+run_unless_marked "0345_billing_hours_168" <<'PY' || echo "billing hours unification skipped; continuing"
 import asyncio
 import json
 from sqlalchemy import text
@@ -12098,7 +12140,7 @@ PY
 # Log: wyłącznie liczby i kody powodów.
 startup_phase "repair-candidate-contact"
 echo "Contracts: copy B2B generator contact onto linked contracts (one-shot)..."
-python - <<'PY' || echo "candidate contact backfill skipped; continuing"
+run_unless_marked "0320_contract_candidate_contact" <<'PY' || echo "candidate contact backfill skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -12133,7 +12175,7 @@ PY
 # + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "repair-m365-private-event-candidate"
 echo "Calendar: unlink candidates from scrubbed private Outlook events (one-shot)..."
-python - <<'PY' || echo "private event unlink skipped; continuing"
+run_unless_marked "m365_private_event_candidate_unlink_2026_09_26" <<'PY' || echo "private event unlink skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12169,7 +12211,7 @@ PY
 # Log: wyłącznie liczby i kody.
 startup_phase "repair-cardif-client-merge"
 echo "Clients: merge BNP Paribas Cardif 52 -> 38335 (one-shot)..."
-python - <<'PY' || echo "cardif client merge skipped; continuing"
+run_unless_marked "0435_cardif_client_merge" "0436_cardif_contract_fill" <<'PY' || echo "cardif client merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12222,7 +12264,7 @@ PY
 # + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "repair-candidate-name-markers"
 echo "Candidates: strip status markers from names (one-shot)..."
-python - <<'PY' || echo "candidate name marker repair skipped; continuing"
+run_unless_marked "0436_candidate_name_markers" <<'PY' || echo "candidate name marker repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12256,7 +12298,7 @@ PY
 # w `app_settings` + advisory lock; porażka nie zapisuje niczego. Log: liczby.
 startup_phase "repair-candidate-name-markers-0481"
 echo "Candidates: strip status markers from names, round 2 (one-shot)..."
-python - <<'PY' || echo "candidate name marker repair 0481 skipped; continuing"
+run_unless_marked "0481_candidate_name_markers_v2" <<'PY' || echo "candidate name marker repair 0481 skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12300,7 +12342,7 @@ PY
 # zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "cleanup-prod-test-records"
 echo "Data: remove UI audit test records (one-shot)..."
-python - <<'PY' || echo "prod test records cleanup skipped; continuing"
+run_unless_marked "prod_test_records_cleanup_2026_10_20" <<'PY' || echo "prod test records cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12343,7 +12385,7 @@ PY
 # paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
 startup_phase "cleanup-settings-test-data"
 echo "Data: remove test traces from Settings (one-shot)..."
-python - <<'PY' || echo "settings test data cleanup skipped; continuing"
+run_unless_marked "settings_test_data_cleanup_2026_10_20" <<'PY' || echo "settings test data cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12378,7 +12420,7 @@ PY
 # paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
 startup_phase "cleanup-integration-profiles"
 echo "Data: remove HR profiles of OAuth integration accounts (one-shot)..."
-python - <<'PY' || echo "integration profile cleanup skipped; continuing"
+run_unless_marked "hr_integration_profile_cleanup_2026_10_20" <<'PY' || echo "integration profile cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
