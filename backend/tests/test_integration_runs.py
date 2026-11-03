@@ -284,3 +284,193 @@ async def test_stuck_running_run_is_closed_as_failed_after_6h(monkeypatch):
         assert closed.finished_at is not None
         assert closed.error == STUCK_RUN_ERROR
         assert running.status == "running" and running.finished_at is None
+
+
+# ── 5. Lista błędów: tylko zgłoszenia wciąż niedokończone (03.11.2026) ──────
+
+
+async def _report_events(
+    client: AsyncClient,
+    headers: dict[str, str],
+    events: list[dict],
+    *,
+    source: str = "jjit",
+    mode: str = "import",
+) -> None:
+    started = await client.post(
+        f"{_WRITE}/runs", headers=headers, json={"source": source, "mode": mode}
+    )
+    assert started.status_code == 201, started.text
+    resp = await client.post(
+        f"{_WRITE}/runs/{started.json()['id']}/events", headers=headers, json=events
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def _event(external_id: str | None, action: str, minutes_ago: int) -> dict:
+    occurred_at = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return {
+        "action": action,
+        "external_id": external_id,
+        "occurred_at": occurred_at.isoformat(),
+        "error": "NEXUS: ReadTimeout" if action == "error" else None,
+    }
+
+
+async def _errors_summary(client: AsyncClient, headers: dict[str, str]) -> dict:
+    resp = await client.get(f"{_READ}/summary", headers=headers, params={"days": 1})
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def _unique_id() -> str:
+    return f"lista-bledow-{uuid.uuid4().hex}"
+
+
+@pytest.mark.asyncio
+async def test_error_followed_by_success_leaves_the_list(integ_client: AsyncClient):
+    """Zgłoszenie dokończone później nie jest na liście, tylko w liczniku."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    before = (await _errors_summary(integ_client, reader))["resolved_error_count"]
+    done = _unique_id()
+
+    await _report_events(integ_client, writer, [_event(done, "error", 30)])
+    await _report_events(integ_client, writer, [_event(done, "created", 10)])
+
+    body = await _errors_summary(integ_client, reader)
+    assert done not in {e["external_id"] for e in body["recent_errors"]}
+    assert body["resolved_error_count"] == before + 1
+
+
+@pytest.mark.asyncio
+async def test_two_errors_of_one_application_give_one_row(integ_client: AsyncClient):
+    """Jeden wiersz: treść najnowszego błędu i liczba prób."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    stuck = _unique_id()
+    older = {**_event(stuck, "error", 30), "error": "starszy błąd"}
+    newer = {**_event(stuck, "error", 10), "error": "nowszy błąd"}
+
+    await _report_events(integ_client, writer, [older])
+    await _report_events(integ_client, writer, [newer])
+
+    body = await _errors_summary(integ_client, reader)
+    rows = [e for e in body["recent_errors"] if e["external_id"] == stuck]
+    assert len(rows) == 1
+    assert rows[0]["attempts"] == 2
+    assert rows[0]["error"] == "nowszy błąd"
+    assert body["unfinished_error_count"] >= 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("empty_id", [None, ""])
+async def test_errors_without_external_id_stay_separate(
+    integ_client: AsyncClient, empty_id: str | None
+):
+    """Bez identyfikatora nie wiadomo, czy to jedno zgłoszenie ani czy się udało."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    first, second = f"bez-id-{uuid.uuid4().hex}", f"bez-id-{uuid.uuid4().hex}"
+
+    await _report_events(
+        integ_client,
+        writer,
+        [
+            {**_event(empty_id, "error", 30), "error": first},
+            {**_event(empty_id, "error", 20), "error": second},
+            # Sukces bez identyfikatora nie może zamknąć żadnego z tych błędów.
+            _event(empty_id, "created", 10),
+        ],
+    )
+
+    body = await _errors_summary(integ_client, reader)
+    rows = [e for e in body["recent_errors"] if e["error"] in {first, second}]
+    assert {e["error"] for e in rows} == {first, second}
+    assert all(e["attempts"] == 1 for e in rows)
+
+
+@pytest.mark.asyncio
+async def test_error_after_success_counts_only_attempts_since_success(
+    integ_client: AsyncClient,
+):
+    """Nawrót: wcześniejszy sukces niczego nie zamyka, a próby liczą się od niego."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    relapsed = _unique_id()
+
+    await _report_events(
+        integ_client,
+        writer,
+        [
+            _event(relapsed, "error", 40),
+            _event(relapsed, "created", 30),
+            _event(relapsed, "error", 20),
+            _event(relapsed, "error", 10),
+        ],
+    )
+
+    body = await _errors_summary(integ_client, reader)
+    rows = [e for e in body["recent_errors"] if e["external_id"] == relapsed]
+    assert [e["attempts"] for e in rows] == [2]
+
+
+@pytest.mark.asyncio
+async def test_success_in_other_source_or_dry_run_does_not_close_error(
+    integ_client: AsyncClient,
+):
+    """Próbny przebieg niczego nie zapisuje, a ID z innego portalu to inne zgłoszenie."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    stuck = _unique_id()
+
+    await _report_events(integ_client, writer, [_event(stuck, "error", 30)])
+    await _report_events(
+        integ_client, writer, [_event(stuck, "created", 20)], mode="dry_run"
+    )
+    await _report_events(
+        integ_client, writer, [_event(stuck, "created", 10)], source="pracuj"
+    )
+
+    body = await _errors_summary(integ_client, reader)
+    assert stuck in {e["external_id"] for e in body["recent_errors"]}
+
+
+@pytest.mark.asyncio
+async def test_dry_run_error_is_not_on_the_list(integ_client: AsyncClient):
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    reader = _headers(await _seed_user(UserRole.recruiter))
+    trial = _unique_id()
+
+    await _report_events(
+        integ_client, writer, [_event(trial, "error", 10)], mode="dry_run"
+    )
+
+    body = await _errors_summary(integ_client, reader)
+    assert trial not in {e["external_id"] for e in body["recent_errors"]}
+
+
+@pytest.mark.asyncio
+async def test_error_list_hides_person_without_candidate_read(
+    integ_client: AsyncClient,
+):
+    """Rada nadzorcza widzi Insights, ale nie kandydatów: zdarzenie zostaje bez osoby."""
+    writer = _headers(await _seed_user(UserRole.talent_community_manager))
+    board = _headers(await _seed_user(UserRole.board))
+    recruiter = _headers(await _seed_user(UserRole.recruiter))
+    stuck = _unique_id()
+
+    await _report_events(
+        integ_client,
+        writer,
+        [{**_event(stuck, "error", 10), "candidate_name": "Anna Testowa"}],
+    )
+
+    hidden = await _errors_summary(integ_client, board)
+    row = next(e for e in hidden["recent_errors"] if e["external_id"] == stuck)
+    assert row["candidate_name"] is None
+    assert row["candidate_id"] is None
+
+    shown = await _errors_summary(integ_client, recruiter)
+    row = next(e for e in shown["recent_errors"] if e["external_id"] == stuck)
+    assert row["candidate_name"] == "Anna Testowa"

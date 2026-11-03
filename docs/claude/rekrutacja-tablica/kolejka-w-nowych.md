@@ -38,9 +38,11 @@ i punkty za umiejętności nic nie dokładały.
   `entry_meta.score` i procent na karcie zostają sam wynik. Nie dodawaj punktów do
   `canonical_fit`.
 - **Bez punktów zostaje tylko osoba jawnie odrzucona przez tego klienta**
-  (`ended_by = 'client'`). Nie używaj tu warunku z `known_people_signal`: liczy
-  też stare wiersze z pustym `ended_by` po wysyłce CV, pod który wpadało 33 z 82
-  wysłanych ze zweryfikacją u klienta (top 40 spada wtedy z 62% do 53%, pomiar bez flag).
+  (`ended_by = 'client'`). Nie wracaj do liczenia pustego `ended_by` po wysyłce CV:
+  wpadało pod to 33 z 82 wysłanych ze zweryfikacją u klienta (top 40 spada wtedy
+  z 62% do 53%, pomiar bez flag). Tak samo od 03.11.2026 działa `known_people_signal`
+  w „Propozycjach z bazy” (decyzja Artura; odtworzenie 814 rekrutacji: R@20 +2,4 pkt,
+  R@40 +2,0, P@5 +1,1, nDCG@10 +1,4).
 - **Tablica liczy fakty na żywo** (`entry_autofill.known`, dwa zapytania na odczyt
   Tablicy, tylko gdy są karty od systemu), więc świeża notatka podnosi kartę od razu.
 - **Punkty ustawia Head of Recruitment** w „Ranking kandydatów → Wagi”

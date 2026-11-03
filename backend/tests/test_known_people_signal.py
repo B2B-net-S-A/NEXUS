@@ -144,6 +144,56 @@ async def test_points_reasons_window_and_same_client_rejection(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_only_explicit_client_rejection_takes_the_points_away():
+    """Pusty ``ended_by`` po wysyłce CV to nie odrzucenie (pomiar 03.11.2026)."""
+    tag = uuid.uuid4().hex[:8]
+    now = datetime.now(timezone.utc)
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Rejecting client {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(title=f"Old {tag}", client_id=client.id, status=JobStatus.closed)
+        people = [
+            Candidate(
+                name="Odrzucony",
+                lastname=f"{i}-{tag}",
+                email=f"rejected-{i}-{tag}@example.com",
+            )
+            for i in range(3)
+        ]
+        db.add_all([job, *people])
+        await db.flush()
+        by_client, unknown, by_candidate = (p.id for p in people)
+        for cid, ended_by in (
+            (by_client, "client"),
+            (unknown, None),
+            (by_candidate, "candidate"),
+        ):
+            db.add_all(
+                [
+                    CandidateStage(
+                        candidate_id=cid,
+                        job_id=job.id,
+                        stage=PipelineStage.cv_sent,
+                        moved_at=now - timedelta(days=30),
+                    ),
+                    CandidateStage(
+                        candidate_id=cid,
+                        job_id=job.id,
+                        stage=PipelineStage.rejected,
+                        moved_at=now - timedelta(days=29),
+                        ended_by=ended_by,
+                    ),
+                ]
+            )
+        await db.commit()
+        rejected = await kps._rejected_by_client(
+            db, client.id, [by_client, unknown, by_candidate]
+        )
+    assert rejected == {by_client}
+
+
+@pytest.mark.asyncio
 async def test_flag_off_means_no_signal():
     world = await _world()
     async with AsyncSessionLocal() as db:
