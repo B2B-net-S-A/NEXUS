@@ -369,6 +369,60 @@ async def test_disabled_rotated_expired_and_closed(app_client: AsyncClient) -> N
     assert (await _public(app_client, new_token)).status_code == 410
 
 
+async def _close_job(job_id: int) -> None:
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.status = JobStatus.closed
+        await db.commit()
+
+
+async def test_closed_recruitment_refuses_a_new_panel(app_client: AsyncClient) -> None:
+    # 04.11.2026: panel włączony na zamkniętej rekrutacji dawał martwy link.
+    world = await _world()
+    await _close_job(world.job_id)
+    url = f"/api/client-panel/jobs/{world.job_id}"
+
+    refused = await app_client.put(
+        url, headers=world.dl_headers, json={"enabled": True}
+    )
+    assert refused.status_code == 409
+    assert "zamknięta" in refused.json()["detail"]
+
+    view = (await app_client.get(url, headers=world.dl_headers)).json()
+    assert view["job_closed"] is True
+    assert view["enabled"] is False
+    assert view["url"] is None
+
+
+async def test_panel_of_a_job_closed_later_can_still_be_switched_off(
+    app_client: AsyncClient,
+) -> None:
+    world = await _world()
+    token = await _enable(app_client, world)
+    url = f"/api/client-panel/jobs/{world.job_id}"
+    assert (await app_client.get(url, headers=world.dl_headers)).json()[
+        "job_closed"
+    ] is False
+    await _close_job(world.job_id)
+
+    gone = await _public(app_client, token)
+    assert gone.status_code == 410
+    # Ten tekst rozpoznaje ekran klienta (`panelFailureKind` w `ClientPanelApp.tsx`).
+    assert gone.json()["detail"] == "Ta rekrutacja jest już zamknięta."
+
+    view = (await app_client.get(url, headers=world.dl_headers)).json()
+    assert view["job_closed"] is True
+    assert view["enabled"] is True
+    # Ponowne „włącz” na włączonym panelu to nie nowy link, a wyłączyć wolno zawsze.
+    same = await app_client.put(url, headers=world.dl_headers, json={"enabled": True})
+    assert same.status_code == 200
+    off = await app_client.put(url, headers=world.dl_headers, json={"enabled": False})
+    assert off.status_code == 200
+    assert off.json()["enabled"] is False
+    again = await app_client.put(url, headers=world.dl_headers, json={"enabled": True})
+    assert again.status_code == 409
+
+
 # ── Lista i wyciek pól ───────────────────────────────────────────────────────
 
 
@@ -1322,6 +1376,15 @@ async def test_stamp_for_download_follows_the_panel_state(
         assert (
             await service.stamp_for_download(
                 db, job_id=None, candidate_id=world.anna, docx=plain
+            )
+            == plain
+        )
+    # Zamknięta rekrutacja: link by nie działał, więc Word nie dostaje ramki.
+    await _close_job(world.job_id)
+    async with AsyncSessionLocal() as db:
+        assert (
+            await service.stamp_for_download(
+                db, job_id=world.job_id, candidate_id=world.anna, docx=plain
             )
             == plain
         )

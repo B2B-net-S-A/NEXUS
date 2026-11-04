@@ -36,6 +36,7 @@ export interface ClientPanelPerson {
 }
 
 export interface ClientPanelSettings {
+  job_closed: boolean;
   enabled: boolean;
   show_rate: boolean;
   show_other_candidates: boolean;

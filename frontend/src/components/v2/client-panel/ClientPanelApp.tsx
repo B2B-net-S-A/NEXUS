@@ -35,12 +35,19 @@ export interface ClientPanelAppProps {
   transport?: PanelTransport;
 }
 
-export type PanelFailureKind = "gone" | "expired" | "failed";
+export type PanelFailureKind = "gone" | "expired" | "closed" | "failed";
+
+// `MSG_JOB_CLOSED` z `services/client_panel.py`: 410 to też wygasły link.
+const JOB_CLOSED_DETAIL = "Ta rekrutacja jest już zamknięta.";
 
 export function panelFailureKind(error: unknown): PanelFailureKind {
-  const status = (error as { response?: { status?: number } } | null)?.response?.status;
-  if (status === 410) return "expired";
-  if (status === 404) return "gone";
+  const response = (
+    error as { response?: { status?: number; data?: { detail?: unknown } } } | null
+  )?.response;
+  if (response?.status === 410) {
+    return response.data?.detail === JOB_CLOSED_DETAIL ? "closed" : "expired";
+  }
+  if (response?.status === 404) return "gone";
   return "failed";
 }
 
@@ -53,6 +60,10 @@ const FAILURE_COPY: Record<PanelFailureKind, { heading: string; body: string }> 
   expired: {
     heading: STALE_HEADING,
     body: "Minął termin ważności linku. Opiekun procesu, czyli osoba z B2B Network, która przesłała Ci CV, może go przedłużyć.",
+  },
+  closed: {
+    heading: STALE_HEADING,
+    body: "Ta rekrutacja jest już zakończona. Opiekun procesu, czyli osoba z B2B Network, która przesłała Ci CV, powie, co dalej.",
   },
   failed: {
     heading: "Nie udało się otworzyć panelu",

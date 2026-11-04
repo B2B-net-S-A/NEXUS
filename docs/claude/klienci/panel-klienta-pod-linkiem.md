@@ -27,6 +27,11 @@ SQL `services/client_panel_schema.py` (lustro w `entrypoint.sh`, sondy w `/api/h
   klienta, poza tym admin i Head of Recruitment; DL cudzej rekrutacji dostaje 403, bo panel
   wypuszcza stawki na zewnątrz). Rola Head of Recruitment bez tego uprawnienia nie
   ma dostępu, jak we wzorcu `tests/data/authz_golden/client_panel.json`.
+- **Zamknięta rekrutacja nie ma działającego panelu** (decyzja Artura 04.11.2026, po
+  teście, w którym panel włączony na zamkniętej rekrutacji pokazał „minął termin”).
+  Włączenie = 409, włącznik w oknie nieaktywny, a Word nie dostaje ramki. Panel włączony
+  przed zamknięciem można wyłączyć; okno ostrzega, a klient widzi „rekrutacja zakończona”.
+  Ekran klienta rozpoznaje ten przypadek po tekście `MSG_JOB_CLOSED`, bo 410 ma też wygasły link.
 - **Kto na liście:** para z wierszem `cv_sent`, której bieżący etap nie jest
   w kolumnach „Zamknięte” ani „Zatrudnieni” (`board_column_for`, także etapy końcowe
   z nazwy), bez `hidden`. `?c=<public_id>` nie jest sekretem, zastępuje tylko
