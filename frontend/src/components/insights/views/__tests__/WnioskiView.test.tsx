@@ -297,7 +297,7 @@ describe("WnioskiView", () => {
     const approved = await screen.findByTestId("history-approved-zatrudnieni");
     expect(approved.textContent).toContain("#3034");
     expect(approved.textContent).toContain("Ocena 04.12");
-    expect(screen.getByTestId("history-deferred").textContent).toContain("Wraca, gdy liczba dojdzie do 464");
+    expect(screen.getByTestId("history-deferred").textContent).toContain("Wraca, gdy liczba z 30 dni dojdzie do 464");
     expect(screen.getByText("0,9")).toBeTruthy();
     expect(screen.getByText("1,1")).toBeTruthy();
     expect(screen.getByText("Za wcześnie, ocena 26.11")).toBeTruthy();

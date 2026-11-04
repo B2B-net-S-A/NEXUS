@@ -213,6 +213,7 @@ def test_cv_comparison_counts_points_missing_from_the_final_cv() -> None:
 
 
 def test_cv_summary_names_only_client_with_enough_points() -> None:
+    at = datetime(2026, 11, 1, tzinfo=timezone.utc)
     rows = [
         (
             "Duży",
@@ -222,16 +223,35 @@ def test_cv_summary_names_only_client_with_enough_points() -> None:
                 ]
             },
             "",
+            at,
         ),
         (
             "Mały",
             {"responsibilities": ["Obowiązek w projekcie małym i bardzo ważnym"]},
             "",
+            at,
         ),
     ]
-    summary = service.summarize_cv(rows)
+    summary = service.summarize_cv(rows, recent=at)
     assert summary["cvs"] == 2
     assert summary["outlier"] == ("Duży", 120, 120)
+
+
+def test_cv_count_for_rejected_takes_only_recent_cvs() -> None:
+    """Stare CV nie mogą same podnosić liczby, od której zależy powrót „Nie”."""
+    point = {
+        "why_points": ["Nasz kandydat ma najlepsze doświadczenie w tej dziedzinie"]
+    }
+    recent = datetime(2026, 11, 1, tzinfo=timezone.utc)
+    summary = service.summarize_cv(
+        [
+            ("Klient", point, "", recent - timedelta(days=1)),
+            ("Klient", point, "", recent),
+        ],
+        recent=recent,
+    )
+    assert summary["why"] == [2, 2]
+    assert summary["why_recent"] == 1
 
 
 def _reason_row(
@@ -411,6 +431,14 @@ async def test_protected_description_never_becomes_reason_or_quote() -> None:
         "Too old for this team",
         "Jest na L4, stawka za wysoka",
         "Macierzyński do marca, b2b",
+        "CIĄŻA, stawka za wysoka",
+        "Kraj objęty konfliktem, nie pasuje",
+        "Kandydatka chora, nie pasuje",
+        "Maternity leave, not a fit",
+        "Russian speaker, not a match",
+        "Białoruś, profile not matching",
+        "Wschodni akcent, nie pasuje",
+        "Ma 58 lat, za wysoka stawka",
     ],
 )
 @pytest.mark.asyncio
@@ -423,6 +451,34 @@ async def test_protected_words_outrank_every_other_reading(note: str) -> None:
         await db.commit()
         rows = (await db.execute(text(service._REASONS_SQL), {"since": since})).all()
     assert [(row.k, int(row.total)) for row in rows] == [("Nieodczytane", 1)]
+
+
+@pytest.mark.asyncio
+async def test_rejected_case_compares_last_30_days_not_the_whole_window() -> None:
+    """Przy stałym tempie liczba od początku rośnie sama, a ta z 30 dni nie."""
+    since = _window()
+    async with AsyncSessionLocal() as db:
+        client_id, _, reason_id = await _rejection_setup(db)
+        job_id = await _job(db, client_id, "Tempo")
+        for days in (1, 2, 3, 4):
+            await _refusal(db, job_id, reason_id, since + timedelta(days=days), "")
+        await _refusal(db, job_id, reason_id, since + timedelta(days=40), "")
+        await db.commit()
+        client = (
+            await db.execute(select(Client.name).where(Client.id == client_id))
+        ).scalar_one()
+        rows = (
+            await db.execute(
+                text(service._REFUSAL_TOTALS_SQL),
+                {
+                    "since": since,
+                    "silent": service._SILENT_KINDS,
+                    "recent": since + timedelta(days=30),
+                },
+            )
+        ).all()
+    row = next(item for item in rows if item.client == client)
+    assert (int(row.silent), int(row.recent_silent)) == (5, 1)
 
 
 @pytest.mark.asyncio

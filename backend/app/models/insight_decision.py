@@ -43,7 +43,7 @@ class InsightDecision(Base):
     decided_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    # Liczba, od której zależy „Nie” (powrót przy dwukrotnym wzroście).
+    # Liczba z ostatnich 30 dni, od której zależy „Nie” (powrót przy dwukrotnym wzroście).
     count_at_decision: Mapped[int] = mapped_column(Integer, nullable=False)
     # Ta sama liczba tak, jak stała na ekranie: „1 na 3”, „21%”.
     number_at_decision: Mapped[str] = mapped_column(String(32), nullable=False)

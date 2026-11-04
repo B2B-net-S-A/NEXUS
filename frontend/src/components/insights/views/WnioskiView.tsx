@@ -498,7 +498,7 @@ function HistorySection() {
                   {row.state === "later" && row.return_on
                     ? `Wraca ${onDay(row.return_on)}.`
                     : row.return_count !== null
-                      ? `Wraca, gdy liczba dojdzie do ${fmt(row.return_count)}.`
+                      ? `Wraca, gdy liczba z 30 dni dojdzie do ${fmt(row.return_count)}.`
                       : ""}
                 </span>
               </li>

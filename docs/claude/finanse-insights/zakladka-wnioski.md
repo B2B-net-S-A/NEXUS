@@ -17,8 +17,9 @@ w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
   ta reguła siedzi w handlerze, więc ma własny test, a nie wiersz we wzorcu.
 - **„Tak” zapisuje decyzję i nie zmienia działania systemu.** Zmiana przechodzi zwykłą
   drogą: PR, wdrożenie w oknie, ocena po 30 dniach. Dlatego przycisk mówi „zleć”, nie „włącz”.
-  „Nie teraz” chowa na 30 dni. „Nie” chowa, dopóki liczba nie wzrośnie dwukrotnie względem
-  `count_at_decision`. Wiersz na każde kliknięcie, nic się nie nadpisuje: stan to ostatni
+  „Nie teraz” chowa na 30 dni. „Nie” chowa, dopóki liczba z ostatnich 30 dni nie wzrośnie
+  dwukrotnie względem `count_at_decision`. Liczba od początku rośnie sama, więc przy stałym
+  tempie „Nie” wracałoby po kilku tygodniach, wcześniej niż „Nie teraz”. Wiersz na każde kliknięcie, nic się nie nadpisuje: stan to ostatni
   wiersz, reszta to historia.
 - **Stały zestaw reguł w kodzie, bez modelu AI i bez pętli w lifespanie.** Sprawy liczą się
   przy odczycie, cache 5 min, decyzje zawsze na świeżo. Ekran pisze „Dane na dziś”, nie
@@ -26,15 +27,16 @@ w `/api/health/deep`), front `components/insights/views/WnioskiView.tsx`,
   poniżej progu próby sprawa nie jest otwarta. Nowa sprawa = reguła w `compute_cases`
   i wpis w `CASE_COPY`.
 - **Okno: od 12.10, a po 90 dniach okno się przesuwa** (`counted_from`). Powody odrzuceń są
-  w NEXUSIE dopiero od 12.10.2026, więc ekran nie pisze „90 dni”. Bez przesuwania „Nie”
-  wracałoby samo, bo liczba rośnie z czasem.
+  w NEXUSIE dopiero od 12.10.2026, więc ekran nie pisze „90 dni”.
 - **Odczyt opisów „Inne” to szacunek.** Słowa kluczowe w `_READ_CASE`, liczone przy odczycie,
   niezapisywane. Ręczne sprawdzenie 90 wpisów dało ok. 90% trafności: to dolna jakość, nie
   prawda. Oryginalne wpisy zostają nietknięte. Każda liczba z odczytu ma etykietę „Szacunek”.
 - **Cechy chronione nigdy nie stają się wnioskiem ani regułą.** Opis ze słowami o narodowości,
   wieku, zdrowiu albo ciąży (`PROTECTED_RE`) liczy się jako „Nieodczytane”, nie trafia do
   cytatów, przykładów ani licznika „Powtarza się”. Lista jest szeroka, bo fałszywe trafienie
-  tylko chowa przykład. Tej zakładce nie wolno też przekazywać takich opisów do modelu.
+  tylko chowa przykład, a szukanie po jednym słowie przepuszcza opisy okrężne. Tej zakładce
+  nie wolno też przekazywać takich opisów do modelu. Produkcja ma ctype C, więc tekst przechodzi
+  `translate` przed `lower`, a wzorzec nie może opierać się na `\M` po polskiej literze.
 - **Żadnych miar per osoba z zespołu** (decyzja o PIP): tylko klienci, rekrutacje i typy
   sygnałów. Powiadomienia liczymy po typie, nie po osobie. Na ekranie liczby bez nazwisk,
   osoby tylko po kliknięciu i z `CandidatePIIAccess`, jak w „Źródłach”. Lista nie niesie

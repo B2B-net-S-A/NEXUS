@@ -48,20 +48,27 @@ MAX_OPEN_CASES = 5
 LATER_DAYS = 30
 REVIEW_DAYS = 30
 # Okno odczytu: powody odrzuceń są w NEXUSIE od 12.10.2026 (`cutover_utc`), a po 90 dniach
-# okno zaczyna się przesuwać. Inaczej „Nie” wracałoby samo, bo liczba rośnie z czasem.
+# okno zaczyna się przesuwać, żeby obraz mówił o bieżącej pracy.
 WINDOW_DAYS = 90
+# „Nie” porównuje liczbę z ostatnich 30 dni. Liczba od początku rośnie sama, więc przy stałym
+# tempie sprawa wracałaby po kilku tygodniach, wcześniej niż po „Nie teraz”.
+RECENT_DAYS = 30
 
 _TZ = ZoneInfo(DEFAULT_TZ)
 
 
-# Narodowość, wiek, zdrowie, ciąża. Jedno źródło dla odczytu opisów i cytatów. Fałszywe
-# trafienie tylko chowa przykład, więc lista jest szeroka.
+# Cechy chronione: narodowość, wiek, zdrowie, ciąża, wyznanie, płeć. Jedno źródło dla odczytu
+# opisów i cytatów. Fałszywe trafienie tylko chowa przykład, więc lista jest szeroka.
 PROTECTED_RE = (
-    r"\m(narodowo|obywatel|pochodzeni|cudzoziem|obcokraj|ukrai|rosj|rosyj|białorus|bialorus"
-    r"|hindus|indyj|nationalit|citizen|foreigner"
-    r"|wiek|za star|za młod|za mlod|emeryt|too old|too young"
-    r"|zdrow|chor[oyu]|niepełnospr|niepelnospr|health|disabil|l4\M|zwolnieni[eau] lekarsk"
-    r"|ciąż|ciaz|pregnan|macierzy)"
+    r"\m(narodowo|obywatel|pochodzeni|cudzoziem|obcokraj|ukrai|rosj|rosyj|russia|ruski|białoru|bialoru"
+    r"|belarus|hindus|indyj|indii|indian|polak|polk[aię]\M|akcent|nationalit|citizen|foreigner"
+    r"|kraj\w* (obję|obje|konflikt)|obję\w* konflikt|obje\w* konflikt|konflikt\w* zbrojn"
+    r"|wiek|ma \d\d lat|\d\d[- ]?lat(ek|ka|ni)|starsz\w* (pan|osob|kandydat)|za star|za młod|za mlod"
+    r"|emeryt|too old|too young"
+    r"|zdrow|chor[aoyuąęe]|schorz|niepełnospr|niepelnospr|health|disabil|sick|illness|l4\M"
+    r"|zwolnieni[eau] lekarsk"
+    r"|ciąż|ciaz|ciężarn|ciezarn|pregnan|macierzy|maternity|rodzicielsk|parental"
+    r"|wyznani|relig|\mpłe[cć]|kobiet|mężczyzn|mezczyzn|gender)"
 )
 
 # Lustro zapytań z testu danych 04.11.2026. Kolejność WHEN ma znaczenie: pierwsze
@@ -82,7 +89,7 @@ _READ_CASE = rf"""
         WHEN t ~ 'pracuje (w|u) |pracuje dla|zatrudnion[ya] u nas|pracuje u nas|nie chce (do|w) (nordei|nordea|pko|bnp|orlen)|nie chce nordei|innego (vendora|dostawcy)|other vendor|przez aztec|employed by|już jest w|był na interview od' THEN 'KonfliktKlient'
         WHEN t ~ 'other candidate|another candidate|inny kandydat|innego kandydata|wybra[łl] (innego|kogoś)|went with|selected for|position (is )?closed|position has been|został wybrany|zdecydowal się pokryć|zdecydował się pokryć|pokryć' THEN 'KlientWybral'
         WHEN t ~ 'thank you for|bez podania|not matching|not a match|do not match|not a fit|nie ten profil|profile|nie pasuje|not shortlisted|interview result|klient odrzuci' THEN 'KlientBezKonkretu'
-        WHEN t ~ 'stawk|\mzł\M|\mpln\M|budżet|budzet|\mrate\M|expensive|finans|za drog|oczekiwania|\mcen[aey]\M' THEN 'Stawka'
+        WHEN t ~ 'stawk|\mzł( |$|[.,])|\mpln\M|budżet|budzet|\mrate\M|expensive|finans|za drog|oczekiwania|\mcen[aey]\M' THEN 'Stawka'
         WHEN t ~ '\muop\M|umow[aęy] o prac|b2b|na etat|pełen etat|fulltime|full time|full-time|\metat' THEN 'FormaUmowy'
         WHEN t ~ 'lokaliz|hybryd|zdaln|remote|\mbiur|dojazd|miast|przeprowad|relok|wrocław|krak|poznań|łódź|lublin|katowic|gdańsk|gdynia|warszaw' THEN 'Tryb'
         WHEN t ~ 'overqual|za wysoki poziom|przekwal|za senior|za doświadcz|too senior' THEN 'ZaWysokiPoziom'
@@ -93,13 +100,15 @@ _READ_CASE = rf"""
     END
 """
 
-# Liczba i lista osób biorą bucket z tego samego CTE.
+# Liczba i lista osób biorą bucket z tego samego CTE. `translate` przed `lower`, bo produkcja
+# ma ctype C i `lower` nie zna polskich wielkich liter (`keyword_terms.py`).
 _CLASSIFIED = f"""
     WITH source AS (
         SELECT cs.id AS stage_id, cs.candidate_id, cs.job_id, cs.moved_at, cs.ended_by,
                j.title AS job_title, j.client_id, COALESCE(cl.name, 'Bez klienta') AS client,
                r.name AS powod,
-               lower(regexp_replace(COALESCE(cs.notes, ''), '\\s+', ' ', 'g')) AS t
+               lower(translate(regexp_replace(COALESCE(cs.notes, ''), '\\s+', ' ', 'g'),
+                               'ĄĆĘŁŃÓŚŹŻ', 'ąćęłńóśźż')) AS t
         FROM candidate_stages cs
         JOIN rejection_reasons r ON r.id = cs.rejection_reason_id
         JOIN jobs j ON j.id = cs.job_id
@@ -190,6 +199,10 @@ def _midnight_utc(day: date) -> datetime:
 
 def counted_from(today: date) -> datetime:
     return max(cutover_utc(), _midnight_utc(today - timedelta(days=WINDOW_DAYS)))
+
+
+def _recent_start() -> datetime:
+    return datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)
 
 
 def counted_from_label(since: datetime) -> str:
@@ -358,7 +371,8 @@ _REFUSALS_SQL = f"""
 _REFUSAL_TOTALS_SQL = f"""
     {_CLASSIFIED}
     SELECT client, count(*) AS total,
-           count(*) FILTER (WHERE k = ANY(CAST(:silent AS text[]))) AS silent
+           count(*) FILTER (WHERE k = ANY(CAST(:silent AS text[]))) AS silent,
+           count(*) FILTER (WHERE k = ANY(CAST(:silent AS text[])) AND moved_at >= :recent) AS recent_silent
     FROM classified
     WHERE ended_by = 'client'
     GROUP BY client
@@ -370,7 +384,8 @@ _SILENT_KINDS = ["KlientBezKonkretu", "BezOpisu", "Nieodczytane"]
 async def _case_refusals(db: AsyncSession, since: datetime) -> dict[str, Any]:
     totals = (
         await db.execute(
-            text(_REFUSAL_TOTALS_SQL), {"since": since, "silent": _SILENT_KINDS}
+            text(_REFUSAL_TOTALS_SQL),
+            {"since": since, "silent": _SILENT_KINDS, "recent": _recent_start()},
         )
     ).all()
     total = sum(int(row.total) for row in totals)
@@ -416,7 +431,7 @@ async def _case_refusals(db: AsyncSession, since: datetime) -> dict[str, Any]:
         "key": "konkret",
         "number": f"1 na {ratio}" if ratio >= 2 else f"{_pct(silent, total)}%",
         "number_note": "odmowy klienta bez powodu",
-        "count": silent,
+        "count": sum(int(row.recent_silent) for row in totals),
         "sample": total,
         "enough": total >= MIN_REFUSALS,
         "title": copy.title,
@@ -490,7 +505,8 @@ def compare_cv_points(payload: Any, final_html: Optional[str]) -> dict[str, list
 
 
 _CV_SQL = """
-    SELECT COALESCE(cl.name, 'Bez klienta') AS client, d.render_payload, c.branded_draft_html AS final_html
+    SELECT COALESCE(cl.name, 'Bez klienta') AS client, d.render_payload,
+           c.branded_draft_html AS final_html, c.branded_finalized_at AS finalized_at
     FROM candidate_stage_cvs c
     JOIN cv_generated_documents d ON d.id = c.generated_document_id
     JOIN jobs j ON j.id = c.job_id
@@ -500,12 +516,17 @@ _CV_SQL = """
 _CV_CLIENT_MIN_POINTS = 100
 
 
-def summarize_cv(rows: Iterable[tuple[str, Any, Optional[str]]]) -> dict[str, Any]:
+def summarize_cv(
+    rows: Iterable[tuple[str, Any, Optional[str], datetime]], *, recent: datetime
+) -> dict[str, Any]:
     per_client: dict[str, dict[str, list[int]]] = {}
     cvs = 0
-    for client, payload, final_html in rows:
+    why_recent = 0
+    for client, payload, final_html, finalized_at in rows:
         cvs += 1
         counts = compare_cv_points(payload, final_html)
+        if finalized_at >= recent:
+            why_recent += counts["why"][0]
         bucket = per_client.setdefault(client, {s: [0, 0] for s in _CV_KEYS.values()})
         for section, (gone, all_points) in counts.items():
             bucket[section][0] += gone
@@ -525,13 +546,24 @@ def summarize_cv(rows: Iterable[tuple[str, Any, Optional[str]]]) -> dict[str, An
             outlier is None or gone / all_points > outlier[1] / outlier[2]
         ):
             outlier = (client, gone, all_points)
-    return {"cvs": cvs, "why": why, "duties": duties, "outlier": outlier}
+    return {
+        "cvs": cvs,
+        "why": why,
+        "why_recent": why_recent,
+        "duties": duties,
+        "outlier": outlier,
+    }
 
 
 async def _summarize_cv_rows(rows: Any) -> dict[str, Any]:
     # Porównanie tekstów trwa ok. sekundy, a backend ma jeden wątek obsługi żądań.
     return await asyncio.to_thread(
-        summarize_cv, [(row.client, row.render_payload, row.final_html) for row in rows]
+        summarize_cv,
+        [
+            (row.client, row.render_payload, row.final_html, row.finalized_at)
+            for row in rows
+        ],
+        recent=_recent_start(),
     )
 
 
@@ -554,7 +586,7 @@ async def _case_cv(db: AsyncSession) -> dict[str, Any]:
         "key": "cv",
         "number": f"{_pct(why_gone, why_all)}%",
         "number_note": "punktów znika przy edycji",
-        "count": why_gone,
+        "count": summary["why_recent"],
         "sample": why_all,
         "enough": why_all >= MIN_CV_POINTS,
         "title": copy.title,
@@ -579,10 +611,13 @@ async def _case_thumbs(db: AsyncSession) -> dict[str, Any]:
             text(
                 """
                 SELECT (SELECT count(*) FROM candidate_match_justifications) AS justifications,
+                       (SELECT count(*) FROM candidate_match_justifications
+                        WHERE created_at >= :recent) AS recent_justifications,
                        (SELECT count(rating) FROM candidate_match_justifications) AS rated,
                        (SELECT count(*) FROM interview_question_ratings) AS question_ratings
                 """
-            )
+            ),
+            {"recent": _recent_start()},
         )
     ).one()
     justifications, rated = int(row.justifications), int(row.rated)
@@ -591,7 +626,7 @@ async def _case_thumbs(db: AsyncSession) -> dict[str, Any]:
         "key": "kciuki",
         "number": _fmt(rated),
         "number_note": f"ocen na {_fmt(justifications)} uzasadnień",
-        "count": justifications,
+        "count": int(row.recent_justifications),
         "sample": justifications,
         # Sprawa istnieje, dopóki oceny są marginesem: przy 1% to już sygnał, nie martwy przycisk.
         "enough": justifications >= MIN_JUSTIFICATIONS and rated * 100 < justifications,
@@ -759,7 +794,8 @@ async def _measure_now(
     if key == "konkret":
         row = (
             await db.execute(
-                text(_REFUSAL_TOTALS_SQL), {"since": since, "silent": _SILENT_KINDS}
+                text(_REFUSAL_TOTALS_SQL),
+                {"since": since, "silent": _SILENT_KINDS, "recent": since},
             )
         ).all()
         total = sum(int(item.total) for item in row)
