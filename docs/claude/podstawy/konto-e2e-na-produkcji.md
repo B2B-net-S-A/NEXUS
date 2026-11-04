@@ -22,13 +22,14 @@ Rekruter by nie wystarczył jako „mniejsza” rola: ma zapis i eksport danych 
 2. **Lista break-glass.** `Coolify set env` nadpisuje całą wartość, a na liście
    `PASSWORD_LOGIN_BREAK_GLASS_EMAILS` jest już konto awaryjne (1 adres na
    04.11.2026). Wpisanie samego adresu E2E odcięłoby je, więc nowa wartość to stara
-   plus adres E2E, przez sekret, bo inputy workflow są publiczne:
+   plus adres E2E, przez sekret, bo inputy workflow są publiczne. `test -n` chroni
+   przed nieudanym odczytem: pusta wartość odcięłaby konto awaryjne.
 
    ```bash
-   read -r -p "Adres konta E2E: " EMAIL
+   printf 'Adres konta E2E: '; read -r EMAIL
    CURRENT=$(ssh -i ~/.ssh/nexus_prod_root_ed25519 root@91.99.199.112 'docker exec $(docker ps --format "{{.Names}}" | grep "^backend-ocgkw" | head -1) printenv PASSWORD_LOGIN_BREAK_GLASS_EMAILS')
    printf '%s' "$EMAIL" | env -u GH_TOKEN gh secret set E2E_USER_EMAIL --repo B2B-net-S-A/NEXUS
-   printf '%s,%s' "$CURRENT" "$EMAIL" | env -u GH_TOKEN gh secret set BREAK_GLASS_EMAILS_VALUE --repo B2B-net-S-A/NEXUS
+   test -n "$CURRENT" && printf '%s,%s' "$CURRENT" "$EMAIL" | env -u GH_TOKEN gh secret set BREAK_GLASS_EMAILS_VALUE --repo B2B-net-S-A/NEXUS
    ```
 
 3. **W oknie wdrożeń** (`deploy.md`) ustaw zmienną i wdróż:
