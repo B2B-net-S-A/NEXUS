@@ -1,5 +1,18 @@
 [
   {
+    "id": "zatrudniony-nie-szuka-3-miesiace",
+    "title": "„Zatrudniony gdzie indziej” chroni przed kolejnymi kartami",
+    "why": "Po takim odrzuceniu profil dostaje „Nie szuka” na 3 miesiące, a system przestaje dodawać tę osobę do rekrutacji. Ręcznie nadal możesz ją dodać, a datę zmienisz w profilu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3034,
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Rekrutacja → Odrzuć z powodem → Zatrudniony gdzie indziej",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "rejection.employed-elsewhere"
+  },
+  {
     "id": "zmien-termin-rozmowy",
     "title": "„Zmień termin” przy rozmowie u klienta",
     "why": "Klient przełożył rozmowę? Zmieniasz jej termin wprost w panelu kandydata, tak jak prep. Prepy, telefon i debrief zostają przy tej rozmowie, a rekruter i Delivery Lead dostają powiadomienie.",
