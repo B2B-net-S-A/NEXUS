@@ -74,8 +74,14 @@ describe("DockCvFreshness", () => {
   });
 
   it("nic nie pokazuje, gdy kopia jest aktualna", () => {
-    renderFreshness({ profileDocs: [doc(1, { is_primary: true, uploaded_at: "2026-10-01T10:00:00Z" })] });
+    renderFreshness({ profileDocs: [doc(1, { is_primary: true, filename: "Anna_CV.pdf", uploaded_at: "2026-10-01T10:00:00Z" })] });
     expect(screen.queryByTestId("dock-cv-freshness")).toBeNull();
+  });
+
+  it("główne CV ze starszą datą niż kopia: „inne główne CV” i podmiana (04.11.2026)", () => {
+    renderFreshness({ profileDocs: [doc(1, { is_primary: true, filename: "CV_07_2026.pdf", uploaded_at: "2026-08-11T10:00:00Z" })] });
+    expect(screen.getByText("W profilu jest inne główne CV")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Użyj w tej rekrutacji/ })).toBeInTheDocument();
   });
 
   it("„W profilu jest nowsze CV” → „Użyj w tej rekrutacji” podmienia kopię etapu", async () => {

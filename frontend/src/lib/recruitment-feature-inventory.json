@@ -1400,6 +1400,14 @@
    "v3_home": "Profil Championa → Brief"
   },
   {
+   "id": "champion.brief-headcount",
+   "area": "zlecenie",
+   "opis": "Liczba osób w Briefie: pierwszy wiersz „Warunków”, a przy 2 i więcej osobach znacznik „Szukamy N osób” przy „Czego szukamy” (04.11.2026)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "brief-headcount-badge",
+   "v3_home": "Profil Championa → Brief"
+  },
+  {
    "id": "champion.request-history",
    "area": "zlecenie",
    "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
@@ -2951,6 +2959,14 @@
    "opis": "„Pobierz CV” w pasku źródeł podglądu po „Rozwiń” — pobiera to, co widać (oryginał, zaznaczony plik, CV firmowe jako Word / PDF), i ramka „W profilu jest nowsze CV”",
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "preview-cv-download",
+   "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "screening-form.preview-original-cv-change",
+   "area": "formularz screeningu",
+   "opis": "Nazwa pliku i „Zmień plik” w „CV oryginalnym”: plik z profilu w podglądzie, potem „Ustaw jako CV oryginalne” (główne CV profilu i kopia tej rekrutacji)",
+   "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
+   "marker": "original-cv-file",
    "v3_home": "panel osoby → lewa strefa → CV"
   },
   {

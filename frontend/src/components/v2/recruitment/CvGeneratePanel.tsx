@@ -398,6 +398,7 @@ function CvGeneratePanelForm({
           left={left}
           disabled={g.generating}
           stageId={g.recruitment?.stage_id ?? null}
+          notesSourceOn={g.aiSources?.notes !== false}
         />
       ) : null}
       {choices}

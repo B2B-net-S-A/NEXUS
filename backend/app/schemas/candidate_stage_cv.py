@@ -38,6 +38,8 @@ class CVOriginalSnapshotResponse(BaseModel):
     original_cv_language: Optional[str] = None
     original_snapshot_at: Optional[datetime] = None
     original_snapshot_source: Optional[str] = None
+    # Ramka „inne główne CV” porównuje ją z sumą pliku w profilu.
+    original_cv_sha256: Optional[str] = None
     download_url: Optional[str] = None
 
 

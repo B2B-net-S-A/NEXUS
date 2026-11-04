@@ -24,6 +24,14 @@ który pokazywał „przekazane do searchu” i jednocześnie aktywne „Przeka�
   - **Klient i historia** (`ChampionClientTab`) — opis klienta, karta klienta,
     pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania.
   - **Zespół i ogłoszenie** — `JobTeamTab` i `JobAnnouncementSection`.
+- **Liczba osób w Briefie (decyzja Artura 04.11.2026, wariant B, makiety
+  https://claude.ai/artifact/L5adx8osug9pUzptrm78Rm):** pierwszy wiersz „Warunków”
+  zawsze, a przy 2 i więcej osobach także znacznik „Szukamy N osób” przy „Czego
+  szukamy”. Powód: przy czytaniu profilu nikt nie zaglądał do „Zespół i ogłoszenie”,
+  a jedyną wzmianką było zdanie modelu w liczbie pojedynczej. Przy jednej osobie
+  znacznika nie ma, bo 169 ze 185 otwartych rekrutacji ma 1 osobę i przestałby być
+  zauważany. Pole nadal edytuje się w „Zespół i ogłoszenie”, „Zmień” prowadzi tam
+  osobę z `job.update`.
 - **Edycja blokami:** „Edytuj” przy bloku otwiera szufladę
   (`ChampionEditDrawer` → `ChampionProfileEditor layout="drawer"
   onlySections=…`, mapa bloków w `CHAMPION_BLOCKS`). Zapis to ten sam

@@ -104,6 +104,8 @@ export interface SlotDay {
   ymd: string;
   /** „Pn 09.11” */
   label: string;
+  /** Godziny do wyboru; dziś tylko te, które się jeszcze nie zaczęły. */
+  hours: readonly string[];
   selectable: boolean;
   holiday: boolean;
 }
@@ -131,25 +133,31 @@ function weekLabel(monday: string): string {
 }
 
 /**
- * Tygodnie siatki terminów: od jutra przez kolejne 14 dni, poniedziałek–piątek.
+ * Tygodnie siatki terminów: od dziś przez kolejne 14 dni, poniedziałek–piątek.
+ * `now` to godzina warszawska („HH:MM”): termin, który już się zaczął, backend
+ * odrzuca jako przeszły (`normalize_slots`), więc dziś nie ma go w siatce.
  * Tydzień bez ani jednego dnia do wyboru (koniec tygodnia, same święta) znika.
  */
-export function slotWeeks(today: string): SlotWeek[] {
-  const first = addDays(today, 1);
+export function slotWeeks(today: string, now: string): SlotWeek[] {
   const last = addDays(today, SLOT_HORIZON_DAYS);
   const weeks: SlotWeek[] = [];
   for (
-    let monday = addDays(first, -weekdayIndex(first));
+    let monday = addDays(today, -weekdayIndex(today));
     monday <= last;
     monday = addDays(monday, 7)
   ) {
     const days = [0, 1, 2, 3, 4].map((offset) => {
       const ymd = addDays(monday, offset);
       const business = isBusinessDay(ymd);
+      const hours =
+        business && ymd >= today && ymd <= last
+          ? SLOT_HOURS.filter((hour) => ymd > today || hour > now)
+          : [];
       return {
         ymd,
         label: dayLabel(ymd),
-        selectable: business && ymd >= first && ymd <= last,
+        hours,
+        selectable: hours.length > 0,
         holiday: !business,
       };
     });

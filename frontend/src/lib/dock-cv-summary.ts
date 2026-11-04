@@ -31,6 +31,8 @@ export interface DockSnapshotInput {
    * `contract_repair` = jednorazowa naprawa 30.10.2026: to samo dla kopii umowy.
    */
   original_snapshot_source?: string | null;
+  /** Suma pliku w kopii etapu; stare kopie mogą jej nie mieć. */
+  original_cv_sha256?: string | null;
 }
 
 export interface DockProfileCvDoc {
@@ -41,11 +43,13 @@ export interface DockProfileCvDoc {
   created_at: string;
   /** Plik oznaczony jako nieaktualny — serwer nie bierze go jako bieżącego CV. */
   outdated_at?: string | null;
+  /** Suma pliku; pliki z importu Traffita często jej nie mają. */
+  content_sha256?: string | null;
 }
 
 export type DockOriginalCv =
   | { kind: "loading" }
-  | { kind: "snapshot"; date: string | null; filename: string | null; source: string | null }
+  | { kind: "snapshot"; date: string | null; filename: string | null; source: string | null; sha256?: string | null }
   | { kind: "profile"; date: string | null; doc: DockProfileCvDoc }
   | { kind: "none" }
   /** Etap bez kopii, a profilu nie udało się sprawdzić. */
@@ -78,6 +82,7 @@ export function dockOriginalCv(input: {
       date: input.snapshot.original_snapshot_at ?? null,
       filename: input.snapshot.original_cv_filename ?? null,
       source: input.snapshot.original_snapshot_source ?? null,
+      sha256: input.snapshot.original_cv_sha256 ?? null,
     };
   }
   if (input.snapshotLoading) return { kind: "loading" };
@@ -217,29 +222,56 @@ export function withoutQuarantinedCv<T extends { id: number; is_primary: boolean
   return docs.filter((doc) => doc.id !== marker.id || doc.is_primary);
 }
 
+/** Czy plik z profilu jest młodszy od kopii etapu o co najmniej minutę. */
+export function isNewerThanStageCopy(original: DockOriginalCv, doc: DockProfileCvDoc): boolean {
+  if (original.kind !== "snapshot" || !original.date) return false;
+  const docAt = Date.parse(doc.uploaded_at ?? doc.created_at);
+  const snapshotAt = Date.parse(original.date);
+  if (!Number.isFinite(docAt) || !Number.isFinite(snapshotAt)) return false;
+  return docAt - snapshotAt >= NEWER_MARGIN_MS;
+}
+
 /**
- * CV z profilu nowsze niż kopia CV tej rekrutacji (D4, 13.10.2026): CV wpadło
- * mailem albo ktoś wgrał je w profilu lub w innej rekrutacji osoby. Liczy się
- * plik, który „Użyj w tej rekrutacji” naprawdę skopiuje (`stageCopySource`).
- * Po wgraniu z tej rekrutacji kopia powstaje po dokumencie, więc ramka się
- * nie pokazuje. `null` = nie ma nowszego albo nie da się porównać.
+ * CV z profilu, którego nie ma w kopii tej rekrutacji (D4, 13.10.2026): CV
+ * wpadło mailem albo ktoś wgrał je w profilu lub w innej rekrutacji osoby. Liczy
+ * się plik, który „Użyj w tej rekrutacji” naprawdę skopiuje (`stageCopySource`).
+ * Po wgraniu z tej rekrutacji kopia ma ten sam plik, więc ramki nie ma.
+ * `null` = kopia jest aktualna albo nie da się porównać.
+ *
+ * Główne CV wskazane w profilu to inny plik niż kopia także wtedy, gdy ma
+ * wcześniejszą datę (04.11.2026): plik z 11.08 ustawiony jako główny przy kopii
+ * z 03.11 nie dawał żadnego sygnału. Pliki z importu Traffita często nie mają
+ * sumy, wtedy porównujemy nazwy; ta sama nazwa zostaje przy porównaniu dat.
  *
  * CV do klienta („B2B_…”) nie jest nowszym CV kandydata (15.10.2026): wgrane
  * z kafelka zostaje w profilu obok głównego CV, a u osoby bez wskazanego
  * głównego CV (stare importy) byłoby najnowszym plikiem — ramka namawiałaby
  * wtedy do zrobienia z niego oryginału.
  */
-export function newerProfileCv<T extends DockProfileCvDoc>(
+export function otherProfileCv<T extends DockProfileCvDoc>(
   original: DockOriginalCv,
   docs: readonly T[] | undefined,
 ): T | null {
   if (original.kind !== "snapshot" || !original.date || !docs) return null;
   const primary = stageCopySource(docs);
   if (!primary || isClientCvFilename(primary.filename)) return null;
-  const primaryAt = Date.parse(primary.uploaded_at ?? primary.created_at);
-  const snapshotAt = Date.parse(original.date);
-  if (!Number.isFinite(primaryAt) || !Number.isFinite(snapshotAt)) return null;
-  return primaryAt - snapshotAt >= NEWER_MARGIN_MS ? primary : null;
+  const bothHashed = Boolean(original.sha256 && primary.content_sha256);
+  if (bothHashed && original.sha256 === primary.content_sha256) return null;
+  const differs = bothHashed || (original.filename != null && original.filename !== primary.filename);
+  if (primary.is_primary && differs) return primary;
+  return isNewerThanStageCopy(original, primary) ? primary : null;
+}
+
+/** Plik z profilu, z którego pochodzi „CV oryginalne”, gdy da się go wskazać. */
+export function originalCvFile<T extends DockProfileCvDoc>(
+  original: DockOriginalCv,
+  docs: readonly T[] | undefined,
+): T | null {
+  if (!docs) return null;
+  if (original.kind === "profile") return docs.find((d) => d.id === original.doc.id) ?? null;
+  if (original.kind !== "snapshot") return null;
+  const bySum = original.sha256 ? docs.find((d) => d.content_sha256 === original.sha256) : undefined;
+  return bySum ?? docs.find((d) => d.filename === original.filename) ?? null;
 }
 
 /**

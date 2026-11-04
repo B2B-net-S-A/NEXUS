@@ -6636,6 +6636,7 @@ export interface CVOriginalSnapshot {
   original_cv_language: string | null;
   original_snapshot_at: string | null;
   original_snapshot_source: string | null;
+  original_cv_sha256?: string | null;
   download_url: string | null;
 }
 
@@ -6853,6 +6854,13 @@ export const candidateStageCvApi = {
         { headers: { "Content-Type": "multipart/form-data" }, timeout: SLOW_ENDPOINT_TIMEOUT_MS },
       );
     },
+    /** Plik z profilu jako główne CV i kopia etapu naraz (04.11.2026). */
+    fromDocument: (stageId: number, documentId: number) =>
+      api.post<StageCvUploadResult>(
+        `/api/candidates/stages/${stageId}/cv/original/from-document`,
+        { document_id: documentId },
+        { timeout: SLOW_ENDPOINT_TIMEOUT_MS },
+      ),
   },
   branded: {
     selectGenerated: (

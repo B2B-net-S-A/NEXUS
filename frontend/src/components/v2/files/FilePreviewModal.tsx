@@ -83,6 +83,7 @@ export interface CandidateDocument {
   /** 0400: plakietka „nieaktualne” — plik zostaje w teczce. */
   outdated_at?: string | null;
   outdated_by_name?: string | null;
+  content_sha256?: string | null;
 }
 
 export function formatFileSize(bytes: number | null): string {
