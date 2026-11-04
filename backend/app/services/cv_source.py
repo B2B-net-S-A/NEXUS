@@ -106,7 +106,7 @@ def current_cv_ordering() -> tuple:
     Id kończy kolejność: bez niego wybór zależał od układu wierszy i sam UPDATE
     innej kolumny podmieniał plik w paczce CV.
     """
-    is_cv =CandidateDocument.document_kind == CandidateDocumentKind.cv
+    is_cv = CandidateDocument.document_kind == CandidateDocumentKind.cv
     is_candidate_file = not_(client_cv_file_clause())
     return (
         case(
