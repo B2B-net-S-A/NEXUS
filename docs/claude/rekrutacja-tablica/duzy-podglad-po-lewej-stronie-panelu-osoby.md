@@ -63,7 +63,8 @@ Tylko front, bez API i migracji.
   Championa i „Ocena” — także w widoku tylko do odczytu. Prośba rekruterów 09.10.2026; nie odwracaj kolejności.
 - **„Co już wiemy” nad formularzem (P2, 14.10.2026).** Zakładka „Screening” w „Nowych” i „Screeningu” pokazuje
   od razu formularz — bez profilu przed telefonem jako osobnego kroku, „Zacznij screening” i „Biorę — 12 h”
-  (osobę bierze pierwszy zapis formularza). Nad formularzem zwijany blok `screening-form/BeforeCallProfile.tsx`:
+  (osobę bierze pierwszy zapis formularza; od 04.11.2026 można ją wziąć też przyciskiem przy „Prowadzi”,
+  `biore-zmienia-osobe-karty.md`). Nad formularzem zwijany blok `screening-form/BeforeCallProfile.tsx`:
   „Kandydat” (z „W bazie od”), „Warunki — co już wiemy”, „Wcześniej u nas” z „Pokaż” (historia w podglądzie po
   lewej), „W innych rekrutacjach”; w głowie „Nie odebrał”. Blok jest ZAWSZE zwinięty na start do dwóch
   krótkich linii (stawka ostatnio podana albo „Stawka od” · dostępność · tryb pracy; „W bazie od” ·
