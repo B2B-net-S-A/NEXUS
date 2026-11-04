@@ -104,7 +104,7 @@ DECISION_2026_09_16 = {
     AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5-5"),
     AIFeatureKey.cv_generator: ("F4", "gpt-6.1-sol"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
-    AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
+    AIFeatureKey.job_description_generator: ("F6", "gpt-6.1-sol"),
     # F7 — 21.09.2026 powrót z GPT-5.6 Luna na Sonneta, 22.09.2026 na GPT-6 Lunę
     # po pomiarze, 25.09.2026 z powrotem na Sonneta (Luna 6 ciągle „niepewny”).
     AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
