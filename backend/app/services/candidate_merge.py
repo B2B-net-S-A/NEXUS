@@ -29,7 +29,10 @@ Reguły, które łatwo cofnąć:
   duplicates`` — scalenie nie gubi adresu, pod którym ktoś pisał.
 * **Tożsamość z Traffita:** gdy tylko duplikat pochodzi z Traffita, ocalały
   przejmuje jego ``external_id`` (inaczej nocny sync założyłby duplikat
-  z powrotem). Oba z Traffita = blokada — to trzeba scalić w Traffit.
+  z powrotem). Oba z tego samego żywego systemu = blokada — to trzeba scalić
+  tam. Traffit jest wyłączony od 14.10.2026 (``traffit_retired``), więc dwóch
+  profili z Traffita nikt już nie odtworzy: ocalały zostaje przy swoim id,
+  a id duplikatu ląduje w ``custom_fields.merged_duplicates``.
 * Imię/nazwisko wybrane z duplikatu dostaje blokadę synchronizacji
   (``candidate_identity_ownership``), jak ręczna edycja.
 """
@@ -58,6 +61,9 @@ logger = logging.getLogger(__name__)
 
 _IDENT = re.compile(r"^[a-z_][a-z0-9_]*$")
 _UNIQUE_VIOLATION = "23505"
+
+# Systemy, z których nic już nie przychodzi: usunięty profil nie wróci importem.
+_RETIRED_EXTERNAL_SOURCES = frozenset({"traffit"})
 
 # Tabela z triggerem append-only (blokuje UPDATE i DELETE) — migracja 0201.
 _APPEND_ONLY_TRIGGERS: dict[str, str] = {
@@ -682,7 +688,12 @@ async def build_plan(
         fields=field_plan(survivor, duplicate),
     )
     s_ext, d_ext = _external(survivor), _external(duplicate)
-    if s_ext and d_ext and s_ext[0] == d_ext[0]:
+    if (
+        s_ext
+        and d_ext
+        and s_ext[0] == d_ext[0]
+        and s_ext[0] not in _RETIRED_EXTERNAL_SOURCES
+    ):
         plan.blockers.append(
             {
                 "code": "both_external",
@@ -1274,6 +1285,8 @@ async def execute_merge(
         "email": duplicate.email,
         "phone": duplicate.phone,
         "linkedin": duplicate.linkedin,
+        "external_source": duplicate.external_source,
+        "external_id": duplicate.external_id,
         "merged_at": datetime.now(timezone.utc).isoformat(),
     }
 
