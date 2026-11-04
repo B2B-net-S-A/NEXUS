@@ -20,7 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { apiErrorMessage } from "@/lib/api-error";
 import type { PanelAuthor, PanelCandidate, PanelView } from "@/lib/api/clientPanel";
 import { cn } from "@/lib/utils";
-import { warsawToday } from "@/lib/warsaw-date";
+import { warsawClock, warsawToday } from "@/lib/warsaw-date";
 
 import { usePanelContext } from "./panel-context";
 import {
@@ -397,7 +397,7 @@ export function SlotsDialog({
   onSent: () => void;
 }) {
   const { transport } = usePanelContext();
-  const weeks = useMemo(() => slotWeeks(warsawToday()), []);
+  const weeks = useMemo(() => slotWeeks(warsawToday(), warsawClock()), []);
   const [weekIndex, setWeekIndex] = useState(0);
   const [picked, setPicked] = useState<SlotKey[]>([]);
   const [duration, setDuration] = useState<number>(SLOT_DURATIONS[0]);
@@ -489,7 +489,7 @@ export function SlotsDialog({
                   </div>
                   {week.days.map((day) => {
                     const key = slotKey(day.ymd, hour);
-                    if (!day.selectable) {
+                    if (!day.hours.includes(hour)) {
                       return <div key={key} className="bg-muted" aria-hidden />;
                     }
                     const on = picked.includes(key);

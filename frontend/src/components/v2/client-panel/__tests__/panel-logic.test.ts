@@ -12,6 +12,7 @@ import {
   saveAuthor,
   shortRequirementLabel,
   slotKeyLabel,
+  SLOT_HOURS,
   slotWeeks,
   startEvidenceSearch,
   togglePicked,
@@ -35,11 +36,11 @@ describe("dni robocze", () => {
 });
 
 describe("siatka terminów", () => {
-  it("zaczyna od jutra, święto i dziś są niewybieralne, koniec po 14 dniach", () => {
-    const weeks = slotWeeks("2026-11-02"); // poniedziałek
+  it("zaczyna od dziś, święto jest niewybieralne, koniec po 14 dniach", () => {
+    const weeks = slotWeeks("2026-11-02", "08:30"); // poniedziałek
     expect(weeks.map((week) => week.monday)).toEqual(["2026-11-02", "2026-11-09", "2026-11-16"]);
     const first = weeks[0].days;
-    expect(first[0]).toMatchObject({ ymd: "2026-11-02", selectable: false });
+    expect(first[0]).toMatchObject({ ymd: "2026-11-02", selectable: true });
     expect(first[1]).toMatchObject({ ymd: "2026-11-03", selectable: true });
     const holiday = weeks[1].days.find((day) => day.ymd === "2026-11-11");
     expect(holiday).toMatchObject({ selectable: false, holiday: true, label: "Śr 11.11" });
@@ -49,13 +50,39 @@ describe("siatka terminów", () => {
     expect(last[1]).toMatchObject({ ymd: "2026-11-17", selectable: false });
   });
 
-  it("w piątek bieżący tydzień znika, bo nie ma w nim czego wybrać", () => {
-    const weeks = slotWeeks("2026-11-06");
-    expect(weeks[0].monday).toBe("2026-11-09");
+  it("dziś można wybrać tylko godziny, które się jeszcze nie zaczęły", () => {
+    const days = slotWeeks("2026-11-04", "15:51")[0].days; // środa
+    expect(days[1]).toMatchObject({ ymd: "2026-11-03", selectable: false, hours: [] });
+    expect(days[2]).toMatchObject({ ymd: "2026-11-04", selectable: true, hours: ["16:00"] });
+    expect(days[3].hours).toEqual(SLOT_HOURS);
+  });
+
+  it("o pełnej godzinie ta godzina już się zaczęła", () => {
+    expect(slotWeeks("2026-11-04", "15:00")[0].days[2].hours).toEqual(["16:00"]);
+  });
+
+  it("po ostatniej godzinie dziś nie ma czego wybrać, ale jutro zostaje", () => {
+    const days = slotWeeks("2026-11-04", "16:00")[0].days;
+    expect(days[2]).toMatchObject({ selectable: false, hours: [], holiday: false });
+    expect(days[3].selectable).toBe(true);
+  });
+
+  it("święto dziś nie ma godzin", () => {
+    const today = slotWeeks("2026-11-11", "08:30")[0].days[2];
+    expect(today).toMatchObject({ selectable: false, holiday: true, hours: [] });
+  });
+
+  it("w piątek rano bieżący tydzień zostaje, po ostatniej godzinie znika", () => {
+    expect(slotWeeks("2026-11-06", "10:00")[0].monday).toBe("2026-11-02");
+    expect(slotWeeks("2026-11-06", "16:30")[0].monday).toBe("2026-11-09");
+  });
+
+  it("w niedzielę siatka zaczyna się od poniedziałku", () => {
+    expect(slotWeeks("2026-11-08", "10:00")[0].monday).toBe("2026-11-09");
   });
 
   it("tydzień na przełomie miesięcy ma dwie nazwy miesiąca", () => {
-    expect(slotWeeks("2026-11-27")[0].label).toBe("30 listopada – 4 grudnia");
+    expect(slotWeeks("2026-11-27", "17:00")[0].label).toBe("30 listopada – 4 grudnia");
   });
 
   it("wybór: klik zdejmuje, siódmy termin nie wchodzi, lista posortowana", () => {

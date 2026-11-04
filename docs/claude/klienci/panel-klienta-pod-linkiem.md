@@ -64,6 +64,10 @@ SQL `services/client_panel_schema.py` (lustro w `entrypoint.sh`, sondy w `/api/h
   rekrutacji; bez DL-a wniosek powstaje bez ruchu karty. Otwarty wniosek = 409,
   klientowi bez `open_request_id`. Klient widzi wybrany termin dopiero po potwierdzeniu.
   „Nie pasuje” niczego nie przesuwa, decyzja zostaje u DL-a.
+- **Siatka terminów zaczyna się od dziś** (04.11.2026, zgłoszenie z testu panelu;
+  wcześniej od jutra). Dziś do wyboru są tylko godziny, które się jeszcze nie zaczęły, bo
+  `normalize_slots` odrzuca termin przeszły (`slotWeeks` w `panel-logic.ts`). Bez minimalnego
+  wyprzedzenia: o 15:51 można wskazać 16:00.
 - **Autor jest niezweryfikowany.** Na wpisany adres nic nie wychodzi samo. Mail
   z odpowiedzią wychodzi tylko po kliknięciu DL-a, bez linku do panelu i bez nazwiska;
   adres spoza domen kontaktów klienta ma `email_domain_known=false`. Dzwonek i mail

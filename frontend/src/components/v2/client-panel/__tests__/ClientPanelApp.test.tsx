@@ -2,7 +2,7 @@ import { useImperativeHandle, type Ref } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const viewer = vi.hoisted(() => ({
   searches: [] as unknown[],
@@ -61,6 +61,10 @@ function failingWith(status: number): Partial<PanelTransport> {
     fetchPanel: () => Promise.reject(Object.assign(new Error("x"), { response: { status } })),
   };
 }
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 beforeEach(() => {
   viewer.searches.length = 0;
@@ -382,7 +386,22 @@ describe("okna", () => {
     );
   });
 
+  it("terminy: dziś do wyboru tylko godziny, które się jeszcze nie zaczęły", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-04T14:51:00Z") }); // 15:51 w Warszawie
+    renderPanel(transportWith({}), "fikc-anna");
+    await screen.findByTestId("requirements-list");
+    await userEvent.click(screen.getByRole("button", { name: "Poproś o rozmowę" }));
+    const grid = await screen.findByTestId("slots-grid");
+
+    expect(within(grid).getByRole("button", { name: "Śr 04.11, 16:00" })).toBeInTheDocument();
+    expect(within(grid).queryByRole("button", { name: "Śr 04.11, 15:00" })).toBeNull();
+    expect(within(grid).queryByRole("button", { name: "Wt 03.11, 16:00" })).toBeNull();
+    expect(within(grid).getByRole("button", { name: "Cz 05.11, 09:00" })).toBeInTheDocument();
+  });
+
   it("terminy: wysyła ISO z przesunięciem i długość, limit 6, sześć wyłącza dalsze", async () => {
+    // Środa rano: w piątek po 15:00 w bieżącym tygodniu zostałby tylko jeden termin.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-04T08:00:00Z") });
     window.localStorage.setItem(
       "nexus.client-panel.author",
       JSON.stringify({ name: "Kasia", email: "kasia@bank.example" }),
