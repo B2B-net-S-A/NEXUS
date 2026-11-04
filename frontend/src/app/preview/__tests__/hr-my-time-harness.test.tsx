@@ -149,6 +149,15 @@ describe("/preview/hr-my-time", () => {
     expect(attempted()).toEqual([]);
   });
 
+  it("Mój miesiąc: urlop z danych nie wypada dziś, także w 4. dzień roboczy miesiąca", async () => {
+    // 05.11.2026 cała kolejka merge'ów padała: 4. dzień roboczy to urlop bez „Dodaj wpis”.
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:00:00Z") });
+    open("?tab=month");
+
+    expect(await screen.findByRole("button", { name: "Dodaj wpis 2026-11-05" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Dodaj wpis 2026-11-09" })).toBeNull();
+  });
+
   it("Mój miesiąc: dziś z podpowiedzią opisu, poprzedni miesiąc potwierdzony", async () => {
     const user = userEvent.setup();
     const today = warsawToday();
