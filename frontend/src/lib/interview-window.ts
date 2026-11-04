@@ -114,6 +114,7 @@ const TODO_ICONS: Partial<Record<TodoKind, WindowIcon>> = {
   slots_pick: "slots",
   slots_confirm: "confirm",
   slots_reply: "confirm",
+  slots_expired: "slots",
   prep_missing: "video",
   prep2_missing: "video",
   prep_late: "video",
@@ -237,6 +238,8 @@ function todoDetail(todo: TodoEntry, item: CycleItem | undefined, now: Date): st
       return todo.due ? `kandydat wybrał ${whenLabel(todo.due, now)}` : null;
     case "slots_reply":
       return todo.due ? `rozmowa w kalendarzu ${whenLabel(todo.due, now)} — potwierdź klientowi` : null;
+    case "slots_expired":
+      return "żadnego już nie wybierzesz — poproś klienta o nowe";
     case "prep_late":
       return "przełóż przed rozmowę";
     case "questions_missing":

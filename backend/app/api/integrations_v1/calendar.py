@@ -54,7 +54,8 @@ class InterviewCycleOut(BaseModel):
     """Cykl pary (kandydat, rekrutacja) — ten sam, co plakietka na Tablicy."""
 
     phase: Optional[str] = Field(
-        description="awaiting_recruiter_pick · awaiting_dl_confirm · scheduled · "
+        description="awaiting_recruiter_pick · awaiting_dl_confirm · slots_expired · "
+        "scheduled · "
         "debrief_due · debriefed; null = w cyklu nic się nie dzieje."
     )
     current_step: Optional[str] = Field(

@@ -71,6 +71,14 @@ describe("needsInterviewDate", () => {
     expect(needsInterviewDate({ interview_badge: badge({ steps: [] }) })).toBe(true);
   });
 
+  it("otwarty wniosek, ale wszystkie terminy minęły — pyta (04.11.2026)", () => {
+    expect(
+      needsInterviewDate({
+        interview_badge: badge({ steps: [], slot_request: { status: "awaiting_recruiter", expired: true } }),
+      }),
+    ).toBe(true);
+  });
+
   it("zaplanowana rozmowa albo otwarte terminy od klienta — nie pyta", () => {
     expect(
       needsInterviewDate({

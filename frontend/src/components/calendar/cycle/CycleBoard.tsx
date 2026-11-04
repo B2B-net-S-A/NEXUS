@@ -36,6 +36,7 @@ const URGENT_TODOS = new Set<TodoEntry["kind"]>(["call_now", "debrief_overdue", 
 /** Krok, o którym mówi zadanie — w jego kolumnie plakietka byłaby powtórzeniem nagłówka. */
 const TODO_STEP: Partial<Record<TodoEntry["kind"], StepKey[]>> = {
   slots_missing: ["slots"],
+  slots_expired: ["slots"],
   slots_pick: ["choice"],
   slots_confirm: ["choice"],
   slots_reply: ["choice"],

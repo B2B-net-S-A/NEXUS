@@ -58,7 +58,10 @@ from app.models.calendar_event import (
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CONTACT_OUTCOMES, CandidateFollowup
-from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_interview_slot_request import (
+    ClientInterviewSlotRequest,
+    all_slots_past,
+)
 from app.models.m365 import Email, EmailDirection
 from app.models.note import Note, NoteType
 from app.models.pipeline_template import PipelineTemplate
@@ -478,14 +481,16 @@ async def _waiting_processes(
                 ClientInterviewSlotRequest.job_id,
                 ClientInterviewSlotRequest.status,
                 ClientInterviewSlotRequest.created_at,
+                ClientInterviewSlotRequest.slots,
             ).where(ClientInterviewSlotRequest.candidate_id.in_(cand_ids))
         )
     ).all()
     open_slots: set[tuple[int, int]] = set()
     last_slots: dict[tuple[int, int], datetime] = {}
-    for cid, jid, status, created in slots:
+    for cid, jid, status, created, terms in slots:
         key = (cid, jid)
-        if status in _OPEN_SLOT_STATUSES:
+        # Wniosek, którego wszystkie terminy minęły, nie jest już „w toku”.
+        if status in _OPEN_SLOT_STATUSES and not all_slots_past(terms or (), now):
             open_slots.add(key)
         if key not in last_slots or created > last_slots[key]:
             last_slots[key] = created
