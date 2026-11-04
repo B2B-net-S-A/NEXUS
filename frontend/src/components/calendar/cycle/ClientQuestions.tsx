@@ -5,6 +5,9 @@ import { useState } from "react";
 import { AllClientQuestions } from "@/components/AllClientQuestions";
 import { useClientQuestions } from "@/lib/api/interviewCycle";
 
+/** Tyle pytań w wąskim panelu, reszta z tej rekrutacji pod przyciskiem. */
+const COMPACT_COUNT = 6;
+
 /**
  * Pytania zadane poprzednim kandydatom na rozmowach w TEJ rekrutacji.
  * Po to rekruter zapisuje pytania po rozmowie: następna osoba idzie na prep
@@ -26,6 +29,7 @@ export function ClientQuestions({
 }) {
   const query = useClientQuestions(jobId);
   const [showAll, setShowAll] = useState(false);
+  const [showAllHere, setShowAllHere] = useState(false);
   // „Nordea pytał” — nazwa klienta nie ma rodzaju, więc zdanie bez czasownika.
   const heading = clientName
     ? `Pytania klienta ${clientName} z rozmów w tej rekrutacji`
@@ -53,13 +57,23 @@ export function ClientQuestions({
         </p>
       ) : (
         <ul className={roomy ? "space-y-1.5" : "space-y-1"}>
-          {(roomy ? questions : questions.slice(0, 6)).map((q) => (
+          {(roomy || showAllHere ? questions : questions.slice(0, COMPACT_COUNT)).map((q) => (
             <li key={q.id} className={`text-foreground ${text}`}>
               • {q.text}
             </li>
           ))}
         </ul>
       )}
+      {!roomy && questions.length > COMPACT_COUNT ? (
+        <button
+          type="button"
+          aria-expanded={showAllHere}
+          onClick={() => setShowAllHere((v) => !v)}
+          className={`mt-2 block font-medium text-primary hover:underline ${text}`}
+        >
+          {showAllHere ? "Pokaż mniej" : `Pokaż wszystkie z tej rekrutacji (${questions.length})`}
+        </button>
+      ) : null}
       <button
         type="button"
         data-tour="jobs.client-questions.scope"

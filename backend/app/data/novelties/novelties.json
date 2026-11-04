@@ -20,6 +20,19 @@
     "dot_anchor": "calendar.interview.reschedule"
   },
   {
+    "id": "pytania-klienta-w-notatkach",
+    "title": "Pytania klienta i notatka po rozmowie są w Notatkach kandydata",
+    "why": "Po odrzuceniu kandydat znika z kalendarza, a pytania klienta zostają na górze jego Notatek, z kopiowaniem. Niżej rozwiniesz pytania z innych rozmów w tej rekrutacji, przed prepem kolejnej osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Profil kandydata → Notatki → Rozmowy",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidate.notes.client-questions",
+    "pr": 3028
+  },
+  {
     "id": "zmien-plik-cv-oryginalne",
     "title": "Zmiana pliku CV oryginalnego w panelu osoby",
     "why": "W zakładce „CV oryginalne” widać teraz nazwę pliku, a „Zmień plik” pozwala obejrzeć inne CV z profilu i ustawić je jako oryginalne. Nie musisz przechodzić do profilu ani wgrywać pliku drugi raz.",

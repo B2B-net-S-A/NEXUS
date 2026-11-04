@@ -33,6 +33,7 @@ from app.models.client_interview_slot_request import (
     SLOT_STATUS_AWAITING_RECRUITER,
     SLOT_STATUS_CANCELLED,
     SLOT_STATUS_CONFIRMED,
+    OPEN_SLOT_STATUSES,
     ClientInterviewSlotRequest,
 )
 from app.models.job import Job
@@ -777,6 +778,29 @@ def cancel(req: ClientInterviewSlotRequest) -> None:
     if req.status not in (SLOT_STATUS_AWAITING_RECRUITER, SLOT_STATUS_AWAITING_DL):
         raise HTTPException(status_code=409, detail=_status_conflict(req.status))
     req.status = SLOT_STATUS_CANCELLED
+
+
+async def cancel_open_for_pair(
+    db: AsyncSession, *, candidate_id: int, job_id: int
+) -> None:
+    """Zamknięta karta nie ma otwartych terminów (decyzja Artura 04.11.2026).
+
+    Otwarty wniosek zostawał na karcie „Odrzucony” i „Wycofany”: karta mówiła
+    „Wybierz termin”, przyszły termin dawało się wybrać i założyć rozmowę,
+    a po powrocie karty wisiały stare terminy i 409 dla klienta w panelu.
+    Przywrócona karta dostaje nowe terminy nowym wnioskiem.
+    """
+    requests = await db.scalars(
+        select(ClientInterviewSlotRequest)
+        .where(
+            ClientInterviewSlotRequest.candidate_id == candidate_id,
+            ClientInterviewSlotRequest.job_id == job_id,
+            ClientInterviewSlotRequest.status.in_(OPEN_SLOT_STATUSES),
+        )
+        .with_for_update()
+    )
+    for req in requests.all():
+        cancel(req)
 
 
 async def slot_owner_recipients(
