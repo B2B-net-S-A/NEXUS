@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/care/case-assignees": "BBDBBDDDBBBDBBBDDDBDDDDDDDB",
-  "GET /api/care/contracts/{contract_id}/cases": "BBDBBDDDBBBDBBBBDBBDDDDDDDB"
+  "GET /api/care/case-assignees": "BBDBBDDDBBBDBBBDDDBDDDDDDDBD",
+  "GET /api/care/contracts/{contract_id}/cases": "BBDBBDDDBBBDBBBBDBBDDDDDDDBD"
  }
 }

@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "PATCH /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/contracts/{contract_id}/status": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -26,21 +26,22 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

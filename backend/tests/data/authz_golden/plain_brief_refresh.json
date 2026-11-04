@@ -26,9 +26,10 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
+  "POST /api/jobs/{job_id}/plain-brief/refresh": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
  }
 }

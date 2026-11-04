@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPPDDDDDDP",
-  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDDDDDDDDD"
+  "DELETE /api/client-knowledge/{knowledge_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/knowledge": "PPDBPDDDBBBDPPPPDPPPDDDDDDPD",
+  "POST /api/clients/{client_id}/knowledge": "PDDBDDDDBBBDDDPDDDDDDDDDDDDD"
  }
 }

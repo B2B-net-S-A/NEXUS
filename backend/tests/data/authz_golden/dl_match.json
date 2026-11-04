@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/dl-match/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
-  "GET /api/dl-match/candidates/{candidate_id}/search": "PDDPDDDDPPPDDDDDPDDDDDDDDDD",
-  "POST /api/dl-match/send": "PDDPDDDDPPPDDDDDPDDDDDDDDDD"
+  "GET /api/dl-match/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
+  "GET /api/dl-match/candidates/{candidate_id}/search": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
+  "POST /api/dl-match/send": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD"
  }
 }

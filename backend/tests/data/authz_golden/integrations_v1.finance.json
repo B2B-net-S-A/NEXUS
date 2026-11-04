@@ -26,19 +26,20 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/finance/order-changes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/history": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-changes/summary": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/months": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/zip": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/order-pdfs/{kind}/{entry_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/periods": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/finance/results": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/imports": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/finance/order-changes/checks": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

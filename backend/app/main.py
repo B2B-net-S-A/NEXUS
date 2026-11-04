@@ -126,6 +126,7 @@ from app.api import insights_work_rhythm
 from app.api import insights_proposals
 from app.api import client_knowledge
 from app.api import client_materials
+from app.api import client_contract_documents
 from app.api import client_framework_contracts
 from app.api import client_executive_contracts
 from app.api import client_contract_amendments
@@ -1492,6 +1493,12 @@ app.include_router(
     client_framework_contracts.router,
     prefix="/api/clients",
     tags=["client-framework-contracts"],
+)
+# Ekran „Umowy klientów”: lista i pliki z własnym uprawnieniem, bez kwot.
+app.include_router(
+    client_contract_documents.router,
+    prefix="/api/client-contract-documents",
+    tags=["client-contract-documents"],
 )
 # Struktura umów wykonawczych Centrum e-Zdrowia (umowa ramowa-część → wykonawcze).
 app.include_router(

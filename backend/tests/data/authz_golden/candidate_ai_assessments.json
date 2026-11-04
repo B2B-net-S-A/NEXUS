@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/ai-assessments/latest": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/ai-assessments": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/jobs/{job_id}/ai-assessments/latest": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/ai-assessments": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/rate-overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/recruitment-rate-hints": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PUT /api/candidates/{candidate_id}/rate-observations/{key}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidates/{candidate_id}/rate-overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/recruitment-rate-hints": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "PUT /api/candidates/{candidate_id}/rate-observations/{key}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

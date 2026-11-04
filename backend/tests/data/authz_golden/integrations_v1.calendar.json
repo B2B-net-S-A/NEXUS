@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/integrations/v1/interviews": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/interviews/{event_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/interviews": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/interviews/{event_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

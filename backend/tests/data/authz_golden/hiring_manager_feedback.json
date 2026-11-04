@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/jobs/{job_id}/hiring-manager-feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

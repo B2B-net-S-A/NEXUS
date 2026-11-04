@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/invite-links": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/invite-links/{token}/revoke": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

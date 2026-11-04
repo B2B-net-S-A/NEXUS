@@ -26,16 +26,17 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDPPPDPPPPDPPPDDDDDDP",
-  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDPPPDDDPDDDDDDDDDDDD",
-  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDPPPDDDDDDDDDDDDDDDD"
+  "DELETE /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "DELETE /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/clients/{client_id}/notification-overrides": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
+  "GET /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "PATCH /api/clients/{client_id}/notification-overrides/{override_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "PATCH /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules/{rule_id}": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
+  "POST /api/clients/{client_id}/notification-overrides": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
+  "POST /api/pipeline-templates/{template_id}/stages/{stage_def_id}/notification-rules": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD"
  }
 }

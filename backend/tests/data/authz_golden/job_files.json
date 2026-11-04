@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/jobs/{job_id}/files/{file_id}/content": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "PATCH /api/jobs/{job_id}/files/{file_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/files": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

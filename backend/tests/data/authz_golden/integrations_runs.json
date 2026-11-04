@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/audits/live-order-contract-repair": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-talent-radar/{task_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/import-tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/ezdrowie-md-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/clients/{client_id}/nordea-orders/import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/import-talent-radar": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

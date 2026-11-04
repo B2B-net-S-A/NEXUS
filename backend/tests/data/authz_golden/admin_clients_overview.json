@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/admin/clients-overview": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/clients-overview/by-dl": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/clients-overview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/clients-overview/by-dl": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

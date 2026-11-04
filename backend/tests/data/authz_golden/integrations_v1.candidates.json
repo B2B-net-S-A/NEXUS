@@ -26,15 +26,16 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/cv-text": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/documents": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/documents/{document_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/screening": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/cv-text": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/documents": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/documents/{document_id}/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/candidates/{candidate_id}/notes": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/screening": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /health": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/health": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/alembic": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/deep": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/health/live": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /health": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "POST /api/novelties/{novelty_id}/events": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PUT /api/novelties/start/gate": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
+  "GET /api/novelties/adoption": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/novelties/mine": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/novelties/start": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/novelties/{novelty_id}/events": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/novelties/{novelty_id}/remind": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PUT /api/novelties/start/gate": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
  }
 }
