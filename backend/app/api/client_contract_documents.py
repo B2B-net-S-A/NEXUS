@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.api.permission_access import ClientContractsViewUser
 from app.core.database import get_db
@@ -63,13 +64,19 @@ async def list_client_contracts(
     current_user: ClientContractsViewUser,
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientContractRow]:
+    # Scalenie zostawia umowy na duplikacie, więc pokazujemy je pod klientem
+    # docelowym: inaczej jedna firma ma na liście dwa wpisy.
+    target = aliased(Client)
+    display_id = func.coalesce(target.id, Client.id)
+    display_name = func.coalesce(target.name, Client.name)
     stmt = (
-        select(ClientFrameworkContract, Client.name)
+        select(ClientFrameworkContract, display_id, display_name)
         .join(Client, Client.id == ClientFrameworkContract.client_id)
+        .outerjoin(target, target.id == Client.merged_into_client_id)
         .where(Client.deleted_at.is_(None))
         .order_by(
-            func.lower(Client.name),
-            Client.id,
+            func.lower(display_name),
+            display_id,
             ClientFrameworkContract.effective_date.desc().nullslast(),
         )
     )
@@ -80,7 +87,7 @@ async def list_client_contracts(
     rows = (await db.execute(stmt)).all()
 
     amendments: dict[int, list[ClientContractAmendment]] = {}
-    contract_ids = [contract.id for contract, _ in rows]
+    contract_ids = [contract.id for contract, _, _ in rows]
     if contract_ids:
         amendment_rows = await db.scalars(
             select(ClientContractAmendment)
@@ -93,7 +100,7 @@ async def list_client_contracts(
     return [
         ClientContractRow(
             id=contract.id,
-            client_id=contract.client_id,
+            client_id=client_id,
             client_name=client_name,
             name=contract.name,
             status=contract.status.value,
@@ -112,7 +119,7 @@ async def list_client_contracts(
                 for amendment in amendments.get(contract.id, [])
             ],
         )
-        for contract, client_name in rows
+        for contract, client_id, client_name in rows
     ]
 
 

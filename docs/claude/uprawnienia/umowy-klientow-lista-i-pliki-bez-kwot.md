@@ -20,3 +20,6 @@ Delivery, które otwierają kwoty i kontrakty w całym systemie.
   „bez stawek” bez tego zastrzeżenia.
 - **Delivery Lead z tym uprawnieniem zostaje przy swoich klientach**
   (`resolve_delivery_lead_client_ids`). Klient usunięty znika z listy i plików.
+- **Umowa scalonego duplikatu pokazuje się pod klientem docelowym.** Scalenie zostawia
+  umowy na duplikacie (`clients.py`), więc 5 z 48 umów stało pod drugą nazwą tej samej
+  firmy. Zakres Delivery Leada i pobieranie liczą się dalej po `client_id` umowy.
