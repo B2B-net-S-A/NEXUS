@@ -1,5 +1,17 @@
 [
   {
+    "id": "pytania-klienta-w-notatkach",
+    "title": "Pytania klienta i notatka po rozmowie są w Notatkach kandydata",
+    "why": "Po odrzuceniu kandydat znika z kalendarza, a pytania klienta zostają teraz na górze jego Notatek, z przyciskiem kopiowania. Niżej rozwiniesz pytania z innych rozmów w tej rekrutacji, przydatne przed prepem następnej osoby.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"]},
+    "where": "Profil kandydata → Notatki → Rozmowy",
+    "href": "/candidates",
+    "section": "sourcing",
+    "dot_anchor": "candidate.notes.client-questions"
+  },
+  {
     "id": "jarvis-zapis-od-razu-z-cofnij",
     "title": "Jarvis zapisuje od razu, a Ty masz „Cofnij”",
     "why": "Gdy poprosisz o notatkę, dodanie do rekrutacji albo uśpienie lub przypięcie w „Moich ludziach”, Jarvis robi to od razu. Przez 15 minut cofniesz to jednym kliknięciem na karcie.",
