@@ -1412,9 +1412,9 @@ async def load_overview(
     todos: list[dict] = []
     for key, snap in snaps.items():
         # 23.10.2026: kandydat zrezygnował, karta poszła na „Wycofany”, a otwarty
-        # wniosek o terminy trzymał go w „Wybór terminu”. Ruch na etap końcowy
-        # wniosku nie zamyka (każda ścieżka ruchu by musiała), więc zamknięta
-        # karta znika stąd; przywrócona wraca z tym samym wnioskiem.
+        # wniosek o terminy trzymał go w „Wybór terminu”. Od 04.11.2026 zamknięcie
+        # anuluje wniosek (``transition_process``), ale para może mieć jeszcze
+        # rozmowę albo potwierdzony termin, więc zamknięta karta znika stąd.
         if snap.latest_stage in _CLOSED_STAGES:
             continue
         cid, jid = key

@@ -93,3 +93,12 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   a potwierdzenie wniosku odwołuje wpis o tej samej godzinie
   (`interview_slots._cancel_same_hour_entries`). Spotkania z Outlooka
   z uczestnikami zostają, jak przy przełożeniu (`replaceable_interviews`).
+- **Zamknięcie karty anuluje otwarty wniosek o terminy** (decyzja Artura
+  04.11.2026, zastępuje „przywrócona wraca z tym samym wnioskiem” z 23.10.2026).
+  Pomiar z 04.11: 7 z 15 otwartych wniosków stało na kartach „Odrzucony”
+  i „Wycofany”, karta mówiła „Wybierz termin”, panel osoby miał aktywny przycisk,
+  a wniosek miał terminy jeszcze do 5 dni po zamknięciu. Anuluje
+  `transition_process` przy etapie `rejected` i `withdrawn`, więc obejmuje ruch
+  z Tablicy, ruchy zbiorcze i CPro. Przywrócona karta dostaje nowe terminy nowym
+  wnioskiem. Potwierdzony termin zostaje, a „Akceptacja” i „Zatrudniony” wniosku
+  nie zamykają. Stare wiersze: `scripts/cancel_open_slots_on_closed_cards.py`.
