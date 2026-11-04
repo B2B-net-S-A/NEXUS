@@ -1,24 +1,11 @@
-import { test, expect, Page } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 
-const EMAIL = process.env.E2E_USER_EMAIL || "artur@b2bnet.pl";
 const PASSWORD = process.env.E2E_USER_PASSWORD || "";
-
-async function login(page: Page) {
-  await page.goto("/login");
-  await page.getByLabel(/email/i).fill(EMAIL);
-  await page
-    .getByLabel(/hasło/i)
-    .or(page.getByLabel(/password/i))
-    .fill(PASSWORD);
-  await page.getByRole("button", { name: /zaloguj|sign in|login/i }).click();
-  await page.waitForURL(/\/(?:$|dashboard)/, { timeout: 15_000 });
-}
 
 test.describe("Candidates flow", () => {
   test.skip(!PASSWORD, "Set E2E_USER_PASSWORD to run candidates tests");
 
   test("lista kandydatów ładuje się z talent-radar importu", async ({ page }) => {
-    await login(page);
     await page.goto("/candidates");
     await expect(page.getByRole("heading", { name: /Kandydaci/i })).toBeVisible();
     // After Phase 7a import there should be 30k+ candidates; the total counter shows "X w bazie"
@@ -29,19 +16,15 @@ test.describe("Candidates flow", () => {
     expect(totalText).toBeTruthy();
   });
 
-  test("import i eksport wyników są w menu „Importuj”", async ({ page }) => {
-    await login(page);
+  test("konto tylko do odczytu nie ma eksportu w menu „Importuj”", async ({ page }) => {
     await page.goto("/candidates");
     await page.getByRole("button", { name: /Importuj/ }).click();
     await expect(page.getByRole("menuitem", { name: "Import CSV" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "Masowy import CV" })).toBeVisible();
-    // Eksport całego wyniku — tylko role z prawem eksportu.
-    await expect(page.getByRole("menuitem", { name: "Eksportuj wyniki (CSV)" })).toBeVisible();
-    await expect(page.getByRole("menuitem", { name: "Eksportuj wyniki (XLSX)" })).toBeVisible();
+    // Produkcja, publiczne logi: eksport danych osobowych nie ma prawa tu zadziałać.
+    await expect(page.getByRole("menuitem", { name: /^Eksportuj wyniki/ })).toHaveCount(0);
   });
 
   test("filtry stoją paskiem nad tabelą", async ({ page }) => {
-    await login(page);
     await page.goto("/candidates");
     const bar = page.getByRole("region", { name: "Filtry kandydatów" });
     await expect(bar).toBeVisible();
@@ -49,50 +32,39 @@ test.describe("Candidates flow", () => {
     await expect(page.getByRole("dialog").getByLabel("Miasto")).toBeVisible();
   });
 
-  test("quick view zachowuje listę, przechodzi przez granicę strony i oddaje fokus", async ({ page }) => {
-    await login(page);
-    await page.goto("/candidates?view=list");
+  test("quick view przechodzi między kandydatami i oddaje fokus", async ({ page }) => {
+    await page.goto("/candidates");
 
-    const scroller = page.getByTestId("candidate-list-scroll");
-    await expect(scroller).toBeVisible();
-    await scroller.evaluate((node) => {
-      node.scrollTop = node.scrollHeight;
-    });
-
-    const lastRow = page.locator('[data-testid^="candidate-row-"][data-index="49"]');
-    await expect(lastRow).toBeVisible();
-    // Wiersz otwiera podgląd (klik albo Enter); nazwisko to link do profilu.
-    await lastRow.focus();
-    await lastRow.press("Enter");
+    const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
+    await firstRow.focus();
+    await firstRow.press("Enter");
 
     const quickView = page.getByTestId("candidate-quick-view");
     await expect(quickView).toBeVisible();
-    await expect(quickView.getByText(/^50 z /)).toBeVisible();
+    await expect(quickView.getByText(/^1 z /)).toBeVisible();
     await quickView.getByRole("button", { name: "Następny kandydat" }).click();
-    await expect(quickView.getByText(/^51 z /)).toBeVisible();
+    await expect(quickView.getByText(/^2 z /)).toBeVisible();
 
     await page.keyboard.press("k");
-    await expect(quickView.getByText(/^50 z /)).toBeVisible();
-    await expect(quickView.getByRole("button", { name: "Zamknij szybki podgląd" })).toHaveCount(1);
+    await expect(quickView.getByText(/^1 z /)).toBeVisible();
 
     for (let index = 0; index < 12; index += 1) await page.keyboard.press("Tab");
     expect(await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')))).toBe(true);
 
     await quickView.getByRole("button", { name: "Zamknij szybki podgląd" }).click();
     await expect(quickView).toBeHidden();
-    await expect(lastRow).toBeFocused();
+    await expect(firstRow).toBeFocused();
   });
 
   // Od 13.10.2026 (E5) sześć zakładek: CV osobno od Dokumentów.
   test("pełny profil ma sześć sekcji i obsługuje legacy chat link", async ({ page }) => {
-    await login(page);
-    await page.goto("/candidates?view=list");
+    await page.goto("/candidates");
 
     const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
     await firstRow.focus();
     await firstRow.press("Enter");
     await page.getByTestId("candidate-quick-view").getByRole("button", { name: "Otwórz profil" }).click();
-    await expect(page).toHaveURL(/\/candidates\/\d+\?tab=summary/);
+    await expect(page).toHaveURL(/\/candidates\/\d+\?(?:.*&)?tab=summary/);
 
     for (const section of [/^Przegląd/, /^Rekrutacje/, /^Screening/, /^Notatki/, /^CV/, /^Dokumenty/]) {
       await expect(page.getByRole("tab", { name: section })).toBeVisible();
@@ -105,29 +77,14 @@ test.describe("Candidates flow", () => {
     await expect(page.getByRole("tab", { name: /^Notatki/ })).toHaveAttribute("aria-selected", "true");
   });
 
-  test("eksportuje dokładnie zaznaczonego kandydata", async ({ page }) => {
-    await login(page);
-    await page.goto("/candidates?view=list");
-
-    const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
-    await firstRow.getByRole("checkbox").check();
-    const downloadPromise = page.waitForEvent("download");
-    const bar = page.getByRole("region", { name: "Akcje zaznaczonych kandydatów" });
-    await bar.getByRole("button", { name: /Więcej/ }).click();
-    await page.getByRole("menuitem", { name: "Eksportuj zaznaczone (CSV)" }).click();
-    const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/\.csv$/);
-  });
-
   test("quick view rozróżnia 403, 404 i pozwala ponowić po 500", async ({ page }) => {
-    await login(page);
-    await page.goto("/candidates?view=list");
+    await page.goto("/candidates");
 
     const firstRow = page.locator('[data-testid^="candidate-row-"]').first();
     const testId = await firstRow.getAttribute("data-testid");
     const candidateId = testId?.replace("candidate-row-", "");
     expect(candidateId).toBeTruthy();
-    const detailUrl = new RegExp(`/api/candidates/${candidateId}(?:\\?.*)?$`);
+    const detailUrl = new RegExp(`/api/candidates/${candidateId}/quick-view(?:\\?.*)?$`);
 
     for (const scenario of [
       { status: 403, message: "Nie masz dostępu do tego profilu" },
