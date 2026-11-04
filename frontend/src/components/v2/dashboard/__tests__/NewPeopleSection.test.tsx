@@ -87,9 +87,9 @@ describe("newPersonLabel", () => {
   it("mówi, czego brakuje", () => {
     expect(newPersonLabel(row())).toBe("Nowe konto · od 19.10");
     expect(newPersonLabel(row({ needs_decision: false, missing: ["categories"] }))).toBe("Rekruter bez kategorii");
-    expect(newPersonLabel(row({ needs_decision: false, missing: ["manager"] }))).toBe("Rekruter bez przełożonego");
+    expect(newPersonLabel(row({ needs_decision: false, missing: ["manager"] }))).toBe("Rekruter bez koordynatora");
     expect(newPersonLabel(row({ needs_decision: false, missing: ["categories", "manager"] }))).toBe(
-      "Rekruter bez kategorii i przełożonego",
+      "Rekruter bez kategorii i koordynatora",
     );
   });
 });
@@ -101,7 +101,7 @@ describe("NewPeopleSection", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("Head of Recruitment robi rekrutera z kategorią i sobą jako przełożonym", async () => {
+  it("Head of Recruitment robi rekrutera z kategorią i sobą jako koordynatorem", async () => {
     setUser(["head_of_recruitment"]);
     renderSection([row()]);
     await userEvent.click(screen.getByRole("button", { name: "Zdecyduj" }));
@@ -115,7 +115,7 @@ describe("NewPeopleSection", () => {
     await userEvent.click(within(first).getByRole("button", { name: /Development/ }));
     const second = within(dialog).getByRole("group", { name: "2. priorytet" });
     await userEvent.click(within(second).getByRole("button", { name: /Infra/ }));
-    await waitFor(() => expect(within(dialog).getByLabelText("Przełożony")).toHaveValue("11"));
+    await waitFor(() => expect(within(dialog).getByLabelText("Koordynator")).toHaveValue("11"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));
 
     await waitFor(() =>
@@ -145,7 +145,7 @@ describe("NewPeopleSection", () => {
     await userEvent.click(screen.getByRole("button", { name: "Uzupełnij" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).queryByText("Kim jest ta osoba w NEXUSIE?")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("Przełożony")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Koordynator")).not.toBeInTheDocument();
     const first = await within(dialog).findByRole("group", { name: "1. priorytet" });
     await userEvent.click(within(first).getByRole("button", { name: /Infra/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Zapisz" }));

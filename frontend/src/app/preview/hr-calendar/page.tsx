@@ -56,7 +56,7 @@ type As = (typeof AS)[number];
 
 const STATES = [
   { key: "team", label: "Rekruterka (rodzaj ukryty)" },
-  { key: "manager", label: "Przełożona (Mój zespół)" },
+  { key: "manager", label: "Koordynatorka (Koordynacja)" },
 ] as const;
 
 interface Plan {
@@ -153,7 +153,7 @@ export default function HrCalendarPreviewPage() {
     <HrHarnessShell
       client={ready.client}
       title="Ludzie → Kalendarz"
-      note="Dane fikcyjne, bez zapytań. Rodzaj nieobecności widzą tylko osoba, jej przełożony i Kadry (D6)."
+      note="Dane fikcyjne, bez zapytań. Rodzaj nieobecności widzą tylko osoba, jej koordynator i Administracja współpracy (D6)."
       states={STATES}
       current={as}
       param="as"
@@ -161,7 +161,7 @@ export default function HrCalendarPreviewPage() {
       <div className="space-y-4">
         <PageHeader
           title="Kalendarz"
-          description="Nieobecności w zespole. Rodzaj widzą tylko osoba, jej koordynator i Kadry."
+          description="Nieobecności w zespole. Rodzaj widzą tylko osoba, jej koordynator i Administracja współpracy."
           density="compact"
         />
         <PeopleSectionNav config={config} active="calendar" />

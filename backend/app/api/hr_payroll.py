@@ -76,9 +76,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 MODULE = HrModule.payroll
-NOT_MEMBER_DETAIL = (
-    "Płace widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Płac."
-)
+NOT_MEMBER_DETAIL = "Rozliczenia widzą osoby z kartoteką w NEXUSIE, ich koordynatorzy i dział Rozliczeń."
 NOT_ADMIN_DETAIL = "Miesiąc płac otwiera ponownie tylko administrator."
 NO_PROFILE_DETAIL = "Rozliczenie widzą osoby z kartoteką w NEXUSIE."
 MONTHS_LISTED = 13
@@ -192,7 +190,12 @@ class BonusPatch(BaseModel):
 
 
 class BonusBatchIn(BaseModel):
-    ids: list[int] = Field(min_length=1, max_length=100)
+    # Karta „Premie” w kolejce back office'u obejmuje cały okres (10.2026: 112).
+    ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class BonusCancelBatchIn(BonusBatchIn):
+    note: Optional[str] = Field(default=None, max_length=1000)
 
 
 class PayrollCancelIn(BaseModel):
@@ -558,7 +561,7 @@ async def month_detail(
     if not viewer.payroll and not viewer.is_manager:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "Miesiąc płac widzą Płace i przełożeni (swój zespół).",
+            "Miesiąc płac widzą Rozliczenia i koordynatorzy (swój zespół).",
         )
     report = await payroll_report.month_report(db, year, month)
     visible = [
@@ -687,7 +690,9 @@ async def person_payroll(
     viewer = await load_viewer(db, current_user)
     profile = await people.profile_of(db, user_id)
     if profile is None or not viewer.sees_person(user_id):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Płacach.")
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, "Nie ma takiej osoby w Rozliczeniach."
+        )
     bonuses = await payroll_bonuses.list_bonuses(db, viewer, user_id=user_id, limit=200)
     payload: dict[str, Any] = {
         "user_id": user_id,
@@ -943,6 +948,27 @@ async def cancel_bonus(
             db, viewer, bonus_id, note=payload.note
         )
     return await _bonus_response(db, bonus, viewer)
+
+
+@router.post("/bonuses/cancel-batch")
+async def cancel_bonuses(
+    payload: BonusCancelBatchIn,
+    current_user: PayrollAdmin,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Zbiorcze anulowanie z karty okresu: wszystko albo nic, jak „Zatwierdź zaznaczone”.
+
+    Każda premia przechodzi ``payroll_bonuses.cancel_bonus``. Pierwsza odmowa
+    cofa całość, więc nikt nie dostaje dzwonka o anulowaniu, które nie weszło.
+    """
+
+    viewer = await load_viewer(db, current_user)
+    cancelled = 0
+    for bonus_id in sorted(set(payload.ids)):
+        with _http_errors():
+            await payroll_bonuses.cancel_bonus(db, viewer, bonus_id, note=payload.note)
+        cancelled += 1
+    return {"cancelled": cancelled}
 
 
 @router.get("/contracts/{contract_id}/bonuses")
@@ -1264,7 +1290,7 @@ async def refresh_proposals(
     if not loaded.get(MODULE):
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "Automat premii działa po włączeniu modułu Płac.",
+            "Automat premii działa po włączeniu modułu Rozliczeń.",
         )
     return await payroll_jobs.refresh_proposals(db, today=business_today())
 

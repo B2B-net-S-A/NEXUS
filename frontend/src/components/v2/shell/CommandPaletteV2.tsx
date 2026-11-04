@@ -305,6 +305,7 @@ export function CommandPaletteV2({
     people: hrPeople,
     equipment: hrEquipment,
     care: hrCare,
+    backOffice: hrBackOffice,
   } = useHrNavState(user);
   const visibleNav = useMemo(
     () =>
@@ -312,7 +313,13 @@ export function CommandPaletteV2({
         user,
         {
           contactQueueEnabled: contactFeature.enabled,
-          hr: { myTime: hrMyTime, people: hrPeople, equipment: hrEquipment, care: hrCare },
+          hr: {
+            myTime: hrMyTime,
+            people: hrPeople,
+            equipment: hrEquipment,
+            care: hrCare,
+            backOffice: hrBackOffice,
+          },
         },
         (capability) => can[capability],
       ).map((entry) => ({
@@ -322,7 +329,7 @@ export function CommandPaletteV2({
         icon: entry.icon,
         keywords: entry.paletteKeywords ?? [],
       })),
-    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare],
+    [user, contactFeature.enabled, can, hrMyTime, hrPeople, hrEquipment, hrCare, hrBackOffice],
   );
 
   // Po wpisaniu ≥2 znaków pozycje nawigacji pasujące do zapytania zostają

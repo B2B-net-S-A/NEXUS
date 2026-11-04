@@ -481,6 +481,17 @@ export function useSubmitMonth(year: number, month: number) {
   });
 }
 
+/** Osoba cofa własny wysłany raport do szkicu, dopóki nikt go nie przyjął. */
+export function useWithdrawMonth(year: number, month: number) {
+  const invalidate = useInvalidateTime();
+  return useMutation({
+    mutationKey: [...HR_COUNTS_MUTATION_KEY, "timesheet-withdraw"],
+    mutationFn: async () =>
+      (await api.post<TimesheetHeader>(`/api/hr/time/me/${year}/${month}/withdraw`)).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useTeamQueue(year: number, month: number, enabled = true) {
   return useQuery({
     queryKey: timeKeys.team(year, month),

@@ -130,10 +130,12 @@ async def _post_from_cv(monkeypatch, tmp_path, *, force: bool):
     db = _RacingSession()
     with pytest.raises(HTTPException) as caught:
         await candidates_api.create_candidate_from_cv(
+            request=SimpleNamespace(state=SimpleNamespace()),
             current_user=SimpleNamespace(id=7),
             db=db,
             file=UploadFile(file=io.BytesIO(b"%PDF-1.4 cv"), filename="cv.pdf"),
             force=force,
+            confirm_erased=False,
             name=None,
             lastname=None,
             email=None,

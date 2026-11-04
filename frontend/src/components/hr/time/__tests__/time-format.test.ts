@@ -21,6 +21,7 @@ import {
   weekGroups,
   weekTitle,
   wouldExceedDay,
+  overLeaveLimit,
 } from "../time-format";
 
 function day(overrides: Partial<MonthDay> = {}): MonthDay {
@@ -116,6 +117,27 @@ describe("godziny", () => {
   });
 });
 
+describe("overLeaveLimit", () => {
+  const half = { full: false, label: "Urlop" } as DayLeave;
+  const entry = { is_overtime: false } as MonthDay["entries"][number];
+
+  it("pół dnia i więcej godzin, niż zostawia, to pomyłka do poprawy", () => {
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 8, entries: [entry] }))).toBe(true);
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 4, entries: [entry] }))).toBe(false);
+  });
+
+  it("świadome nadgodziny, pełny dzień i dzień bez nieobecności nie", () => {
+    const overtime = { is_overtime: true } as MonthDay["entries"][number];
+    expect(overLeaveLimit(day({ leave: half, capacity: 4, hours: 8, entries: [overtime] }))).toBe(false);
+    expect(overLeaveLimit(day({ leave: { ...half, full: true }, capacity: null, hours: 8 }))).toBe(false);
+    expect(overLeaveLimit(day({ leave: null, capacity: 8, hours: 10, entries: [entry] }))).toBe(false);
+  });
+
+  it("połowa płatnej puli: auto-wpis 4 h i 4 h pracy to komplet, nie nadmiar", () => {
+    expect(overLeaveLimit(day({ leave: { ...half, paid_work: true }, capacity: 8, hours: 8 }))).toBe(false);
+  });
+});
+
 describe("pasek statusu", () => {
   it("szkic pokazuje termin, zwrot i zamknięcie płac mówią same za siebie", () => {
     expect(statusLine(view())).toBe("szkic · wyślij do 05.11");
@@ -127,7 +149,7 @@ describe("pasek statusu", () => {
     );
     expect(statusLine(view({ timesheet: { ...header, status: "approved" } }))).toBe("zaakceptowany");
     expect(statusLine(view({ timesheet: { ...header, payroll_locked: true } }))).toBe(
-      "zamknięty w płacach",
+      "zamknięty w rozliczeniach",
     );
   });
 
@@ -145,7 +167,7 @@ describe("pasek statusu", () => {
   });
 });
 
-describe("godziny w kolejce Akceptacji", () => {
+describe("godziny w kolejce Do potwierdzenia", () => {
   it("etykieta z normą i bez niej", () => {
     expect(queueHoursLabel(72, 176)).toBe("72 / 176 h");
     expect(queueHoursLabel(7.5, 168)).toBe("7,5 / 168 h");
@@ -299,7 +321,7 @@ describe("zdanie o godzinach po cofnięciu nieobecności", () => {
   });
 
   it("zamknięty miesiąc płac wygrywa ze stanem raportu", () => {
-    expect(afterLeaveCancelNote("approved", true)).toContain("zamknięty w płacach");
-    expect(afterLeaveCancelNote("draft", true)).toContain("zamknięty w płacach");
+    expect(afterLeaveCancelNote("approved", true)).toContain("zamknięty w rozliczeniach");
+    expect(afterLeaveCancelNote("draft", true)).toContain("zamknięty w rozliczeniach");
   });
 });

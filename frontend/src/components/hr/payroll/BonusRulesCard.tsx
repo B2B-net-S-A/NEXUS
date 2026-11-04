@@ -634,7 +634,7 @@ export function BonusRulesCard() {
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Placement to kontrakt NEXUSA: termin premii = start + dni robocze, premia DL = procent
-          marży/h × godziny, premia rekrutera według progu marży. Automat proponuje, Płace
+          marży/h × godziny, premia rekrutera według progu marży. Automat proponuje, Rozliczenia
           zatwierdzają.
         </p>
       </div>

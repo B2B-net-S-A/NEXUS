@@ -4,6 +4,6 @@
   "sources": {
     "frontend/src/components/calendar/cycle/CalendarCycleScreen.tsx": "e0361589d5ad0b9d6643dfae8f6808e78bd7eb131e2fafd1cbba7255c5d89d54",
     "frontend/src/components/calendar/cycle/CycleBoard.tsx": "dc5603d770d980b5084760bf5d980050f33e333080ccfb4db5b8d2058d09ee8e",
-    "frontend/src/components/calendar/cycle/CycleCandidatePanel.tsx": "7c0ea9e51980aef873f03b85f3e2e2fca99ec74794602dc8fcfb060cff0c31d5"
+    "frontend/src/components/calendar/cycle/CycleCandidatePanel.tsx": "d32505c109abc2efda509a2c87757cc70af36603bd8d2b9b7d197ac06341532f"
   }
 }

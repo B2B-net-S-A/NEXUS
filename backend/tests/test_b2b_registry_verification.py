@@ -301,7 +301,7 @@ async def test_sole_trader_verified_with_fresh_data_from_ceidg(registries):
     assert all("wl-api" not in c.url.host for c in calls)
     assert result["warnings"] == []
     assert result["company"]["name"] == "Nowa - Jan Kowalski"
-    assert result["company"]["address"] == "UL. NOWA 5, 00-001 WARSZAWA"
+    assert result["company"]["address"] == "ul. Nowa 5, 00-001 Warszawa"
     assert result["company"]["regon"] == "123456789"
     assert result["company"]["entity_type"] == "sole_trader"
 
@@ -350,7 +350,7 @@ async def test_company_goes_to_krs_with_number_from_the_white_list(registries):
     assert result["status"] == VERIFIED
     assert result["registry"] == "krs"
     assert result["company"]["name"] == "ABC SP. Z O.O. W LIKWIDACJI"
-    assert result["company"]["address"] == "UL. PROSTA 1, 00-002 WARSZAWA"
+    assert result["company"]["address"] == "ul. Prosta 1, 00-002 Warszawa"
     assert result["company"]["entity_type"] == "company"
     assert [w["code"] for w in result["warnings"]] == [WARN_KRS_LIQUIDATION]
 

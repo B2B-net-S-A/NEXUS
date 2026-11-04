@@ -497,7 +497,7 @@ export function CaseDetailView({ caseId }: { caseId: number }) {
           {detail.subject_user ? (
             <Card className="p-4">
               <SectionTitle>Osoba</SectionTitle>
-              <Fact label="Pracownik">
+              <Fact label="Osoba">
                 <Link href={`/people/${detail.subject_user.id}`} className="hover:underline">
                   {detail.subject_user.name ?? `#${detail.subject_user.id}`}
                 </Link>

@@ -1110,7 +1110,7 @@ async def check_post_interview_t2h_escalation(
             message=(
                 f"Minęły 2 godziny od interview z kandydatem #{event.candidate_id} "
                 f"— nadal brakuje feedbacku od {side_label}. "
-                "Zajrzyj do karty kandydata i przyciśnij rekrutera."
+                "Zajrzyj do karty kandydata i sprawdź, czego brakuje."
             ),
         )
     return emitted

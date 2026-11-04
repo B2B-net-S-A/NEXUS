@@ -101,7 +101,7 @@ export function PayrollPeopleTable({ people, scope, renderTimesheetAction }: Pay
                 ) : null}
                 <TableHead className={`${CALM_HEAD} text-right`}>Premie</TableHead>
                 {payroll ? <TableHead className={`${CALM_HEAD} text-right`}>Razem</TableHead> : null}
-                <TableHead className={CALM_HEAD}>Timesheet</TableHead>
+                <TableHead className={CALM_HEAD}>Raport godzin</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>

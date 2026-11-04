@@ -23,6 +23,7 @@ from app.services.b2b_contract_generator.number_words import rate_in_words
 from app.services.b2b_contract_generator.rate_clause import (
     RateStage,
     build_rate_clause,
+    build_rate_lines,
 )
 
 
@@ -63,6 +64,7 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
         currency=req.currency or "PLN",
         words_override=req.rate_in_words if len(stages) == 1 else None,
     )
+    rate_lines = build_rate_lines(stages, language=lang, currency=req.currency or "PLN")
 
     company = is_company(getattr(req, "contract_variant", None))
     forms = gender_forms(getattr(req, "gender", None))
@@ -144,6 +146,7 @@ def build_render_context(req, role: Optional[B2BContractRole]) -> dict:
             and not company,
             "rate_in_words": words,
             "rate_clause": rate_clause,
+            "rate_lines": rate_lines,
             "language": lang,
             "area_label": area_label,
             "role_name": role_name,

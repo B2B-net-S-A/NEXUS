@@ -213,7 +213,7 @@ export function m365ProfileSyncView(run: M365JobRun | null): M365View {
   }
   const parts = [`zaktualizowano ${count(run, "updated")} z ${count(run, "read")}`];
   const kept = count(run, "kept_manual");
-  if (kept) parts.push(`zostawione zmiany Kadr: ${kept}`);
+  if (kept) parts.push(`zostawione zmiany Administracji współpracy: ${kept}`);
   const missing = count(run, "not_found");
   if (missing) parts.push(`bez konta w Microsoft 365: ${missing}`);
   return { label: `${day} · zakończony`, tone: "success", note: parts.join(" · ") };

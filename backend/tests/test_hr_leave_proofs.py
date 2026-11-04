@@ -337,7 +337,7 @@ async def test_proof_added_by_hr_cannot_be_removed_by_the_person(app_client) -> 
 
 def test_substitute_never_gets_files_and_no_count_for_hidden_types() -> None:
     cover = leave_substitute.Cover(
-        manager_user_id=1, manager_name="Przełożony", until=DAY
+        manager_user_id=1, manager_name="Koordynator", until=DAY
     )
     for leave_type, count in (("sick_leave", None), ("occasional", 2)):
         row = LeaveRequest(user_id=2, leave_type=leave_type)

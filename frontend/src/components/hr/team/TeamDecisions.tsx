@@ -64,16 +64,16 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
 
   const approveTimesheet = async (card: Extract<DecisionCard, { kind: "timesheet" }>) => {
     const ok = await askConfirm({
-      title: `Zaakceptować timesheet: ${card.person.name}?`,
+      title: `Potwierdzić raport godzin: ${card.person.name}?`,
       description: `${monthTitlePl(card.item)}${
         card.hoursText ? ` · ${card.hoursText}` : ""
       }. Po akceptacji powstaje PDF z sumą kontrolną.`,
-      confirmLabel: "Akceptuj",
+      confirmLabel: "Potwierdź",
     });
     if (!ok) return;
     try {
       await decideTimesheet.mutateAsync({ id: card.item.id, decision: "approve" });
-      showToast("Timesheet zaakceptowany", "success");
+      showToast("Raport godzin potwierdzony", "success");
     } catch (err) {
       showToast(apiErrorMessage(err, "Nie udało się zaakceptować."), "error");
     }
@@ -102,7 +102,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
             Odrzuć
           </Button>
           <Button size="sm" disabled={busy} onClick={() => void approveLeave(card)}>
-            Akceptuj
+            Potwierdź
           </Button>
         </>
       );
@@ -114,7 +114,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
             <Link href={card.item.link}>Podgląd</Link>
           </Button>
           <Button size="sm" disabled={busy} onClick={() => void approveTimesheet(card)}>
-            Akceptuj
+            Potwierdź
           </Button>
         </>
       );
@@ -130,7 +130,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/40 px-3.5 py-2">
         <div className="flex items-baseline gap-1.5">
           <h2 id="team-decisions-title" className="text-sm font-semibold text-foreground">
-            Do Twojej decyzji
+            Do potwierdzenia
           </h2>
           {count > 0 ? (
             <span className="text-sm font-semibold tabular-nums text-muted-foreground">
@@ -139,7 +139,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
           ) : null}
         </div>
         <Link href={APPROVALS} className="text-xs font-medium text-primary hover:underline">
-          Wszystkie w Akceptacjach →
+          Wszystkie do potwierdzenia →
         </Link>
       </div>
       <ul className="divide-y divide-border/60">
@@ -160,7 +160,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
               {row.card.kind === "leave" ? (
                 <Link
                   href={APPROVALS}
-                  title="Szczegóły w Akceptacjach"
+                  title="Szczegóły w „Do potwierdzenia”"
                   className="truncate text-sm font-semibold text-foreground hover:underline"
                 >
                   {row.name}
@@ -184,7 +184,7 @@ export function TeamDecisions({ team }: { team: MyTeam }) {
           href={APPROVALS}
           className="block border-t border-border/60 px-3.5 py-2 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground"
         >
-          {`i jeszcze ${hidden} — w Akceptacjach`}
+          {`i jeszcze ${hidden} — w „Do potwierdzenia”`}
         </Link>
       ) : null}
       <RejectLeaveDialog

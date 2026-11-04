@@ -482,20 +482,20 @@ async def validate_managers(
     if manager_user_id is None:
         return
     if manager_user_id in set(user_ids):
-        raise HrPeopleError("Osoba nie może być swoim własnym przełożonym.")
+        raise HrPeopleError("Osoba nie może być swoim własnym koordynatorem.")
     manager = await db.get(User, manager_user_id)
     if manager is None or not manager.is_active:
-        raise HrPeopleError("Wybrany przełożony nie ma aktywnego konta.")
+        raise HrPeopleError("Wybrany koordynator nie ma aktywnego konta.")
     if not await can_supervise(db, manager_user_id):
         raise HrPeopleError(
-            "Wybrany przełożony zakończył współpracę — wybierz osobę, która pracuje."
+            "Wybrany koordynator zakończył współpracę — wybierz aktywną osobę."
         )
     # Cykl (A → B → A) zablokowałby akceptacje: nikt nie byłby „nad” nikim.
     if await creates_manager_loop(
         db, user_ids=user_ids, manager_user_id=manager_user_id
     ):
         raise HrPeopleError(
-            "Ten wybór tworzy pętlę przełożonych — sprawdź, komu podlega wybrana osoba."
+            "Ten wybór tworzy pętlę koordynatorów — sprawdź, kto koordynuje wybraną osobę."
         )
 
 

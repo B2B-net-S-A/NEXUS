@@ -67,15 +67,15 @@ function proposal(overrides: Partial<BonusRow> = {}): BonusRow {
   };
 }
 
-describe("Płace — tabela osób", () => {
-  it("Płace widzą stawkę, kwotę za godziny i razem", () => {
+describe("Rozliczenia — tabela osób", () => {
+  it("Rozliczenia widzą stawkę, kwotę za godziny i razem", () => {
     render(<PayrollPeopleTable people={[worker]} scope="payroll" />);
     expect(screen.getByText("Stawka /h")).toBeInTheDocument();
     expect(screen.getByText(/23\s652,80 zł/)).toBeInTheDocument();
     expect(screen.getByText(/w tym 2 ponad normę/)).toBeInTheDocument();
   });
 
-  it("przełożony widzi godziny i premie, bez stawek i kwot wynagrodzenia (D2)", () => {
+  it("koordynator widzi godziny i premie, bez stawek i kwot wynagrodzenia (D2)", () => {
     const teamRow: PayrollPerson = {
       ...worker,
       lines: undefined,
@@ -90,7 +90,7 @@ describe("Płace — tabela osób", () => {
   });
 });
 
-describe("Płace — premie", () => {
+describe("Rozliczenia — premie", () => {
   it("propozycja przed terminem pokazuje postęp dni roboczych", () => {
     render(<BonusTable rows={[proposal()]} showProgress />);
     expect(screen.getByText(/10 z 21 dni/)).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe("Płace — premie", () => {
     expect(parts.cancelled).toBe(1);
   });
 
-  it("przyznana premia: przełożony nie zmienia kwoty, ale może anulować swoją (decyzja 22.10.2026)", () => {
+  it("przyznana premia: koordynator nie zmienia kwoty, ale może anulować swoją (decyzja 22.10.2026)", () => {
     const boss = { open: true, payroll: false, meId: 5 };
     const assignedByBoss = proposal({ status: "assigned", source: "manual", proposed_by: 5 });
     expect(assignedBonusActions(assignedByBoss, boss)).toEqual({ edit: false, cancel: true });
@@ -165,7 +165,7 @@ describe("Płace — premie", () => {
     });
   });
 
-  it("sumy miesiąca tylko dla Płac", () => {
+  it("sumy miesiąca tylko dla Rozliczeń", () => {
     const base = {
       stats: {
         people: 1,

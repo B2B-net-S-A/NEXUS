@@ -67,7 +67,7 @@ describe("PersonDocumentsSection", () => {
     expect(screen.queryByText("Dokumenty")).toBeNull();
   });
 
-  it("404 z serwera (przełożony) chowa sekcję", async () => {
+  it("404 z serwera (koordynator) chowa sekcję", async () => {
     mocks.get.mockRejectedValue(Object.assign(new Error("x"), { response: { status: 404 } }));
     wrap(section());
     await waitFor(() => expect(mocks.get).toHaveBeenCalled());
@@ -90,7 +90,7 @@ describe("PersonDocumentsSection", () => {
     expect(screen.queryByRole("button", { name: /^Zmień:/ })).toBeNull();
   });
 
-  it("Kadry: umowy z generatora nie da się usunąć ręcznie", () => {
+  it("Administracja współpracy: umowy z generatora nie da się usunąć ręcznie", () => {
     wrap(section(), hrView());
     expect(screen.getByRole("button", { name: "Usuń: Oświadczenie studenta" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Usuń: Umowa zlecenia z 01.03.2026" })).toBeNull();
@@ -131,7 +131,7 @@ describe("PersonDocumentsSection", () => {
     expect(form.get("visible_to_person")).toBe("true");
     expect(form.get("visible_to_payroll")).toBe("true");
     expect(form.get("visible_to_equipment")).toBe("false");
-    expect(await screen.findByText(/Płace dostaną przypomnienie 30 dni wcześniej/)).toBeInTheDocument();
+    expect(await screen.findByText(/Rozliczenia dostaną przypomnienie 30 dni wcześniej/)).toBeInTheDocument();
   });
 
   it("usunięcie pomyłki wymaga powodu", async () => {

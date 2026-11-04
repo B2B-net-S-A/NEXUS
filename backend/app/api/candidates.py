@@ -4300,11 +4300,32 @@ async def create_candidate(
     data: CandidateCreate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
+    ),
 ):
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
     _reject_name_markers({"name": data.name, "lastname": data.lastname})
+    # Adres z żywym właścicielem to zwykły duplikat (409 niżej), nie powrót.
+    erased_email = not await find_candidate_by_email(
+        db, data.email
+    ) and await email_was_erased(db, data.email)
+    if erased_email and not confirm_erased:
+        raise erased_email_conflict()
     candidate = await apply_candidate_create(
         db, data, author=WriteAuthor.person(current_user)
     )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=current_user.id, via=VIA_SCREEN
+        )
 
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
@@ -6406,6 +6427,7 @@ async def reparse_primary_cv(
         document.id,
         document.content_sha256,
         actor_user_id=current_user.id,
+        force_read=True,
     )
     return {"status": "queued", "document_id": document.id}
 
@@ -7013,6 +7035,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
     ReplacedPrimaryCv,
+    get_identity_review,
     record_detected_identity,
 )
 
@@ -7250,13 +7273,21 @@ async def _enrich_candidate_from_document_task(
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    force_read: bool = False,
 ) -> None:
-    """Extract and enrich from the still-current primary CV version."""
+    """Extract and enrich from the still-current primary CV version.
+
+    Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
+    ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
+    profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
+    odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+    """
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -7281,6 +7312,27 @@ async def _enrich_candidate_from_document_task(
                 and document.content_sha256 != expected_hash
             ):
                 return
+            if not force_read and profile_holds_read_of_file(
+                candidate.cv_extracted_data,
+                raw_cv_text=candidate.raw_cv_text,
+                content_sha256=document.content_sha256,
+            ):
+                # Plik z kwarantanny musi wrócić przez bramkę tożsamości: to ona
+                # oddaje główne CV poprzedniemu plikowi.
+                review = await get_identity_review(
+                    db,
+                    candidate_id=candidate_id,
+                    source_kind="document",
+                    source_id=document.id,
+                )
+                if review is not None and not review.is_quarantined:
+                    logger.info(
+                        "[cv_enrich] plik już odczytany, bez modelu "
+                        "candidate=%s document=%s",
+                        candidate_id,
+                        document_id,
+                    )
+                    return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
@@ -7579,6 +7631,7 @@ async def _extract_uploaded_cv_text(
     """
     import asyncio
 
+    from app.core.log_safety import safe_filename as log_safe_filename
     from app.services import cv_text_extractor
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -7609,6 +7662,14 @@ async def _extract_uploaded_cv_text(
             pass
 
     if not raw_text or not raw_text.strip():
+        # Bez tego 5 zgłoszeń z portalu (10.2026) nie dało się zdiagnozować: scraper
+        # kasuje pliki, a w logu nie było ani formatu, ani rozmiaru.
+        logger.warning(
+            "[from-cv] brak tekstu: %s, format %s, %d B",
+            log_safe_filename(safe_name),
+            cv_text_extractor.sniff_extension_bytes(content),
+            len(content),
+        )
         raise HTTPException(
             status_code=400,
             detail="Nie udało się odczytać tekstu z pliku CV.",
@@ -7866,6 +7927,7 @@ async def preview_candidate_cv(
     },
 )
 async def create_candidate_from_cv(
+    request: Request,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
@@ -7873,6 +7935,10 @@ async def create_candidate_from_cv(
         default=False,
         description="True pomija sito identycznego pliku i adresu z nagłówka. "
         "Adres e-mail zajęty przez innego kandydata odmawia mimo to.",
+    ),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
     ),
     name: Optional[str] = Form(default=None),
     lastname: Optional[str] = Form(default=None),
@@ -7985,6 +8051,23 @@ async def create_candidate_from_cv(
         if same_person_rows:
             _raise_from_cv_duplicate_conflict(same_person_rows)
 
+    # 3c — adres z nagrobka (decyzja Artura, 03.11.2026): człowiek dostaje
+    # pytanie niezależnie od `force`, bo `force` dotyczy duplikatów. Scraper
+    # portalu nie pyta: osoba zgłosiła się sama, więc zostaje tylko ślad.
+    from app.services import candidate_claim
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
+    from_integration = candidate_claim.is_integration_request(request)
+    erased_email = await email_was_erased(db, parsed.get("email"))
+    if erased_email and not (from_integration or confirm_erased):
+        raise erased_email_conflict()
+
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
@@ -8020,6 +8103,13 @@ async def create_candidate_from_cv(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
         ) from exc
+    if erased_email:
+        record_recreated_after_erasure(
+            db,
+            candidate.id,
+            user_id=current_user.id,
+            via=VIA_SELF_APPLICATION if from_integration else VIA_SCREEN,
+        )
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -8753,6 +8843,10 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
     from app.services.candidate_name_rules import has_blacklist_marker
 
     created: list[int] = []
@@ -8823,6 +8917,17 @@ async def bulk_import_candidates(
                         }
                         for error in exc.errors()
                     ],
+                }
+            )
+            continue
+
+        if await email_was_erased(db, item.email):
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "skipped",
+                    "field_errors": field_errors,
+                    "reason": ERASED_EMAIL_CODE,
                 }
             )
             continue

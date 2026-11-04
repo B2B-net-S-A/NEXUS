@@ -44,7 +44,12 @@ from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.core.encryption import TokenCipherNotConfigured
 from app.models.app_setting import AppSetting
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    CalendarEvent,
+    EventStatus,
+    EventType,
+    is_booked_call,
+)
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -1500,10 +1505,14 @@ async def _upsert_event(
     # Terminem rządzi NEXUS: usunięcie blokady nie odwołuje rozmowy (znikała
     # bramka debriefu i telefon po rozmowie), a przesunięcie blokady nie
     # przestawia terminu ani nie nadpisuje opisu z notatką DL-a.
-    nexus_interview = (
-        existing is not None
-        and existing.event_type == EventType.client_interview
-        and _created_in_nexus(existing)
+    # Umówiony telefon na screening (03.11.2026) działa tak samo: w Outlooku jest
+    # tylko blokada z imieniem i inicjałem, a tytuł i termin trzyma NEXUS.
+    nexus_interview = existing is not None and (
+        is_booked_call(existing)
+        or (
+            existing.event_type == EventType.client_interview
+            and _created_in_nexus(existing)
+        )
     )
     if nexus_interview:
         if ev.get("@removed") or ev.get("isCancelled"):

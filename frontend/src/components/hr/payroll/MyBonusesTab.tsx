@@ -10,7 +10,7 @@ import { formatMoney } from "@/lib/money";
 import { formatIsoDatePl } from "@/lib/date-pl";
 import { capitalize, employmentTerms } from "@/lib/hr-employment-terms";
 
-import { BonusStagesTable } from "../me/BonusStagesTable";
+import { BonusMonths } from "../me/BonusMonths";
 import { MySettlementCard } from "../me/MySettlementCard";
 import { showsPreviousYear } from "../me/settlement-format";
 import {
@@ -57,7 +57,7 @@ export function myStats(
       title:
         transit.unknown > 0
           ? `${transit.unknown} bez kwoty — kontrakt nie ma jeszcze stawki klienta.`
-          : `Szacunek z reguł ${words.bonuses_genitive}; kwotę zatwierdzają Płace.`,
+          : `Szacunek z reguł ${words.bonuses_genitive}; kwotę zatwierdzają Rozliczenia.`,
     });
   }
   stats.push({
@@ -75,16 +75,17 @@ export function myStats(
       title:
         (settlement as MySettlement & { bonuses_rule?: string }).bonuses_rule === "paid_settlement"
           ? `${capitalize(words.bonuses)} z opłaconych rozliczeń miesięcy.`
-          : `${capitalize(words.bonuses)} z miesięcy zamkniętych w płacach.`,
+          : `${capitalize(words.bonuses)} z miesięcy zamkniętych w rozliczeniach.`,
     });
   }
   return stats;
 }
 
 /**
- * „Mój czas → Premie i stawka”: moje premie z etapami (umowa → 21 dni →
- * decyzja Płac → wypłata), także „w drodze” od podpisania umowy i anulowane
- * z powodem; „Moje rozliczenie” i historia stawki. Tylko o sobie.
+ * „Mój czas → Premie i stawka”: moje premie po miesiącach z podstawą i sumą,
+ * z etapami (umowa → 21 dni → decyzja Płac → wypłata), także „w drodze” od
+ * podpisania umowy i anulowane z powodem; „Moje rozliczenie” i historia stawki.
+ * Tylko o sobie.
  */
 export function MyBonusesTab() {
   const today = warsawToday();
@@ -128,7 +129,7 @@ export function MyBonusesTab() {
         state={state === "forbidden" || state === "not_found" ? state : "error"}
         description={
           state === "not_found"
-            ? "Moduł Płac nie jest jeszcze włączony."
+            ? "Moduł Rozliczeń nie jest jeszcze włączony."
             : state === "forbidden"
               ? `${capitalize(words.bonuses)} widzą osoby z kartoteką w NEXUSIE.`
               : undefined
@@ -155,7 +156,13 @@ export function MyBonusesTab() {
           pojawi się tu od podpisania umowy z konsultantem.
         </div>
       ) : (
-        <BonusStagesTable items={items} />
+        <BonusMonths
+          items={items}
+          settlement={settlementState === "ready" ? settlementData : undefined}
+          settlementState={settlementState}
+          today={today}
+          form={form}
+        />
       )}
       <MySettlementCard
         state={settlementState}

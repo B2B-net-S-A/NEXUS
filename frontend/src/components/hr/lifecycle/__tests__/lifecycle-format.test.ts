@@ -220,7 +220,7 @@ describe("zadania wg właściciela", () => {
         task({ assignee_kind: "people_admin", status: "done" }),
         task({ assignee_kind: "manager", status: "skipped" }),
       ],
-      { it: "IT", reception: "Recepcja", people_admin: "Kadry", manager: "Przełożony" },
+      { it: "IT", reception: "Recepcja", people_admin: "Administracja współpracy", manager: "Koordynator" },
     );
     expect(groups.map((g) => [g.label, g.tasks.length])).toEqual([
       ["Recepcja · Zofia", 2],

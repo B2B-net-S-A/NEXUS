@@ -162,3 +162,41 @@ async def test_picks_order_by_score_with_points_and_score_stays_the_score():
         picks = await autofill.ranked_picks(db, w["job"], limit=10)
     assert [p.candidate_id for p in picks] == [familiar, higher]
     assert picks[0].score == 70
+
+
+@pytest.mark.asyncio
+async def test_without_process_ignores_this_recruitment_only():
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        client = Client(name=f"Fresh client {tag}")
+        db.add(client)
+        await db.flush()
+        job = Job(title=f"Fresh {tag}", client_id=client.id, status=JobStatus.published)
+        other = Job(title=f"Other {tag}", client_id=client.id, status=JobStatus.closed)
+        people = [
+            Candidate(
+                name="Bez", lastname=f"{i}-{tag}", email=f"fresh-{i}-{tag}@example.com"
+            )
+            for i in range(3)
+        ]
+        db.add_all([job, other, *people])
+        await db.flush()
+        here_only, elsewhere, nowhere = (p.id for p in people)
+        db.add_all(
+            [
+                CandidateStage(
+                    candidate_id=here_only, job_id=job.id, stage=PipelineStage.new
+                ),
+                CandidateStage(
+                    candidate_id=elsewhere,
+                    job_id=other.id,
+                    stage=PipelineStage.rejected,
+                ),
+            ]
+        )
+        await db.commit()
+        fresh = await known.without_process(
+            db, job_id=job.id, candidate_ids=[here_only, elsewhere, nowhere]
+        )
+        assert fresh == {here_only, nowhere}
+        assert await known.without_process(db, job_id=job.id, candidate_ids=[]) == set()

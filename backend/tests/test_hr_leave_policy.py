@@ -57,7 +57,7 @@ def test_contractors_may_only_take_vacation() -> None:
     assert allowed_types("b2b") == ("vacation",)
     assert allowed_types("zlecenie") == ("vacation",)
     assert "sick_leave" in allowed_types("uop")
-    with pytest.raises(LeavePolicyError, match="wyłącznie o urlop"):
+    with pytest.raises(LeavePolicyError, match="wyłącznie przerwę"):
         _shape(leave_type="on_demand", employment_type="b2b")
     with pytest.raises(LeavePolicyError, match="Osobie na umowie zlecenie"):
         _shape(leave_type="sick_leave", employment_type="zlecenie", for_self=False)
@@ -244,7 +244,7 @@ def test_own_pending_cancel_stops_on_the_first_day(start: date, allowed: bool) -
         assert refusal is None
     else:
         assert refusal is not None
-        assert "przełożony albo Kadry" in refusal
+        assert "koordynator albo Administracja współpracy" in refusal
 
 
 def test_approver_cancel_needs_a_reason_once_the_term_started() -> None:

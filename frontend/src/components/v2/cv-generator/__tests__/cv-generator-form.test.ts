@@ -15,9 +15,13 @@ import {
   languageOptionEnabled,
   languagePayload,
   missingInputs,
+  cvFilenamePreview,
   processLabel,
+  recruitmentPosition,
+  typedCvPosition,
   type MissingInput,
 } from "../cv-generator-form";
+import previewCases from "@/lib/__fixtures__/cv-filename-preview-cases.json";
 
 function recruitment(partial: Partial<RecruitmentOption> = {}): RecruitmentOption {
   return {
@@ -277,5 +281,45 @@ describe("defaultCvSourceId", () => {
   it("sam firmowy plik zostaje, a pusta lista to brak wyboru", () => {
     expect(defaultCvSourceId([file(2, "B2B_Jan.docx", true)])).toBe(2);
     expect(defaultCvSourceId([])).toBeNull();
+  });
+});
+
+describe("stanowisko i nazwa pliku w formularzu", () => {
+  it.each(previewCases.typed)("wpisane „$value” bez numeru klienta", ({ value, reference, expected }) => {
+    expect(typedCvPosition(value, reference)).toBe(expected);
+  });
+
+  it.each(previewCases.filename)("plik $expected", ({ pattern, spaces, position, project, name, expected }) => {
+    expect(
+      cvFilenamePreview({ pattern, spacesToUnderscores: spaces, position, project, candidateName: name }),
+    ).toBe(expected);
+  });
+
+  it("bez wzoru klienta nie ma podglądu", () => {
+    expect(
+      cvFilenamePreview({ pattern: null, spacesToUnderscores: false, position: "QA", project: "", candidateName: "A B" }),
+    ).toBeNull();
+  });
+
+  it("pole pokazuje rolę z rekrutacji, a serwer sprzed zmiany daje nazwę od klienta", () => {
+    expect(recruitmentPosition(recruitment({ cv_position: "Senior Java Developer" }))).toBe("Senior Java Developer");
+    expect(recruitmentPosition(recruitment({ job_title: "ZOB-1 Java", cv_position: undefined }))).toBe("ZOB-1 Java");
+    expect(recruitmentPosition(recruitment({ cv_position: "" }))).toBe("");
+  });
+
+  it("nazwa usługi bez roli w Championie: bez stanowiska nie ma generacji", () => {
+    expect(missing({ recruitment: recruitment({ cv_position: "" }), position: "" })).toContain("Stanowisko");
+    expect(missing({ recruitment: recruitment({ cv_position: "" }), position: "QA" })).not.toContain("Stanowisko");
+    expect(missing({ recruitment: recruitment({ cv_position: "QA" }), position: "" })).not.toContain("Stanowisko");
+  });
+
+  it("lista procesów nazywa rekrutację jak jej nagłówek", () => {
+    expect(
+      processLabel(recruitment({
+        job_title: "ZOB-3103 usługi programistyczne",
+        job_working_title: "Senior Fullstack Developer · C#",
+        job_client_reference: "ZOB-3156",
+      })),
+    ).toBe("ZOB-3156 Senior Fullstack Developer · C# · Zweryfikowany");
   });
 });

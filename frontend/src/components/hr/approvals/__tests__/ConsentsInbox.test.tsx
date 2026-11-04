@@ -98,8 +98,8 @@ beforeEach(() => {
   decide.mutate.mockReset();
 });
 
-describe("Akceptacje — zgody (szczegół, okno decyzji z linku)", () => {
-  it("premia: osoba na pierwszym planie, liczby „NEXUS sprawdził” i zdanie o Płacach", () => {
+describe("Do potwierdzenia — zgody (szczegół, okno decyzji z linku)", () => {
+  it("premia: osoba na pierwszym planie, liczby „NEXUS sprawdził” i zdanie o Rozliczeniach", () => {
     renderInbox([
       row({
         id: 7,
@@ -128,11 +128,11 @@ describe("Akceptacje — zgody (szczegół, okno decyzji z linku)", () => {
     expect(within(list).getByText("Julia Próbna")).toBeInTheDocument();
     expect(screen.getByText(/z umowy i reguł 9400 zł/)).toBeInTheDocument();
     expect(screen.getByText(/sprawdź, czy to nie dubel/)).toBeInTheDocument();
-    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Płac jako przyznane/)).toBeInTheDocument();
+    expect(screen.getByText(/Wynagrodzenie dodatkowe trafi do Rozliczeń jako przyznane/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zatwierdź inną kwotę/ })).toBeInTheDocument();
   });
 
-  it("przełożony ponad próg widzi „Popieram” bez zmiany kwoty", () => {
+  it("koordynator ponad próg widzi „Popieram” bez zmiany kwoty", () => {
     renderInbox([
       row({
         status: "pending_supervisor",

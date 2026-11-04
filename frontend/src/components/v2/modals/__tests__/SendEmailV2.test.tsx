@@ -14,9 +14,9 @@ vi.mock("@/components/emails/EmailCompose", () => ({
   default: () => <div role="dialog" aria-label="Nowy email" />,
 }));
 
-import { SendEmailV2, mailboxUnavailable } from "../SendEmailV2";
+import { SendEmailV2, mailboxUnavailable, mailtoHref } from "../SendEmailV2";
 
-function renderWindow(email = "jan@example.com") {
+function renderWindow(email = "jan@example.com", draft: { defaultSubject?: string; defaultBody?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -26,6 +26,7 @@ function renderWindow(email = "jan@example.com") {
         candidateId={7}
         candidateName="Jan Kowalski"
         candidateEmail={email}
+        {...draft}
       />
     </QueryClientProvider>,
   );
@@ -33,7 +34,25 @@ function renderWindow(email = "jan@example.com") {
 
 beforeEach(() => vi.clearAllMocks());
 
+describe("mailtoHref", () => {
+  it("przenosi szkic do programu pocztowego", () => {
+    expect(mailtoHref("jan@example.com", "ZOB-1 - zgoda", "Dzień dobry,\n\nJa")).toBe(
+      "mailto:jan@example.com?subject=ZOB-1%20-%20zgoda&body=Dzie%C5%84%20dobry%2C%0A%0AJa",
+    );
+    expect(mailtoHref("jan@example.com")).toBe("mailto:jan@example.com");
+  });
+});
+
 describe("SendEmailV2", () => {
+  it("bez skrzynki program pocztowy dostaje szkic z okna", async () => {
+    getConnection.mockResolvedValue({ data: { connected: false } });
+    renderWindow("jan@example.com", { defaultSubject: "ZOB-1 - zgoda", defaultBody: "Ja" });
+    expect(await screen.findByRole("link", { name: /Program pocztowy/ })).toHaveAttribute(
+      "href",
+      "mailto:jan@example.com?subject=ZOB-1%20-%20zgoda&body=Ja",
+    );
+  });
+
   it("z podłączoną skrzynką otwiera kompozytor Microsoft 365", async () => {
     getConnection.mockResolvedValue({ data: { connected: true } });
     renderWindow();

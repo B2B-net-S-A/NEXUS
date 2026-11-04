@@ -253,7 +253,7 @@ CATALOG = (
         module="System",
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu; "
         "DL albo rekruter jest poza grupą, w której aplikacja zakłada prepy w Teams "
-        "(najwyżej raz dziennie); osoba ma skrzynkę poza zakresem aplikacji Kadr "
+        "(najwyżej raz dziennie); osoba ma skrzynkę poza zakresem aplikacji „NEXUS Kadry” "
         "(po uzgadnianiu o 7:00).",
         recipient_rule="Aktywni administratorzy.",
     ),
@@ -285,7 +285,7 @@ CATALOG = (
         module="System",
         trigger="Ktoś zalogował się pierwszy raz przez Microsoft i dostał konto "
         "„Konsultant/Kontraktor”. Zdecyduj, czy to rekruter (rola, kategorie "
-        "kompetencji, przełożony), czy zostaje konsultantem.",
+        "kompetencji, koordynator), czy zostaje konsultantem.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
@@ -301,12 +301,12 @@ CATALOG = (
         "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
         "i konsultant przekazany z opieki do front office, zgoda na wydatek albo premię "
         "poza umową do decyzji i decyzja o niej.",
-        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
-        "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
+        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (koordynator "
+        "albo Administracja współpracy), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
         "przejmujący pracę, wykonawca zadania, "
         "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
         "front office: head pionu front office, Head of Recruitment i Delivery "
-        "Leadzi, przy zgodzie — przełożony autora albo zatwierdzający z Ustawień. W mailu "
+        "Leadzi, przy zgodzie — koordynator autora albo zatwierdzający z Ustawień. W mailu "
         "nie ma rodzaju nieobecności ani kwot — poza mailem do decydującego o zgodzie "
         "(kwota i „po co”, decyzja Artura 20.10.2026).",
     ),
@@ -315,10 +315,10 @@ CATALOG = (
         id="hr_bonus",
         label="Masz nową premię",
         module="Ludzie",
-        trigger="Płace przyznały, zmieniły albo anulowały Ci premię (na B2B "
+        trigger="Rozliczenia przyznały, zmieniły albo anulowały Ci premię (na B2B "
         "i zleceniu: wynagrodzenie dodatkowe), także premię poza umową po zgodzie.",
         recipient_rule="Osoba, której premia dotyczy. W mailu: za co i za który "
-        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Moim czasie”.",
+        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Mojej współpracy”.",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
@@ -546,6 +546,10 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_lifecycle_task",
     "hr_work_handover",
     "admin_case_assigned",
+    "back_office_escalated",
+    "back_office_assigned",
+    "portal_low_rating",
+    "portal_monthly_review",
     "equipment_task",
     "equipment_protocol_signed",
     "equipment_return_reminder",

@@ -161,7 +161,7 @@ export function FormSpecificFields({
         ) : null}
         <p className="text-xs text-muted-foreground sm:col-span-2">
           {start && reminder
-            ? `${dayLabel(reminder)} Płace dostaną przypomnienie: od ${dayLabel(start)} naliczamy składki. `
+            ? `${dayLabel(reminder)} Rozliczenia dostaną przypomnienie: od ${dayLabel(start)} naliczamy składki. `
             : ""}
           Godziny: co miesiąc „Potwierdzenie godzin” z umowy zlecenia (art. 8b). NEXUS trzyma
           je 3 lata od dnia wypłaty.

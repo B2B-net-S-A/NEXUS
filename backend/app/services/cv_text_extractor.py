@@ -30,6 +30,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -232,7 +234,7 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages")
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages", "word")
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
 
@@ -508,6 +510,8 @@ def _worker_main(argv: list[str]) -> int:
         payload["words"] = _worker_words(path)
     elif op == "all_pages":
         payload = _worker_all_pages(path)
+    elif op == "word":
+        payload["text"] = _worker_word(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
@@ -518,8 +522,90 @@ def _worker_main(argv: list[str]) -> int:
     return 0
 
 
+#: Tylko prawdziwy Word po bajtach. RTF czy HTML pod nazwą `.doc` zostają bez
+#: tekstu: arkusz stylów z HTML-a wykonywał żądanie mimo blokady linków w profilu.
+_WORD_IMPORT_FILTERS = {".doc": "MS Word 97", ".docx": "MS Word 2007 XML"}
+
+
+def _worker_word(path: str) -> Optional[str]:
+    """Plik Worda przez LibreOffice do PDF-a, dalej zwykły odczyt PDF (z OCR)."""
+    infilter = _WORD_IMPORT_FILTERS.get(sniff_extension(path) or "")
+    if not infilter:
+        return None
+    try:
+        from app.core.zip_guard import assert_safe_ooxml
+        from app.services.cv_pdf_preview import docx_to_pdf
+
+        # `_extract_docx` połyka odmowę strażnika, więc bomba ZIP dochodzi aż tutaj.
+        assert_safe_ooxml(path)
+        with open(path, "rb") as handle:
+            pdf = docx_to_pdf(handle.read(), infilter=infilter)
+        with tempfile.TemporaryDirectory(prefix="nexus-word-") as tmpdir:
+            target = os.path.join(tmpdir, "word.pdf")
+            with open(target, "wb") as handle:
+                handle.write(pdf)
+            return _extract_pdf_inprocess(target)
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] LibreOffice failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+# LibreOffice to ciężki proces (`cv_pdf_preview`): jedna zamiana naraz na proces
+# webowy, a kolejka z limitem, żeby seria plików nie zabrała wątków innym trasom.
+_word_slot = threading.BoundedSemaphore(1)
+_WORD_SLOT_WAIT_SECONDS = 60
+#: LibreOffice rezerwuje więcej przestrzeni adresowej niż pdfplumber i tesseract:
+#: prawdziwe CV (69 KB) przy 1,5 GB kończyło się sygnałem 11, od 1,75 GB czytało się.
+WORD_WORKER_MEMORY_BYTES = 2560 * 1024 * 1024
+
+
+def _extract_word_via_pdf(path: str) -> Optional[str]:
+    """Tekst Worda z LibreOffice, w procesie odczytu z limitem pamięci i czasu."""
+    from app.services.cv_pdf_preview import soffice_path
+
+    if not soffice_path():
+        return None
+    if not _word_slot.acquire(timeout=_WORD_SLOT_WAIT_SECONDS):
+        logger.warning(
+            "[cv_text_extractor] %s: LibreOffice zajęty, plik bez odczytu",
+            safe_filename(path),
+        )
+        return None
+    try:
+        result = _run_pdf_worker("word", path, memory_bytes=WORD_WORKER_MEMORY_BYTES)
+    finally:
+        _word_slot.release()
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def _extract_word(path: str) -> Optional[str]:
+    """Word: python-docx, a gdy prawie nic nie odczytał, LibreOffice.
+
+    python-docx odrzuca binarny `.doc`, a w `.docx` pomija pola tekstowe
+    i kontrolki, więc takie CV miało pusty tekst i `/from-cv` odpowiadał 400
+    (03.11.2026, zgłoszenia z Pracuj.pl przepadały). LibreOffice jest tylko
+    ścieżką zapasową, bo wolny: pomiar na kopii produkcji to 0,4–2,6 s na plik.
+    """
+    text = _extract_docx(path)
+    if len((text or "").strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        return text
+    via_pdf = _extract_word_via_pdf(path)
+    if len(via_pdf or "") > len(text or ""):
+        logger.info(
+            "[cv_text_extractor] %s extracted via LibreOffice (python-docx too short)",
+            safe_filename(path),
+        )
+        return via_pdf
+    return text
+
+
 def _extract_docx(path: str) -> Optional[str]:
-    """Extract text from a DOCX (or legacy .doc, best-effort) via python-docx."""
+    """Extract text from a DOCX via python-docx (binary .doc always fails here)."""
     try:
         from docx import Document  # type: ignore[import-untyped]
 
@@ -676,7 +762,7 @@ def extract_text(file_path: str, filename: str) -> str:
     if ext == ".pdf":
         raw = _extract_pdf(file_path)
     elif ext in (".docx", ".doc"):
-        raw = _extract_docx(file_path)
+        raw = _extract_word(file_path)
     elif ext == ".txt":
         raw = _extract_txt(file_path)
     else:

@@ -104,17 +104,17 @@
   },
   {
     "id": "start-moj-czas",
-    "title": "Mój czas: urlop i miesiąc pracy",
-    "why": "W „Mój czas” składasz wniosek o urlop i zamykasz miesiąc pracy.",
+    "title": "Moja współpraca: nieobecności i raport godzin",
+    "why": "W „Mojej współpracy” zgłaszasz nieobecność i wysyłasz raport godzin.",
     "tier": "tour",
     "shipped_on": "2026-10-30",
     "audience": {"roles": ["employee"]},
-    "where": "Mój czas",
+    "where": "Moja współpraca",
     "href": "/my-time",
     "dot_anchor": "hr.my_time.tabs",
     "steps": [
-      {"anchor": "hr.my_time.tabs", "text": "Kliknij w zakładki „Mój czas”.", "hint": "Urlopy, miesiąc pracy i archiwum."},
-      {"anchor": "hr.my_time.leave_submit", "text": "Tu składasz wniosek o urlop.", "hint": "Wniosek trafia do akceptacji przełożonego.", "ack": true}
+      {"anchor": "hr.my_time.tabs", "text": "Kliknij w zakładki „Mojej współpracy”.", "hint": "Nieobecności, raport godzin i archiwum."},
+      {"anchor": "hr.my_time.leave_submit", "text": "Tu zgłaszasz nieobecność.", "hint": "Na umowie o pracę wniosek trafia do przełożonego, na B2B i zleceniu termin jest od razu przyjęty.", "ack": true}
     ]
   }
 ]

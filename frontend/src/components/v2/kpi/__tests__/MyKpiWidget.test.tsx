@@ -139,8 +139,8 @@ describe("MyKpiWidget (compact) — podpisane segmenty i panel po kliknięciu", 
     const panel = await screen.findByRole("dialog", { name: "Twoje cele" });
     expect(button).toHaveAttribute("aria-expanded", "true");
     expect(within(panel).getByRole("heading", { name: "Dziś" })).toBeInTheDocument();
-    expect(within(panel).getByText("do końca dnia pracy: 4 h 15 min")).toBeInTheDocument();
-    expect(within(panel).getByText("Poniżej tempa (na tę godzinę: 2).")).toBeInTheDocument();
+    expect(within(panel).getByText("do końca dnia: 4 h 15 min")).toBeInTheDocument();
+    expect(within(panel).getByText("Poniżej planu (na tę godzinę: 2).")).toBeInTheDocument();
     expect(
       within(panel).getByText(/Liczy się pierwsze przejście kandydata na „Zweryfikowany”\./),
     ).toBeInTheDocument();

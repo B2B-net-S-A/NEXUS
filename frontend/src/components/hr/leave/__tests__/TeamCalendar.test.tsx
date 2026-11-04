@@ -128,12 +128,12 @@ afterEach(() => {
 });
 
 describe("Kalendarz — chipy zakresu", () => {
-  it("koordynator: domyślnie „Mój zespół” z licznikiem, „Wszyscy” obok", async () => {
+  it("koordynator: domyślnie „Koordynacja” z licznikiem, „Wszyscy” obok", async () => {
     serve();
     renderCalendar(true);
     await screen.findByRole("table", { name: "Nieobecności zespołu" });
-    expect(chip(/^Mój zespół/)).toHaveAttribute("aria-pressed", "true");
-    expect(chip(/^Mój zespół/)).toHaveTextContent("Mój zespół2");
+    expect(chip(/^Moje osoby/)).toHaveAttribute("aria-pressed", "true");
+    expect(chip(/^Moje osoby/)).toHaveTextContent("Moje osoby2");
     expect(chip(/^Wszyscy/)).toHaveAttribute("aria-pressed", "false");
     expect(chip(/^Wszyscy/)).toHaveTextContent("Wszyscy3");
     expect(rowNames()).toEqual(["Ewa Makietowa", "Tomasz Podglądowy", "Nieobecnych"]);
@@ -145,11 +145,11 @@ describe("Kalendarz — chipy zakresu", () => {
     expect(window.location.search).toBe("?scope=all");
   });
 
-  it("bez zespołu: bez chipa „Mój zespół”, domyślnie „Wszyscy”, bez zapytania o zespół", async () => {
+  it("bez zespołu: bez chipa „Koordynacja”, domyślnie „Wszyscy”, bez zapytania o zespół", async () => {
     serve();
     renderCalendar(false);
     await screen.findByRole("table", { name: "Nieobecności zespołu" });
-    expect(screen.queryByRole("button", { name: /^Mój zespół/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Moje osoby/ })).toBeNull();
     expect(chip(/^Wszyscy/)).toHaveAttribute("aria-pressed", "true");
     expect(rowNames()).toEqual([
       "Ewa Makietowa",
@@ -214,7 +214,7 @@ describe("Kalendarz — stan z adresu", () => {
     renderCalendar(true);
     await screen.findByRole("table", { name: "Nieobecności zespołu" });
     expect(chip(/^Delivery/)).toHaveAttribute("aria-pressed", "true");
-    expect(chip(/^Mój zespół/)).toHaveAttribute("aria-pressed", "false");
+    expect(chip(/^Moje osoby/)).toHaveAttribute("aria-pressed", "false");
     expect(chip(/^Zdalnie dziś/)).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "2 tygodnie" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("searchbox", { name: "Znajdź osobę w kalendarzu" })).toHaveValue("tom");
@@ -253,7 +253,7 @@ describe("Kalendarz — D6", () => {
     await user.click(bar);
     expect(
       screen.getByText(
-        "Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.",
+        "Rodzaj nieobecności widzą tylko ta osoba, jej koordynator i Administracja współpracy.",
       ),
     ).toBeInTheDocument();
   });

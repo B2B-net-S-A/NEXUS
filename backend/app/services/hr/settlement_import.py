@@ -213,7 +213,7 @@ async def build_preview(
     db: AsyncSession, viewer: PayrollViewer, content: bytes, *, year: int, month: int
 ) -> dict[str, Any]:
     if not viewer.payroll:
-        raise PayrollForbidden("Rozliczenie z arkusza wczytują Płace.")
+        raise PayrollForbidden("Rozliczenie z arkusza wczytują Rozliczenia.")
     await assert_open(db, year, month)
     rows = parse_workbook(content)
     users = (
@@ -432,7 +432,7 @@ async def apply_rows(
     """
 
     if not viewer.payroll:
-        raise PayrollForbidden("Rozliczenie z arkusza przyznają Płace.")
+        raise PayrollForbidden("Rozliczenie z arkusza przyznają Rozliczenia.")
     await lock_period_shared(db, year, month)
     await assert_open(db, year, month)
     validate_period(year, month)

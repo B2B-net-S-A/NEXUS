@@ -5989,6 +5989,8 @@ export interface EmailMessage {
   candidate_id?: number | null;
   /** Stan wysyłki z NEXUSA: pending / sent / uncertain; null = z synchronizacji. */
   send_state?: "pending" | "sent" | "uncertain" | null;
+  /** Wysłane z NEXUSA; false także dla poczty wysłanej wprost z Outlooka. */
+  sent_from_nexus?: boolean;
   attachments?: EmailAttachmentPreview[];
 }
 
@@ -7887,11 +7889,11 @@ export const applicationSubmissionsApi = {
         params: { status, limit: APPLICATION_SUBMISSIONS_PAGE_LIMIT },
       })
       .then((r) => r.data),
-  resolve: (id: number, action: ApplicationResolveAction) =>
+  resolve: (id: number, action: ApplicationResolveAction, confirmErased = false) =>
     api
       .post<ApplicationResolveResult>(
         `/api/application-submissions/${id}/resolve`,
-        { action },
+        confirmErased ? { action, confirm_erased: true } : { action },
       )
       .then((r) => r.data),
 };

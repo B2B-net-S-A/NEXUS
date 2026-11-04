@@ -374,7 +374,7 @@ async def test_contractor_paid_leave_becomes_standard_work_entry(app_client) -> 
         f"/api/hr/time/me/entries/{auto[0]['id']}", json={"hours": 6}, headers=h
     )
     assert blocked.status_code == 409
-    assert "płatnego urlopu" in blocked.json()["detail"]
+    assert "płatnego dnia przerwy" in blocked.json()["detail"]
     extra = await app_client.post(f"{BASE}/entries", json=entry(17, 1), headers=h)
     assert extra.status_code == 422  # pełny dzień urlopu, także płatnego
     assert by_day["2031-03-17"]["capacity"] is None
@@ -386,6 +386,63 @@ async def test_contractor_paid_leave_becomes_standard_work_entry(app_client) -> 
 
 
 # ── Przejścia ─────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.usefixtures("time_on")
+@pytest.mark.asyncio
+async def test_person_withdraws_sent_report_until_someone_takes_it(app_client) -> None:
+    boss, worker = await _team()
+    h = headers(worker)
+    missing = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert missing.status_code == 404
+    await app_client.post(f"{BASE}/entries", json=entry(3, 8), headers=h)
+    draft = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert draft.status_code == 409
+
+    sent = await app_client.post(f"{BASE}/submit", headers=h)
+    ts_id = sent.json()["id"]
+    outsider = await app_client.post(
+        f"{BASE}/withdraw", headers=headers(boss)
+    )  # własny, pusty miesiąc szefa: cudzego raportu ta trasa nie dosięga
+    assert outsider.status_code == 404
+
+    back = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert back.status_code == 200, back.text
+    assert back.json()["status"] == "draft"
+    assert back.json()["submitted_at"] is None
+    bell = await notifications_of(boss.id, "hr_timesheet_decided")
+    assert bell[-1][0] == "Wycofano do poprawy: raport godzin"
+    async with AsyncSessionLocal() as db:
+        trail = await db.scalar(
+            select(HrAuditEvent).where(
+                HrAuditEvent.entity_id == str(ts_id),
+                HrAuditEvent.action == "timesheet_withdrawn",
+            )
+        )
+    assert trail is not None
+    fixed = await app_client.post(f"{BASE}/entries", json=entry(4, 8), headers=h)
+    assert fixed.status_code == 201
+
+    assert (await app_client.post(f"{BASE}/submit", headers=h)).status_code == 200
+    approved = await app_client.post(
+        f"/api/hr/time/timesheets/{ts_id}/approve", headers=headers(boss)
+    )
+    assert approved.status_code == 200
+    late = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert late.status_code == 409
+    assert (
+        await app_client.post(
+            f"/api/hr/time/timesheets/{ts_id}/revoke", headers=headers(boss)
+        )
+    ).status_code == 200
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            text("UPDATE timesheets SET payroll_locked = true WHERE id = :id"),
+            {"id": ts_id},
+        )
+        await db.commit()
+    locked = await app_client.post(f"{BASE}/withdraw", headers=h)
+    assert locked.status_code == 409
 
 
 @pytest.mark.usefixtures("time_on")
@@ -509,7 +566,7 @@ async def test_payroll_locked_month_refuses_every_change(app_client) -> None:
         await db.commit()
     add = await app_client.post(f"{BASE}/entries", json=entry(10, 8), headers=h)
     assert add.status_code == 409
-    assert "zamknięty w płacach" in add.json()["detail"]
+    assert "zamknięty w rozliczeniach" in add.json()["detail"]
     edit = await app_client.patch(
         f"/api/hr/time/me/entries/{created.json()['id']}", json={"hours": 7}, headers=h
     )
@@ -702,7 +759,7 @@ async def test_fill_month_skips_weekends_holidays_days_off_and_leave(
         await db.execute(
             text(
                 "INSERT INTO timesheet_role_defaults (label, applies_to_role, "
-                "default_description) VALUES ('Pracownik', 'employee', "
+                "default_description) VALUES ('Osoba', 'employee', "
                 "'Obsługa administracyjna biura')"
             )
         )

@@ -118,6 +118,25 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   0,34 wobec 0,20 na CV). Nie cofaj filtra bez cofnięcia modelu. Powrót bez deployu:
   `CV_PARSER_MODEL`, `CV_REQUIREMENT_MAP_MODEL`, `CV_BACKFILL_MODEL`. `cv_name_backfill`
   zostaje na Lunie, bo imiona nie zyskują na lepszym odczycie technologii.
+- **Generator CV od 03.11.2026 na GPT-6.1 Sol, recenzent na Haiku 5.5.** Jurorzy na ślepo, 36 CV:
+  Sol lepszy od Sonneta 5 w 24 parach, gorszy w 2 (Sonnet 5.5: 22 i 7), poważne zdania bez pokrycia
+  0,31 wobec 1,36 na CV. Recenzent musi być od innego dostawcy niż generator, stąd Haiku,
+  a nie Luna. **Wyższy reasoning nie pomaga:** medium i high wobec low dają remis (11/9/16 i 9/8/18),
+  poważne zdania 0,28 i 0,29 wobec 0,39, a mediana czasu rośnie z 41 do 60 i 137 s przy limicie 300 s.
+  Nie podnoś go bez nowego pomiaru. Powrót bez deployu: `CV_B2B_MODEL`, `CV_FACTUAL_VERIFICATION_MODEL`.
+- **Jurorom nie dawaj `highlight_keywords`.** To lista wymagań do pogrubienia, nie treść CV, a jurorzy
+  brali ją za dopisane technologie: 68 z 117 zarzutów u Sonneta 5, 52 z 63 u Sola. `judges.py` na serwerze
+  już to pomija, a wyniki wyżej są policzone bez tego pola.
+- **Funkcje QC od 03.11.2026 (decyzja Artura, małe próby, ocena po 2 tygodniach na produkcji):**
+  F22 propozycje zdań i F24 ocena prepu na Sonnecie 5.5, F28 screening z notatki na Solu, wszędzie
+  Sonnet 5 jako zapas. F24 nie na Solu mimo 0% złych cytatów, bo podnosił ocenę o 8 punktów bez wzorca.
+- **GPT-6.1 Sol od 03.11.2026 w F8 znamiona UoP**, z Sonnetem 5 jako zapasem: fałszywe alarmy
+  4,5% wobec 34% Luny, brak propozycji zapisu 2% wobec 60%, ok. +0,26 USD miesięcznie.
+  Prawdziwych przypadków ryzyka w próbie było tylko 8. Sol nie ma `reasoning_effort: none`,
+  więc `llm_providers` wysyła `low`, a rozumowanie liczy się do limitu tokenów; przy funkcji
+  z małym limitem trzeba go podnieść. W innych funkcjach Sol przegrał albo kosztował za dużo:
+  parser dodaje ogólne pojęcia (40 pozycji na CV, 88 bez śladu), zamówienia mają 71% odczytów
+  niepewnych, profile Championa recall MUST 65%, recenzent to ok. +86 USD miesięcznie.
 - **Sonnet 5.5 odrzuca `thinking: disabled` kodem 400.** Wołający zostają przy
   `disabled`, a `claude_client._sdk_request_kwargs` tłumaczy to na `between_tools`
   dla każdego modelu w łańcuchu osobno, bo `between_tools` przyjmuje tylko Sonnet 5.5.

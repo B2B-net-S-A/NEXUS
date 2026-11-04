@@ -137,7 +137,7 @@ export function cancelReasonLabel(
     case "rule_no_longer_applies":
       return "zmieniły się warunki premii";
     case "manual":
-      return "anulowana przez Płace albo koordynatora";
+      return "anulowana przez Rozliczenia albo koordynatora";
     default:
       return null;
   }
@@ -177,7 +177,7 @@ export function monthStats(detail: PayrollMonthDetail): InlineStat[] {
     { id: "people", label: "osób", value: detail.stats.people },
     {
       id: "approved",
-      label: "timesheetów zaakceptowanych",
+      label: "raportów godzin zaakceptowanych",
       value: detail.stats.timesheets_approved,
     },
     { id: "submitted", label: "czeka na akceptację", value: detail.stats.timesheets_submitted },
@@ -228,7 +228,7 @@ export function assignedBonusActions(
 
 /** Komunikat po dodaniu premii ręcznej: od przełożonego czeka na Płace. */
 export function bonusCreatedToast(created: Pick<BonusRow, "status">): string {
-  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Płac" : "Premia przyznana";
+  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Rozliczeń" : "Premia przyznana";
 }
 
 /** Premie podzielone na sekcje ekranu. */

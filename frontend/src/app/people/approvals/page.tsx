@@ -20,8 +20,8 @@ export default function PeopleApprovalsPage() {
         {(config) => (
           <div className="space-y-4">
             <PageHeader
-              title="Akceptacje"
-              description="Nieobecności, raporty godzin i zgody do decyzji — w jednej liście."
+              title="Do potwierdzenia"
+              description="Nieobecności, raporty godzin i zgody do potwierdzenia, w jednej liście."
               density="compact"
             />
             <PeopleSectionNav config={config} active="approvals" />

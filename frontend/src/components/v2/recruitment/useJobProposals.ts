@@ -266,6 +266,7 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
   // serwer liczy dzwonek i kafle.
   const threshold = inbox.data?.pages[0]?.threshold ?? DEFAULT_PROPOSAL_THRESHOLD;
   const inboxHidden = inbox.data?.pages.reduce((n, p) => n + p.hidden_on_page, 0) ?? 0;
+  const newInBaseTotal = inbox.data?.pages[0]?.new_in_base_total ?? 0;
 
   const latestRun = useQuery({
     queryKey: jobProposalsKeys.latestRun(jobId),
@@ -601,6 +602,8 @@ export function useJobProposals(jobId: number, options: UseJobProposalsOptions) 
       settled: countsSettled,
       /** Próg propozycji w % (najlepsze 40: separator „Poniżej N%”). */
       threshold,
+      /** Nowi w bazie najpierw: ile osób ma pierwszeństwo, także na dalszych stronach. */
+      newInBaseTotal,
       inbox: {
         total: inboxTotal,
         hidden: inboxHidden,

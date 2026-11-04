@@ -213,7 +213,7 @@ export function BonusDialog({
           ? bonus.description
           : bonus || fixedPerson
             ? recipientName ?? undefined
-          : "Osoba dostanie powiadomienie bez kwoty — kwotę zobaczy w „Moim czasie”."
+          : "Osoba dostanie powiadomienie bez kwoty — kwotę zobaczy w „Mojej współpracy”."
       }
       footer={
         <>

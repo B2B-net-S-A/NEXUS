@@ -132,12 +132,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentRequestButton } from "@/components/v2/recruitment/ConsentRequestButton";
 import { CVOriginalPreviewModal } from "@/components/v2/modals/CVOriginalPreviewModal";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
 import { CvGeneratePanel } from "@/components/v2/recruitment/CvGeneratePanel";
 import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { CvRewriteForm, REWRITE_MAX } from "@/components/v2/recruitment/CvRewriteForm";
+import type { CvEditorSourcesProps } from "@/components/v2/cv-editor/CvEditorSources";
 import { CvFilePreviewDialog } from "@/components/v2/cv/CvFilePreviewDialog";
 import { CvFirstPageThumb } from "@/components/v2/cv/CvFirstPageThumb";
 import { fetchStageCvFile, fetchStageCvPdf } from "@/lib/stage-cv-file";
@@ -356,6 +358,8 @@ export interface CvToClientCardProps {
     stageId: number,
     opts?: { download?: CvDownloadSurface },
   ) => Promise<{ blob: Blob; filename?: string | null }>;
+  /** Oryginał w oknie stron („Pokaż oryginał”). Harness podaje plik z pamięci. */
+  originalLoaders?: CvEditorSourcesProps["loaders"];
 }
 
 /** Bez zgody RODO serwer i tak odpowie 409 — miniatura nie pyta wcale. */
@@ -393,6 +397,7 @@ export function CvToClientCard({
   onOpenPerson,
   lockedAfterSend = false,
   loadStageCvFile = fetchStageCvFile,
+  originalLoaders,
   loadStageCvPdf = fetchStageCvPdf,
 }: CvToClientCardProps) {
   const queryClient = useQueryClient();
@@ -1044,22 +1049,27 @@ export function CvToClientCard({
             <span>
               Zgoda RODO: brak zrzutu. Bez niego nie pobierzesz CV.
             </span>
-            {readOnly ? null : state.attached ? (
-              <ConsentAttachButton
-                compact
-                generatedId={state.attached.id}
-                hasConsent={false}
-                onAttached={refresh}
-              />
-            ) : (
-              // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
-              // dokumentu generatora — zgoda idzie na CV etapu.
-              <ConsentAttachButton
-                compact
-                stageCopy={{ candidateId, stageId: cvStageId }}
-                hasConsent={false}
-                onAttached={refresh}
-              />
+            {readOnly ? null : (
+              <div className="flex flex-wrap items-start gap-2">
+                <ConsentRequestButton candidateId={candidateId} candidateName={candidateName} jobId={jobId} />
+                {state.attached ? (
+                  <ConsentAttachButton
+                    compact
+                    generatedId={state.attached.id}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                ) : (
+                  // Kopia (plik Word, CV z innej rekrutacji, przepięcie) nie ma
+                  // dokumentu generatora — zgoda idzie na CV etapu.
+                  <ConsentAttachButton
+                    compact
+                    stageCopy={{ candidateId, stageId: cvStageId }}
+                    hasConsent={false}
+                    onAttached={refresh}
+                  />
+                )}
+              </div>
             )}
           </div>
         ) : null}
@@ -1385,6 +1395,8 @@ export function CvToClientCard({
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
           textAlign={normalizeCvAlign(branded?.text_align)}
+          originalStageId={cvStageId}
+          originalLoaders={originalLoaders}
         />
       ) : null}
       {originalOpen ? (

@@ -262,7 +262,7 @@ def bonus_message(
     state = f" {words['bonus_cancelled_verb']}" if cancelled else ""
     return (
         f"{capitalize(words['bonus'])} za {period}{state}. "
-        f"Szczegóły w „Moim czasie” → {capitalize(words['bonuses'])}."
+        f"Szczegóły w „Mojej współpracy” → {capitalize(words['bonuses'])}."
     )
 
 

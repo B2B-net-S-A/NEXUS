@@ -14,7 +14,7 @@ function RedirectToMyTime() {
   useEffect(() => {
     router.replace(consentsRedirectHref(search));
   }, [router, search]);
-  return <p className="py-6 text-sm text-muted-foreground">Przenoszenie do Mojego czasu…</p>;
+  return <p className="py-6 text-sm text-muted-foreground">Przenoszenie do Mojej współpracy…</p>;
 }
 
 export default function PeopleConsentsPage() {

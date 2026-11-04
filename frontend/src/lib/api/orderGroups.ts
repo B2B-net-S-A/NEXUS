@@ -256,6 +256,8 @@ export interface OrderGroupRead {
    *  bez rozbicia na zakresy (BIK/Polkomtel — nagłówek bez paska). */
   md_positions_total: number | null;
   md_used_total: number | null;
+  /** Suma ręcznych korekt linii wnoszących budżet; brak = bez korekty. */
+  md_adjustment_total?: number | null;
   /** Wartość umowy i wykorzystana kwota w PLN. `null` dla ról bez finansów —
    *  nagłówek pokazuje wtedy wyłącznie MD, a nie „0 zł". */
   contract_value_pln: number | null;

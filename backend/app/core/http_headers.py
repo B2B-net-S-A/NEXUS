@@ -85,7 +85,12 @@ def content_disposition_attachment(filename: str, fallback: str = "download") ->
     return content_disposition(filename, "attachment", fallback)
 
 
-_CREDENTIAL_HEADERS = ("authorization", "x-api-key", "x-impersonate-user-id")
+_CREDENTIAL_HEADERS = (
+    "authorization",
+    "x-api-key",
+    "x-impersonate-user-id",
+    "x-portal-session",
+)
 
 
 def apply_credentialed_cache_policy(request_headers, response_headers) -> None:

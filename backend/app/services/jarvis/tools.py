@@ -2258,7 +2258,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         description=(
             "Saldo urlopu pytającego w roku (domyślnie bieżący): pula, przeniesione, "
             "zatwierdzone, oczekujące i pozostałe dni; dla umowy o pracę także "
-            "urlop na żądanie. Wymaga kartoteki pracownika."
+            "urlop na żądanie. Wymaga kartoteki osoby."
         ),
         input_schema=_schema({"year": _YEAR_ARG}),
         tier="read",
@@ -2271,12 +2271,12 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
     ),
     JarvisTool(
         name="my_leave_requests",
-        label="Sprawdzam Twoje wnioski urlopowe",
+        label="Sprawdzam Twoje nieobecności",
         description=(
             "Wnioski o nieobecność pytającego (najnowsze najpierw): okres, liczba "
             "dni, status (pending, approved, rejected, cancelled), kto zdecydował, "
             "zastępca i czy można jeszcze anulować. Bez rodzaju i notatek — "
-            "szczegóły na ekranie „Mój czas”."
+            "szczegóły na ekranie „Moja współpraca”."
         ),
         input_schema=_schema({}),
         tier="read",
@@ -2291,7 +2291,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         name="my_month",
         label="Sprawdzam Twój miesiąc",
         description=(
-            "„Mój miesiąc” pytającego (domyślnie bieżący): status timesheetu "
+            "„Mój miesiąc” pytającego (domyślnie bieżący): status raportu godzin "
             "(draft, submitted, approved; zwrócony do poprawy = draft z "
             "`returned_at` i powodem w `return_note`), termin wysłania, "
             "akceptujący, suma godzin i nadgodzin, dni robocze bez wpisu do dziś."
@@ -3333,7 +3333,7 @@ SCREENS: dict[str, tuple[str, str]] = {
     "insights": ("/insights", "Insights"),
     "settings": ("/settings", "Ustawienia"),
     "help": ("/help", "Pomoc"),
-    "my_time": ("/my-time", "Mój czas (urlopy, „Mój miesiąc”)"),
+    "my_time": ("/my-time", "Moja współpraca (urlopy, „Mój miesiąc”)"),
     "people": ("/people", "Ludzie"),
     "people_approvals": ("/people/approvals", "Ludzie — akceptacje"),
     "equipment": ("/equipment", "Sprzęt"),

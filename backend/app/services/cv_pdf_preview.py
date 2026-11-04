@@ -54,6 +54,17 @@ _ENV_KEEP = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "FONTCONFIG_PATH", "FONTCONFI
 MAX_ENTRIES = 32
 TTL_S = 30 * 60
 
+# Plik bywa niezaufany (CV z formularza kariery). Bez blokady LibreOffice pobiera
+# obraz podlinkowany w dokumencie, czyli plik zleca backendowi żądanie pod dowolny
+# adres, także wewnętrzny (pomiar 03.11.2026: 2 żądania HTTP, z blokadą 0).
+_PROFILE_SETTINGS = """<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableActiveContent" oor:op="fuse"><value>true</value></prop></item>
+<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>
+</oor:items>
+"""
+
 MSG_UNAVAILABLE = (
     "Podgląd stron jest chwilowo niedostępny. Plik Word pobierzesz jak zwykle."
 )
@@ -115,9 +126,9 @@ def _kill_group(process: subprocess.Popen) -> None:
         logger.warning("[cv_pdf_preview] LibreOffice nie zakończył się po SIGKILL")
 
 
-def _convert(binary: str, docx: bytes) -> bytes:
+def _convert(binary: str, docx: bytes, infilter: Optional[str] = None) -> bytes:
     try:
-        return _run(binary, docx)
+        return _run(binary, docx, infilter)
     except OSError as error:
         # Brak pamięci na fork, pełny /tmp, plik, którego nie da się uruchomić —
         # też tylko „podgląd niedostępny”, nie 500.
@@ -125,11 +136,16 @@ def _convert(binary: str, docx: bytes) -> bytes:
         raise PdfPreviewUnavailable("os") from error
 
 
-def _run(binary: str, docx: bytes) -> bytes:
+def _run(binary: str, docx: bytes, infilter: Optional[str] = None) -> bytes:
     with tempfile.TemporaryDirectory(prefix="cv-pdf-") as tmp:
         source = os.path.join(tmp, "cv.docx")
         with open(source, "wb") as handle:
             handle.write(docx)
+        os.makedirs(os.path.join(tmp, "profile", "user"))
+        with open(
+            os.path.join(tmp, "profile", "user", "registrymodifications.xcu"), "w"
+        ) as handle:
+            handle.write(_PROFILE_SETTINGS)
         command = [
             binary,
             # Własny profil na każdą zamianę: brak blokad współdzielonego profilu
@@ -141,6 +157,9 @@ def _run(binary: str, docx: bytes) -> bytes:
             "--norestore",
             "--nolockcheck",
             "--nodefault",
+            # Bez filtra LibreOffice wybiera go po treści, więc o tym, który
+            # z kilkudziesięciu parserów ruszy, decyduje autor pliku.
+            *([f"--infilter={infilter}"] if infilter else []),
             "--convert-to",
             "pdf:writer_pdf_Export",
             "--outdir",
@@ -209,8 +228,16 @@ def _cache_key(docx: bytes) -> str:
     return digest.hexdigest()
 
 
-def docx_to_pdf(docx: bytes, *, clock: Callable[[], float] = time.monotonic) -> bytes:
-    """PDF z pliku Word (synchronicznie — wołać przez `run_in_threadpool`)."""
+def docx_to_pdf(
+    docx: bytes,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    infilter: Optional[str] = None,
+) -> bytes:
+    """PDF z pliku Word (synchronicznie — wołać przez `run_in_threadpool`).
+
+    ``infilter`` wymusza filtr importu; plik niezaufany podaje go zawsze.
+    """
     if not docx or len(docx) > MAX_DOCX_BYTES:
         raise PdfPreviewUnavailable("size")
     key = _cache_key(docx)
@@ -228,7 +255,7 @@ def docx_to_pdf(docx: bytes, *, clock: Callable[[], float] = time.monotonic) -> 
         if hit is not None:
             return hit
         started = time.monotonic()
-        pdf = _convert(binary, docx)
+        pdf = _convert(binary, docx, infilter)
         # Bez Montserrat w obrazie LibreOffice podstawia inną czcionkę i strony
         # wyglądają inaczej niż Word u klienta — wtedy lepiej pokazać zapas.
         if _uses_montserrat(docx) and b"Montserrat" not in pdf:

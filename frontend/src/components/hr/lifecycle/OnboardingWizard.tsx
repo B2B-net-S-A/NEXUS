@@ -148,7 +148,7 @@ function WhatWillHappen({
         </p>
       ) : preview.isSuccess && groups.length === 0 ? (
         <p className="border-t border-border/60 py-2.5 text-sm text-muted-foreground">
-          Brak aktywnej ścieżki wejścia — dodaj ją w Ustawieniach → Kadry.
+          Brak aktywnej ścieżki wejścia — dodaj ją w Ustawieniach → Administracja współpracy.
         </p>
       ) : (
         groups.map((group) => (
@@ -233,7 +233,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
 
   if (!canManage) {
     return (
-      <QueryStateNotice state="forbidden" description="Wejście nowej osoby prowadzą Kadry." />
+      <QueryStateNotice state="forbidden" description="Wejście nowej osoby prowadzi Administracja współpracy." />
     );
   }
 
@@ -289,7 +289,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
     <div className="space-y-4">
       <PageHeader
         title={title}
-        description="Wejście: kartoteka, konto, zadania dla koordynatora, Kadr, recepcji i IT."
+        description="Wejście: kartoteka, konto, zadania dla koordynatora, Administracji współpracy, recepcji i IT."
         breadcrumb={[{ label: "Ludzie", href: "/people" }, { label: "Wejście" }]}
         density="compact"
         actions={
@@ -558,7 +558,7 @@ export function OnboardingWizard({ config }: { config: HrConfig }) {
               <p className="text-sm text-muted-foreground">Liczenie terminów…</p>
             ) : preview.isSuccess && preview.data.tasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Brak aktywnej listy zadań wejścia — dodaj ją w Ustawieniach → Kadry.
+                Brak aktywnej listy zadań wejścia — dodaj ją w Ustawieniach → Administracja współpracy.
               </p>
             ) : (
               <ul className="divide-y divide-border/60">

@@ -46,7 +46,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   linii pytań (`screening_text_without_questions`).
 - **Branża tylko ze źródła (D1).** Schemat promptu: branża tylko, gdy CV ją
   opisuje; brak = pusty string. `_normalize_candidate_data` nie wpisuje już
-  „IT”; blind drukuje wtedy samo „Firma”.
+  „IT”; blind drukuje wtedy samo „Firma”. Branża nie stoi obok nazwy firmy
+  w dokumencie (decyzja Artura 03.11.2026, po zgłoszeniu z zespołu): szablon
+  HTML doklejał `firma · branża` i przez edytor trafiało to do zatwierdzonego
+  Worda, a Word prosto z generatora drukował samą firmę. Pole `industry`
+  zostaje w danych, bo korzysta z niego blind („Firma z branży X”). Istniejące
+  szkice i zatwierdzone CV zostały bez zmian; branżę kasuje w nich rekruter.
 - **Nagłówek = nazwa roli od klienta (D2).**
   `job_working_title.cv_role_title(title, client_reference, client_names)`
   zdejmuje prefiks klienta (`job_public_profile._strip_client_prefix`), numer
@@ -69,8 +74,8 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   expert”), a gdy człony mają spacje — na „ – ”. Na stagingu zmieniło to 34
   z 207 otwartych rekrutacji, wszystkie Nordei; „Replacement Senior …” bez
   separatora zostaje (to mogłaby być rola „Replacement Planner”).
-  Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
-  `cv_role_title`, nie surowy tytuł.
+  Gdy rekruter zostawi w polu „Stanowisko” podpowiedź, nagłówek bierze
+  `cv_role_title`, nie surowy tytuł (pole: `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`).
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
   klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Rekrutacja
   z bazy idzie zawsze przez `cv_role_title_for_job(db, job)` — to samo
@@ -320,3 +325,16 @@ zmianę rekruter wpisuje ręcznie w edytorze.
 Testy: `tests/test_cv_source_dates.py`, sekcja „Daty stanowisk” w `tests/test_cv_qc.py`,
 `CvQcDialog.test.tsx` („Daty stanowisk jak w oryginale”).
 
+## Jednorazowa poprawka CV z nazwą usługi (03.11.2026)
+
+CV powstałe przed #2872 miały nagłówek i plik „usługi programistyczne”. Decyzja Artura:
+wszystkie CV etapu w otwartych rekrutacjach, także zatwierdzone i z etapu „Rozmowa”.
+Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title_repair.py`.
+
+- Zły nagłówek w szkicu: podmiana w `<h1>` i w pliku. Zły nagłówek w CV zatwierdzonym:
+  zamrożona wersja zostaje, nowy szkic czeka na zatwierdzenie człowieka.
+- Dobry nagłówek: tylko nazwa pliku, także na zamrożonych wersjach, a plik bierze nazwę
+  z nagłówka. Bez ponownego zatwierdzania.
+- Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
+  w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
+- `cv_generated_documents` zostają historią generacji.

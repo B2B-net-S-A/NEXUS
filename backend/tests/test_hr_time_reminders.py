@@ -174,7 +174,7 @@ async def test_manual_reminder_for_submitted_goes_to_the_approver(app_client) ->
     # Przełożony nie ponagla sam siebie.
     own = await app_client.post(_remind_url(person.id, 2035, 4), headers=headers(boss))
     assert own.status_code == 409
-    assert "Akceptacje" in own.json()["detail"]
+    assert "Do potwierdzenia" in own.json()["detail"]
 
 
 @pytest.mark.usefixtures("time_on")
@@ -241,7 +241,7 @@ async def test_manual_reminder_refuses_closed_payroll_month_without_timesheet(
             _remind_url(person.id, 2035, 7), headers=headers(boss)
         )
         assert closed.status_code == 409, closed.text
-        assert "zamknięty w płacach" in closed.json()["detail"]
+        assert "zamknięty w rozliczeniach" in closed.json()["detail"]
         assert await notifications_of(person.id, "hr_timesheet_reminder") == []
     finally:
         async with AsyncSessionLocal() as db:

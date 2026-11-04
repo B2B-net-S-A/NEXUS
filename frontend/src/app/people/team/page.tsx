@@ -21,8 +21,8 @@ function TeamPageBody() {
       {(config) => (
         <div className="space-y-4">
           <PageHeader
-            title="Mój zespół"
-            description="Kto jest dziś, co czeka na Twoją decyzję i jak idzie miesiąc."
+            title="Koordynacja"
+            description="Kto jest dziś dostępny, co czeka na potwierdzenie i jak idzie miesiąc."
             density="compact"
           />
           <PeopleSectionNav config={config} active="team" />

@@ -49,7 +49,7 @@ export function ReopenMonthDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={`Otworzyć ponownie ${label}?`}
-      description="Zamrożone kwoty znikną, raport znów policzy się z danych, a timesheety tego miesiąca zostaną odblokowane. Powód trafi do śladu zmian."
+      description="Zamrożone kwoty znikną, raport znów policzy się z danych, a raporty godzin tego miesiąca zostaną odblokowane. Powód trafi do śladu zmian."
       footer={
         <>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

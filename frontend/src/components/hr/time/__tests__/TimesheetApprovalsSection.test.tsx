@@ -36,6 +36,7 @@ const modules = {
   equipment: false,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
@@ -161,34 +162,34 @@ describe("TimesheetApprovalsSection", () => {
     });
   });
 
-  it("osoba bez zespołu i bez Płac nie widzi sekcji", () => {
+  it("osoba bez zespołu i bez Rozliczeń nie widzi sekcji", () => {
     const { container } = renderSection({});
     expect(container).toBeEmptyDOMElement();
     expect(mocks.get).not.toHaveBeenCalled();
   });
 
-  it("przełożony widzi zespół, zaślepkę i decyzje tylko przy wysłanym", async () => {
+  it("koordynator widzi zespół, zaślepkę i decyzje tylko przy wysłanym", async () => {
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const submitted = await screen.findByTestId("queue-21");
     expect(within(submitted).getByText("Do akceptacji")).toBeInTheDocument();
-    expect(within(submitted).getByRole("button", { name: "Akceptuj" })).toBeInTheDocument();
+    expect(within(submitted).getByRole("button", { name: "Potwierdź" })).toBeInTheDocument();
     expect(within(submitted).getByText("168 / 176 h")).toBeInTheDocument();
     const missing = screen.getByTestId("queue-22");
     expect(within(missing).getByText("Nie założony")).toBeInTheDocument();
-    expect(within(missing).queryByRole("button", { name: "Akceptuj" })).toBeNull();
+    expect(within(missing).queryByRole("button", { name: "Potwierdź" })).toBeNull();
     const approved = screen.getByTestId("queue-23");
     expect(within(approved).getByRole("button", { name: "Cofnij akceptację" })).toBeInTheDocument();
     // ZIP jest dla Płac i Kadr, nie dla przełożonego.
     expect(screen.queryByRole("button", { name: /Pobierz ZIP/ })).toBeNull();
   });
 
-  it("akceptacja wysyła decyzję dla właściwego timesheetu", async () => {
+  it("akceptacja wysyła decyzję dla właściwego raportu godzin", async () => {
     mocks.post.mockResolvedValue({ data: header(301, "approved") });
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const row = await screen.findByTestId("queue-21");
-    fireEvent.click(within(row).getByRole("button", { name: "Akceptuj" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Potwierdź" }));
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/timesheets/301/approve", undefined),
     );
@@ -236,7 +237,7 @@ describe("TimesheetApprovalsSection", () => {
     );
   });
 
-  it("Płace bez zespołu dostają paczkę ZIP i CSV całego miesiąca", async () => {
+  it("Rozliczenia bez zespołu dostają paczkę ZIP i CSV całego miesiąca", async () => {
     renderSection({ payroll: true });
     expect(screen.getByRole("button", { name: /Pobierz ZIP/ })).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalled();
@@ -247,7 +248,7 @@ describe("TimesheetApprovalsSection", () => {
     expect(within(dialog).getByText(/Wszystkie wpisy za marzec 2031/)).toBeInTheDocument();
   });
 
-  it("przełożony eksportuje CSV osoby z zespołu, bez całego zespołu", async () => {
+  it("koordynator eksportuje CSV osoby z zespołu, bez całego zespołu", async () => {
     renderSection({ is_manager: true, direct_reports: 3 });
     await screen.findByTestId("queue-21");
     fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
@@ -283,14 +284,14 @@ describe("TimesheetApprovalsSection", () => {
   it("odmowa „Przypomnij” (409) pokazuje komunikat serwera", async () => {
     mocks.post.mockRejectedValue({
       isAxiosError: true,
-      response: { status: 409, data: { detail: "Miesiąc jest zamknięty w płacach." } },
+      response: { status: 409, data: { detail: "Miesiąc jest zamknięty w rozliczeniach." } },
     });
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const missing = await screen.findByTestId("queue-22");
     fireEvent.click(within(missing).getByRole("button", { name: "Przypomnij" }));
     await waitFor(() =>
-      expect(mocks.toast).toHaveBeenCalledWith("Miesiąc jest zamknięty w płacach.", "error"),
+      expect(mocks.toast).toHaveBeenCalledWith("Miesiąc jest zamknięty w rozliczeniach.", "error"),
     );
   });
 
@@ -439,7 +440,7 @@ describe("TimesheetApprovalsSection", () => {
       );
     });
 
-    it("koordynator bez Kadr nie cofa zgłoszenia z B2B i zlecenia (D5)", async () => {
+    it("koordynator bez Administracji współpracy nie cofa zgłoszenia z B2B i zlecenia (D5)", async () => {
       const first = await openPreview({ is_manager: true, direct_reports: 3, leave_approver: true });
       await waitFor(() => expect(historyCalls()).toHaveLength(1));
       expect(within(first).queryByRole("button")).toBeNull();

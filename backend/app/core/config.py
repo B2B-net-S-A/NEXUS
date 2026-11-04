@@ -602,6 +602,10 @@ class Settings(BaseSettings):
     # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
     # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
     NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
+    # Nowi w bazie najpierw (decyzja Artura z 03.11.2026): osoba do 14 dni w bazie,
+    # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
+    # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
+    NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
@@ -1612,6 +1616,14 @@ class Settings(BaseSettings):
     # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
     # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
     HR_M365_MODE: str = "off"
+    # Portal konsultanta (02.11.2026). Wyłącznik jest w `app_settings`, tu tylko to,
+    # czego nie ma bez konfiguracji po stronie M365 i dostawcy SMS. Puste = odmowa.
+    # Konto wsparcie@: nadawca linków i organizator rozmów.
+    CONSULTANT_PORTAL_MAILBOX: str = ""
+    # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
+    CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # `disabled` albo `log` (tylko NEXUS_ENV=staging i testy; patrz consultant_portal/sms.py).
+    CONSULTANT_PORTAL_SMS_PROVIDER: str = "disabled"
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
     # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
     HR_M365_MAILBOX_ALLOWLIST: str = ""

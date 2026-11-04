@@ -99,7 +99,7 @@ export function protocolRow(protocol: PersonProtocol): DocumentRow {
     statusNote: protocol.signed_at ? formatIsoDatePl(protocol.signed_at) : null,
     tone: status.tone,
     validUntil: "—",
-    audience: "osoba, Kadry, recepcja",
+    audience: "osoba, Administracja współpracy, recepcja",
     muted: false,
     document: null,
     protocol,

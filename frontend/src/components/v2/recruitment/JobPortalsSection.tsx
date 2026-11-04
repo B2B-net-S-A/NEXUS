@@ -185,7 +185,7 @@ function ListingDialog({
           ? `Edytuj ogłoszenie — ${state.portal.label}`
           : `Opublikuj na ${state.portal.label}`
       }
-      description="Treść ogłoszenia to zatwierdzony opis publiczny rekrutacji. Tu ustawiasz parametry, po których kandydaci je znajdą."
+      description="Na JustJoin.IT i RocketJobs idzie treść z okna „Ogłoszenie”, a bez niego zatwierdzony opis publiczny. Tu ustawiasz parametry, po których kandydaci je znajdą."
     >
       {initial ? (
         <ListingDialogForm
@@ -356,7 +356,7 @@ export function JobPortalsSection({
       {open ? (
         <div className="pb-3 text-sm">
           <p className="text-xs text-muted-foreground">
-            Treść ogłoszenia to zatwierdzony opis publiczny rekrutacji, a kandydaci aplikują przez jej link na stronie kariery.
+            Treść to okno „Ogłoszenie”, a bez niego zatwierdzony opis publiczny. Kandydaci aplikują przez link rekrutacji na stronie kariery.
           </p>
           {postings.isError ? (
             <p role="alert" className="mt-2 text-xs text-destructive">

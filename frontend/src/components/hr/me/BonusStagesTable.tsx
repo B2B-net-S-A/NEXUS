@@ -1,7 +1,5 @@
 "use client";
 
-import { Fragment } from "react";
-
 import {
   Table,
   TableBody,
@@ -14,33 +12,36 @@ import { CALM_AMOUNT, CALM_HEAD, CALM_ROW, CALM_SUBLINE } from "@/lib/calm-table
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/money";
 
-import type { BonusStage, MyBonusItem } from "./overview-format";
+import type { MyBonusItem } from "./overview-format";
 
-const STAGE_CLASS: Record<BonusStage["state"], string> = {
-  done: "text-muted-foreground",
-  current: "font-medium text-foreground",
-  todo: "text-muted-foreground/70",
-};
-
-/** Etapy premii w jednej linii: „umowa › 14 z 21 dni › decyzja Płac › wypłata”. */
-export function BonusStages({ stages }: { stages: readonly BonusStage[] }) {
+/**
+ * Etap premii w jednej linii: bieżący krok, następny i pasek dni. Cała ścieżka
+ * („podpis › kontrakt › … › wypłata”) to 7 słów w każdym wierszu, które zawijały
+ * się i ucinały nazwiska, więc została w dymku i dla czytnika (zgłoszenie 03.11.2026).
+ */
+export function BonusStageNow({
+  stages,
+  progress,
+}: Pick<MyBonusItem, "stages" | "progress">) {
+  const index = stages.findIndex((stage) => stage.state === "current");
+  // Premia rozliczona ma wszystkie etapy za sobą: bieżący jest ostatni.
+  const current = stages[index === -1 ? stages.length - 1 : index];
+  const next = index === -1 ? undefined : stages[index + 1];
+  const path = stages.map((stage) => stage.label).join(" › ");
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-1 text-xs">
-      {stages.map((stage, index) => (
-        <Fragment key={`${stage.label}-${index}`}>
-          {index > 0 ? (
-            <span aria-hidden className="text-muted-foreground/60">
-              ›
-            </span>
-          ) : null}
-          <span
-            className={STAGE_CLASS[stage.state]}
-            aria-current={stage.state === "current" ? "step" : undefined}
-          >
-            {stage.label}
-          </span>
-        </Fragment>
-      ))}
+    <span className="block" title={path}>
+      <span className="flex flex-wrap items-center gap-x-1.5 text-xs">
+        <span className="font-medium text-foreground" aria-current="step">
+          {current?.label}
+        </span>
+        {next ? <span className="text-muted-foreground">› {next.label}</span> : null}
+      </span>
+      <span className="sr-only">Cała ścieżka: {path}</span>
+      {progress != null && progress < 100 ? (
+        <span aria-hidden className="mt-1 block h-1 w-32 overflow-hidden rounded-full bg-muted">
+          <span className="block h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -67,7 +68,7 @@ export function BonusStagesTable({ items }: { items: readonly MyBonusItem[] }) {
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.key} className={CALM_ROW}>
-              <TableCell className="max-w-[280px]">
+              <TableCell className="max-w-[420px]">
                 <span
                   className={cn(
                     "block truncate font-medium",
@@ -79,8 +80,8 @@ export function BonusStagesTable({ items }: { items: readonly MyBonusItem[] }) {
                 </span>
                 <span className={CALM_SUBLINE}>{item.subtitle}</span>
               </TableCell>
-              <TableCell className="min-w-[220px]">
-                <BonusStages stages={item.stages} />
+              <TableCell className="min-w-[180px]">
+                <BonusStageNow stages={item.stages} progress={item.progress} />
               </TableCell>
               <TableCell
                 className={cn(

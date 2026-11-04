@@ -25,3 +25,8 @@ Log `m365_partial_delta` niesie same nazwy kluczy wiadomości, bez treści.
 Odzyskanie starych wierszy: `python -m app.cli.m365_email_body_refetch`
 (opis, próba na sucho i cofnięcie w docstringu skryptu). Uruchamiaj po wdrożeniu
 poprawki i po zgodzie Artura.
+
+Pusty wiersz nie zawsze jest błędem. Pomiar 03.11.2026 w skrzynkach: 197 z 202
+pustych wysłanych i wszystkie 31 odebranych z `body_html = ''` to wiadomości puste
+także w Outlooku, prawie wyłącznie odpowiedzi na zaproszenia (`eventMessage*`).
+`NULL` i `''` różnią się tylko typem treści: `text` daje `NULL`, `html` daje `''`.

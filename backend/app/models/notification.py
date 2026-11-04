@@ -401,6 +401,11 @@ class NotificationType(str, enum.Enum):
     hr_lifecycle_task = "hr_lifecycle_task"
     hr_work_handover = "hr_work_handover"
     admin_case_assigned = "admin_case_assigned"
+    # 0637: kolejka back office'u.
+    back_office_escalated = "back_office_escalated"
+    back_office_assigned = "back_office_assigned"
+    portal_low_rating = "portal_low_rating"
+    portal_monthly_review = "portal_monthly_review"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
     # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.

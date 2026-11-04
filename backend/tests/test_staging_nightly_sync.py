@@ -10,8 +10,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import pytest
@@ -35,10 +37,19 @@ NIGHT = datetime(2026, 11, 2, 23, 5, tzinfo=timezone.utc)
 DATE = "20261103"
 NEW_DB = f"nexus_staging_nightly_{DATE}"
 OLD_DB = "nexus_staging_20261102"
+CV_SCRIPT = ROOT / "scripts/staging/sync_cv_files.sh"
+CV_STATS = (
+    " Container nexus-staging-restore-run-1 Creating\n"
+    '{"level":"notice","msg":"x","stats":{"bytes":1048576,"transfers":3}}\n'
+)
 
 
 def test_allowlist_reads_scoring_inputs_without_importing_backend():
-    assert set(ALLOWED) == set(_SCORING_CACHE_INPUTS) | set(sync.RANKING_POOL_FLAGS)
+    assert set(ALLOWED) == (
+        set(_SCORING_CACHE_INPUTS)
+        | set(sync.RANKING_POOL_FLAGS)
+        | set(sync.CLIENT_LIST_FLAGS)
+    )
 
 
 def test_every_allowed_flag_is_a_setting_and_is_passed_by_compose():
@@ -93,6 +104,28 @@ def test_flag_file_contains_only_allowed_names_and_simple_values():
 def test_value_that_is_not_simple_stops_the_run(value):
     with pytest.raises(sync.SyncError):
         sync.flag_lines({"VOYAGE_MODEL": value}, ALLOWED)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("12,15", "12,15"),
+        (" 12, 15 ,", "12,15"),
+        ("", ""),
+        # Literówka na produkcji wyłącza tam jednego klienta i nie może zatrzymać kopii.
+        ("12,abc", "12"),
+        ("12,13\nTRAFFIT_SYNC_ENABLED=true", "12"),
+    ],
+)
+def test_client_list_keeps_only_ids_like_settings_do(value, expected):
+    name = "MULTI_CONSULTANT_ORDER_CLIENT_IDS"
+    assert sync.flag_lines({name: value}, ALLOWED) == f"{name}={expected}\n"
+
+
+@pytest.mark.parametrize("value", [None, 12, ["12"]])
+def test_client_list_of_other_type_stops_the_run(value):
+    with pytest.raises(sync.SyncError):
+        sync.flag_lines({"COST_ORDER_CLIENT_IDS": value}, ALLOWED)
 
 
 def test_settings_snippet_filters_secrets_on_the_server():
@@ -352,6 +385,7 @@ class Harness:
         self.started: list[str] = []
         self.cfg = sync.Config.__new__(sync.Config)
         self.cfg.env_file = self.env_file
+        self.cfg.code = tmp_path / "code"
         self.cfg.flags_file = self.env_file.with_name(".env.staging-flags.local")
         self.cfg.root = tmp_path / "nightly"
         self.cfg.settings_snapshot = tmp_path / "differences.json"
@@ -361,6 +395,15 @@ class Harness:
             (0, "ranker_version=a kopia=a stale=0", 0, []),
         ]
         self.reembedded = False
+        self.cv_error: Exception | None = None
+        self.cv_copied_on: list[str] = []
+
+        def fake_cv_copy(command, **kwargs):
+            assert command[-1] == "/staging/sync_cv_files.sh"
+            self.cv_copied_on.append(self.database)
+            if self.cv_error:
+                raise self.cv_error
+            return subprocess.CompletedProcess(command, 0, "", CV_STATS)
 
         def fake_start(cfg, sha):
             self.started.append(sync.active_database(cfg.env_file.read_text()))
@@ -386,6 +429,7 @@ class Harness:
             "wait_healthy": lambda postgres, database, sha: None,
             "align_qdrant": fake_align,
             "run_parity": lambda: self.parity.pop(0),
+            "run_cmd": fake_cv_copy,
         }.items():
             monkeypatch.setattr(sync, name, value)
 
@@ -410,6 +454,118 @@ def test_good_night_switches_database_writes_flags_and_marks_copy(harness):
     assert harness.reembedded
     assert (harness.cfg.root / DATE / sync.OK_MARKER).exists()
     assert not harness.report.waiting
+
+
+def test_cv_files_arrive_before_the_new_copy_goes_live(harness):
+    """Nowa baza wskazuje pliki z dzisiaj: po przełączeniu mają już być lokalnie."""
+    harness.parity.pop(0)
+    assert harness.run() == sync.EXIT_OK
+    assert harness.cv_copied_on == [OLD_DB]
+    assert any("dosłane 3, 1 MB" in line for line in harness.report.done)
+
+
+@pytest.mark.parametrize(
+    "error", [sync.SyncError("kod wyjścia 1"), OSError("brak dockera")]
+)
+def test_failed_cv_files_do_not_stop_the_copy_and_reach_the_report(harness, error):
+    harness.parity.pop(0)
+    harness.cv_error = error
+    assert harness.run() == sync.EXIT_OK
+    assert harness.database == NEW_DB
+    assert [line for line in harness.report.waiting if "Pliki CV" in line]
+
+
+def test_cv_stats_without_rclone_summary_are_reported_not_fatal(harness, monkeypatch):
+    harness.parity.pop(0)
+    monkeypatch.setattr(
+        sync,
+        "run_cmd",
+        lambda command, **kwargs: subprocess.CompletedProcess(command, 0, "", "x\n1\n"),
+    )
+    assert harness.run() == sync.EXIT_OK
+    assert harness.database == NEW_DB
+    assert [line for line in harness.report.waiting if "Pliki CV" in line]
+
+
+@pytest.mark.parametrize(
+    ("log", "expected"),
+    [
+        (CV_STATS, (3, 1048576)),
+        (
+            '{"stats":{"bytes":9,"transfers":1}}\n{"stats":{"bytes":0,"transfers":0}}\n',
+            (0, 0),
+        ),
+    ],
+)
+def test_cv_stats_come_from_the_last_rclone_summary(log, expected):
+    assert sync.cv_files_stats(log) == expected
+
+
+def _run_cv_script(tmp_path: Path, **env: str) -> tuple[int, list[str]]:
+    """Skrypt z podstawionym `rclone`, który tylko zapisuje swoje argumenty."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    calls = tmp_path / "calls"
+    fake = bin_dir / "rclone"
+    fake.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {calls}\n')
+    fake.chmod(0o755)
+    result = subprocess.run(
+        ["sh", str(CV_SCRIPT)],
+        env={"PATH": f"{bin_dir}:{os.environ['PATH']}", **env},
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, calls.read_text().split() if calls.exists() else []
+
+
+CV_ENV = {
+    "CV_SOURCE_ENDPOINT": "https://source.invalid",
+    "CV_SOURCE_ACCESS_KEY": "read-only",
+    "CV_SOURCE_SECRET_KEY": "read-only-secret",
+    "STAGING_S3_ACCESS_KEY": "staging",
+    "STAGING_S3_SECRET_KEY": "staging-secret",
+}
+
+
+def test_cv_script_only_adds_files_from_the_production_bucket(tmp_path):
+    code, args = _run_cv_script(tmp_path, **CV_ENV)
+    assert code == 0
+    # `copy`, nie `sync`: kasowanie zabrałoby pliki zapisane przez sesje na stagingu.
+    assert args[:3] == [
+        "copy",
+        "cvsrc:nexus-candidate-documents",
+        "staging:nexus-candidate-documents",
+    ]
+    # Bez tego rclone sprawdza każdy z ok. 190 tys. plików po obu stronach.
+    assert "--ignore-existing" in args
+    assert "--use-server-modtime" in args
+    assert "--max-duration" in args
+
+
+@pytest.mark.parametrize("missing", sorted(CV_ENV))
+def test_cv_script_without_read_only_key_never_falls_back_to_the_b2_mirror(
+    tmp_path, missing
+):
+    """Lustro w B2 ma dzienny limit pobrań klasy B, a skrypt biegnie co noc bez człowieka."""
+    env = {k: v for k, v in CV_ENV.items() if k != missing}
+    code, args = _run_cv_script(
+        tmp_path,
+        **env,
+        BACKUP_S3_ENDPOINT="https://b2.invalid",
+        BACKUP_S3_BUCKET="mirror",
+        BACKUP_S3_ACCESS_KEY="k",
+        BACKUP_S3_SECRET_KEY="s",
+    )
+    assert code != 0
+    assert args == []
+
+
+def test_compose_restore_service_mounts_the_cv_script():
+    restore = yaml.safe_load((ROOT / "docker-compose.staging.yml").read_text())[
+        "services"
+    ]["restore"]
+    assert "./scripts/staging:/staging:ro" in restore["volumes"]
+    assert CV_SCRIPT.parent.name == "staging"
 
 
 def _fail(*args, **kwargs):

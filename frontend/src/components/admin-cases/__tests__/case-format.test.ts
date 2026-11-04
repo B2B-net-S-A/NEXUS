@@ -104,7 +104,7 @@ describe("tablica", () => {
     expect(grouped.closed).toEqual([]);
   });
 
-  it("druga linijka: osoba i klient z kontraktu, inaczej pracownik", () => {
+  it("druga linijka: osoba i klient z kontraktu, inaczej osoba", () => {
     expect(
       caseSubline(
         card({

@@ -277,9 +277,9 @@ def _require_scope(viewer: PayrollViewer, bonus: HrBonus) -> None:
 
 
 MANUAL_PROPOSAL_OWN = (
-    "Własnej propozycji premii nie zatwierdzasz — zatwierdzą ją Płace."
+    "Własnej propozycji premii nie zatwierdzasz — zatwierdzą ją Rozliczenia."
 )
-MANUAL_PROPOSAL_PAYROLL_ONLY = "Premię ręczną od przełożonego zatwierdzają Płace."
+MANUAL_PROPOSAL_PAYROLL_ONLY = "Premię ręczną od koordynatora zatwierdzają Rozliczenia."
 
 
 def approval_refusal(viewer: PayrollViewer, bonus: HrBonus) -> Optional[str]:
@@ -293,7 +293,7 @@ def approval_refusal(viewer: PayrollViewer, bonus: HrBonus) -> Optional[str]:
     if bonus.recipient_user_id == viewer.user_id:
         return "Premii dla siebie nie zatwierdzasz."
     if not viewer.manages_bonuses_of(bonus.recipient_user_id):
-        return "Propozycje zatwierdzają Płace albo przełożony tej osoby."
+        return "Propozycje zatwierdzają Rozliczenia albo koordynator tej osoby."
     if bonus.source == "manual":
         if bonus.proposed_by == viewer.user_id:
             return MANUAL_PROPOSAL_OWN
@@ -328,7 +328,7 @@ async def _change_recipient(
     if recipient_id == bonus.recipient_user_id:
         return None
     if not viewer.payroll:
-        raise PayrollForbidden("Osobę w premii zmieniają Płace.")
+        raise PayrollForbidden("Osobę w premii zmieniają Rozliczenia.")
     if recipient_id == viewer.user_id:
         raise PayrollForbidden("Premii nie przyznajesz sobie.")
     text = (reason or "").strip()
@@ -340,7 +340,7 @@ async def _change_recipient(
         .where(User.id == recipient_id)
     )
     if person is None:
-        raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise PayrollNotFound("Ta osoba nie ma kartoteki.")
     if not person:
         raise PayrollError("Ta osoba nie ma już aktywnego konta.")
     previous = bonus.recipient_user_id
@@ -371,7 +371,7 @@ async def create_manual(
         raise PayrollForbidden("Premii nie przyznajesz sobie.")
     if not viewer.manages_bonuses_of(data.recipient_user_id):
         raise PayrollForbidden(
-            "Premię ręczną przyznają Płace albo przełożony swojemu człowiekowi."
+            "Premię ręczną przyznają Rozliczenia albo koordynator osobie, z którą współpracuje."
         )
     profile = await db.scalar(
         select(EmployeeProfile.id).where(
@@ -379,7 +379,7 @@ async def create_manual(
         )
     )
     if profile is None:
-        raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise PayrollNotFound("Ta osoba nie ma kartoteki.")
     validate_manual_period(data.period_year, data.period_month, today)
     await assert_open(db, data.period_year, data.period_month)
     await _assert_contract_exists(db, data.contract_id)
@@ -427,14 +427,14 @@ async def update_bonus(
     if bonus.recipient_user_id == viewer.user_id:
         raise PayrollForbidden("Własnej premii nie zmieniasz.")
     if not viewer.payroll and bonus.proposed_by != viewer.user_id:
-        raise PayrollForbidden("Przełożony zmienia tylko premie, które sam przyznał.")
+        raise PayrollForbidden("Koordynator zmienia tylko premie, które sam przyznał.")
     if bonus.status == "cancelled":
         raise PayrollConflict("Ta premia jest anulowana.")
     # Od 19.10.2026 premia przełożonego to propozycja dla Płac: po zatwierdzeniu
     # kwotę, okres i walutę zmieniają już tylko Płace — inaczej przełożony
     # podniósłby zatwierdzoną kwotę bez ponownej decyzji (audyt 21.10.2026).
     if not viewer.payroll and bonus.status != "proposed":
-        raise PayrollForbidden("Przyznaną premię zmieniają Płace.")
+        raise PayrollForbidden("Przyznaną premię zmieniają Rozliczenia.")
     await assert_open(db, bonus.period_year, bonus.period_month)
 
     before = {
@@ -456,7 +456,7 @@ async def update_bonus(
         if is_automated(bonus):
             raise PayrollError("Premia automatu należy do swojego kontraktu.")
         if not viewer.payroll:
-            raise PayrollForbidden("Placement w premii zmieniają Płace.")
+            raise PayrollForbidden("Placement w premii zmieniają Rozliczenia.")
         await _assert_contract_exists(db, changes["contract_id"])
         bonus.contract_id = changes["contract_id"]
     year = changes.get("period_year", bonus.period_year)
@@ -563,7 +563,7 @@ async def cancel_bonus(
     )
     if not (viewer.payroll or own or proposal_for_report):
         raise PayrollForbidden(
-            "Przełożony anuluje tylko premie, które sam przyznał, "
+            "Koordynator anuluje tylko premie, które sam przyznał, "
             "i propozycje automatów dla swoich ludzi."
         )
     if bonus.status == "cancelled":

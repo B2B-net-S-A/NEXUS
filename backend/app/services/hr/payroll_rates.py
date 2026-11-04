@@ -65,11 +65,9 @@ from app.services.hr_foundation_schema import EmploymentType
 logger = logging.getLogger(__name__)
 
 RATE_BACKDATE_MAX_MONTHS = 12
-OWN_RATE_SET_DETAIL = (
-    "Własnej stawki nie ustawiasz — zrobi to druga osoba z Płac albo administrator."
-)
+OWN_RATE_SET_DETAIL = "Własnej stawki nie ustawiasz — zrobi to druga osoba z Rozliczeń albo administrator."
 OWN_RATE_DELETE_DETAIL = (
-    "Własnej stawki nie usuwasz — zrobi to druga osoba z Płac albo administrator."
+    "Własnej stawki nie usuwasz — zrobi to druga osoba z Rozliczeń albo administrator."
 )
 RATE_AHEAD_MAX_MONTHS = 24
 RATE_MAX = Decimal("9999999.99")
@@ -196,7 +194,7 @@ def check_mandate_minimum(
     if minimum is None:
         return (
             f"Minimalna stawka na zleceniu w {year} nie jest ustawiona "
-            "(Ustawienia → Płace) — stawka zapisana bez kontroli."
+            "(Ustawienia → Rozliczenia) — stawka zapisana bez kontroli."
         )
     if currency != "PLN":
         return (
@@ -331,7 +329,7 @@ async def _locked_history(db: AsyncSession, user_id: int) -> list[EmployeeRate]:
         .with_for_update()
     )
     if profile is None:
-        raise PayrollNotFound("Ta osoba nie ma kartoteki pracownika.")
+        raise PayrollNotFound("Ta osoba nie ma kartoteki.")
     rows = await db.scalars(
         select(EmployeeRate)
         .where(EmployeeRate.user_id == user_id)
@@ -356,7 +354,7 @@ async def _notify(db: AsyncSession, rate: EmployeeRate) -> None:
         title="Zmiana Twojej stawki",
         message=(
             f"Nowa stawka obowiązuje od {rate.effective_from:%d.%m.%Y}. "
-            f"Szczegóły w „Moim czasie” → {terms(form)['bonuses_tab']}."
+            f"Szczegóły w „Mojej współpracy” → {terms(form)['bonuses_tab']}."
         ),
         ntype=NotificationType.hr_rate_changed,
         link="/my-time?tab=bonuses",

@@ -174,8 +174,8 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     gate: { roles: ["admin", "head_of_recruitment"] },
   },
   {
-    id: "hr", area: "team", title: "Kadry", group: "Ludzie w NEXUSIE",
-    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
+    id: "hr", area: "team", title: "Administracja współpracy", group: "Ludzie w NEXUSIE",
+    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (przerwy, raporty godzin, rozliczenia, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
     gate: { permission: "people_admin", hrProgram: true },
@@ -184,7 +184,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
     // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
     // których osoba z samymi „Płacami” nie widziała.
-    id: "payroll", area: "team", title: "Płace", group: "Ludzie w NEXUSIE",
+    id: "payroll", area: "team", title: "Rozliczenia", group: "Ludzie w NEXUSIE",
     description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
@@ -195,7 +195,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
     id: "hr-import", area: "team", title: "Import z Compassa", group: "Ludzie w NEXUSIE",
     description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
-    keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
+    keywords: "import compass paczka kadry urlopy raporty godzin place migracja przelaczenie na sucho",
     route: "/settings/hr-import",
     wide: true,
     gate: { permission: "people_admin", hrProgram: true },

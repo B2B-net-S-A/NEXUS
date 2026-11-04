@@ -197,13 +197,13 @@ export function P0NowPanel({ className }: { className?: string }) {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-destructive-muted-foreground">
         <h2 className="flex items-center gap-1.5 text-base font-bold">
           <Flame className="h-4 w-4" aria-hidden="true" />
-          P0 — ultrapilne teraz · {items.length}
+          Pilne u klientów · {items.length}
         </h2>
-        <p className="text-xs">Najpierw te rekrutacje, potem reszta.</p>
+        <p className="text-xs">Termin klienta jest najbliżej.</p>
         <p className="text-xs sm:ml-auto">
           {query.data.can_set
             ? "Widzisz wszystkie P0 · zespół widzi swoje"
-            : "P0 Twoich rekrutacji · ustawia Head of Recruitment"}
+            : "Twoje rekrutacje"}
         </p>
       </div>
       {requests.length > 0 ? (

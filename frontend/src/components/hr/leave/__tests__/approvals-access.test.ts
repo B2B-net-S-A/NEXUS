@@ -4,7 +4,7 @@ import { hrConfig } from "@/app/preview/hr-fixtures";
 
 import { approvalsAccess, visibleChips } from "../approvals-filter";
 
-describe("Akceptacje: które części widzi osoba", () => {
+describe("Do potwierdzenia: które części widzi osoba", () => {
   it("„Raporty godzin” bez zespołu (back office, 28.10.2026): same raporty godzin", () => {
     const access = approvalsAccess(
       hrConfig({ timesheets: true, payroll: true, leave_approver: false }),
@@ -14,7 +14,7 @@ describe("Akceptacje: które części widzi osoba", () => {
     expect(visibleChips(access)).toEqual(["all", "time"]);
   });
 
-  it("przełożony dalej widzi nieobecności i raporty godzin", () => {
+  it("koordynator dalej widzi nieobecności i raporty godzin", () => {
     const access = approvalsAccess(
       hrConfig({ is_manager: true, direct_reports: 2, leave_approver: true }),
     );

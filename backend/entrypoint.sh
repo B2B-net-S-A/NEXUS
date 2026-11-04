@@ -182,6 +182,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_lifecycle_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_work_handover'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_escalated'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_low_rating'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_monthly_review'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_reminder'",
@@ -346,6 +350,9 @@ _ENUM_STATEMENTS = [
     # 0641: linki we własnych kanałach źródeł, osobno od portali.
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
     "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
+    # 0643: podsumowanie rozmowy z portalu konsultanta.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -7296,6 +7303,17 @@ _DATA_STATEMENTS = [
     *_CONTRACT_RATE_FROM_BACKFILL,
     # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
     *_SCREENING_FORM_DATA,
+    # Karta PKO BP: akapit zgody stał w „Onboardingu”, a jego temat i „Dzień
+    # dobry,” w „Zasadach procesu” — RAZ (znacznik), żeby restart nie cofał
+    # późniejszych edycji karty. Seed ma już poprawny układ.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'pko_playbook_consent_moved') THEN "
+    "UPDATE client_playbooks SET "
+    "process_rules_md = rtrim(process_rules_md, chr(10)) || chr(10) || substring(onboarding_md from '- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*'), "
+    "onboarding_md = rtrim(regexp_replace(onboarding_md, chr(10) || '?- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*', ''), chr(10)), "
+    "version = version + 1 "
+    "WHERE onboarding_md ~ '- Ja, .imię i nazwisko kandydata.'; "
+    "INSERT INTO app_settings (key, value) VALUES ('pko_playbook_consent_moved', jsonb_build_object('at', now())); "
+    "END IF; END $$",
     # 0521: Centrum e-Zdrowia dostaje formularz klienta zamiast CV firmowego —
     # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
     # reguły CV. Lustro `client_form_schema.SEED_DDL`.
@@ -7794,6 +7812,11 @@ _DATA_STATEMENTS = [
     "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0637: seed klucza AI rozdzielania spraw back office'u.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'case_triage', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'case_triage')",
     # 0628: seed klucza AI podsumowania spotkania handlowca.
     "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
     "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
@@ -11339,6 +11362,32 @@ async def rename():
     print(f"stage cv copy filenames: {receipt or 'nothing to do'}")
 
 asyncio.run(rename())
+PY
+
+# CV etapu z nazwą usługi w nagłówku i pliku (03.11.2026, decyzja Artura: wszystkie
+# w otwartych rekrutacjach). Zatwierdzone ze złym nagłówkiem dostają nowy szkic do
+# zatwierdzenia, a zamrożona wersja zostaje. Reguła:
+# `app/services/cv_service_title_repair.py`. Marker w `app_settings` + advisory
+# lock → drugi start kończy się od razu. Log: same liczby.
+startup_phase "cv-service-title-repair"
+echo "Stage CVs: one-shot role name instead of the service name..."
+run_unless_marked "cv_service_title_repair_2026_11" <<'PY' || echo "cv service title repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cv_service_title_repair import repair_service_title_cvs
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await repair_service_title_cvs(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"cv service title repair: {receipt or 'nothing to do'}")
+
+asyncio.run(repair())
 PY
 
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).

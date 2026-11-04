@@ -152,7 +152,7 @@ async def _month(created: list[int]):
         admin = await fx.make_user(db, "admin", name="Adam Administrator")
         finance = await fx.make_user(db, "finance", name="Filip Finansowy")
         hr = await fx.make_user(
-            db, "recruiter", name="Ewa Kadry", permissions=("people_admin",)
+            db, "recruiter", name="Ewa Administracja współpracy", permissions=("people_admin",)
         )
         anna = await fx.make_user(
             db,
@@ -379,7 +379,7 @@ async def test_payroll_without_hr_gets_no_absence_types(client, env):
     ).json()
     assert preview["includes_events"] is False
     assert not any("Urlop szkoleniowy" in item for item in preview["todo"])
-    assert any("uprawnieniem „Kadry”" in note for note in preview["notes"])
+    assert any("uprawnieniem „Administracja współpracy”" in note for note in preview["notes"])
 
 
 @pytest.mark.asyncio

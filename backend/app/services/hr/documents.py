@@ -146,7 +146,7 @@ def _check_purpose(
         )
     if valid_until is None:
         raise HrDocumentError(
-            "Podaj „ważny do” oświadczenia — od tej daty Płace naliczą składki."
+            "Podaj „ważny do” oświadczenia — od tej daty Rozliczenia naliczą składki."
         )
     return purpose
 
@@ -314,7 +314,9 @@ def check_audience(kind: str, audience: Audience) -> None:
     """
 
     if kind == ABSENCE_PROOF and (audience.payroll or audience.equipment):
-        raise HrDocumentError("Potwierdzenie nieobecności widzą tylko osoba i Kadry.")
+        raise HrDocumentError(
+            "Potwierdzenie nieobecności widzą tylko osoba i Administracja współpracy."
+        )
 
 
 async def upload(

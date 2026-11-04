@@ -139,7 +139,7 @@ export function InterviewsPanel({
   return (
     <div className="flex max-h-[min(600px,calc(100dvh-6rem))] flex-col">
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
-        <h2 className="text-sm font-semibold text-foreground">Rozmowy u klienta</h2>
+        <h2 className="text-sm font-semibold text-foreground">Kalendarz</h2>
         <div className="flex items-center gap-1">
           {state === "ready" && canMarkNews ? (
             <Button
@@ -205,10 +205,10 @@ export function InterviewsPanel({
           {empty && !failed ? (
             <div className="px-6 py-8 text-center">
               <p className="text-sm font-medium text-foreground">
-                Nic nie czeka w sprawie rozmów u klienta.
+                Nic nie czeka w kalendarzu.
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Gdy klient poda terminy albo zbliży się prep lub rozmowa, zobaczysz to tutaj.
+                Gdy klient poda terminy albo zbliży się prep, rozmowa lub umówiony telefon, zobaczysz to tutaj.
               </p>
             </div>
           ) : null}
@@ -382,7 +382,7 @@ export function InterviewsTopbarButton({
       ref={ref}
       type="button"
       aria-label={label}
-      title="Kalendarz — rozmowy u klienta i prepy"
+      title="Kalendarz — rozmowy u klienta, prepy i umówione telefony"
       className={cn(
         "relative transition-colors",
         pill

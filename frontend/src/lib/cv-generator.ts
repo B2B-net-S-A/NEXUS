@@ -43,6 +43,10 @@ export type RecruitmentOption = {
   // zastosowanie reguł (nazwa pliku, język) innego klienta niż widać na ekranie.
   client_id?: number | null;
   client_name?: string | null;
+  /** Stanowisko do nagłówka CV i nazwy pliku; pusty napis = trzeba je wpisać. */
+  cv_position?: string;
+  job_working_title?: string | null;
+  job_client_reference?: string | null;
   /** Czy wołający może przypiąć do tej rekrutacji wydarzenie (członkostwo). */
   can_schedule?: boolean;
 };

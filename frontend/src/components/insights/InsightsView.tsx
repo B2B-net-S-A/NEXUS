@@ -9,6 +9,7 @@ import {
   FileText,
   Landmark,
   Lock,
+  Target,
   Trophy,
   UserRound,
   Users,
@@ -31,8 +32,12 @@ import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
 import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { ZrodlaView } from "@/components/insights/views/ZrodlaView";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { hasSectionAccess } from "@/lib/section-access";
 
 export type TabId =
+  | "zrodla"
   | "rywalizacja"
   | "moj-miesiac"
   | "zespol"
@@ -94,7 +99,7 @@ const TABS: TabDef[] = [
   // „Rytm dnia” (decyzje Artura 28–29.10.2026): kiedy i jak intensywnie pracują
   // rekruterzy. Na razie tylko Head of Recruitment i admin — lustro
   // `VIEWER_ROLES` w `backend/app/services/work_rhythm.py`.
-  { id: "rytm", label: "Rytm dnia", icon: Activity, roles: RHYTHM_ROLES },
+  { id: "rytm", label: "Aktywność w NEXUSIE", icon: Activity, roles: RHYTHM_ROLES },
   {
     id: "firma",
     label: "Firma",
@@ -103,6 +108,9 @@ const TABS: TabDef[] = [
     permission: FIRMA_PERMISSION,
     alsoRoles: FIRMA_ROLES,
   },
+  // „Źródła” (decyzja Artura 03.11.2026): widok z dostępem do kandydatów, lustro
+  // `CandidatePIIAccess` — `seesSources` niżej.
+  { id: "zrodla", label: "Źródła", icon: Target, roles: null },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -154,7 +162,7 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
   praca: { tab: "raporty", report: "placementy" },
   placementy: { tab: "raporty", report: "placementy" },
   doplyw: { tab: "raporty", report: "doplyw" },
-  zrodla: { tab: "raporty", report: "doplyw" },
+  zrodla: { tab: "zrodla" },
   integracje: { tab: "raporty", report: "doplyw" },
   "podsumowanie-klientow": { tab: "raporty", report: "portfele-dl" },
   portfele: { tab: "raporty", report: "portfele-dl" },
@@ -168,6 +176,10 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 export const DEFAULT_INSIGHTS_TAB: TabId = "rywalizacja";
+
+const seesSources = (user: NonNullable<AuthUser>): boolean =>
+  holdsCapabilityGrant(user, "nav.candidates") &&
+  (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline"));
 
 export function getDefaultTabForUser(user: AuthUser): TabId {
   // Rada nadzorcza startuje na Firmie (jak `BOARD_HOME`) — 22.10.2026.
@@ -184,6 +196,7 @@ export function getDefaultTabForUser(user: AuthUser): TabId {
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
   const ids = TABS.filter((tab) => {
     if (!user) return true;
+    if (tab.id === "zrodla") return seesSources(user);
     if (tab.permission) {
       return (
         hasPermission(user, tab.permission) ||
@@ -365,7 +378,7 @@ export function InsightsView() {
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
-                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : undefined}
+                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : tab.id === "zrodla" ? "insights.tabs.sources" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
@@ -395,6 +408,7 @@ export function InsightsView() {
       </div>
 
       <div>
+        {location.tab === "zrodla" && <ZrodlaView />}
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}

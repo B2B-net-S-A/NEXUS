@@ -187,6 +187,8 @@ interface GroupBudget {
   total: number;
   used: number;
   remaining: number;
+  /** Ręczna korekta wliczona w `remaining`, tylko MD per osoba. */
+  adjustment?: number;
   format: (value: number) => string;
 }
 
@@ -195,7 +197,8 @@ const mdText = (value: number) => `${formatMd(value)} MD`;
 /**
  * Budżet całego zamówienia w nagłówku — te same liczby co panel zamówienia
  * (kosztowe: `budget_*`, wspólna pula: `md_budget_*`, MD per osoba: suma
- * pozycji `md_positions_total` / `md_used_total` liczona na serwerze).
+ * pozycji `md_positions_total` / `md_used_total` / `md_adjustment_total`
+ * liczona na serwerze).
  * `null` = nie ma czego pokazać (brak kwoty albo brak uprawnień do kwot —
  * kosztowe przychodzi wtedy jako `null`, nie zero).
  */
@@ -226,14 +229,17 @@ function groupBudget(group: OrderGroupRead): GroupBudget | null {
   }
   if (group.md_positions_total == null || group.md_positions_total <= 0) return null;
   const used = Math.max(0, group.md_used_total ?? 0);
+  const adjustment = group.md_adjustment_total ?? 0;
   return {
     totalLabel: "Budżet",
     usedLabel: "wykorzystano",
     total: group.md_positions_total,
     used,
     // Per osoba przekroczenie jest faktem handlowym — liczba może być ujemna
-    // (jak „X / Y MD” w wierszu osoby).
-    remaining: group.md_positions_total - used,
+    // (jak „X / Y MD” w wierszu osoby). Korekta jak w `md_remaining` wiersza,
+    // inaczej nagłówek i wiersz podają dwie różne pozostałości.
+    remaining: group.md_positions_total - used + adjustment,
+    adjustment,
     format: mdText,
   };
 }
@@ -271,6 +277,13 @@ function GroupBudgetSummary({ group }: { group: OrderGroupRead }) {
         <span className={cn("font-semibold", depleted ? "text-destructive" : "text-foreground")}>
           {budget.format(budget.remaining)}
         </span>
+        {budget.adjustment ? (
+          <span>
+            {" "}
+            (w tym korekta {budget.adjustment > 0 ? "+" : "−"}
+            {budget.format(Math.abs(budget.adjustment))})
+          </span>
+        ) : null}
       </span>
     </span>
   );

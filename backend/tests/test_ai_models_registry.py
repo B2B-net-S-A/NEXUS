@@ -26,13 +26,12 @@ def test_registry_snapshot_covers_all_keys():
         )
 
 
-def test_cv_generator_is_sonnet_5_with_opus_fallback():
-    """F4 (decyzja 16.09.2026): Sonnet 5 z thinking=disabled — w badaniu na
-    danych produkcyjnych wymyślał fakty w 20% CV vs 41% u Sonneta 4.6 (rewert
-    #628 mierzył Sonneta 5 z WYMUSZONYM thinking). Fallback Opus zostaje."""
-    assert ai_models.model_for(AIFeatureKey.cv_generator) == "claude-sonnet-5"
+def test_cv_generator_is_sol_with_opus_fallback():
+    """F4 (decyzja 03.11.2026 po audycie): GPT-6.1 Sol, jurorzy na ślepo 24 lepsze
+    i 2 gorsze wobec Sonneta 5. Fallback Opus zostaje."""
+    assert ai_models.model_for(AIFeatureKey.cv_generator) == "gpt-6.1-sol"
     assert ai_models.model_chain_for(AIFeatureKey.cv_generator) == [
-        "claude-sonnet-5",
+        "gpt-6.1-sol",
         "claude-opus-4-8",
     ]
 
@@ -58,7 +57,7 @@ def test_empty_env_override_is_ignored(monkeypatch):
     monkeypatch.setenv("UOP_CHECK_MODEL", "   ")
     # resolve() czyta env przy KAŻDYM wywołaniu — bez reloadu (reload config/rejestru
     # podmieniłby globalny singleton settings i zatruł kolejne testy w tym biegu).
-    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-6-luna"
+    assert ai_models.model_for(AIFeatureKey.uop_check) == "gpt-6.1-sol"
 
 
 def test_narrow_override_splits_cv_parser_from_mindy(monkeypatch):
@@ -103,13 +102,13 @@ DECISION_2026_09_16 = {
     AIFeatureKey.scoring: ("F1", "claude-sonnet-5"),
     AIFeatureKey.champion_profile_parse: ("F2", "claude-sonnet-5"),
     AIFeatureKey.cv_requirement_map: ("F3", "claude-sonnet-5-5"),
-    AIFeatureKey.cv_generator: ("F4", "claude-sonnet-5"),
+    AIFeatureKey.cv_generator: ("F4", "gpt-6.1-sol"),
     AIFeatureKey.cv_interactive_chat: ("F5", "gpt-6-luna"),
     AIFeatureKey.job_description_generator: ("F6", "claude-sonnet-5"),
     # F7 — 21.09.2026 powrót z GPT-5.6 Luna na Sonneta, 22.09.2026 na GPT-6 Lunę
     # po pomiarze, 25.09.2026 z powrotem na Sonneta (Luna 6 ciągle „niepewny”).
     AIFeatureKey.order_parser: ("F7", "claude-sonnet-5"),
-    AIFeatureKey.uop_check: ("F8", "gpt-6-luna"),
+    AIFeatureKey.uop_check: ("F8", "gpt-6.1-sol"),
     AIFeatureKey.cv_parser: ("F9", "claude-sonnet-5-5"),
     # F10 — pomiar gpt-6-luna 22.09.2026 na 96 CV: nie gorsza od Sonneta.
     AIFeatureKey.cv_backfill: ("F10", "claude-sonnet-5-5"),
@@ -126,7 +125,7 @@ DECISION_2026_09_16 = {
     # F18 — decyzja 18.09.2026, POZA badaniem 16.09: recenzent gotowego CV
     # musi być INNYM modelem niż generator (F4), bo sędzia LLM faworyzuje
     # własne wyjście. Zmiana tego wpisu na model generatora cofa sens funkcji.
-    AIFeatureKey.cv_factual_verification: ("F18", "gpt-6-luna"),
+    AIFeatureKey.cv_factual_verification: ("F18", "claude-haiku-5-5"),
     # F19 — decyzja 21.09.2026: Jarvis woła `tools`, więc tylko Anthropic.
     AIFeatureKey.jarvis: ("F19", "claude-sonnet-5"),
     # F20 — decyzja 21.09.2026: szkic opisu na stronę kariery, jak F6.
@@ -134,10 +133,10 @@ DECISION_2026_09_16 = {
     # F21 — decyzja 23.09.2026: podpowiedzi odpowiedzi przy przepięciu.
     AIFeatureKey.screening_reassign_suggest: ("F21", "gpt-6-luna"),
     # F22 — decyzja 23.09.2026: podpowiedzi dla zatwierdzającego DZ, jak F18.
-    AIFeatureKey.dz_review: ("F22", "gpt-6-luna"),
+    AIFeatureKey.dz_review: ("F22", "claude-sonnet-5-5"),
     # F23 — decyzja 24.09.2026: sortowanie zgłoszeń do akademii, jak F10.
     AIFeatureKey.academy_screening: ("F23", "gpt-6-luna"),
-    AIFeatureKey.prep_review: ("F24", "gpt-6-luna"),
+    AIFeatureKey.prep_review: ("F24", "claude-sonnet-5-5"),
     # F25 — decyzja 25.09.2026: jednorazowy import archiwum pytań z interview.
     AIFeatureKey.interview_question_import: ("F25", "gpt-6-luna"),
     # F26 — decyzja 29.09.2026: research „Champion po ludzku” (web_search → Anthropic).
@@ -145,7 +144,7 @@ DECISION_2026_09_16 = {
     # F27 — decyzja 29.09.2026: przegląd zgłoszeń z linku rekrutacji, jak F23.
     AIFeatureKey.application_screening: ("F27", "gpt-6-luna"),
     # F28/F29 — decyzja 06.10.2026: karta z notatki i „Ułóż w zdanie”.
-    AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6-luna"),
+    AIFeatureKey.recommendation_card_note_read: ("F28", "gpt-6.1-sol"),
     AIFeatureKey.screening_answer_phrasing: ("F29", "gpt-6-luna"),
     # F30 — decyzja 12.10.2026 (Edytor CV 2, PR 3): AI na zaznaczonym fragmencie CV.
     AIFeatureKey.cv_selection_edit: ("F30", "claude-sonnet-5"),
@@ -168,7 +167,10 @@ DECISION_2026_09_16 = {
     # F41 — 02.11.2026: słowa z CV wysłanych do wiersza „musi mieć”.
     AIFeatureKey.requirement_word_hints: ("F41", "claude-sonnet-5"),
     # F40 — 02.11.2026: podsumowanie transkryptu spotkania handlowca.
+    AIFeatureKey.case_triage: ("F42", "claude-sonnet-5"),
     AIFeatureKey.sales_meeting_summary: ("F40", "gpt-6-luna"),
+    # F43 — 02.11.2026: podsumowanie rozmowy z portalu konsultanta.
+    AIFeatureKey.portal_meeting_summary: ("F43", "gpt-6-luna"),
 }
 
 
@@ -295,7 +297,7 @@ FALLBACKS_2026_11_02 = {
     AIFeatureKey.order_parser: "claude-sonnet-5-5",
     AIFeatureKey.cv_requirement_map: "claude-sonnet-5",
     AIFeatureKey.job_description_generator: "claude-sonnet-5-5",
-    AIFeatureKey.cv_factual_verification: "claude-haiku-5-5",
+    AIFeatureKey.cv_factual_verification: "claude-sonnet-5-5",
     AIFeatureKey.champion_profile_parse: "claude-haiku-5-5",
     AIFeatureKey.scoring: "claude-haiku-5-5",
     AIFeatureKey.cv_rule_lint: "claude-haiku-5-5",

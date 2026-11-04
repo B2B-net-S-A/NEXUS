@@ -26,11 +26,11 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F1  | scoring                          | claude-sonnet-5          |
 | F2  | champion_profile_parse           | claude-sonnet-5 (z Haiku)|
 | F3  | cv_requirement_map               | claude-sonnet-5-5 (z 5)  |
-| F4  | cv_generator                     | claude-sonnet-5 (z 4.6)  |
+| F4  | cv_generator                     | gpt-6.1-sol (z Opus 4.8) |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
 | F6  | job_description_generator        | claude-sonnet-5          |
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
-| F8  | uop_check                        | gpt-6-luna (z Sonnet 5)  |
+| F8  | uop_check                        | gpt-6.1-sol (z Sonnet 5) |
 | F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
 | F10 | cv_backfill                      | claude-sonnet-5-5 (z 5)  |
 |     | cv_name_backfill                 | gpt-6-luna (z Sonnet 5)  |
@@ -39,17 +39,17 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F13 | champion_draft                   | gpt-6-luna (z Sonnet 5)  |
 | F14 | cv_rule_lint                     | claude-sonnet-5 (z Haiku)|
 | F15 | mindy_chat                       | gpt-6-luna (z Sonnet 5)  |
-| F18 | cv_factual_verification          | gpt-6-luna (z Sonnet 5)  |
+| F18 | cv_factual_verification          | claude-haiku-5-5 (z 5.5) |
 | F19 | jarvis                           | claude-sonnet-5 (z Haiku)|
 | F20 | job_public_description           | claude-sonnet-5 (z Haiku)|
 | F21 | screening_reassign_suggest       | gpt-6-luna (z Sonnet 5)  |
-| F22 | dz_review                        | gpt-6-luna (z Sonnet 5)  |
+| F22 | dz_review                        | claude-sonnet-5-5 (z 5)  |
 | F23 | academy_screening                | gpt-6-luna (z Sonnet 5)  |
-| F24 | prep_review                      | gpt-6-luna (z Sonnet 5)  |
+| F24 | prep_review                      | claude-sonnet-5-5 (z 5)  |
 | F25 | interview_question_import        | gpt-6-luna (z Sonnet 5)  |
 | F26 | plain_knowledge_research         | claude-sonnet-5 (z Haiku)|
 | F27 | application_screening            | gpt-6-luna (z Sonnet 5)  |
-| F28 | recommendation_card_note_read    | gpt-6-luna (z Sonnet 5)  |
+| F28 | recommendation_card_note_read    | gpt-6.1-sol (z Sonnet 5) |
 | F29 | screening_answer_phrasing        | gpt-6-luna (z Sonnet 5)  |
 | F30 | cv_selection_edit                | claude-sonnet-5 (z Haiku)|
 | F31 | cv_editor_command                | claude-sonnet-5 (z Haiku)|
@@ -63,6 +63,8 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F39 | candidate_ai_assessment          | gpt-6-luna (z Sonnet 5)  |
 | F40 | sales_meeting_summary            | gpt-6-luna (z Sonnet 5)  |
 | F41 | requirement_word_hints           | claude-sonnet-5 (z Haiku)|
+| F42 | case_triage                      | claude-sonnet-5 (z Haiku)|
+| F43 | portal_meeting_summary           | gpt-6-luna (z Sonnet 5)  |
 | F16 | embeddingi (``VOYAGE_MODEL``)    | voyage-3 — config.py     |
 | F17 | reranker (``RERANKER_ENABLED``)  | wyłączony — config.py    |
 
@@ -112,6 +114,7 @@ SONNET_5 = "claude-sonnet-5"
 SONNET_55 = "claude-sonnet-5-5"
 HAIKU_55 = "claude-haiku-5-5"
 GPT_LUNA = "gpt-6-luna"
+GPT_SOL = "gpt-6.1-sol"
 DEEPSEEK_PRO = "deepseek-v4-pro"
 
 
@@ -252,11 +255,13 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Haiku bez stacku wymyślał 82% pozycji (badanie 16.09).",
     ),
     AIFeatureKey.cv_generator: ModelChoice(
-        default=SONNET_5,
+        default=GPT_SOL,
         env_vars=("CV_B2B_MODEL",),
         fallbacks=("claude-opus-4-8",),
-        rationale="F4. Generator CV: Sonnet 5 z thinking=disabled (jak w badaniu) wymyślał "
-        "fakty w 20% CV vs 41% u Sonneta 4.6 (rewert #628 mierzył wymuszone thinking). "
+        rationale="F4. Generator CV: GPT-6.1 Sol od 03.11.2026 (audyt, 36 CV, jurorzy na ślepo): "
+        "lepszy od Sonneta 5 w 24 parach, gorszy w 2, poważne zdania bez pokrycia 0,31 wobec "
+        "1,36 na CV, ok. 24% taniej. Reasoning `low`: medium i high nie poprawiły wyniku, "
+        "a mediana czasu rosła z 41 do 60 i 137 s. "
         "Fallback nadpisywalny env CV_B2B_FALLBACK_MODELS w provider.py.",
     ),
     AIFeatureKey.mindy_chat: ModelChoice(
@@ -276,21 +281,20 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "rozdziela od backfillu.",
     ),
     AIFeatureKey.uop_check: ModelChoice(
-        default=GPT_LUNA,
+        default=GPT_SOL,
         env_vars=("UOP_CHECK_MODEL",),
         fallbacks=(SONNET_5,),
-        rationale="F8. Znamiona UoP: GPT Luna 100% nazewnictwa, recall 1.0 na podłożonych "
-        "znamionach (badanie 16.09).",
+        rationale="F8. Znamiona UoP: GPT-6.1 Sol od 03.11.2026 (audyt): fałszywe alarmy 4,5% wobec "
+        "34% Luny, brak propozycji zapisu 2% wobec 60%, 8 z 8 przypadków z ryzykiem wykrytych.",
     ),
     AIFeatureKey.cv_factual_verification: ModelChoice(
-        default=GPT_LUNA,
+        default=HAIKU_55,
         env_vars=("CV_FACTUAL_VERIFICATION_MODEL",),
-        fallbacks=(HAIKU_55,),
+        fallbacks=(SONNET_55,),
         rationale="F18 (decyzja 18.09.2026, POZA badaniem 16.09). Recenzent gotowego CV "
-        "MUSI być innym modelem niż generator (F4 = Sonnet 5): badanie zmierzyło, że sędzia "
-        "LLM faworyzuje własne wyjście (~+30 pkt), więc kontrola własnej pracy jest "
-        "systematycznie za łagodna. Luna wygrała F7/F8 — zadania „znajdź i zacytuj”, czyli "
-        "dokładnie to, co robi weryfikator.",
+        "MUSI być od innego dostawcy niż generator (F4 = GPT-6.1 Sol): badanie zmierzyło, że "
+        "sędzia LLM faworyzuje własne wyjście (~+30 pkt). Haiku 5.5 od 03.11.2026 (audyt, 50 CV): "
+        "alarmy jak Luna (20,6% wobec 20,7%), 100% podłożonych błędów, 0 błędów protokołu.",
     ),
     AIFeatureKey.jarvis: ModelChoice(
         default=SONNET_5,
@@ -322,13 +326,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "podpowiedzią — rekruter przyjmuje albo poprawia każdą odpowiedź.",
     ),
     AIFeatureKey.dz_review: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_55,
         env_vars=("DZ_REVIEW_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F22 (decyzja 23.09.2026, POZA badaniem 16.09). Podpowiedzi dla "
         "zatwierdzającego DZ to zadanie „znajdź i zacytuj” (must-have w CV, pogrubienia, "
-        "pokrycie w rolach) — to samo, w czym Luna wygrała F7/F18; recenzent ma być innym "
-        "modelem niż generator CV (F4 = Sonnet 5). Wynik doradczy, nigdy bramka.",
+        "pokrycie w rolach); recenzent ma być innym modelem niż generator CV. Sonnet 5.5 od "
+        "03.11.2026 (audyt): użyteczna propozycja w 56% przypadków wobec 28% Luny (n=18). "
+        "Wynik doradczy, nigdy bramka.",
     ),
     AIFeatureKey.academy_screening: ModelChoice(
         default=GPT_LUNA,
@@ -340,14 +345,15 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "liczy kod; decyzję „nie” klika człowiek.",
     ),
     AIFeatureKey.prep_review: ModelChoice(
-        default=GPT_LUNA,
+        default=SONNET_55,
         env_vars=("PREP_REVIEW_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F24 (decyzja Artura 23.09.2026, POZA badaniem 16.09). Ocena prepu "
         "z transkryptu Teams to „znajdź i zacytuj” (must-have i pytania klienta w "
         "rozmowie); cytat spoza transkryptu jest odrzucany, a poziom oceny liczy kod. "
-        "Pomiar Luna vs Sonnet na pierwszych prawdziwych prepach: "
-        "scripts/eval_prep_review.py. Wynik doradczy, nigdy bramka.",
+        "Sonnet 5.5 od 03.11.2026 (audyt, 30 prepów): cytaty spoza rozmowy 1,2% wobec 4% Luny, "
+        "średnia ocena bez zmiany. Sol miał 0%, ale podnosił ocenę o 8 punktów bez wzorca. "
+        "Wynik doradczy, nigdy bramka.",
     ),
     AIFeatureKey.interview_question_import: ModelChoice(
         default=GPT_LUNA,
@@ -378,13 +384,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Przed włączeniem pomiar na ~40 historycznych zgłoszeniach.",
     ),
     AIFeatureKey.recommendation_card_note_read: ModelChoice(
-        default=GPT_LUNA,
+        default=GPT_SOL,
         env_vars=("RECOMMENDATION_CARD_NOTE_READ_MODEL",),
         fallbacks=(SONNET_5,),
         rationale="F28 (decyzja Artura 06.10.2026, POZA badaniem 16.09). Odczyt "
         "notatki rekrutera to „znajdź i zacytuj” jak F21/F23: pole bez cytatu "
         "obecnego w notatce odrzuca kod, narodowość czyta wyłącznie reguła wzoru. "
-        "Wynik zatwierdza rekruter. Przed włączeniem pomiar na ~40 notatkach-kartach.",
+        "Wynik zatwierdza rekruter. GPT-6.1 Sol od 03.11.2026 (audyt, 40 notatek): pominięte "
+        "pola 0% wobec 3,7% Luny, zgodność bez istotnej zmiany.",
     ),
     AIFeatureKey.screening_answer_phrasing: ModelChoice(
         default=GPT_LUNA,
@@ -468,6 +475,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "i fallback. Każda wartość z cytatem ze źródła; wartość bez cytatu odrzuca kod, "
         "ocen 1–10 i numerów certyfikatów model nie zgaduje. Całość sprawdza rekruter.",
     ),
+    AIFeatureKey.case_triage: ModelChoice(
+        default=SONNET_5,
+        env_vars=("CASE_TRIAGE_MODEL",),
+        fallbacks=(HAIKU_55,),
+        rationale="F42 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Do którego zespołu "
+        "back office trafia mail, gdy reguły nie są pewne. Wynik jest tylko propozycją: "
+        "niepewność albo awaria kończy się kartą „Do rozdzielenia”.",
+    ),
     AIFeatureKey.requirement_word_hints: ModelChoice(
         default=SONNET_5,
         env_vars=("REQUIREMENT_WORD_HINTS_MODEL",),
@@ -508,6 +523,14 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "z CV albo notatki, powód bez cytatu odrzuca kod. AI tylko układa kolejność: "
         "niczego nie odrzuca i nie zmienia procentu; awaria = osoba bez werdyktu, "
         "nadal do dodania. Jedno wywołanie na osobę, do 30 osób naraz.",
+    ),
+    AIFeatureKey.portal_meeting_summary: ModelChoice(
+        default=GPT_LUNA,
+        env_vars=("PORTAL_MEETING_SUMMARY_MODEL",),
+        fallbacks=(SONNET_5,),
+        rationale="F43 (decyzja Artura 02.11.2026, POZA badaniem 16.09). Podsumowanie rozmowy "
+        "z portalu konsultanta do sprawy: krótkie streszczenie jak F40. Dodatek do "
+        "transkryptu: awaria modelu zostawia rozmowę bez podsumowania, nic nie blokuje.",
     ),
     AIFeatureKey.sales_meeting_summary: ModelChoice(
         default=GPT_LUNA,

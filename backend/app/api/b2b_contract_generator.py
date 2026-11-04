@@ -182,6 +182,10 @@ from app.services.hr import payroll_rates
 from app.services.b2b_esign import service as esign_service
 from app.services.b2b_esign import settings as esign_settings
 from app.services.b2b_esign.history import esign_history
+from app.services.b2b_contract_generator.address_format import (
+    format_registry_address,
+    tidy_house_number,
+)
 from app.services.b2b_contract_generator.registry_lookup import lookup_company
 from app.services.b2b_contract_generator.company_variant import (
     CompanyVariantError,
@@ -984,6 +988,20 @@ def _stamp_assigned_person(
     ).strip()
     if full_name:
         payload.assigned_person_name = full_name
+
+
+def _tidy_partner_addresses(payload: "B2BRenderRequest") -> None:
+    """Adres wklejony z wydruku CEIDG: „ul. Polna 12” zamiast „ul. Polna, nr 12”.
+
+    Tylko przy wydaniu i poprawce umowy, nie w walidatorze schematu: ten sam
+    schemat odtwarza zapisany ``render_payload``, a ponowne pobranie ma dać
+    dokument, który wydano."""
+    payload.partner_business_address = tidy_house_number(
+        payload.partner_business_address
+    )
+    payload.partner_correspondence_address = tidy_house_number(
+        payload.partner_correspondence_address
+    )
 
 
 async def _validate_candidate_job_link(
@@ -2341,7 +2359,12 @@ async def company_lookup(
             status_code=404,
             detail="Nie znaleziono firmy w rejestrze (sprawdź NIP / KRS).",
         )
-    return data
+    return {
+        **data,
+        "address": format_registry_address(
+            data.get("address"), has_street=data.get("has_street")
+        ),
+    }
 
 
 @router.get("/company-verification", response_model=B2BCompanyVerificationResponse)
@@ -2377,6 +2400,7 @@ async def render_standalone(
     numer, loguje wygenerowanie i zwraca plik DOCX.
     """
     _require_contract_generation(current_user)
+    _tidy_partner_addresses(payload)
     lang = normalize_language(payload.language)
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     linked_job: Job | None = None
@@ -3785,6 +3809,7 @@ async def rerender_generated_contract(
     role = await db.get(B2BContractRole, payload.role_id) if payload.role_id else None
     if row.candidate_id is not None:
         _stamp_assigned_person(payload, await db.get(Candidate, row.candidate_id))
+    _tidy_partner_addresses(payload)
     context = build_render_context(payload, role)
     context["b2b"]["contract_number"] = row.contract_number
     override_key, override_ops = resolve_override(payload.client_name, lang)

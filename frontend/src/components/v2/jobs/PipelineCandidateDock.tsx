@@ -81,7 +81,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
-import { PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
+import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -172,6 +172,7 @@ import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
+import { ScreeningCallControl } from "@/components/v2/recruitment/ScreeningCallControl";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
 import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/PersonInBase";
@@ -539,9 +540,6 @@ export interface PipelineCandidateDockProps {
 }
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
-
-/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
-const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
 
 /**
  * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
@@ -1614,6 +1612,11 @@ export function PipelineCandidateDock({
         >
           <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
         </Button>
+        <ScreeningCallControl
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          call={item.booked_call}
+        />
       </div>
     ) : null;
 
@@ -1851,6 +1854,7 @@ export function PipelineCandidateDock({
               >
                 Profil <span aria-hidden="true">↗</span>
               </Link>
+              <PairOwnerCompact item={item} />
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
@@ -2469,7 +2473,7 @@ export function PipelineCandidateDock({
                     ) : null}
                     {!readOnly ? (
                       stageCv === "ready" ? (
-                        <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                        <Button size="sm" variant="outline" data-tour="person.cv.edit" onClick={() => setOpenBranded(true)}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj CV
                         </Button>
                       ) : (

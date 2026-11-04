@@ -75,26 +75,26 @@ type As = (typeof AS)[number];
 const FORMS = ["b2b", "zlecenie", "uop"] as const satisfies readonly EmploymentType[];
 
 const STATES = [
-  { key: "hr", label: "Kadry i Płace" },
+  { key: "hr", label: "Administracja współpracy i Rozliczenia" },
   { key: "hr-zlecenie", label: "Zlecenie: student", href: "?as=hr&form=zlecenie" },
   { key: "hr-uop", label: "UoP: staż do urlopu", href: "?as=hr&form=uop" },
-  { key: "manager", label: "Przełożona (bez stawek)" },
+  { key: "manager", label: "Koordynatorka (bez stawek)" },
   { key: "colleague", label: "Kolega z zespołu (wizytówka)" },
-  { key: "hr-only", label: "Kadry bez Płac (bez formy)" },
+  { key: "hr-only", label: "Administracja współpracy bez Rozliczeń (bez formy)" },
   { key: "finance", label: "Finanse (Zmień formę)" },
   { key: "account", label: "Z konta: do uzupełnienia" },
 ] as const;
 
 const NOTES: Record<As, string> = {
-  hr: "Dane fikcyjne, bez zapytań. Ogląda osoba z uprawnieniami Kadry i Płace.",
-  manager: "Dane fikcyjne, bez zapytań. Ogląda przełożona: kartoteka i premie, stawek serwer nie przysyła (D2).",
+  hr: "Dane fikcyjne, bez zapytań. Ogląda osoba z uprawnieniami Administracja współpracy i Rozliczenia.",
+  manager: "Dane fikcyjne, bez zapytań. Ogląda koordynatorka: kartoteka i premie, stawek serwer nie przysyła (D2).",
   colleague: "Dane fikcyjne, bez zapytań. Ogląda osoba z zespołu: tylko wizytówka, sekcje modułów schowane.",
   "hr-only":
-    "Dane fikcyjne, bez zapytań. Ogląda osoba z Kadrami bez Płac: kartoteka bez formy umowy (19.10.2026).",
+    "Dane fikcyjne, bez zapytań. Ogląda osoba z Administracją współpracy bez Rozliczeń: kartoteka bez formy umowy (19.10.2026).",
   finance:
-    "Dane fikcyjne, bez zapytań. Ogląda osoba z Płacami bez Kadr: forma widoczna, „Zmień formę”.",
+    "Dane fikcyjne, bez zapytań. Ogląda osoba z Rozliczeniami bez Administracji współpracy: forma widoczna, „Zmień formę”.",
   account:
-    "Dane fikcyjne, bez zapytań. Kartoteka założona z konta NEXUSA: forma i przełożony do uzupełnienia.",
+    "Dane fikcyjne, bez zapytań. Kartoteka założona z konta NEXUSA: forma i koordynator do uzupełnienia.",
 };
 
 const { ola, paulina, marta, ewa, piotr } = HR_CAST;
@@ -183,7 +183,7 @@ function prepare(params: URLSearchParams) {
   });
   if (as === "colleague") {
     seedHttpError(client, lifecycleKeys.summary(ola.id), 403, "Brak dostępu do tej sprawy.");
-    seedHttpError(client, payrollKeys.person(ola.id), 404, "Nie ma takiej osoby w Płacach.");
+    seedHttpError(client, payrollKeys.person(ola.id), 404, "Nie ma takiej osoby w Rozliczeniach.");
   } else {
     client.setQueryData(lifecycleKeys.summary(ola.id), {
       case: null,
@@ -191,7 +191,7 @@ function prepare(params: URLSearchParams) {
     });
     if (as === "hr-only") {
       // Kadry bez Płac: sekcji „Płace” serwer odmawia — chowa się.
-      seedHttpError(client, payrollKeys.person(ola.id), 403, "Płace widzą Finanse.");
+      seedHttpError(client, payrollKeys.person(ola.id), 403, "Rozliczenia widzą Finanse.");
     } else {
       client.setQueryData(payrollKeys.person(ola.id), payroll(as));
     }

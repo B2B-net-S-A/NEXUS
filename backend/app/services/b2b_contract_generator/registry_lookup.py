@@ -275,7 +275,8 @@ def _parse_ceidg(data: dict) -> dict | None:
         " ".join(p for p in [owner.get("imie"), owner.get("nazwisko")] if p).strip()
         or None
     )
-    address = _ceidg_address(f.get("adresDzialalnosci") or {})
+    adr = f.get("adresDzialalnosci") or {}
+    address = _ceidg_address(adr)
     return {
         "name": f.get("nazwa"),
         "person": person,
@@ -283,6 +284,9 @@ def _parse_ceidg(data: dict) -> dict | None:
         "regon": owner.get("regon") or f.get("regon"),
         "krs": None,
         "address": address,
+        # Pole `ulica` rozstrzyga wieś z pocztą w innej miejscowości, której
+        # z samego napisu adresu nie widać (`format_registry_address`).
+        "has_street": bool(adr.get("ulica")) if adr else None,
         "source": "CEIDG",
     }
 
@@ -505,6 +509,7 @@ def _merge(name_src: dict, bl: dict | None) -> dict:
         "krs": (bl.get("krs") if bl else None) or name_src.get("krs"),
         "address": (bl.get("address") if bl else None) or name_src.get("address"),
         "address_kind": name_src.get("address_kind") if is_jdg else None,
+        "has_street": name_src.get("has_street"),
         "source": name_src.get("source") or "biznes",
     }
 

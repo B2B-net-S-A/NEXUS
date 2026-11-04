@@ -103,6 +103,7 @@ from app.models.insights_seniority_snapshot import InsightsSenioritySnapshot
 from app.models.user_performance_flag import UserPerformanceFlag
 from app.models.recruitment_campaign import RecruitmentCampaign
 from app.api import insights_recruitment
+from app.api import insights_sources as insights_sources_api
 from app.api import insights_stage_breakdown
 from app.api import insights_board
 from app.api import autofill_quality as autofill_quality_api
@@ -144,6 +145,7 @@ from app.api import academy_edition as academy_edition_api
 from app.api import trainee as trainee_api
 from app.api import board_tasks as board_tasks_api
 from app.api import candidate_followups as candidate_followups_api
+from app.api import screening_calls as screening_calls_api
 from app.api import interview_cycle as interview_cycle_api
 from app.api import prep_meetings as prep_meetings_api
 from app.api import prep_review_config as prep_review_config_api
@@ -245,6 +247,9 @@ from app.api import care_skills as care_skills_api
 from app.api import care_announcements as care_announcements_api
 from app.api import public_consultant_mail as public_consultant_mail_api
 from app.api import admin_cases as admin_cases_api
+from app.api import back_office as back_office_api
+from app.api import consultant_portal as consultant_portal_api
+from app.api import consultant_portal_staff as consultant_portal_staff_api
 from app.api import equipment as equipment_api
 from app.api import sales_companies as sales_companies_api
 from app.api import sales_company_people as sales_company_people_api
@@ -1116,6 +1121,16 @@ async def lifespan(app: FastAPI):
             "equipment_intune_sync": asyncio.create_task(
                 hr_loops.equipment_intune_sync_loop()
             ),
+            "back_office_sync": asyncio.create_task(hr_loops.back_office_sync_loop()),
+            "consultant_portal_transcripts": asyncio.create_task(
+                hr_loops.consultant_portal_transcripts_loop()
+            ),
+            "consultant_portal_ratings": asyncio.create_task(
+                hr_loops.consultant_portal_ratings_loop()
+            ),
+            "consultant_portal_mailbox": asyncio.create_task(
+                hr_loops.consultant_portal_mailbox_loop()
+            ),
             "admin_cases_mail_ingest": asyncio.create_task(
                 hr_loops.admin_cases_mail_ingest_loop()
             ),
@@ -1341,6 +1356,8 @@ app.add_middleware(
         # Ekran dla licznika użycia (`services/access_usage`). Front wysyła go
         # dopiero, gdy `/api/health` niesie `usageCounter: true`.
         "X-Nexus-Screen",
+        # Sesja portalu konsultanta: osobna od JWT pracownika (api/consultant_portal).
+        "X-Portal-Session",
     ],
     # `Content-Disposition` carries server-generated export filenames. Without
     # exposing it, cross-origin frontend fetches can download the bytes but
@@ -1569,6 +1586,12 @@ app.include_router(
     prefix="/api/candidate-followups",
     tags=["candidate-followups"],
 )
+# Umówiony telefon na screening (03.11.2026).
+app.include_router(
+    screening_calls_api.router,
+    prefix="/api/screening-calls",
+    tags=["screening-calls"],
+)
 app.include_router(
     interview_cycle_api.router,
     prefix="/api",
@@ -1789,6 +1812,11 @@ app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
 app.include_router(
     insights_recruitment.router,
     prefix="/api/insights/recruitment",
+    tags=["insights"],
+)
+app.include_router(
+    insights_sources_api.router,
+    prefix="/api/insights",
     tags=["insights"],
 )
 app.include_router(
@@ -2157,6 +2185,12 @@ app.include_router(
     admin_cases_api.router, prefix="/api/cases", tags=["hr"], dependencies=_HR_PROGRAM
 )
 app.include_router(
+    back_office_api.router,
+    prefix="/api/back-office",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
     equipment_api.router, prefix="/api/equipment", tags=["hr"], dependencies=_HR_PROGRAM
 )
 # Sprzedaż (Atlas → NEXUS, 26.10.2026): bramki „Sprzedaż: podgląd / edycja”
@@ -2199,6 +2233,19 @@ app.include_router(
 app.include_router(
     equipment_intune_api.router,
     prefix="/api/equipment/intune",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+# Portal konsultanta: publiczne trasy z własnym wyłącznikiem i sesją (opis w module).
+app.include_router(
+    consultant_portal_api.router,
+    prefix="/api/public/consultant-portal",
+    tags=["hr"],
+    dependencies=_HR_PROGRAM,
+)
+app.include_router(
+    consultant_portal_staff_api.router,
+    prefix="/api/back-office/portal",
     tags=["hr"],
     dependencies=_HR_PROGRAM,
 )

@@ -78,7 +78,7 @@ export function MyBonusPanel() {
         href="/my-time?tab=bonuses"
         className="w-fit text-sm font-semibold text-primary hover:underline"
       >
-        Szczegóły w „Mój czas” →
+        Szczegóły w „Moja współpraca” →
       </Link>
     </Panel>
   );

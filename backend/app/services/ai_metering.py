@@ -58,6 +58,12 @@ _PRICES = {
         Decimal("0.01"),
         Decimal("0.125"),
     ),
+    "gpt-6.1-sol": (
+        Decimal("2.00"),
+        Decimal("10.00"),
+        Decimal("0.20"),
+        Decimal("2.50"),
+    ),
     "gpt-5.6-luna": (
         Decimal("0.20"),
         Decimal("1.20"),

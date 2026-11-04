@@ -8,7 +8,7 @@ ma rano otwierać jedną sesję zamiast wielu raportów.
 
 | Godzina (Warszawa) | Rutyna | Co robi |
 |---|---|---|
-| 00:00 | Nocna kopia stagingu | `scripts/staging/nightly_sync.py`: flagi z produkcji, nowa kopia bazy, Qdrant, strażnik rankingu (`staging-na-laptopie.md`) |
+| 00:00 | Nocna kopia stagingu | `scripts/staging/nightly_sync.py`: flagi z produkcji, nowa kopia bazy, dosłanie plików CV, Qdrant, strażnik rankingu (`staging-na-laptopie.md`) |
 | 01:00 | Odświeżenie stagingu | `scripts/staging/refresh_code.sh`: kod z `origin/main`, baza bez zmian |
 | 02:00 | Dyżurny | Alarmy na GitHubie i wiszące PR-y |
 | 02:30 | Strażnik Nowości | PR-y ze zmianą ekranu a `novelties.json`, także tytuły `fix` |

@@ -139,7 +139,7 @@ export function PayrollProfileSection({ userId, name }: { userId: number; name: 
     // `#place` — dzwonek Płac „stawka z umowy do przepisania” prowadzi tutaj.
     <Card id="place" className="space-y-4 p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className={SECTION_TITLE}>Płace</h2>
+        <h2 className={SECTION_TITLE}>Rozliczenia</h2>
         {data ? (
           <div className="flex flex-wrap gap-2">
             {data.can_edit_rates ? (

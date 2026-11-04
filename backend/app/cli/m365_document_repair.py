@@ -923,7 +923,7 @@ async def main(
                 print(f"Odczyt {cid} pominięty — bez nowego głównego CV.")
                 continue
             await _enrich_candidate_from_document_task(
-                cid, new_primary[cid], trigger="cv_repair"
+                cid, new_primary[cid], trigger="cv_repair", force_read=True
             )
             print(f"Odczyt profilu {cid} z dokumentu {new_primary[cid]}.")
     return 0

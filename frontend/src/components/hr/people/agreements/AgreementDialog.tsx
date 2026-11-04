@@ -149,7 +149,7 @@ export function AgreementDialog({
         if (!next) onClose();
       }}
       title={agreement ? `Szkic: ${agreement.title}` : `Nowa umowa albo aneks · ${overview.person.name}`}
-      description="Treść daje wzór od Kadr; NEXUS wstawia pola. Do podpisu wysyłasz osobnym kliknięciem."
+      description="Treść daje wzór od Administracji współpracy; NEXUS wstawia pola. Do podpisu wysyłasz osobnym kliknięciem."
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
@@ -178,7 +178,7 @@ export function AgreementDialog({
         </FormField>
         {templates.isSuccess && choices.length === 0 ? (
           <p className="text-sm text-muted-foreground sm:col-span-2">
-            Nie ma jeszcze wzorów umów — dodaje je Kadry w Ustawieniach → Kadry → „Wzory umów”.
+            Nie ma jeszcze wzorów umów — dodaje je Administracja współpracy w Ustawieniach → Administracja współpracy → „Wzory umów”.
           </p>
         ) : null}
         {templates.isError ? (
@@ -304,7 +304,7 @@ export function AgreementDialog({
           <FormField
             label="Dzień wypłaty"
             htmlFor={id("payout")}
-            description="Dzień następnego miesiąca (domyślnie z Ustawień Płac)."
+            description="Dzień następnego miesiąca (domyślnie z Ustawień Rozliczeń)."
           >
             <Input
               id={id("payout")}
@@ -316,7 +316,7 @@ export function AgreementDialog({
             />
           </FormField>
         ) : null}
-        <FormField label={words.coordinator === "przełożony" ? "Przełożony" : "Koordynator"} htmlFor={id("coordinator")}>
+        <FormField label={words.coordinator === "koordynator" ? "Koordynator" : "Przełożony"} htmlFor={id("coordinator")}>
           <Select
             value={form.coordinatorId || NONE}
             onValueChange={(value) => set("coordinatorId", value === NONE ? "" : value)}

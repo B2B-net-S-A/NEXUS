@@ -59,7 +59,7 @@ from app.services import (
     stage_handoff_recipients,
     stage_remarks,
 )
-from app.services.candidate_added_date import added_to_base
+from app.services.candidate_added_date import AddedToBase, added_to_base
 from app.services.candidate_stage_cv_service import (
     create_original_cv_snapshot,
 )
@@ -137,6 +137,7 @@ from app.services.recruitment_move_policy import (
 )
 from app.services.delivery_alert_recipients import load_delivery_alert_recipient_scope
 from app.services.pipeline_realtime import broadcast_pipeline_changed
+from app.services import screening_calls
 from app.services.stage_verifier import first_verifier
 from app.core.scheduling import DEFAULT_TZ, business_today
 from app.services.consultant_elsewhere_notifications import (
@@ -3704,6 +3705,7 @@ async def build_kanban_view(
     inactive_claimers = await candidate_claim.inactive_holders(
         db, v4_processes.values()
     )
+    booked_calls = await screening_calls.starts_by_candidate(db, job_id, candidate_ids)
     reassign_job_ids = {
         p.reassign_from_job_id
         for p in v4_processes.values()
@@ -3724,7 +3726,12 @@ async def build_kanban_view(
     board_now = datetime.now(timezone.utc)
     # Osoby od systemu (23.10.2026): termin decyzji liczy się od przypisania
     # rekrutera; jedno zapytanie tylko wtedy, gdy na Tablicy są takie karty.
-    from app.services import autofill_decisions, known_queue_points
+    from app.services import (
+        autofill_decisions,
+        job_proposals,
+        known_queue_points,
+        new_column_autofill,
+    )
 
     known_queue_facts = await known_queue_points.facts_for(
         db,
@@ -3737,13 +3744,25 @@ async def build_kanban_view(
         ],
         now=board_now,
     )
+    without_process_ids = await known_queue_points.without_process(
+        db,
+        job_id=job_id,
+        candidate_ids=[
+            cid
+            for cid, p in v4_processes.items()
+            if p.entry_source == candidate_claim.ENTRY_SYSTEM
+        ],
+    )
+    has_system_cards = any(
+        p.entry_source == candidate_claim.ENTRY_SYSTEM for p in v4_processes.values()
+    )
     autofill_recruiter_since = (
         (await autofill_decisions.recruiter_since_for_jobs(db, [job_id])).get(job_id)
-        if any(
-            p.entry_source == candidate_claim.ENTRY_SYSTEM
-            for p in v4_processes.values()
-        )
+        if has_system_cards
         else None
+    )
+    fresh_threshold = (
+        await job_proposals.proposal_threshold(db) if has_system_cards else 0.0
     )
     # Odznaki terminarza rozmowy u klienta i status zamówienia zatrudnionych —
     # po jednym zapytaniu hurtowym (liczone w serwisach, front tylko rysuje).
@@ -4159,6 +4178,21 @@ async def build_kanban_view(
             known_fact = known_queue_facts.get(e.candidate_id)
             if payload["entry_autofill"] is not None and known_fact is not None:
                 payload["entry_autofill"]["known"] = known_fact.as_dict()
+            if payload["entry_autofill"] is not None:
+                in_base_at, in_base_exact, _ = added_to_base_by_id.get(
+                    e.candidate_id, (None, False, None)
+                )
+                payload["entry_autofill"]["fresh_first"] = (
+                    new_column_autofill.has_fresh_first(
+                        v4.entry_meta,
+                        AddedToBase(at=in_base_at, exact=in_base_exact),
+                        threshold=fresh_threshold,
+                        now=board_now,
+                    )
+                )
+                payload["entry_autofill"]["fresh"] = (
+                    e.candidate_id in without_process_ids
+                )
             payload["entry_ai_screening"] = application_screening_badge(v4.entry_meta)
             payload["entry_off_limits"] = off_limits_badge(
                 v4.entry_meta, user_name_by_id
@@ -4179,6 +4213,16 @@ async def build_kanban_view(
                 payload["reassign_from_reference"] = reassign_refs.get(
                     v4.reassign_from_job_id
                 )
+            booked_call = booked_calls.get(e.candidate_id)
+            if booked_call is not None:
+                payload["booked_call"] = {
+                    "event_id": booked_call.id,
+                    "start_time": booked_call.start_time,
+                    "note": booked_call.description,
+                    "owner_id": booked_call.operational_owner_id,
+                    "owner_name": user_name_by_id.get(booked_call.operational_owner_id),
+                    "in_outlook": bool(booked_call.external_id),
+                }
             claim = candidate_claim.claim_state(v4, inactive_claimers)
             if claim.active(board_now):
                 payload["claim_user_id"] = claim.user_id
@@ -5139,6 +5183,7 @@ async def claim_candidate(
         else None
     )
     candidate_claim.set_claim(process, current_user.id, now)
+    await screening_calls.follow_claim(db, process=process, user=current_user, now=now)
     # Osoba od systemu (23.10.2026): „Dzwonię” to decyzja na stałe — po
     # wygaśnięciu blokady karta nie wraca do „Czeka na Ciebie”.
     from app.services.autofill_decisions import record_call

@@ -274,7 +274,7 @@ export function MySettlementView({ data }: { data: MySettlements }) {
       <PreviousMonths months={previous} />
       {data.employment_type === "b2b" ? (
         <p className="text-xs text-muted-foreground">
-          Faktury rozpoznajemy w KSeF po NIP-ie{data.nip ? "" : " — Kadry jeszcze go nie wpisały"}.
+          Faktury rozpoznajemy w KSeF po NIP-ie{data.nip ? "" : " — Administracja współpracy jeszcze go nie wpisała"}.
           Rachunek do przelewu: {accountLabel(data.account_last4, data.account_source)}.
         </p>
       ) : null}

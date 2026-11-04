@@ -119,7 +119,7 @@ async def student_contribution_reminders(
             message=(
                 f"Zlecenie, uczeń lub student — zwolnienie ze składek "
                 f"ZUS do {until:%d.%m.%Y}. Od {start:%d.%m.%Y} naliczamy "
-                "składki, chyba że Kadry przesuną datę (nowa legitymacja)."
+                "składki, chyba że Administracja współpracy przesunie datę (nowa legitymacja)."
             ),
             ntype=NotificationType.hr_lifecycle_task,
             link=f"/people/{user_id}",

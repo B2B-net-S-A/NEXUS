@@ -68,9 +68,9 @@ FORWARD_REASON_MIN = 3
 FORWARD_REASON_MAX = 500
 REPORT_EDIT_FORBIDDEN = (
     "Zgłoszenie osoby na B2B albo zleceniu zmieniają ona sama (anulowanie "
-    "i nowe zgłoszenie) albo Kadry — koordynator może zgłosić kolizję."
+    "i nowe zgłoszenie) albo Administracja współpracy — koordynator może zgłosić uwagę."
 )
-FORWARD_OFF_FORBIDDEN = "Kopię cudzej poczty wyłączają Kadry."
+FORWARD_OFF_FORBIDDEN = "Kopię cudzej poczty wyłącza Administracja współpracy."
 
 
 @dataclass(frozen=True)
@@ -277,7 +277,7 @@ async def edit_request(
         message=f"{span} — zmiana: {actor.name}."
         + (
             " Kopia poczty do zastępcy wyłączona — możesz ją włączyć"
-            " przy wniosku w „Mój czas”."
+            " przy wniosku w „Mojej współpracy”."
             if before_consent and not consent
             else ""
         ),
@@ -384,7 +384,7 @@ async def forward_off_by_hr(
         raise core.LeaveNotFound(request_id)
     if request.user_id == actor.id:
         raise core.LeaveForbidden(
-            "Własną kopię poczty wyłączasz w „Mój czas” przy wniosku."
+            "Własną kopię poczty wyłączasz w „Mojej współpracy” przy wniosku."
         )
     if not request.forward_mail_consent:
         raise core.LeaveConflict("Ta kopia poczty jest już wyłączona.")
@@ -417,8 +417,8 @@ async def forward_off_by_hr(
         exclude={actor.id},
         title="Kopia poczty wyłączona",
         message=(
-            f"{format_range(request.start_date, request.end_date)} — Kadry "
-            "wyłączyły kopię poczty do zastępcy. Szczegóły u Kadr."
+            f"{format_range(request.start_date, request.end_date)} — Administracja współpracy "
+            "wyłączyła kopię poczty do zastępcy. Szczegóły u Administracji współpracy."
         ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF_LEAVE,

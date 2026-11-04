@@ -44,7 +44,7 @@ const DECIDE = "Wnioski do decyzji (umowa o pracę)";
 const INFO = "Zgłoszone przerwy i nieobecności (B2B, zlecenie) — do wiadomości";
 
 describe("/preview/hr-approvals", () => {
-  it("przełożona: skrzynka z kolizją, szczegół z zastępcą, pracą i mini-kalendarzem, okno odrzucenia", async () => {
+  it("koordynatorka: skrzynka z kolizją, szczegół z zastępcą, pracą i mini-kalendarzem, okno odrzucenia", async () => {
     const user = userEvent.setup();
     open("");
 
@@ -68,7 +68,7 @@ describe("/preview/hr-approvals", () => {
 
     // Historia jest pod „Zdecydowane” (jedna lista, 22.10.2026).
     expect(screen.queryByRole("heading", { name: "Nieobecności" })).toBeNull();
-    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    await user.click(screen.getByRole("radio", { name: "Załatwione" }));
     expect(screen.getByRole("heading", { name: "Nieobecności" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
@@ -91,11 +91,11 @@ describe("/preview/hr-approvals", () => {
 
     await user.click(within(ewa).getByRole("button", { name: "Podgląd" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByRole("button", { name: "Akceptuj" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Potwierdź" })).toBeInTheDocument();
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry i zastępca przełożonego", async () => {
+  it("Administracja współpracy i zastępca koordynatora", async () => {
     const user = userEvent.setup();
     open("?state=covering");
     expect(await screen.findByTestId("approvals-covering")).toHaveTextContent(
@@ -106,12 +106,12 @@ describe("/preview/hr-approvals", () => {
     expect(ewa).toHaveTextContent("do wiadomości");
     await user.click(ewa);
     expect(screen.getByRole("region", { name: "Szczegóły: Ewa Makietowa" })).toHaveTextContent(
-      "do wiadomości — decydują Kadry",
+      "do wiadomości — decyduje Administracja współpracy",
     );
     expect(attempted()).toEqual([]);
   });
 
-  it("B2B i zlecenie: zgłoszenia do wiadomości z „Zgłoś kolizję”, bez akceptacji (D5)", async () => {
+  it("B2B i zlecenie: zgłoszenia do wiadomości z „Zgłoś uwagę”, bez akceptacji (D5)", async () => {
     const user = userEvent.setup();
     open("");
     const info = await screen.findByRole("list", { name: INFO });
@@ -121,16 +121,16 @@ describe("/preview/hr-approvals", () => {
     await user.click(within(info).getByRole("button", { name: /^Ola Przykładowa/ }));
     const ola = screen.getByRole("region", { name: "Szczegóły: Ola Przykładowa" });
     expect(ola).toHaveTextContent("Przerwa w świadczeniu usług");
-    expect(within(ola).queryByRole("button", { name: "Akceptuj" })).toBeNull();
+    expect(within(ola).queryByRole("button", { name: "Potwierdź" })).toBeNull();
     expect(within(ola).queryByRole("button", { name: "Odrzuć" })).toBeNull();
 
-    await user.click(within(ola).getByRole("button", { name: "Zgłoś kolizję" }));
-    const dialog = await screen.findByRole("dialog", { name: "Zgłoś kolizję z terminem" });
+    await user.click(within(ola).getByRole("button", { name: "Zgłoś uwagę" }));
+    const dialog = await screen.findByRole("dialog", { name: "Zgłoś uwagę do terminu" });
     expect(within(dialog).getByLabelText(/Z czym koliduje termin/)).toBeInTheDocument();
     await user.keyboard("{Escape}");
 
     // „Zdecydowane”: zgłoszenie „Zgłoszone”, bez „Anuluj” u przełożonej.
-    await user.click(screen.getByRole("radio", { name: "Zdecydowane" }));
+    await user.click(screen.getByRole("radio", { name: "Załatwione" }));
     const reportRow = screen
       .getAllByRole("row")
       .find((row) => row.textContent?.includes("Zgłoszone"));
@@ -139,7 +139,7 @@ describe("/preview/hr-approvals", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry: zakres wszyscy i przełożony przy wniosku", async () => {
+  it("Administracja współpracy: zakres wszyscy i koordynator przy wniosku", async () => {
     open("?state=hr");
     expect(await screen.findByRole("region", { name: "Szczegóły: Kamil Testowy" })).toHaveTextContent(
       "koordynator: Marta Fikcyjna",
@@ -148,7 +148,7 @@ describe("/preview/hr-approvals", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("załącznik Julii: przełożona widzi tylko „Załącznik ✓”, Kadry nazwę pliku (D6)", async () => {
+  it("załącznik Julii: koordynatorka widzi tylko „Załącznik ✓”, Administracja współpracy nazwę pliku (D6)", async () => {
     const user = userEvent.setup();
     open("");
     const decide = await screen.findByRole("list", { name: DECIDE });

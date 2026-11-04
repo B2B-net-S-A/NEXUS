@@ -82,7 +82,7 @@ function tabFrom(value: string | null): EquipmentTab | null {
 }
 
 const MODULE_OFF =
-  "Moduł „Sprzęt” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
+  "Moduł „Sprzęt” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Administracja współpracy.";
 const NO_PERMISSION =
   "Sprzęt prowadzi recepcja: ekran widzą osoby z uprawnieniem „Sprzęt” (Ustawienia → Osoby i role).";
 

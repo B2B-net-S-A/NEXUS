@@ -10,6 +10,7 @@
  * żadnych reguł, które serwer musiałby powtórzyć.
  */
 
+import { callTone, callWhen, type CallTone } from "@/lib/screening-call";
 import { boardCardBadge } from "@/lib/recommendation-card";
 import { agreementBadge } from "@/lib/b2b-agreement";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -35,7 +36,8 @@ export type CardBadgeTone =
   | "info"
   | "neutral"
   | "rate"
-  | "champion";
+  | "champion"
+  | "call_today";
 
 export interface CardBadge {
   key: string;
@@ -83,6 +85,8 @@ export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
   rate: "bg-muted text-foreground tabular-nums",
   // Championi (D3, 15.10.2026): ten sam złoty kolor co status w nagłówku.
   champion: "bg-medal-gold text-medal-gold-foreground",
+  // Umówiony telefon na dziś: jedyna pełna plakietka, bo to sprawa na teraz.
+  call_today: "bg-primary text-primary-foreground",
 };
 
 const RATE_UNIT_LABEL: Record<string, string> = {
@@ -631,6 +635,24 @@ function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {
   };
 }
 
+const CALL_TONE: Record<CallTone, CardBadgeTone> = {
+  overdue: "urgent",
+  today: "call_today",
+  later: "own",
+};
+
+function bookedCallBadge(item: KanbanItem, now: Date): CardBadge | null {
+  const call = item.booked_call;
+  if (!call) return null;
+  const when = callWhen(call.start_time, now);
+  return {
+    key: "booked_call",
+    label: when,
+    tone: CALL_TONE[callTone(call.start_time, now)],
+    title: call.owner_name ? `Umówiony telefon: ${when}, dzwoni ${call.owner_name}.` : `Umówiony telefon: ${when}.`,
+  };
+}
+
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
@@ -665,6 +687,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   const preContract = preContractCardBadge(item.pre_contract);
   if (preContract) out.push(preContract);
   if (column === "new" || column === "screening") {
+    const call = bookedCallBadge(item, ctx.now);
+    if (call) out.push(call);
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
     const reapplied = reappliedViaLinkBadge(item, ctx);
@@ -835,11 +859,13 @@ export const COMPACT_BADGE_KEYS: ReadonlySet<string> = new Set([
   "source",
   "claim",
   "recommendation_card",
+  "booked_call",
 ]);
 
 export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
   if (!COMPACT_BADGE_KEYS.has(badge.key)) return null;
   const full = badge.title ? `${badge.label} — ${badge.title}` : badge.label;
+  if (badge.key === "booked_call") return { short: badge.label, full };
   if (badge.key === "claim") {
     // „Twój · 11 h” → „11 h” (kolor mówi „mój”); cudza blokada zostaje
     // z imieniem („Anna · 3 h”); „Wolny” → sama ikona.

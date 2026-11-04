@@ -202,7 +202,7 @@ export function olaAgreements(): PersonAgreements {
         payout_day: null,
         signed_on: shiftDays(signed, -2),
         signed_at: `${shiftDays(signed, -2)}T11:00:00+02:00`,
-        apply_error: `Miesiąc płac ${signed.slice(5, 7)}.${signed.slice(0, 4)} jest zamknięty — stawkę zmienią Płace po ponownym otwarciu.`,
+        apply_error: `Miesiąc płac ${signed.slice(5, 7)}.${signed.slice(0, 4)} jest zamknięty — stawkę zmienią Rozliczenia po ponownym otwarciu.`,
         actions: { ...NO_ACTIONS, apply: true },
       }),
     ],

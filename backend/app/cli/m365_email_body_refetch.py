@@ -12,12 +12,17 @@ Uruchomienie (w kontenerze backendu)::
 
 Zasady:
 
-* wiersz = poczta przychodząca, ``body_html IS NULL``, pusty tekst i podgląd, nie
-  prywatny, ma ``m365_message_id`` i nadawcę. Wiersze bez nadawcy powstały
-  z aktualizacji nieznanej wiadomości i nie mają czego uzupełniać: tylko liczba;
-* próba na sucho pyta Graph wyłącznie o ``id`` i niczego nie zapisuje w `emails`;
-  z ``--apply`` czyta treść, zapisuje po ``BATCH_SIZE`` wierszy i zdejmuje tylko
-  pustkę. Drugi bieg jest bezpieczny (np. po ponownym podłączeniu skrzynki);
+* wiersz = ``body_html IS NULL``, pusty tekst i podgląd, nie prywatny, ma
+  ``m365_message_id``. Od 03.11.2026 także poczta wysłana (pomiar: 5 z 149 ma
+  treść w skrzynce, reszta to puste odpowiedzi na zaproszenia);
+* wiersz bez nadawcy powstał z aktualizacji nieznanej wiadomości (pomiar: 12
+  z 15 jest w skrzynce). Dostaje też nadawcę, temat, adresatów i daty, chyba że
+  ta sama wiadomość ma już inny wiersz (``duplicate``). Bez dopasowania do
+  kandydata i bez pobierania załączników: zrobi to delta przy pełnej aktualizacji;
+* próba na sucho pyta Graph tylko o ``id`` i ``internetMessageId``, niczego nie
+  zapisuje w `emails`. Z ``--apply`` czyta treść, zapisuje po ``BATCH_SIZE``
+  wierszy i zmienia tylko te z treścią w skrzynce. Drugi bieg jest bezpieczny
+  (np. po ponownym podłączeniu skrzynki);
 * identyfikator Graph zmienia się po przeniesieniu do innego folderu, więc po
   404 szukamy wiadomości po ``internetMessageId`` w tej samej skrzynce;
 * wiadomość z kategorią prywatną dostaje znacznik prywatności, bez treści;
@@ -25,7 +30,8 @@ Zasady:
   i id. Raport jest bez adresów, tematów i treści (logi Actions są publiczne).
 
 Cofnięcie: uzupełnione wiersze z paragonu (``filled_ids``) wracają do pustych,
-a treść nadal leży w skrzynkach, więc bieg można powtórzyć::
+a treść nadal leży w skrzynkach, więc bieg można powtórzyć. Wiersze z ``sender_ids``
+dostają jeszcze ``from_address = ''``, a pierwotnej daty zapisu nie odtwarzamy::
 
     UPDATE emails SET body_html = NULL, body_text = '', body_preview = ''
     WHERE id IN (SELECT (jsonb_array_elements_text(value->'filled_ids'))::int
@@ -44,21 +50,24 @@ import sys
 from collections import Counter
 from typing import Any, Optional
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 
 logger = logging.getLogger(__name__)
 
 RECEIPT_KEY = "m365_email_body_refetch_2026_11"
 BATCH_SIZE = 50
-REFETCH_SELECT = "id,body,bodyPreview,hasAttachments,categories"
+REFETCH_SELECT = (
+    "id,body,bodyPreview,hasAttachments,categories,from,toRecipients,ccRecipients,"
+    "subject,sentDateTime,receivedDateTime,conversationId,internetMessageId,webLink"
+)
+DRY_RUN_SELECT = "id,internetMessageId"
 
 
 def wiped_rows_filter() -> tuple:
     """Warunek wiersza, któremu delta skasowała treść."""
-    from app.models.m365 import Email, EmailDirection
+    from app.models.m365 import Email
 
     return (
-        Email.direction == EmailDirection.received,
         Email.body_html.is_(None),
         func.coalesce(Email.body_text, "") == "",
         func.coalesce(Email.body_preview, "") == "",
@@ -86,16 +95,10 @@ async def plan(db) -> dict[str, Any]:
                     M365Connection.last_sync_status != M365SyncStatus.reconnect_required
                 ),
             )
-            .where(*wiped_rows_filter(), func.coalesce(Email.from_address, "") != "")
+            .where(*wiped_rows_filter())
             .order_by(Email.id)
         )
     ).all()
-    without_sender = await db.scalar(
-        select(func.count(Email.id)).where(
-            *wiped_rows_filter(),
-            or_(Email.from_address.is_(None), Email.from_address == ""),
-        )
-    )
     by_connection: dict[int, list[int]] = {}
     no_connection = 0
     for email_id, _user_id, connection_id in rows:
@@ -103,11 +106,7 @@ async def plan(db) -> dict[str, Any]:
             no_connection += 1
         else:
             by_connection.setdefault(connection_id, []).append(email_id)
-    return {
-        "by_connection": by_connection,
-        "no_connection": no_connection,
-        "without_sender": without_sender or 0,
-    }
+    return {"by_connection": by_connection, "no_connection": no_connection}
 
 
 async def fetch_message(gc, row, select_fields: str) -> Optional[dict]:
@@ -143,31 +142,81 @@ async def fill_row(row, message: dict) -> str:
     from app.services.m365.sync import message_body
 
     categories = message.get("categories") or []
-    row.raw_categories = categories
     if settings.M365_IGNORE_CATEGORY in categories:
+        row.raw_categories = categories
         row.is_private_filtered = True
         return "private"
-    row.has_attachments = bool(message.get("hasAttachments"))
     body_html, body_text, body_preview = await message_body(message)
     if not body_html and not body_text:
         return "empty_in_mailbox"
+    row.raw_categories = categories
+    row.has_attachments = bool(message.get("hasAttachments"))
     row.body_html = body_html
     row.body_text = body_text
     row.body_preview = body_preview
     return "filled"
 
 
+def restore_sender(row, message: dict, mailbox_upn: str) -> bool:
+    """Wiersz bez nadawcy: dane wiadomości ze skrzynki. Zwraca, czy je uzupełnił."""
+    from app.models.m365 import EmailDirection
+    from app.services.m365.sync import (
+        _message_web_link,
+        _parse_iso,
+        _parse_recipients,
+    )
+
+    sender = (message.get("from") or {}).get("emailAddress") or {}
+    from_address = (sender.get("address") or "").strip().lower()
+    if not from_address:
+        return False
+    row.from_address = from_address[:320]
+    row.from_name = (sender.get("name") or "")[:255] or None
+    row.subject = (message.get("subject") or "")[:998]
+    row.to_addresses = _parse_recipients(message.get("toRecipients"))
+    row.cc_addresses = _parse_recipients(message.get("ccRecipients"))
+    row.sent_at = _parse_iso(message.get("sentDateTime"))
+    row.received_at = _parse_iso(message.get("receivedDateTime")) or row.received_at
+    row.m365_internet_message_id = message.get("internetMessageId")
+    row.m365_conversation_id = message.get("conversationId") or row.m365_conversation_id
+    row.web_link = _message_web_link(message)
+    if from_address == mailbox_upn.lower():
+        row.direction = EmailDirection.sent
+    return True
+
+
+async def has_twin(db, row, message: dict) -> bool:
+    """Czy ta sama wiadomość ma już inny wiersz w tej skrzynce."""
+    from app.models.m365 import Email
+
+    internet_id = message.get("internetMessageId")
+    if not internet_id:
+        return False
+    twin = await db.scalar(
+        select(Email.id)
+        .where(
+            Email.user_id == row.user_id,
+            Email.m365_internet_message_id == internet_id,
+            Email.id != row.id,
+        )
+        .limit(1)
+    )
+    return twin is not None
+
+
 async def refetch_connection(
     db, connection_id: int, email_ids: list[int], *, apply: bool
-) -> tuple[Counter, list[int]]:
+) -> tuple[Counter, list[int], list[int]]:
     """Jedna skrzynka. Błąd pojedynczej wiadomości nie zatrzymuje reszty."""
     from app.models.m365 import Email, M365Connection
     from app.services.m365.graph_client import GraphClient
 
     counts: Counter = Counter()
     filled: list[int] = []
+    senders: list[int] = []
     conn = await db.get(M365Connection, connection_id)
-    select_fields = REFETCH_SELECT if apply else "id"
+    mailbox_upn = conn.mailbox_upn
+    select_fields = REFETCH_SELECT if apply else DRY_RUN_SELECT
     try:
         async with GraphClient(conn, db, sales_ok=True) as gc:
             for start in range(0, len(email_ids), BATCH_SIZE):
@@ -188,6 +237,8 @@ async def refetch_connection(
                         continue
                     if message is None:
                         counts["gone_from_mailbox"] += 1
+                    elif not row.from_address and await has_twin(db, row, message):
+                        counts["duplicate"] += 1
                     elif not apply:
                         counts["found"] += 1
                     else:
@@ -195,6 +246,10 @@ async def refetch_connection(
                         counts[result] += 1
                         if result == "filled":
                             filled.append(row.id)
+                            if not row.from_address and restore_sender(
+                                row, message, mailbox_upn
+                            ):
+                                senders.append(row.id)
                 if apply:
                     await db.commit()
     except Exception as exc:  # noqa: BLE001
@@ -204,10 +259,12 @@ async def refetch_connection(
             "m365 refetch: connection %s: %s", connection_id, type(exc).__name__
         )
         counts["mailbox_failed_rows"] += len(email_ids) - sum(counts.values())
-    return counts, filled
+    return counts, filled, senders
 
 
-async def save_receipt(db, *, counts: Counter, filled: list[int]) -> None:
+async def save_receipt(
+    db, *, counts: Counter, filled: list[int], senders: list[int]
+) -> None:
     """Dopisz do paragonu: kolejny bieg dokłada id, nie gubi poprzednich."""
     from app.models.app_setting import AppSetting
 
@@ -215,6 +272,7 @@ async def save_receipt(db, *, counts: Counter, filled: list[int]) -> None:
     previous = receipt.value if receipt is not None else {"filled_ids": [], "runs": []}
     value = {
         "filled_ids": sorted({*previous["filled_ids"], *filled}),
+        "sender_ids": sorted({*previous.get("sender_ids", []), *senders}),
         "runs": [*previous["runs"], dict(counts)],
     }
     if receipt is None:
@@ -247,14 +305,16 @@ async def main(argv: Optional[list[str]] = None) -> int:
 
         counts: Counter = Counter()
         filled: list[int] = []
+        senders: list[int] = []
         for connection_id, email_ids in items["by_connection"].items():
-            one, ids = await refetch_connection(
+            one, ids, sender_ids = await refetch_connection(
                 db, connection_id, email_ids, apply=args.apply
             )
             counts.update(one)
             filled += ids
+            senders += sender_ids
         if args.apply:
-            await save_receipt(db, counts=counts, filled=filled)
+            await save_receipt(db, counts=counts, filled=filled, senders=senders)
     await engine.dispose()
 
     print(
@@ -265,7 +325,7 @@ async def main(argv: Optional[list[str]] = None) -> int:
                 "planned": len(all_ids),
                 "mailboxes": len(items["by_connection"]),
                 "skipped_no_connection": items["no_connection"],
-                "skipped_without_sender": items["without_sender"],
+                "senders_restored": len(senders),
                 **counts,
             }
         )

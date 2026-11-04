@@ -162,7 +162,7 @@ describe("„W zastępstwie”", () => {
     ).toBeInTheDocument()
   })
 
-  it("ostrzeżenie „zastępca nieobecny” — inne zdanie dla zastępcy i dla przełożonego", async () => {
+  it("ostrzeżenie „zastępca nieobecny” — inne zdanie dla zastępcy i dla koordynatora", async () => {
     const base = {
       owner_user_id: 5,
       owner_name: "Adam Przykładowy",
@@ -170,7 +170,7 @@ describe("„W zastępstwie”", () => {
       substitute_name: "Ola Testowa",
     }
     expect(warningText({ ...base, you_are_substitute: true })).toBe(
-      "Jesteś zastępcą: Adam Przykładowy. Masz dziś nieobecność, więc ta praca czeka bez zastępcy — daj znać przełożonemu.",
+      "Jesteś zastępcą: Adam Przykładowy. Masz dziś nieobecność, więc ta praca czeka bez zastępcy — daj znać koordynatorowi.",
     )
     expect(warningText({ ...base, you_are_substitute: false })).toBe(
       "Adam Przykładowy — zastępca (Ola Testowa) też ma dziś nieobecność. Praca czeka bez zastępcy.",
@@ -187,7 +187,7 @@ describe("„W zastępstwie”", () => {
   })
 })
 
-describe("„Mój czas”", () => {
+describe("„Moja współpraca”", () => {
   it("najbliższy zatwierdzony urlop, który się jeszcze nie skończył", () => {
     const rows = [
       leaveRow({ id: "past", start_date: "2026-01-05", end_date: "2026-01-09" }),
@@ -200,7 +200,7 @@ describe("„Mój czas”", () => {
     expect(nearestApprovedLeave([], "2026-10-17")).toBeNull()
   })
 
-  it("pula, najbliższy urlop, godziny wobec normy i dwa skróty do „Mojego czasu”", async () => {
+  it("pula, najbliższy urlop, godziny wobec normy i dwa skróty do „Mojej współpracy”", async () => {
     routes["/api/hr/leave/balance"] = {
       employment_type: "uop",
       has_pool: true,
@@ -223,7 +223,7 @@ describe("„Mój czas”", () => {
       "href",
       "/my-time?tab=leave",
     )
-    expect(screen.getByRole("link", { name: "Uzupełnij dzień" })).toHaveAttribute("href", "/my-time?tab=month")
+    expect(screen.getByRole("link", { name: "Dodaj godziny" })).toHaveAttribute("href", "/my-time?tab=month")
   })
 
   it("B2B z pulą: płatne dni przerwy, zgłoszony termin i „Zgłoś przerwę” (D4, D5)", async () => {
@@ -272,39 +272,39 @@ describe("„Mój czas”", () => {
     expect(await screen.findByText("8 / 176 h")).toBeInTheDocument()
   })
 
-  it("moduł czasu pracy wyłączony — bez godzin i bez „Uzupełnij dzień”", async () => {
+  it("moduł czasu pracy wyłączony — bez godzin i bez „Dodaj godziny”", async () => {
     routes["/api/hr/leave/balance"] = { has_pool: false, remaining_days: null, year: 2026 }
     routes["/api/hr/leave/my-requests"] = { items: [] }
     renderWith(<HrMyTimeTile config={hrConfig({ leave: true })} />)
     expect(await screen.findByText("bez puli")).toBeInTheDocument()
     expect(screen.getByText("brak zaplanowanego")).toBeInTheDocument()
-    expect(screen.queryByRole("link", { name: "Uzupełnij dzień" })).toBeNull()
+    expect(screen.queryByRole("link", { name: "Dodaj godziny" })).toBeNull()
   })
 })
 
 describe("„Do akceptacji”", () => {
-  it("liczba z liczników „Ludzi” — ta sama co zakładka „Akceptacje”", async () => {
-    expect(approvalsLabel(1)).toBe("wniosek lub timesheet czeka")
-    expect(approvalsLabel(3)).toBe("wnioski lub timesheety czekają")
-    expect(approvalsLabel(12)).toBe("wniosków lub timesheetów czeka")
+  it("liczba z liczników „Ludzi” — ta sama co zakładka „Do potwierdzenia”", async () => {
+    expect(approvalsLabel(1)).toBe("wniosek lub raport godzin czeka")
+    expect(approvalsLabel(3)).toBe("wnioski lub raporty godzin czekają")
+    expect(approvalsLabel(12)).toBe("wniosków lub raportów godzin czeka")
     routes["/api/hr/counts"] = { approvals: 3, cases: null }
     renderWith(<HrApprovalsTile />)
-    expect(await screen.findByText("wnioski lub timesheety czekają na Twoją decyzję")).toBeInTheDocument()
+    expect(await screen.findByText("wnioski lub raporty godzin czekają na Twoją decyzję")).toBeInTheDocument()
     expect(screen.getByText("3")).toBeInTheDocument()
-    expect(screen.getByRole("link", { name: "Ludzie → Akceptacje" })).toHaveAttribute("href", "/people/approvals")
+    expect(screen.getByRole("link", { name: "Ludzie → Do potwierdzenia" })).toHaveAttribute("href", "/people/approvals")
   })
 
   it("zero tylko po udanym odczycie: spokojne zdanie", async () => {
     routes["/api/hr/counts"] = { approvals: 0, cases: null }
     renderWith(<HrApprovalsTile />)
-    expect(await screen.findByText("Nic nie czeka na Twoją decyzję.")).toBeInTheDocument()
+    expect(await screen.findByText("Nic nie czeka na potwierdzenie.")).toBeInTheDocument()
   })
 
   it("awaria liczników to blok błędu, nie „0” ani „nic nie czeka”", async () => {
     renderWith(<HrApprovalsTile />)
     expect(await screen.findByRole("alert")).toBeInTheDocument()
     expect(screen.queryByText("0")).toBeNull()
-    expect(screen.queryByText("Nic nie czeka na Twoją decyzję.")).toBeNull()
+    expect(screen.queryByText("Nic nie czeka na potwierdzenie.")).toBeNull()
   })
 })
 
@@ -351,11 +351,11 @@ describe("HrTileGate — kafelek zapisany na pulpicie", () => {
     expect(screen.queryByText("treść")).toBeNull()
   })
 
-  it("bez kartoteki „Mój czas” mówi „Brak dostępu” z powodem", async () => {
+  it("bez kartoteki „Moja współpraca” mówi „Brak dostępu” z powodem", async () => {
     routes["/api/hr/config"] = hrConfig(undefined, { has_profile: false })
     renderWith(<HrTileGate type="hr_my_time">{() => <p>treść</p>}</HrTileGate>)
     expect(await screen.findByText("Brak dostępu")).toBeInTheDocument()
-    expect(screen.getByText("Dla osób z kartoteką w NEXUSIE — założą ją Kadry")).toBeInTheDocument()
+    expect(screen.getByText("Dla osób z kartoteką w NEXUSIE — założy ją Administracja współpracy")).toBeInTheDocument()
   })
 
   it("awaria stanu modułów to blok błędu", async () => {
@@ -398,6 +398,6 @@ describe("katalog kafelków a moduły „Ludzi”", () => {
     expect(screen.queryByText("W zastępstwie")).toBeNull()
     unmount()
     sheet(undefined)
-    expect(screen.queryByText("Mój czas")).toBeNull()
+    expect(screen.queryByText("Moja współpraca")).toBeNull()
   })
 })

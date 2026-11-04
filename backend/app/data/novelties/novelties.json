@@ -1,5 +1,18 @@
 [
   {
+    "id": "umow-telefon-na-screening",
+    "title": "Umów telefon, gdy kandydat prosi o później",
+    "why": "Zamiast notatki „oddzwonić jutro” wybierasz termin w panelu osoby. NEXUS przypomni 15 minut przed, wpisze blokadę do Twojego Outlooka, a osoba zostanie przy Tobie do terminu.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "pr": 2993,
+    "audience": {"roles": ["recruiter", "delivery_lead", "head_of_recruitment"]},
+    "where": "Rekrutacja → panel osoby → Umów telefon",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "screening-call.book"
+  },
+  {
     "id": "wiersz-bez-nikogo-z-wyslanych",
     "title": "Wymaganie, którego nie ma nikt z wysłanych",
     "why": "Profil Championa pokazuje „musi mieć”, którego nie ma żadna z wysłanych osób. Możesz dopisać słowo z ich CV albo przenieść wymaganie do rozmowy.",
@@ -607,7 +620,7 @@
     "tier": "dot",
     "shipped_on": "2026-10-30",
     "audience": {"permissions": ["payroll"]},
-    "where": "Ludzie → Płace → Premie do decyzji",
+    "where": "Ludzie → Rozliczenia → Premie do decyzji",
     "href": "/people/payroll",
     "dot_anchor": "payroll.bonus-decisions"
   },
@@ -631,7 +644,7 @@
     "tier": "dot",
     "shipped_on": "2026-11-02",
     "audience": {"roles": ["admin", "head_of_recruitment", "delivery_lead"], "permissions": ["people_admin", "timesheets"]},
-    "where": "Ludzie → Akceptacje → Raporty godzin",
+    "where": "Ludzie → Do potwierdzenia → Raporty godzin",
     "href": "/people/approvals",
     "dot_anchor": "hr.timesheet-status"
   },
@@ -687,6 +700,18 @@
     "dot_anchor": "board.new-queue"
   },
   {
+    "id": "nowi-w-bazie-najpierw",
+    "title": "Nowi w bazie na początku kolejki",
+    "why": "Osoby do 14 dni w bazie, z wynikiem od progu i krytycznymi, stoją na początku „Zadzwoń najpierw” i „Propozycji z bazy”, także przed wyższym wynikiem. Wchodzą nawet przy pełnych „Nowych”.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"permissions": ["recruitment_manage"]},
+    "where": "Rekrutacja → Tablica → kolumna Nowi",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "board.new-queue"
+  },
+  {
     "id": "wyslani-a-system",
     "title": "Jakość podpowiedzi: czy system pokazał osoby wysłane do klienta",
     "why": "Widzisz, ile osób wysłanych do klienta system pokazał sam, ile było spoza bazy, a ile znał i minął, oraz w których rekrutacjach mija najwięcej.",
@@ -728,6 +753,18 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "cv.file-name"
+  },
+  {
+    "id": "prosba-o-zgode-pko",
+    "title": "Prośba o zgodę dla PKO BP gotowa jednym kliknięciem",
+    "why": "„Poproś kandydata o zgodę” otwiera mail z uzupełnionym imieniem, numerem ZOB i B2B.net S.A. Pod CV wgrywasz zrzut odpowiedzi kandydata; zrzut bez B2B.net dostanie ostrzeżenie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": {"roles": ["recruiter", "head_of_recruitment", "delivery_lead", "admin"]},
+    "where": "Panel osoby → CV → Zgoda RODO",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.consent-request"
   },
   {
     "id": "oryginal-cv-po-generatorze",
@@ -816,5 +853,78 @@
     "href": "/calendar",
     "section": "pipeline",
     "dot_anchor": "calendar.slots.change"
+  },
+  {
+    "id": "premie-po-miesiacach",
+    "title": "Premie i wynagrodzenie dodatkowe po miesiącach",
+    "why": "Wybierasz miesiąc i od razu widzisz podstawę, wynagrodzenie dodatkowe albo premie oraz sumę. Lista pokazuje wtedy tylko pozycje z tego miesiąca, a „Wszystkie” wraca do pełnej listy.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "where": "Moja współpraca → Wynagrodzenie dodatkowe i stawka",
+    "href": "/my-time",
+    "dot_anchor": "my-time.bonus-months"
+  },
+  {
+    "id": "zakladka-zrodla",
+    "title": "Zakładka „Źródła”: ilu kandydatów z portali i strony kariery",
+    "why": "W jednej tabeli widzisz, ile osób przyszło z Pracuj.pl, JustJoin.IT i RocketJobs oraz z linków kariery, jak daleko doszły i kim są. Klik w liczbę pokazuje osoby, a daty wybierasz dowolnie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Źródła",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.tabs.sources"
+  },
+  {
+    "id": "oryginal-obok-cv-firmowego",
+    "title": "Oryginalne CV obok CV firmowego",
+    "why": "Jednym przyciskiem stawiasz oryginał po lewej, obok CV firmowego. Porównasz je przy poprawianiu, w „Jak u klienta” i w oknie stron z karty „CV do klienta”. Drugim kliknięciem go chowasz.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → Edytuj CV → Pokaż oryginał",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.cv.edit"
+  },
+  {
+    "id": "stanowisko-jak-u-klienta",
+    "pr": 2983,
+    "title": "Pole „Stanowisko” pokazuje to, co dostanie klient",
+    "why": "Generator od razu podaje nagłówek do CV, bez numeru zapytania, i nazwę pliku. Własną nazwę cofniesz przez „Przywróć z rekrutacji”. Gdy rekrutacja nie ma roli, pole trzeba wypełnić.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → generator → Zaawansowane",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.position"
+  },
+  {
+    "id": "powod-z-poprzedniej-rekrutacji",
+    "pr": 2962,
+    "title": "Powód odrzucenia z poprzedniej rekrutacji w panelu osoby",
+    "why": "Zakończona rekrutacja ma w „Wcześniej u nas” własną kartę z powodem odrzucenia lub rezygnacji, nawet bez notatek. Powód widać też w „Co już wiemy”, więc nie musisz wchodzić w profil.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Notatki i historia → Wcześniej u nas",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.history.earlier"
+  },
+  {
+    "id": "kto-co-przyniosl",
+    "pr": 2942,
+    "title": "Raport „Kto co przyniósł” z linków",
+    "why": "Tabela na osobę: link ogólny osobno od linków do rekrutacji, wejścia w okresie i od początku oraz dalsze etapy. Zgłoszenia z linków liczą się już osobno od ogłoszeń z portali.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Źródła, portale i linki",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.link-people"
   }
 ]

@@ -78,7 +78,7 @@ import {
 } from "./work-board-model";
 
 const MODULE_OFF_NOTICE =
-  "Moduł „Sprawy administracja@” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Kadry.";
+  "Moduł „Sprawy administracja@” nie jest jeszcze włączony. Włącza go administrator w Ustawieniach → Administracja współpracy.";
 
 type Scope = "mine" | "all";
 

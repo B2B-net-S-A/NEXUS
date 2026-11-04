@@ -49,7 +49,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import is_business_day
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    BOOKED_CALL_LOCATION,
+    CalendarEvent,
+    EventStatus,
+    EventType,
+)
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CONTACT_OUTCOMES, CandidateFollowup
@@ -580,6 +585,12 @@ async def _last_contacts(
                 CalendarEvent.event_type != EventType.client_interview,
                 CalendarEvent.event_type != EventType.deadline,
                 CalendarEvent.status != EventStatus.cancelled,
+                # Umówiony telefon liczy się dopiero po zamknięciu z wynikiem:
+                # sam termin, który minął, nie znaczy, że ktoś zadzwonił.
+                or_(
+                    CalendarEvent.status != EventStatus.scheduled,
+                    CalendarEvent.location.is_distinct_from(BOOKED_CALL_LOCATION),
+                ),
                 CalendarEvent.start_time <= now,
             )
             .distinct(CalendarEvent.candidate_id)

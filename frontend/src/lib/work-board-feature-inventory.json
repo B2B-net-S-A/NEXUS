@@ -1,0 +1,83 @@
+{
+  "_comment": "Warunek Artura z 22.10.2026: z kanbanu spraw nic nie znika. Od 02.11.2026 kanban stoi w kolejce Back office pod przełącznikiem „Po statusie” (komponent WorkBoard 1:1). Wpis znika wyłącznie z removed_reason, czyli z zapisaną decyzją.",
+  "features": [
+    {
+      "id": "scope-mine-all",
+      "label": "Moje / Wszystkie",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Wszystkie"
+    },
+    {
+      "id": "area-chips",
+      "label": "Chipy obszarów",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Wszystkie obszary"
+    },
+    {
+      "id": "week",
+      "label": "Na ten tydzień",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Na ten tydzień"
+    },
+    {
+      "id": "nobody",
+      "label": "Bez osoby",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Bez osoby"
+    },
+    {
+      "id": "mine-care",
+      "label": "Moi podopieczni",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Moi podopieczni"
+    },
+    {
+      "id": "search",
+      "label": "Szukanie w tytule i opisie",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "Szukaj w tytule i opisie"
+    },
+    {
+      "id": "new-case",
+      "label": "Nowa sprawa",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "CaseFormDialog"
+    },
+    {
+      "id": "done-column",
+      "label": "Wąska kolumna Zrobione",
+      "file": "src/components/work-board/DoneColumn.tsx",
+      "marker": "Zrobione"
+    },
+    {
+      "id": "reopen-decision",
+      "label": "Otwórz ponownie zamkniętą decyzję",
+      "file": "src/components/work-board/DoneColumn.tsx",
+      "marker": "Otwórz ponownie"
+    },
+    {
+      "id": "closed-decisions",
+      "label": "Decyzje zamknięte w Konsultantach",
+      "file": "src/components/care/ClosedDecisionsTable.tsx",
+      "marker": "Otwórz ponownie"
+    },
+    {
+      "id": "conversation-save",
+      "label": "Zapis rozmowy przy Zrobione",
+      "file": "src/components/work-board/WorkBoard.tsx",
+      "marker": "onOpenConversation"
+    },
+    {
+      "id": "kanban-under-toggle",
+      "label": "Kanban pod przełącznikiem Po statusie",
+      "file": "src/components/care/CareScreen.tsx",
+      "marker": "careStatusBoard"
+    },
+    {
+      "id": "old-links",
+      "label": "Stare linki z ?card= i ?filter= otwierają kanban",
+      "file": "src/components/care/CareScreen.tsx",
+      "marker": "kanbanLink"
+    }
+  ]
+}

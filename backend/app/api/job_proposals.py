@@ -40,6 +40,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.scheduling import business_today
 from app.models.candidate import Candidate
 from app.services import job_proposals as proposals
+from app.services.candidate_added_date import added_to_base_of
 from app.services.employment_marker import load_employment_markers
 from app.services.job_proposal_feedback_schema import DISMISS_NOTE_MAX
 from app.services.candidate_rate_from import rate_summary
@@ -296,6 +297,15 @@ async def list_job_proposals(
     job = await _job(db, user, job_id)
     # Najlepsze 40 (28.10.2026): ten sam próg dla flagi wiersza i separatora.
     threshold = await proposals.proposal_threshold(db)
+    # Nowi w bazie najpierw (03.11.2026): te same osoby i reguły co silnik „Nowych”.
+    from app.services.new_column_autofill import new_in_base_picks  # noqa: PLC0415
+
+    now = datetime.now(timezone.utc)
+    new_in_base = (
+        {p.candidate_id for p in await new_in_base_picks(db, job, now=now)}
+        if status == "proposed"
+        else set()
+    )
     rows, total = await proposals.list_for_job(
         db,
         job_id=job_id,
@@ -303,6 +313,7 @@ async def list_job_proposals(
         limit=limit,
         offset=offset,
         min_score=threshold,
+        first_ids=new_in_base,
     )
     ids = [row.candidate_id for row in rows]
     candidates = {
@@ -366,6 +377,11 @@ async def list_job_proposals(
                 "status": row.status,
                 "run_id": row.run_id,
                 "below_threshold": row.below_threshold,
+                "new_in_base_at": (
+                    added_to_base_of(candidate).at
+                    if row.candidate_id in new_in_base
+                    else None
+                ),
                 "eligibility": (
                     eligibility_annotation(decision) if decision is not None else None
                 ),
@@ -391,6 +407,12 @@ async def list_job_proposals(
         "total": total,
         # Próg propozycji: osoby z `below_threshold` stoją pod „Poniżej N%”.
         "threshold": threshold,
+        "new_in_base_total": await proposals.people_on_base_tab(
+            db,
+            job_id=job_id,
+            candidate_ids=new_in_base,
+            posting_since=posting_since,
+        ),
         "hidden_on_page": hidden,
         "limit": limit,
         "offset": offset,

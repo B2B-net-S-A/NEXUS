@@ -45,6 +45,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
   ticku od miejsca przerwania (także rekrutacja, przy której skończył się
   limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Nowi w bazie wchodzą pierwsi, także ponad 20 (decyzja Artura 03.11.2026).**
+  Do 5 kart ponad `TARGET`, wyłącznie osobami do 14 dni w bazie, od progu i bez uwag:
+  `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
 - **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
   dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
   droga” przy stawce, którą system znał; 31% osób od systemu miało znaną
@@ -324,8 +327,8 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
   (2,5 × podobieństwo) i za weryfikację gdziekolwiek w ostatnich 90 dniach (3);
-  osoba odrzucona przez tego samego klienta (`ended_by='client'`, bez kolumny —
-  po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
+  osoba jawnie odrzucona przez tego samego klienta (`ended_by='client'`, od
+  03.11.2026 bez pustej kolumny po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
   (same id, etapy, daty; tytuły rozwija `api/job_proposals._history_sources`)
   i zmieniają WYŁĄCZNIE kolejność: `list_for_job` i `compareProposals` sortują
   po wynik + punkty, pokazywany procent bez zmian, bez osobnej sekcji. O tym,

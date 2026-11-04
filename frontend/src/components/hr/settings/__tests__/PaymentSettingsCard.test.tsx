@@ -48,7 +48,7 @@ beforeEach(() => {
   query.value = { data: settings(), isLoading: false, isError: false, error: null, isSuccess: true };
 });
 
-describe("Ustawienia → Płace → Płatności i Symfonia", () => {
+describe("Ustawienia → Rozliczenia → Płatności i Symfonia", () => {
   it("rachunek PL: suma kontrolna IBAN jak na serwerze", () => {
     expect(isValidPlAccount(COMPANY)).toBe(true);
     expect(isValidPlAccount(`PL${COMPANY}`)).toBe(true);

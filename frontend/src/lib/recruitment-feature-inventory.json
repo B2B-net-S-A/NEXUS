@@ -69,6 +69,14 @@
    "v3_home": "okno Historia i czat"
   },
   {
+   "id": "person.booked-call",
+   "area": "panel",
+   "opis": "Umów telefon: termin screeningu z przypomnieniem, plakietka na karcie, Przełóż i Odwołaj",
+   "file": "components/v2/recruitment/ScreeningCallControl.tsx",
+   "marker": "ScreeningCallControl",
+   "v3_home": "panel osoby → obok „Nie odebrał”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",
@@ -2240,7 +2248,7 @@
   {
    "id": "cv.editor-fullscreen",
    "area": "cv",
-   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Pokaż oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Edytor CV do klienta",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw"
@@ -2264,10 +2272,10 @@
   {
    "id": "cv.editor-sources",
    "area": "cv",
-   "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "opis": "Źródła po lewej od kartki, na przycisk (03.11.2026): oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
    "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
    "marker": "Notatki",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Oryginał"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Pokaż oryginał"
   },
   {
    "id": "cv.editor-pages-preview",
@@ -2772,7 +2780,7 @@
   {
    "id": "panel.notes-earlier",
    "area": "panel",
-   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem i powodem, także zakończone rekrutacje bez notatek; licznik notatek ludzi na zakładce",
    "file": "components/v2/person/PersonNotesHistory.tsx",
    "marker": "Wcześniej u nas",
    "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
@@ -2844,7 +2852,7 @@
   {
    "id": "screening.before-call-earlier",
    "area": "panel",
-   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”); wynik i powód widać też po zwinięciu",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "Warunki — co już wiemy",
    "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"

@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 28.10.2026
+> **Zgodność z systemem sprawdzona:** 03.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -33,6 +33,8 @@ szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi), a pod
 numerem stoi **budżet całego zamówienia** z paskiem — te same liczby co
 w panelu: przy MD „Budżet · wykorzystano · pozostało" (wspólna pula:
 „Wspólna pula: budżet …"), przy kosztowym „Kwota · zafakturowano · pozostało".
+Przy budżecie per osoba „pozostało" obejmuje ręczne korekty MD, tak samo jak
+wiersz osoby, a ich suma stoi obok w dopisku „w tym korekta".
 W wierszach osób kolumna **Zużycie** pokazuje, ile dana osoba wykorzystała na
 tym zamówieniu od jego początku: przy budżecie per osoba przycisk „Zużycie",
 przy wspólnej puli sumę jej MD ze zejść miesięcznych (kolumna „Zostało MD"
@@ -995,7 +997,10 @@ odczycie to nie awaria — to odmowa zgadywania.
 system obsługuje: w zamówieniach zbiorczych i w edycji zamówienia przyjmowany
 jest wyłącznie `.pdf`, a przy dodawaniu konsultanta i przy przedłużeniu
 pojedynczego zamówienia także `.docx`. O formacie decyduje treść pliku, nie
-jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Odczyt
+jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Plik Word,
+z którego nie da się wyjąć tekstu wprost (stary `.doc`, treść w polach
+tekstowych, skan wklejony do Worda), system zamienia na PDF i czyta jak PDF,
+w tych samych granicach co skany. Odczyt
 korzysta z modułu AI — jeżeli
 administrator go wyłączy albo ustawi miesięczny limit i ten się wyczerpie,
 zobaczysz komunikat „Odczyt AI jest chwilowo niedostępny (…). Wpisz dane
