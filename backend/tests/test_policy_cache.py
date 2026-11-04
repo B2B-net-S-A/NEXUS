@@ -521,9 +521,12 @@ async def test_revoking_through_the_panel_gives_403_on_the_next_request(
     target_url = f"{PANEL}/users/{account['id']}"
     headers = await _login(app_client, account)
     colleague_headers = await _login(app_client, colleague)
+    # Zmiany w zamówieniach mają od 04.11.2026 własne uprawnienie, więc odebranie
+    # „Modułu Finanse” widać na trasie Wyników.
+    results_route = "/api/finance/periods"
 
-    allowed = await app_client.post(FINANCE_ROUTE, headers=headers, json={})
-    assert allowed.status_code == 422, allowed.text
+    allowed = await app_client.get(results_route, headers=headers)
+    assert allowed.status_code == 200, allowed.text
     assert policy_cache._snapshot is not None
 
     panel = await app_client.get(PANEL, headers=app_auth_headers)
@@ -540,16 +543,16 @@ async def test_revoking_through_the_panel_gives_403_on_the_next_request(
     assert revoke.status_code == 200, revoke.text
 
     # Stary token odpada przez `authorization_version`, a nowy trafia na bufor.
-    stale = await app_client.post(FINANCE_ROUTE, headers=headers, json={})
+    stale = await app_client.get(results_route, headers=headers)
     assert stale.status_code == 401, stale.text
     headers = await _login(app_client, account)
-    denied = await app_client.post(FINANCE_ROUTE, headers=headers, json={})
+    denied = await app_client.get(results_route, headers=headers)
     assert denied.status_code == 403, denied.text
     assert denied.json()["detail"]["code"] == "permission_denied"
     assert denied.json()["detail"]["permission"] == PERMISSION
 
-    untouched = await app_client.post(FINANCE_ROUTE, headers=colleague_headers, json={})
-    assert untouched.status_code == 422, untouched.text
+    untouched = await app_client.get(results_route, headers=colleague_headers)
+    assert untouched.status_code == 200, untouched.text
 
     lifted = await app_client.put(
         target_url,
@@ -561,5 +564,5 @@ async def test_revoking_through_the_panel_gives_403_on_the_next_request(
     )
     assert lifted.status_code == 200, lifted.text
     headers = await _login(app_client, account)
-    restored = await app_client.post(FINANCE_ROUTE, headers=headers, json={})
-    assert restored.status_code == 422, restored.text
+    restored = await app_client.get(results_route, headers=headers)
+    assert restored.status_code == 200, restored.text

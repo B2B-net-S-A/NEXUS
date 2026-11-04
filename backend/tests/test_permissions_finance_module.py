@@ -39,14 +39,18 @@ from tests.test_insights_board_yoy import BASE_YEAR, YOY_URL, _metric
 
 FM = "finance_module"
 FM_LABEL = "Moduł Finanse"
+ORDERS = "orders_work"
+ORDERS_LABEL = "Zamówienia: zmiany, PDF-y, import MD"
 
 
-def _assert_names_the_permission(detail: object) -> None:
+def _assert_names_the_permission(
+    detail: object, permission: str = FM, label: str = FM_LABEL
+) -> None:
     assert isinstance(detail, dict), detail
     assert detail["code"] == "permission_denied"
-    assert detail["permission"] == FM
-    assert detail["label"] == FM_LABEL
-    assert FM_LABEL in detail["message"]
+    assert detail["permission"] == permission
+    assert detail["label"] == label
+    assert label in detail["message"]
 
 
 # ── Reguły na kontach z dołączoną polityką (bez bazy) ───────────────────────
@@ -211,9 +215,13 @@ async def _seed_user(
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}, user_id
 
 
-def _assert_named_denial(resp) -> None:
+def _assert_named_denial(resp, permission: str = FM, label: str = FM_LABEL) -> None:
     assert resp.status_code == 403, resp.text
-    _assert_names_the_permission(resp.json()["detail"])
+    _assert_names_the_permission(resp.json()["detail"], permission, label)
+
+
+def _assert_orders_denial(resp) -> None:
+    _assert_named_denial(resp, ORDERS, ORDERS_LABEL)
 
 
 CHECKS = "/api/finance/order-changes/checks"
@@ -247,9 +255,10 @@ async def test_granted_recruiter_works_in_the_finance_module(
     day = _far_day(2097, 2099)
     reads = _module_reads(day)
 
-    for path in reads:
+    _assert_orders_denial(await app_client.get(reads[0], headers=headers))
+    for path in reads[1:]:
         _assert_named_denial(await app_client.get(path, headers=headers))
-    _assert_named_denial(
+    _assert_orders_denial(
         await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
     )
 
@@ -277,11 +286,18 @@ async def test_finance_role_without_the_permission_is_refused(
     assert before.json()["can_check"] is True
 
     async with role_permission("finance", FM, granted=False):
-        for path in (*reads, yoy):
+        for path in (*reads[1:], yoy):
             _assert_named_denial(await app_client.get(path, headers=headers))
-        _assert_named_denial(
-            await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
-        )
+        # Zakładki o zamówieniach mają własne uprawnienie (04.11.2026).
+        kept = await app_client.get(reads[0], headers=headers)
+        assert kept.status_code == 200, kept.text
+        assert kept.json()["can_check"] is True
+
+        async with role_permission("finance", ORDERS, granted=False):
+            _assert_orders_denial(await app_client.get(reads[0], headers=headers))
+            _assert_orders_denial(
+                await app_client.post(CHECKS, headers=headers, json=_stale_check(day))
+            )
 
     # Przełącznik wraca — ta sama sesja znowu czyta moduł.
     after = await app_client.get(reads[0], headers=headers)
