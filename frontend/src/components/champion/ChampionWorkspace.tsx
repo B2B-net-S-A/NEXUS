@@ -169,6 +169,7 @@ export function ChampionWorkspace({
             onOpenClient={() => onTabChange("client")}
             onEditClientTitle={canEditJob ? onEditJob : undefined}
             onEditClientReference={canEditJobContent ? onEditJob : undefined}
+            onEditHeadcount={canEditJob ? () => onTabChange("team") : undefined}
           />
         </div>
       ) : null}

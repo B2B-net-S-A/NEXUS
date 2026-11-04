@@ -3,7 +3,7 @@
  * przed telefonem. Tylko odczyt — „Edytuj” otwiera szufladę bloku.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -78,7 +78,12 @@ const PROFILE = {
 
 function renderBrief(
   onEditBlock?: (block: ChampionBlock) => void,
-  names: { onEditClientTitle?: () => void; onEditClientReference?: () => void } = {},
+  names: {
+    onEditClientTitle?: () => void;
+    onEditClientReference?: () => void;
+    onEditHeadcount?: () => void;
+  } = {},
+  jobFields: { headcount?: number | null } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -96,6 +101,7 @@ function renderBrief(
           recruiters: [
             { user_id: 1, name: "Jan Kowal", via: "owner", proposed: false, assigned_by_name: null },
           ],
+          ...jobFields,
         }}
         onEditBlock={onEditBlock}
         {...names}
@@ -264,6 +270,36 @@ describe("ChampionBriefView", () => {
     renderBrief(vi.fn());
     await screen.findByText("do 95,00 PLN/h");
     expect(screen.queryByRole("button", { name: /^Zmień:/ })).toBeNull();
+  });
+
+  it("liczba osób stoi w „Warunkach”, a przy kilku osobach także znacznik przy „Czego szukamy”", async () => {
+    renderBrief(vi.fn(), {}, { headcount: 3 });
+    const conditions = await screen.findByTestId("brief-order");
+    expect(within(conditions).getByText("Liczba osób")).toBeInTheDocument();
+    expect(within(conditions).getByText("3")).toBeInTheDocument();
+    expect(within(screen.getByTestId("brief-search")).getByText("Szukamy 3 osób")).toBeInTheDocument();
+  });
+
+  it("jedna osoba: sam wiersz, bez znacznika", async () => {
+    renderBrief(vi.fn(), {}, { headcount: 1 });
+    const conditions = await screen.findByTestId("brief-order");
+    expect(within(conditions).getByText("1")).toBeInTheDocument();
+    expect(screen.queryByTestId("brief-headcount-badge")).toBeNull();
+  });
+
+  it("brak liczby osób (starsza kopia rekrutacji): „nie podano”, bez znacznika", async () => {
+    renderBrief(vi.fn());
+    const conditions = await screen.findByTestId("brief-order");
+    const row = within(conditions).getByText("Liczba osób").parentElement as HTMLElement;
+    expect(within(row).getByText("nie podano")).toBeInTheDocument();
+    expect(screen.queryByTestId("brief-headcount-badge")).toBeNull();
+  });
+
+  it("„Zmień” przy liczbie osób tylko z prawem zmiany i wywołuje przejście do pola", async () => {
+    const onEditHeadcount = vi.fn();
+    renderBrief(vi.fn(), { onEditHeadcount }, { headcount: 3 });
+    await userEvent.click(await screen.findByRole("button", { name: "Zmień: Liczba osób" }));
+    expect(onEditHeadcount).toHaveBeenCalledTimes(1);
   });
 
   it("awaria odczytu profilu to komunikat z „Ponów”, nie pusty brief", async () => {

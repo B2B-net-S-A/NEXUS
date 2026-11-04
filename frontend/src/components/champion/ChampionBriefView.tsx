@@ -17,7 +17,7 @@
  */
 
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { PencilLine } from "lucide-react";
+import { PencilLine, Users } from "lucide-react";
 
 import { Chips, Fact, stackNames } from "@/components/champion/BriefParts";
 import { ExperienceChips, useChampionProfile } from "@/components/champion/ChampionBriefForRecruiters";
@@ -51,6 +51,8 @@ export interface ChampionBriefJob extends JobTeamSource, JobBudgetSource {
   description?: string | null;
   hiring_manager_name?: string | null;
   delivery_lead_user?: { name?: string | null } | null;
+  /** Liczba osób do zatrudnienia (`Job.headcount`). */
+  headcount?: number | null;
 }
 
 export interface ChampionBriefViewProps {
@@ -71,6 +73,8 @@ export interface ChampionBriefViewProps {
    */
   onEditClientTitle?: () => void;
   onEditClientReference?: () => void;
+  /** „Zmień” przy „Liczba osób”: pole edytuje się w „Zespół i ogłoszenie”. */
+  onEditHeadcount?: () => void;
 }
 
 /** Kotwice sekcji edytora (`ChampionProfileEditor`, `id=` na kartach). */
@@ -88,6 +92,7 @@ const SCREENING_PREVIEW = 3;
 
 export function BriefSection({
   title,
+  badge,
   action,
   onEdit,
   children,
@@ -95,6 +100,8 @@ export function BriefSection({
   className,
 }: {
   title: string;
+  /** Znacznik przy tytule, np. „Szukamy 3 osób”. */
+  badge?: ReactNode;
   action?: ReactNode;
   onEdit?: () => void;
   children: ReactNode;
@@ -108,7 +115,10 @@ export function BriefSection({
       aria-label={title}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
+          {badge}
+        </div>
         <div className="flex items-center gap-3">
           {action}
           {onEdit ? (
@@ -165,6 +175,7 @@ export function ChampionBriefView({
   onOpenClient,
   onEditClientTitle,
   onEditClientReference,
+  onEditHeadcount,
 }: ChampionBriefViewProps) {
   const query = useChampionProfile(jobId);
   const plainQuery = usePlainBrief(jobId);
@@ -254,6 +265,19 @@ export function ChampionBriefView({
 
           <BriefSection
             title="Czego szukamy"
+            badge={
+              // Tylko przy kilku osobach (16 ze 185 otwartych rekrutacji, 04.11.2026):
+              // przy każdej rekrutacji znacznik przestałby być zauważany.
+              job.headcount != null && job.headcount > 1 ? (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-0.5 text-xs font-semibold text-primary-foreground"
+                  data-testid="brief-headcount-badge"
+                >
+                  <Users className="h-3.5 w-3.5" aria-hidden="true" />
+                  Szukamy {job.headcount} osób
+                </span>
+              ) : null
+            }
             onEdit={edit("search")}
             action={
               onOpenManualSearch ? (
@@ -385,6 +409,12 @@ export function ChampionBriefView({
             testId="brief-order"
           >
             <dl className="divide-y divide-border/60">
+              <Fact
+                label="Liczba osób"
+                value={job.headcount ?? "nie podano"}
+                muted={job.headcount == null}
+                action={<JobFieldEdit label="Liczba osób" onClick={onEditHeadcount} />}
+              />
               <Fact
                 label="Budżet"
                 value={

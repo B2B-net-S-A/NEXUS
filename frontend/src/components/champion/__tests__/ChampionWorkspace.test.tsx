@@ -25,16 +25,19 @@ vi.mock("@/components/champion/ChampionBriefView", () => ({
     onOpenTeam,
     onEditClientTitle,
     onEditClientReference,
+    onEditHeadcount,
   }: {
     onEditBlock?: (b: string) => void;
     onOpenTeam?: () => void;
     onEditClientTitle?: () => void;
     onEditClientReference?: () => void;
+    onEditHeadcount?: () => void;
   }) => (
     <div
       data-testid="brief"
       data-edit-title={String(!!onEditClientTitle)}
       data-edit-reference={String(!!onEditClientReference)}
+      data-edit-headcount={String(!!onEditHeadcount)}
     >
       {onEditBlock ? (
         <button type="button" onClick={() => onEditBlock("search")}>
@@ -161,11 +164,13 @@ describe("ChampionWorkspace", () => {
     const { unmount } = render(<Harness />);
     expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-title", "true");
     expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-reference", "true");
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-headcount", "true");
     unmount();
 
     render(<Harness canEditJob={false} />);
     expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-title", "false");
     expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-reference", "true");
+    expect(screen.getByTestId("brief")).toHaveAttribute("data-edit-headcount", "false");
   });
 
   it("„Kto prowadzi → Zespół” przechodzi do zakładki zespołu; stary link portali rozwija portale", async () => {
