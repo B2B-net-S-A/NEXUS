@@ -1400,6 +1400,14 @@
    "v3_home": "Profil Championa → Brief"
   },
   {
+   "id": "champion.brief-headcount",
+   "area": "zlecenie",
+   "opis": "Liczba osób w Briefie: pierwszy wiersz „Warunków”, a przy 2 i więcej osobach znacznik „Szukamy N osób” przy „Czego szukamy” (04.11.2026)",
+   "file": "components/champion/ChampionBriefView.tsx",
+   "marker": "brief-headcount-badge",
+   "v3_home": "Profil Championa → Brief"
+  },
+  {
    "id": "champion.request-history",
    "area": "zlecenie",
    "opis": "Wcześniejsze zapytania klienta (Otwórz, Skopiuj jako template, Dodaj championa)",
