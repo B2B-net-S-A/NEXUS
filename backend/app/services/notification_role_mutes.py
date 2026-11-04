@@ -17,9 +17,9 @@ w KAŻDEJ jego roli — tak jak sekcje liczą się z maksimum ról. Inaczej Head
 Recruitment z dodatkową rolą rekrutera traciłby powiadomienia rekrutera.
 
 Wyłączenie stosuje ``notification_access`` (to samo miejsce co wyciszenia
-osoby); tu jest tylko odczyt, zapis i czysta reguła. Wiersz czytamy przy
-każdym liczeniu dostępu, bez pamięci procesu — jak resztę polityki
-(``effective_access``), żeby zmiana działała od następnego żądania.
+osoby); tu jest tylko odczyt, zapis i czysta reguła. Wiersz jedzie w buforze
+razem z resztą polityki (``policy_cache``), a zapis go kasuje, żeby zmiana
+działała od następnego żądania.
 """
 
 from __future__ import annotations
@@ -152,8 +152,12 @@ async def attach_role_mutes(db: AsyncSession, users: Iterable[User]) -> None:
     user_list = list(users)
     if not user_list:
         return
-    value = await load_value(db)
-    for user in user_list:
+    apply_role_mutes(await load_value(db), user_list)
+
+
+def apply_role_mutes(value: Mapping[str, Any], users: Iterable[User]) -> None:
+    """To samo co ``attach_role_mutes``, gdy wartość przyszła z bufora polityki."""
+    for user in users:
         user.role_muted_notification_types = (
             role_muted_types(value, user.get_all_roles())
             if value["roles"]
