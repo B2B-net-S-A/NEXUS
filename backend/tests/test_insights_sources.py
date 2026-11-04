@@ -31,6 +31,7 @@ from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
 from app.services.insights_link_people import compute_link_people
 from app.services.insights_sources import (
+    _PORTAL_FLAGS,
     compute_link_breakdown,
     compute_people,
     compute_portal_offers,
@@ -533,3 +534,13 @@ async def test_unknown_metric_and_bad_range_are_refused(
         "/api/insights/sources", params={"period": "custom"}, headers=hor
     )
     assert no_dates.status_code == 422
+
+
+def test_portal_stage_lookups_are_computed_once():
+    """04.11.2026: produkcja szacowała 1 zgłoszenie zamiast ok. 5700 i dla każdego
+    liczyła od nowa cały widok etapów, więc ogłoszenia i osoby padały po 30 s. Etapy
+    mają się policzyć raz, niezależnie od tego, co planer sądzi o liczbie wierszy."""
+    assert "reached AS MATERIALIZED" in _PORTAL_FLAGS
+    assert "moved AS MATERIALIZED" in _PORTAL_FLAGS
+    assert "IN (SELECT candidate_id FROM f)" not in _PORTAL_FLAGS
+    assert _PORTAL_FLAGS.count("= ANY(ARRAY(SELECT DISTINCT candidate_id FROM f))") == 2

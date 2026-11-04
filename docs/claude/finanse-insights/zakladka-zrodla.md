@@ -50,3 +50,10 @@ Kod: `api/insights_sources.py`, `services/insights_sources.py`, front
 - **Okno:** domyślnie ostatnie 30 dni, przycięte do 12.10.2026 (`board_start`). Przycisk
   „Zakres dat” jest we wspólnym `PeriodPicker`, więc działa też w Zespole, Firmie
   i Raportach. Backend i tak przyjmował `period=custom`.
+
+- **Zapytania portali nie mogą zależeć od szacunku planera (04.11.2026):** planer nie umie
+  oszacować zgłoszeń w oknie. Produkcja zakładała 1 wiersz zamiast ok. 5700 i dla każdego
+  liczyła od nowa cały widok `analytics_first_milestones`, więc ogłoszenia i osoby padały
+  po 30 s, choć na stagingu po świeżym `ANALYZE` trwały 0,25 s. Dlatego `reached` i `moved`
+  są `MATERIALIZED` i biorą osoby przez `ANY(ARRAY(...))`. Szybkość na stagingu niczego tu
+  nie dowodzi: sprawdzaj też z `enable_mergejoin` i `enable_hashjoin` wyłączonymi.
