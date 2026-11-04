@@ -240,7 +240,11 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   jeden na tydzień, `week_start` = poniedziałek poprzedniego tygodnia) robi
   `run_all_triggers` w pierwszym dniu roboczym tygodnia 8–17; dzwonek
   `autofill_quality_report` do `AUTOFILL_REPORT_RECIPIENT_EMAILS` (bez
-  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo.
+  ustawienia — aktywni admini), tylko gdy w tygodniu coś się działo. Model
+  woła się poza savepointem, bo `db.commit()` przed modelem zamyka savepoint:
+  do 04.11.2026 zapis raportu padał w każdym ticku, 26.10 i 02.11 poszły 203
+  płatne wywołania i nie powstał żaden raport. Commit na końcu
+  `send_weekly_report` chroni płatny wynik przed awarią dalszych triggerów.
 
 - **A. Co noc WSZYSTKIE rekrutacje w pracy (decyzja Artura 30.09.2026).**
   Nocna pętla (okno `AUTO_FULL_REVIEW_WINDOW_START/END_HOUR` = 1–5 w
