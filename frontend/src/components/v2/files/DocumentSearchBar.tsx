@@ -156,7 +156,7 @@ export function DocumentSearchBar({
       role="search"
       className={cn("flex min-w-0 items-center gap-2", className)}
     >
-      <div className="relative min-w-0 flex-1 sm:max-w-xs">
+      <div className="relative min-w-44 flex-1 sm:max-w-xs">
         <Search
           className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground"
           aria-hidden
@@ -197,12 +197,17 @@ export function DocumentSearchBar({
       {status ? (
         <span
           className={cn(
-            "inline-flex shrink-0 items-center gap-1 text-xs tabular-nums",
+            // Zdanie o skanie jest długie: w połowie ekranu („Pokaż oryginał”) ma
+            // się uciąć, a nie zgnieść pole i na nie wejść (04.11.2026).
+            noText
+              ? "min-w-0 truncate text-xs"
+              : "inline-flex shrink-0 items-center gap-1 text-xs tabular-nums",
             noText || (result.total === 0 && status === "Brak wyników")
               ? "text-muted-foreground"
               : "text-foreground",
           )}
           aria-live="polite"
+          title={noText ? status : undefined}
         >
           {status === "Szukam…" ? (
             <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
