@@ -378,6 +378,36 @@ async def test_bledy_xml_ksef(response, category) -> None:
     assert caught.value.category == category
 
 
+async def test_dane_dokumentu_zwracaja_jeden_obiekt() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/bucket/getDocument")
+        assert json.loads(request.content) == {"data": {"_id": "A"}}
+        return _envelope([{"paidAmount": 100}])
+
+    async with _client(handler) as client:
+        assert await client.get_document("A") == {"paidAmount": 100}
+
+
+@pytest.mark.parametrize(
+    ("response", "category"),
+    [
+        (_envelope([]), "invalid_response"),
+        (_envelope("tekst"), "invalid_response"),
+        (
+            httpx.Response(200, json={"response": {"status": -1, "data": "Brak"}}),
+            "rejected",
+        ),
+        (httpx.Response(404, json={"response": {"status": -1}}), "not_found"),
+    ],
+)
+async def test_bledy_danych_dokumentu(response, category) -> None:
+    async with _client(lambda _request: response) as client:
+        with pytest.raises(Ebi24ApiError) as caught:
+            await client.get_document("A")
+
+    assert caught.value.category == category
+
+
 async def test_logi_bez_sekretow_i_tresci(caplog) -> None:
     caplog.set_level(logging.DEBUG, logger="app.services.ebi24.client")
 
