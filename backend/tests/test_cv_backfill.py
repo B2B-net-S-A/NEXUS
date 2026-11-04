@@ -435,6 +435,109 @@ async def test_cv_already_read_by_the_model_is_not_read_again(monkeypatch):
     assert c.cv_extracted_data == {"cv_highlights": _model_stamp(cv)}
 
 
+def _read_candidate(cv: bytes, **kw) -> Candidate:
+    """Profil `?`: model przeczytał plik i zna nazwę, a kolumna jej nie ma."""
+    c = _ph_candidate(
+        cv_filename="CV_fin.pdf",
+        cv_extracted_data={
+            "cv_highlights": _model_stamp(cv),
+            "first_name": "Halina",
+            "last_name": "Kwiatkowska",
+            **kw.pop("extracted", {}),
+        },
+        **kw,
+    )
+    c.raw_cv_text = "HALINA KWIATKOWSKA\nTester manualny"
+    return c
+
+
+async def test_name_from_stored_read_fills_placeholder_without_the_model(monkeypatch):
+    _claude_step_available(monkeypatch)
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv)
+    extracted_before = dict(c.cv_extracted_data)
+
+    async def must_not_extract(_b, _n):
+        raise AssertionError("tekst CV czytany ponownie")
+
+    entered: list = []
+    monkeypatch.setattr(cv_backfill, "_extract_text_from_bytes", must_not_extract)
+    monkeypatch.setattr(cv_backfill, "ai_feature", _recording_gate(entered))
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert entered == []
+    assert res["skipped_reason"] == "cv_already_read_by_model"
+    assert res["name_source"] == "stored_read"
+    assert res["resolved"] is True
+    assert (c.name, c.lastname) == ("Halina", "Kwiatkowska")
+    assert c.cv_extracted_data == extracted_before
+
+
+async def test_stored_read_never_replaces_a_real_name():
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, name="Jan", lastname="Kowalski")
+
+    await enrich_candidate_from_cv_bytes(_FakeDB(clash=False), c, cv, c.cv_filename)
+
+    assert (c.name, c.lastname) == ("Jan", "Kowalski")
+
+
+@pytest.mark.parametrize(
+    "extracted,raw_text",
+    [
+        # 12 z 287 profili (05.11.2026): nazwiska z odczytu nie ma w tekście CV.
+        pytest.param({}, "Inny tekst CV", id="nazwisko-spoza-tekstu"),
+        pytest.param({}, None, id="bez-tekstu"),
+        pytest.param({"last_name": None}, "Halina", id="samo-imie"),
+        pytest.param({"last_name": "?"}, "Halina ?", id="nazwisko-wypelniacz"),
+    ],
+)
+async def test_stored_read_without_proof_in_the_cv_changes_nothing(extracted, raw_text):
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted=extracted)
+    c.raw_cv_text = raw_text
+
+    res = await enrich_candidate_from_cv_bytes(
+        _FakeDB(clash=False), c, cv, c.cv_filename
+    )
+
+    assert res["name_source"] is None
+    assert (c.name, c.lastname) == ("?", "?")
+
+
+async def test_stored_read_respects_the_manual_lock():
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv, extracted={"_manual_override_first_name": True})
+
+    await enrich_candidate_from_cv_bytes(_FakeDB(clash=False), c, cv, c.cv_filename)
+
+    assert (c.name, c.lastname) == ("?", "Kwiatkowska")
+
+
+async def test_stored_read_stops_on_identity_quarantine(monkeypatch):
+    from app.services import candidate_identity_quarantine as quarantine
+
+    cv = b"PK.. ten sam plik"
+    c = _read_candidate(cv)
+
+    class _DB(_FakeDB):
+        add = flush = object()
+
+    async def quarantined(*_a, **kw):
+        assert kw["observed_last_name"] == "Kwiatkowska"
+        return SimpleNamespace(is_quarantined=True)
+
+    monkeypatch.setattr(quarantine, "record_detected_identity", quarantined)
+
+    res = await enrich_candidate_from_cv_bytes(_DB(clash=False), c, cv, c.cv_filename)
+
+    assert res["identity_quarantined"] is True
+    assert (c.name, c.lastname) == ("?", "?")
+
+
 @pytest.mark.parametrize(
     "stamp",
     [
