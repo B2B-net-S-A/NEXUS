@@ -295,6 +295,42 @@ async def test_the_list_sorts_clients_regardless_of_letter_case(
 
 
 @pytest.mark.asyncio
+async def test_contract_of_a_merged_duplicate_shows_under_the_target_client(
+    app_client: AsyncClient,
+) -> None:
+    from app.core.database import AsyncSessionLocal
+    from app.models.client import Client
+    from app.models.client_framework_contract import ClientFrameworkContract
+
+    marker = uuid.uuid4().hex[:6]
+    async with AsyncSessionLocal() as db:
+        target = Client(name=f"Firma S.A. {marker}")
+        db.add(target)
+        await db.flush()
+        duplicate = Client(
+            name=f"ZZ duplikat {marker}", merged_into_client_id=target.id
+        )
+        db.add(duplicate)
+        await db.flush()
+        own = ClientFrameworkContract(client_id=target.id, name=f"Własna {marker}")
+        moved = ClientFrameworkContract(
+            client_id=duplicate.id, name=f"Z duplikatu {marker}"
+        )
+        db.add_all([own, moved])
+        await db.commit()
+        target_id, target_name = target.id, target.name
+    user_id, headers = await _account(app_client, "employee")
+    await grant_permissions(user_id, PERMISSION)
+
+    response = await app_client.get(BASE, headers=headers)
+
+    rows = [row for row in response.json() if row["name"].endswith(marker)]
+    assert len(rows) == 2
+    assert {row["client_id"] for row in rows} == {target_id}
+    assert {row["client_name"] for row in rows} == {target_name}
+
+
+@pytest.mark.asyncio
 async def test_a_file_missing_on_disk_is_a_404_not_a_server_error(
     app_client: AsyncClient, monkeypatch
 ) -> None:

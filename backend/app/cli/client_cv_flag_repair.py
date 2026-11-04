@@ -246,8 +246,6 @@ async def _today_picks(db, candidate_id: int) -> tuple[Optional[int], Optional[i
     base = (
         select(CandidateDocument.id)
         .where(CandidateDocument.candidate_id == candidate_id, *current_cv_filters())
-        # Bez id na końcu, jak `get_current_cv`: między plikami bez daty wybór jest
-        # dziś przypadkowy, a raport ma powiedzieć, co faktycznie się zmieni.
         .order_by(*current_cv_ordering())
         .limit(1)
     )

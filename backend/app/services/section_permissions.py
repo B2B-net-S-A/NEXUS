@@ -274,7 +274,7 @@ async def resolve_effective_section_access_for_users(
 
     Sekcje Delivery i Finanse wynikają z uprawnień, więc sekcji nie da się
     policzyć bez akcji — jedno wejście ładuje jedno i drugie
-    (``effective_access.resolve_effective_access``, cztery ograniczone zapytania).
+    (``effective_access.resolve_effective_access``, z bufora procesu).
     """
 
     from app.services.effective_access import resolve_effective_access

@@ -370,8 +370,9 @@ async def get_authenticated_user(
     # tokenów integracji i bez admina w „Podglądzie jako”, bo to nie jej wejście.
     if not is_client_token and not impersonate_raw:
         request.state.access_usage_user_id = user.id
-    # Authoritative request-local snapshot. No process cache: policy edits are
-    # immediately consistent across multiple API workers/pods.
+    # Polityka z bufora procesu (`services/policy_cache`): zapis kasuje ją po
+    # commicie, a drugi kontener przy rolling update widzi zmianę najpóźniej
+    # po 30 s. Role konta idą z wiersza `users` czytanego wyżej.
     await resolve_effective_access(db, [effective_user])
     return effective_user
 
