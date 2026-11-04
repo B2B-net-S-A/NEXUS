@@ -2398,6 +2398,31 @@ async def apply_move(
                 is_minimum=False,
                 actor_id=policy.actor_id,
             )
+    if (
+        reason is not None
+        and reason.name.strip() == rejection_reason_labels.EMPLOYED_ELSEWHERE
+    ):
+        from app.services import autofill_withdraw
+
+        change = await autofill_feedback.mark_employed_elsewhere(
+            db, candidate_id=data.candidate_id
+        )
+        if change is not None:
+            candidate_audit.record_candidate_audit(
+                db,
+                action=candidate_audit.AVAILABILITY_CHANGED,
+                user_id=policy.actor_id,
+                entity_id=data.candidate_id,
+                details={
+                    **change,
+                    "source": "employed_elsewhere_rejection",
+                    "job_id": job.id,
+                    "stage_id": stage.id,
+                },
+            )
+        await autofill_withdraw.withdraw_elsewhere(
+            db, candidate_id=data.candidate_id, except_job_id=job.id
+        )
     if rate_rejection and data.rejection_rate_hourly is not None:
         await _record_rejection_rate(
             db,

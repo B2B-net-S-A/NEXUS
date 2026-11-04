@@ -71,6 +71,34 @@ describe("RejectionV2 — mail odrzucenia opt-in", () => {
   });
 });
 
+describe("RejectionV2 — „Zatrudniony gdzie indziej” (04.11.2026)", () => {
+  it("uprzedza o 3 miesiącach dopiero przy tym powodzie", () => {
+    renderUi(
+      <RejectionV2
+        open
+        onOpenChange={() => {}}
+        terminalType="rejected"
+        reasons={[
+          { id: "1", label: "Zatrudniony gdzie indziej", name: "Zatrudniony gdzie indziej", applies_to: ["rejected"] },
+          { id: "2", label: "Brak doświadczenia", name: "Brak doświadczenia", applies_to: ["rejected"] },
+        ]}
+        previousStageCategory="external"
+        previousStage="cv_sent"
+        onConfirm={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("rejection-employed-elsewhere")).toBeNull();
+
+    fireEvent.click(screen.getByText("Brak doświadczenia"));
+    expect(screen.queryByTestId("rejection-employed-elsewhere")).toBeNull();
+
+    fireEvent.click(screen.getByText("Zatrudniony gdzie indziej"));
+    expect(screen.getByTestId("rejection-employed-elsewhere")).toHaveTextContent(
+      "„Nie szuka” na 3 miesiące i system nie doda tej osoby",
+    );
+  });
+});
+
 describe("RejectionV2 — dostępność maila z reguły serwera (runda 9)", () => {
   it("`emailAvailable` wygrywa z kategorią kolumny", () => {
     renderUi(

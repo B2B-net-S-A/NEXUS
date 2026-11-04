@@ -67,6 +67,8 @@ CLIENT_WIDE_REASONS = frozenset(
 # „Nie szuka pracy” (28.10.2026): do kiedy nie podsuwać — najwyżej dwa lata.
 NOT_LOOKING_REASON = "not_looking"
 NOT_LOOKING_MAX_DAYS = 731
+# „Zatrudniony gdzie indziej” (04.11.2026): „Nie szuka” na 3 miesiące.
+EMPLOYED_ELSEWHERE_DAYS = 92
 # Kolumny, w których decyzja o osobie od systemu jeszcze trwa.
 DECISION_COLUMNS = candidate_claim.CLAIM_COLUMNS
 
@@ -219,6 +221,25 @@ async def record(
     )
     db.add(row)
     return row
+
+
+async def mark_employed_elsewhere(db, *, candidate_id: int) -> Optional[dict]:
+    """Odrzucenie „Zatrudniony gdzie indziej” (04.11.2026): 41 ze 159 takich osób
+    dostało potem 61 kart od systemu i żadna nie doszła do „Zweryfikowany”.
+    Dłuższego „Nie szuka” nie skraca. Zwraca zmianę do audytu albo ``None``."""
+    until = business_today() + timedelta(days=EMPLOYED_ELSEWHERE_DAYS)
+    candidate = await db.scalar(
+        select(Candidate).where(Candidate.id == candidate_id).with_for_update()
+    )
+    if (
+        candidate is None
+        or candidate.availability_status == AvailabilityStatus.not_looking
+        and (
+            candidate.availability_date is None or candidate.availability_date >= until
+        )
+    ):
+        return None
+    return await mark_not_looking(db, candidate_id=candidate_id, until=until)
 
 
 async def mark_not_looking(db, *, candidate_id: int, until: date) -> Optional[dict]:

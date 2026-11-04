@@ -55,6 +55,7 @@ import {
 import {
  HM_ALREADY_INTERVIEWED_REASON,
  WORK_MODE_MISMATCH_REASON,
+ EMPLOYED_ELSEWHERE_REASON,
  isRateTooHighReason,
  reasonNeedsDescription,
 } from "@/lib/rejection-reasons";
@@ -527,6 +528,16 @@ export function RejectionV2({
  isMinimum={newRateIsMinimum}
  onIsMinimumChange={setNewRateIsMinimum}
  />
+ ) : null}
+ {r.id === reasonId && r.name?.trim() === EMPLOYED_ELSEWHERE_REASON ? (
+ <p
+ className="ml-6 text-xs text-muted-foreground"
+ data-testid="rejection-employed-elsewhere"
+ >
+ W profilu zapiszemy „Nie szuka” na 3 miesiące i system nie doda{" "}
+ {several ? "tych osób" : "tej osoby"} do żadnej rekrutacji. Ręcznie można{" "}
+ {several ? "je" : "ją"} dodać, a datę zmienisz w profilu.
+ </p>
  ) : null}
  </React.Fragment>
  ))}

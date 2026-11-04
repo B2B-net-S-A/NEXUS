@@ -24,6 +24,11 @@ export const WORK_MODE_MISMATCH_REASON = "work_mode_mismatch";
  *  `rejection_reason_labels.HM_ALREADY_INTERVIEWED`. */
 export const HM_ALREADY_INTERVIEWED_REASON = "hm_already_interviewed";
 
+/** Klucz powodu „Zatrudniony gdzie indziej” (04.11.2026) — lustro
+ *  `rejection_reason_labels.EMPLOYED_ELSEWHERE`. Serwer zapisuje przy nim
+ *  w profilu „Nie szuka” na 3 miesiące, a okno o tym uprzedza. */
+export const EMPLOYED_ELSEWHERE_REASON = "Zatrudniony gdzie indziej";
+
 /**
  * Czy powód bez opisu nic nie mówi (20.10.2026) — lustro
  * `rejection_reason_labels.needs_description`. Przy „Inne” i „Już po rozmowie

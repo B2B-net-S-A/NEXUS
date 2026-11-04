@@ -34,6 +34,10 @@ RATE_TOO_HIGH_REJECTED = "Za wysokie oczekiwania finansowe"
 SALARY_MISMATCH = "salary_mismatch"
 RATE_TOO_HIGH = frozenset({RATE_TOO_HIGH_REJECTED, SALARY_MISMATCH})
 
+# „Zatrudniony gdzie indziej” (04.11.2026): ruch zapisuje w profilu „Nie szuka”
+# na 3 miesiące (`autofill_feedback.mark_employed_elsewhere`).
+EMPLOYED_ELSEWHERE = "Zatrudniony gdzie indziej"
+
 OTHER_LABEL = "Inne"
 
 REJECTION_REASON_LABELS: dict[str, str] = {
