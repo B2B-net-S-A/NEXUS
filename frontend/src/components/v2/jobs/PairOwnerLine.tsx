@@ -55,6 +55,7 @@ type OwnerItem = Pick<
   | "claim_user_id"
   | "claim_until"
   | "entry_source"
+  | "entry_autofill"
 > &
   Partial<Pick<KanbanItem, "stage">>;
 
@@ -155,8 +156,43 @@ export function currentOwner(item: OwnerItem, now: Date = new Date()): PairOwner
   return { id: null, name: null, detail: "brak danych", lock: null, nobody: false };
 }
 
+/** Osoba od systemu (23.10.2026): „Biorę” to decyzja „Dzwonię”, jak na karcie. */
+function isSystemCall(item: Pick<OwnerItem, "entry_source" | "entry_autofill">): boolean {
+  return item.entry_source === "system" && !item.entry_autofill?.decided;
+}
+
+export function takeLabel(item: Pick<OwnerItem, "entry_source" | "entry_autofill">): string {
+  return isSystemCall(item) ? "Dzwonię — biorę na 12 h" : "Biorę — 12 h";
+}
+
+interface TakeProps {
+  /** Podaje dok tylko wtedy, gdy osobę można wziąć, a rząd telefonu jest schowany. */
+  onTake?: () => void;
+  taking?: boolean;
+}
+
+/**
+ * „Biorę” przy „Prowadzi” w panelu z formularzem (prośba rekruterki 04.11.2026):
+ * bez tego przycisku trzeba było wyjść z panelu na kartę. Klasy trzymają
+ * wysokość wiersza, bo głowa panelu nie może skakać między zakładkami.
+ */
+function TakeButton({ item, onTake, taking, short }: TakeProps & { item: OwnerItem; short?: boolean }) {
+  const shortLabel = isSystemCall(item) ? "Dzwonię" : "Biorę";
+  return (
+    <button
+      type="button"
+      onClick={onTake}
+      disabled={taking}
+      aria-label={takeLabel(item)}
+      className="shrink-0 rounded border border-primary/40 px-1.5 text-[11px] font-semibold leading-[14px] text-primary hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 pointer-coarse:p-2"
+    >
+      {short ? shortLabel : takeLabel(item)}
+    </button>
+  );
+}
+
 /** „Tryb rozmowy” zwija nagłówek do jednego wiersza: tam wystarcza imię i blokada. */
-export function PairOwnerCompact({ item }: { item: OwnerItem }) {
+export function PairOwnerCompact({ item, onTake, taking }: { item: OwnerItem } & TakeProps) {
   const owner = currentOwner(item);
   return (
     <span
@@ -170,6 +206,7 @@ export function PairOwnerCompact({ item }: { item: OwnerItem }) {
         {cardShortName(owner.name) ?? (owner.nobody ? "nikt" : "—")}
       </span>
       {owner.lock ? ` · ${owner.lock}` : ""}
+      {onTake ? <TakeButton item={item} onTake={onTake} taking={taking} short /> : null}
     </span>
   );
 }
@@ -188,7 +225,12 @@ function usePeople(enabled: boolean) {
   });
 }
 
-export function PairOwnerLine({ item, jobId }: { item: OwnerItem; jobId: number }) {
+export function PairOwnerLine({
+  item,
+  jobId,
+  onTake,
+  taking,
+}: { item: OwnerItem; jobId: number } & TakeProps) {
   const user = useAuthStore((s) => s.user);
   const canAssign = mayAssignOwner(getUserRoles(user));
   const [open, setOpen] = useState(false);
@@ -205,6 +247,7 @@ export function PairOwnerLine({ item, jobId }: { item: OwnerItem; jobId: number 
           <UserRoundCog className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="shrink-0">Prowadzi</span>
           <span className="truncate font-semibold text-foreground">{ownerLabel ?? "—"}</span>
+          {onTake ? <TakeButton item={item} onTake={onTake} taking={taking} /> : null}
           {canAssign ? (
             <button
               type="button"

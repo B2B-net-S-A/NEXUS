@@ -28,7 +28,7 @@ Decyzja Artura z 16.09.2026 (badanie modeli na danych produkcyjnych,
 | F3  | cv_requirement_map               | claude-sonnet-5-5 (z 5)  |
 | F4  | cv_generator                     | gpt-6.1-sol (z Opus 4.8) |
 | F5  | cv_interactive_chat              | gpt-6-luna (z Sonnet 5)  |
-| F6  | job_description_generator        | claude-sonnet-5          |
+| F6  | job_description_generator        | gpt-6.1-sol (z Son. 5.5) |
 | F7  | order_parser                     | claude-sonnet-5 (25.09)  |
 | F8  | uop_check                        | gpt-6.1-sol (z Sonnet 5) |
 | F9  | cv_parser                        | claude-sonnet-5-5 (z 5)  |
@@ -158,10 +158,12 @@ _REGISTRY: dict[AIFeatureKey, ModelChoice] = {
         "Badanie 16.09: pokrycie brakujących wymagań 0.53 vs 0.32 (Haiku), 0.19 (Luna).",
     ),
     AIFeatureKey.job_description_generator: ModelChoice(
-        default=SONNET_5,
+        default=GPT_SOL,
         env_vars=("JOB_WRITER_MODEL",),
         fallbacks=(SONNET_55,),
-        rationale="F6. Generator ogłoszeń; jedyny model z językiem OK w 100% (badanie 16.09).",
+        rationale="F6. Generator ogłoszeń: GPT-6.1 Sol od 04.11.2026 (decyzja Artura, 40 rekrutacji, "
+        "jurorzy na ślepo): wobec Sonneta 5 lepszy w 29 parach, gorszy w 6; wierność +0,62. "
+        "Świadomy koszt: wymagane technologie w treści 70% wobec 80% Sonneta 5 i 81% Sonneta 5.5.",
     ),
     AIFeatureKey.cv_parser: ModelChoice(
         default=SONNET_55,

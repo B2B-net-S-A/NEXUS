@@ -41,6 +41,7 @@ logger = logging.getLogger(__name__)
 READ_ACTIONS = frozenset(
     {
         "bucket/index",
+        "bucket/getDocument",
         "bucket/getKsefData",
         "archive/getKsefData",
     }
@@ -288,6 +289,16 @@ class Ebi24Client:
             documents=tuple(row for row in data if isinstance(row, dict)),
             total=total,
         )
+
+    async def get_document(self, document_id: str) -> dict[str, Any]:
+        """Pełne dane dokumentu elektronicznego; plik binarny tu nie pasuje."""
+
+        action = "bucket/getDocument"
+        response = await self._send(action, {"data": {"_id": document_id}})
+        data = self._envelope(action, response).get("data")
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            raise self._fail("invalid_response", action, status=200)
+        return data[0]
 
     async def get_ksef_xml(self, document_id: str, *, archive: bool = False) -> bytes:
         """XML faktury KSeF zapisany przy dokumencie EBI24."""

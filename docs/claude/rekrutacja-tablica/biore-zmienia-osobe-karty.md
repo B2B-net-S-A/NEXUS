@@ -70,3 +70,23 @@ zweryfikowała (`cardOwner`), a filtr dalej liczył dodającą.
   „Poza szablonem” nie ma kolumny i liczy się jak przed weryfikacją.
 - Bez zmian: Liga, premie i „Moi ludzie” liczą jak dotąd (pierwszy
   weryfikujący i tak jest tam osobą pary, `prowadzi-przypisanie-osoby.md`).
+
+## Przycisk przy „Prowadzi” w panelu z formularzem (04.11.2026)
+
+Zgłoszenie rekruterki z 04.11.2026: osobę od systemu dało się wziąć tylko
+z karty, więc trzeba było wyjść z panelu. Od 14.10.2026 panel z formularzem nie
+miał tego przycisku, bo osobę bierze pierwszy zapis. Blok „Od systemu” prosił
+przy tym o decyzję „Dzwonię”, której w panelu nie było.
+
+- **Gdzie:** wiersz „Prowadzi” (`PairOwnerLine`), a w „Trybie rozmowy”
+  `PairOwnerCompact` z krótkim napisem. Tylko przy `split`, bo wąski dok ma
+  przycisk w rzędzie telefonu i dubel byłby zbędny.
+- **Warunek jak w rzędzie telefonu:** etap z `ENTRY_STAGES`, `can_take`, brak
+  aktywnej blokady, nie tylko do odczytu. „Przejmij” cudzej blokady zostaje na
+  karcie.
+- **Napis:** „Dzwonię — biorę na 12 h” przy osobie od systemu bez decyzji, inaczej
+  „Biorę — 12 h” (`takeLabel`). Zapis to ta sama trasa `POST /api/pipeline/claim`.
+- **Wysokość:** przycisk nie podnosi wiersza (16,5 px z nim i bez niego), bo głowa
+  panelu nie może skakać między zakładkami.
+- **Bez zmian:** formularz nie ma kroku wstępnego, a pierwszy zapis dalej bierze
+  wolną osobę (`screening_form._claim_on_save`).

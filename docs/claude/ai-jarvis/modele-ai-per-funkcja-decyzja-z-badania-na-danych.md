@@ -124,6 +124,16 @@ decyzja Artura z 02.11.2026. Najważniejsze dla kolejnych zmian:
   a nie Luna. **Wyższy reasoning nie pomaga:** medium i high wobec low dają remis (11/9/16 i 9/8/18),
   poważne zdania 0,28 i 0,29 wobec 0,39, a mediana czasu rośnie z 41 do 60 i 137 s przy limicie 300 s.
   Nie podnoś go bez nowego pomiaru. Powrót bez deployu: `CV_B2B_MODEL`, `CV_FACTUAL_VERIFICATION_MODEL`.
+- **Generator ogłoszeń (F6) od 04.11.2026 na GPT-6.1 Sol, zapas Sonnet 5.5** (decyzja Artura mimo rekomendacji
+  Sonneta 5.5). 40 rekrutacji z pełnym `AdMaterial`, tylko po polsku; wersji angielskiej nie mierzono. Wobec Sonneta 5
+  Sol 29/6/3, Sonnet 5.5 27/6/5, Haiku 5.5 8/26/4. Sol wobec Sonneta 5.5 22/14/4, różnica ogólna nieistotna, ale wierność
+  +0,29, język +0,24, ustawienia +0,33 (istotne) i obaj jurorzy po jego stronie. **Koszt świadomy:** technologie krytyczne
+  i wymagane obecne w ogłoszeniu 70% wobec 81% (dopasowanie dosłowne), prompt nie każe użyć każdej. Przy skargach na braki
+  w ogłoszeniach zacznij od tego punktu promptu. Pomiar na samym tytule i kilku umiejętnościach (pierwszy bieg, 03.11) jest
+  niemiarodajny, bo prompt wymusza 4–7 obowiązków i każe modelom zmyślać. Powrót bez deployu: `JOB_WRITER_MODEL`.
+- **Opus 5.5 nie wchodzi do generatora CV** (pomiar 03.11, 36 CV): wobec Sola 7/19/10, wierność −0,44 (istotne),
+  kompletność +0,29, 0,33 USD wobec 0,085 USD na CV, mediana 98 s wobec 37 s. Jurorzy skłaniają się ku swojemu dostawcy
+  (Sonnet 5.5 40/29 dla Opusa, Terra 56/16 dla Sola), więc porównuj też same oceny, nie tylko zwycięstwa.
 - **Jurorom nie dawaj `highlight_keywords`.** To lista wymagań do pogrubienia, nie treść CV, a jurorzy
   brali ją za dopisane technologie: 68 z 117 zarzutów u Sonneta 5, 52 z 63 u Sola. `judges.py` na serwerze
   już to pomija, a wyniki wyżej są policzone bez tego pola.

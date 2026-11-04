@@ -352,6 +352,7 @@ export function AdPublications({
                           disabled={busy || !!jjitReason}
                           onClick={jjitActions.onPublish}
                           data-testid="jjit-publish"
+                          data-tour="job-ad.jjit.publish"
                         >
                           {jjitApi.status === "failed" ? "Wyślij ponownie" : "Opublikuj na JustJoin.IT"}
                         </Button>

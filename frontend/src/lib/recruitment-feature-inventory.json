@@ -2230,6 +2230,14 @@
    "v3_home": "Tablica → klik w kartę"
   },
   {
+   "id": "screening-form.take-in-owner-line",
+   "area": "tablica",
+   "opis": "„Biorę” / „Dzwonię” przy wierszu „Prowadzi” w panelu z formularzem, także w „Trybie rozmowy” (04.11.2026): wolną osobę bierze się bez wychodzenia na kartę",
+   "file": "components/v2/jobs/PairOwnerLine.tsx",
+   "marker": "function TakeButton",
+   "v3_home": "Tablica → klik w osobę z „Nowych” / „Screeningu” → nagłówek panelu"
+  },
+  {
    "id": "screening-form.after-cv-sent",
    "area": "formularz screeningu",
    "opis": "Po „CV wysłane” formularz da się poprawić z banerem, że zmiana idzie do DL i do następnego CV firmowego (D8)",

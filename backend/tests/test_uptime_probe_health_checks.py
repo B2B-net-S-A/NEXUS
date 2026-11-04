@@ -256,3 +256,22 @@ def test_unreachable_backend_does_not_double_alarm(tmp_path: Path) -> None:
     assert rc == 0
     assert outputs["fail"] == "0"
     assert all(a.startswith("::warning") for a in annotations)
+
+
+# ── Ponawianie w sondzie dostępności (#995) ──────────────────────────────────
+# Restart przy wdrożeniu trwa kilkanaście sekund i daje prawdziwy 503. Jedna
+# próba zgłaszała go jako awarię (bieg 40804600445 z 29.10.2026, w czasie
+# Deploya 40803619177). Awaria trwa dłużej niż trzy próby co 20 s.
+
+
+@pytest.mark.parametrize("step_name", ["Frontend", "Backend health"])
+def test_probe_step_retries_before_it_fails(step_name: str) -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["probe"]["steps"] if s["name"] == step_name)
+    assert "--retry 2 --retry-delay 20 --retry-all-errors" in step["run"]
+
+
+def test_probe_timeout_covers_every_attempt() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    # Dwa kroki po 3 próby (15 s) i 2 przerwy (20 s) to 170 s, do tego TLS i start.
+    assert workflow["jobs"]["probe"]["timeout-minutes"] >= 5
