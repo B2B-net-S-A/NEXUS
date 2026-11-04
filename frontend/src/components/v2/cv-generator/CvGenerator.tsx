@@ -164,7 +164,7 @@ function GeneratorSteps({ g }: { g: CvGeneratorState }) {
               onChampionFile={(file) => void g.readChampionFile(file)}
               onChampionError={g.setChampionMessage}
               hasNotes={!!g.recruitment.has_notes}
-              notesChars={g.recruitment.notes_chars ?? 0}
+              notesChars={(g.recruitment.required_notes_min_chars ?? 0) > 0 ? (g.recruitment.notes_chars ?? 0) : null}
               noteDraft={g.noteDraft}
               onNoteDraftChange={g.setNoteDraft}
               sources={g.sources}
