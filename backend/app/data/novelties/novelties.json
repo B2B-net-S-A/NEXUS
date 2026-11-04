@@ -5,6 +5,7 @@
     "why": "Gdy poprosisz o notatkę, dodanie do rekrutacji albo uśpienie lub przypięcie w „Moich ludziach”, Jarvis robi to od razu. Przez 15 minut cofniesz to jednym kliknięciem na karcie.",
     "tier": "dot",
     "shipped_on": "2026-11-04",
+    "pr": 3019,
     "audience": {
       "roles": [
         "recruiter",
