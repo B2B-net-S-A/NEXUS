@@ -81,7 +81,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
-import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
+import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine, takeLabel } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -484,6 +484,8 @@ export interface PipelineCandidateDockProps {
   onOpenQc?: () => void;
   /** PR 5: „Biorę” z panelu — ta sama blokada 12 h co przycisk na karcie. */
   onTake?: () => void;
+  /** „Biorę” właśnie się zapisuje: drugi klik dostałby 409 „Już prowadzisz”. */
+  taking?: boolean;
   /** PR 6: klient rekrutacji — link do jego zamówień w kroku „Umowa”. */
   clientId?: number | null;
   /**
@@ -514,10 +516,9 @@ export interface PipelineCandidateDockProps {
    */
   hidePrimaryMove?: boolean;
   /**
-   * Panel dzielony (0424): formularz screeningu albo profil przed telefonem
-   * z podglądem obok. „Biorę” i „Nie odebrał” stoją wtedy w profilu przed
-   * telefonem (bez dubla w głowie panelu), a przypięte notatki są zwinięte —
-   * przy 1280×720 każda linia wysokości się liczy.
+   * Panel dzielony (0424): formularz screeningu z podglądem obok. „Nie odebrał”
+   * stoi wtedy w bloku „Co już wiemy”, „Biorę” przy „Prowadzi” (04.11.2026),
+   * a przypięte notatki są zwinięte — przy 1280×720 każda linia wysokości się liczy.
    */
   split?: boolean;
   badgeToggles?: ReadonlyArray<{
@@ -902,6 +903,7 @@ export function PipelineCandidateDock({
   onAddClientSlots,
   onOpenQc,
   onTake,
+  taking = false,
   clientId = null,
   onOpenWorkbench,
   badgeToggles = [],
@@ -1593,15 +1595,15 @@ export function PipelineCandidateDock({
 
   // PR 5 (04.10.2026): w „Nowych” i „Screeningu” pierwsza praca to
   // telefon — „Biorę” i „Nie odebrał” bez wychodzenia z panelu.
+  const canTakeHere =
+    !readOnly && ENTRY_STAGES.has(item.stage ?? "") && item.can_take && item.claim_user_id == null;
+  const headerTake = split && canTakeHere ? onTake : undefined;
   const contactRow =
     !readOnly && ENTRY_STAGES.has(item.stage ?? "") && !split ? (
       <div className="flex flex-wrap gap-1.5" data-testid="dock-contact-row">
-        {onTake && item.can_take && item.claim_user_id == null && (
-          <Button size="sm" variant="outline" onClick={onTake}>
-            <UserPlus className="h-3.5 w-3.5" />{" "}
-            {item.entry_source === "system" && !item.entry_autofill?.decided
-              ? "Dzwonię — biorę na 12 h"
-              : "Biorę — 12 h"}
+        {onTake && canTakeHere && (
+          <Button size="sm" variant="outline" disabled={taking} onClick={onTake}>
+            <UserPlus className="h-3.5 w-3.5" /> {takeLabel(item)}
           </Button>
         )}
         <Button
@@ -1854,7 +1856,7 @@ export function PipelineCandidateDock({
               >
                 Profil <span aria-hidden="true">↗</span>
               </Link>
-              <PairOwnerCompact item={item} />
+              <PairOwnerCompact item={item} onTake={headerTake} taking={taking} />
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
@@ -1877,7 +1879,7 @@ export function PipelineCandidateDock({
             {/* 09.10.2026: telefon i e-mail bez wchodzenia w profil. */}
             <PersonContactLine phone={candidate?.phone} email={candidate?.email} personName={fullName} />
             {/* „Prowadzi” (25.10.2026): czyja to osoba w tej rekrutacji. */}
-            <PairOwnerLine item={item} jobId={jobId} />
+            <PairOwnerLine item={item} jobId={jobId} onTake={headerTake} taking={taking} />
           </div>
         </div>
 

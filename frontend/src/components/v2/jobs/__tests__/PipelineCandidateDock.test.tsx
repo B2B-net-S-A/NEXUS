@@ -795,6 +795,69 @@ describe("PipelineCandidateDock — nawigator, oś czasu i główna akcja", () =
     );
   });
 
+  describe("„Biorę” przy „Prowadzi” w panelu z formularzem (04.11.2026)", () => {
+    const freeSystemItem = () =>
+      baseItem({ stage: "new", can_take: true, claim_user_id: null, entry_source: "system" });
+
+    it("osobę od systemu bierze się bez wychodzenia z panelu, bez dubla w rzędzie telefonu", async () => {
+      const onTake = vi.fn();
+      const user = userEvent.setup();
+      renderDock({ item: freeSystemItem(), onTake, expanded: true, split: true });
+      const line = await screen.findByTestId("dock-pair-owner");
+      await user.click(within(line).getByRole("button", { name: "Dzwonię — biorę na 12 h" }));
+      expect(onTake).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("dock-contact-row")).toBeNull();
+    });
+
+    it("tryb rozmowy ma krótki przycisk obok imienia", async () => {
+      const onTake = vi.fn();
+      const user = userEvent.setup();
+      renderDock({ item: freeSystemItem(), onTake, expanded: true, split: true });
+      const compact = await screen.findByTestId("dock-pair-owner-compact");
+      const button = within(compact).getByRole("button", { name: "Dzwonię — biorę na 12 h" });
+      expect(button).toHaveTextContent("Dzwonię");
+      await user.click(button);
+      expect(onTake).toHaveBeenCalledTimes(1);
+    });
+
+    it("po decyzji albo przy osobie od człowieka przycisk mówi „Biorę”", async () => {
+      renderDock({
+        item: baseItem({ stage: "screening", can_take: true, claim_user_id: null }),
+        onTake: vi.fn(),
+        expanded: true,
+        split: true,
+      });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).getByRole("button", { name: "Biorę — 12 h" })).toBeTruthy();
+    });
+
+    it("w trakcie zapisu przycisk jest wyłączony: drugi klik dałby 409", async () => {
+      renderDock({ item: freeSystemItem(), onTake: vi.fn(), taking: true, expanded: true, split: true });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).getByRole("button", { name: "Dzwonię — biorę na 12 h" })).toBeDisabled();
+    });
+
+    it.each([
+      ["cudza aktywna blokada", { stage: "new", can_take: false, claim_user_id: 7 }, {}],
+      ["własna blokada", { stage: "new", can_take: false, claim_user_id: 1 }, {}],
+      ["przejęcie cudzej zostaje na karcie", { stage: "new", can_take: true, claim_user_id: 7 }, {}],
+      ["etap po „Screeningu”", { stage: "cv_sent", can_take: true, claim_user_id: null }, {}],
+      ["tylko do odczytu", { stage: "new", can_take: true, claim_user_id: null }, { readOnly: true }],
+    ])("bez przycisku: %s", async (_name, item, props) => {
+      renderDock({ item: baseItem(item), onTake: vi.fn(), expanded: true, split: true, ...props });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).queryByRole("button", { name: /biorę/i })).toBeNull();
+    });
+
+    it("wąski dok ma „Biorę” tylko w rzędzie telefonu", async () => {
+      renderDock({ item: freeSystemItem(), onTake: vi.fn() });
+      const line = await screen.findByTestId("dock-pair-owner");
+      expect(within(line).queryByRole("button", { name: /biorę/i })).toBeNull();
+      const row = await screen.findByTestId("dock-contact-row");
+      expect(within(row).getByRole("button", { name: /biorę na 12 h/ })).toBeTruthy();
+    });
+  });
+
   it("po „Screeningu” panel nie pokazuje wiersza telefonu", async () => {
     renderDock({ item: baseItem({ stage: "cv_sent" }) });
     await screen.findByTestId("dock-facts");
