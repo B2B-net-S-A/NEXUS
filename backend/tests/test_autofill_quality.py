@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text, update
 
 import app.models  # noqa: F401
 from app.core.config import settings
@@ -261,6 +261,183 @@ async def test_weekly_report_is_built_once_and_rings_the_recipients(monkeypatch)
     assert note.notification_type == NotificationType.autofill_quality_report
     assert note.title == "Jakość podpowiedzi systemu: raport 24.02–02.03"
     assert note.link == f"/insights/autofill?report={report.id}"
+
+
+# ── raport z modelem: commit przed modelem nie może być w savepoincie ───────
+
+
+_MODEL_ANSWER = (
+    '{"proposals": [{"title": "Za młodzi do Seniora", "kind": "search", '
+    '"evidence": "4 z 8", "fix": "lata w roli"}]}'
+)
+
+
+async def _report_world(monkeypatch, monday: date) -> tuple[datetime, date, int]:
+    """Tick w ``monday`` z odrzuceniami i jednym odbiorcą; bez raportu w bazie."""
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        recipient = User(
+            email=f"afq-{tag}@example.com",
+            password_hash=hash_password(f"T3st_{tag}!R"),
+            name=f"AFQ {tag}",
+            role=UserRole.head_of_recruitment,
+            is_active=True,
+        )
+        db.add(recipient)
+        await db.commit()
+        recipient_id = recipient.id
+    monkeypatch.setattr(
+        settings, "AUTOFILL_REPORT_RECIPIENT_EMAILS", f"afq-{tag}@example.com"
+    )
+    monkeypatch.setattr("app.services.llm_providers.api_key_configured", lambda _: True)
+
+    async def _summary(db, *, since, until, now):
+        return {
+            "since": since.isoformat(),
+            "until": until.isoformat(),
+            "added": 40,
+            "rejected": 8,
+            "search_error_pct": 50.0,
+            "buckets": [
+                {
+                    "bucket": "search",
+                    "reasons": [
+                        {"reason": "too_junior", "label": "Za mało", "count": 4}
+                    ],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(quality, "summary", _summary)
+    now = _local(monday, 9)
+    week = quality.report_week(now)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            delete(AutofillQualityReport).where(
+                AutofillQualityReport.week_start == week
+            )
+        )
+        await db.commit()
+    return now, week, recipient_id
+
+
+async def _reports_of_week(week: date) -> list[AutofillQualityReport]:
+    async with AsyncSessionLocal() as db:
+        return list(
+            (
+                await db.scalars(
+                    select(AutofillQualityReport).where(
+                        AutofillQualityReport.week_start == week
+                    )
+                )
+            ).all()
+        )
+
+
+async def test_report_with_model_is_saved_once_without_a_connection_during_the_call(
+    monkeypatch,
+):
+    """Produkcja 26.10 i 02.11: 203 płatne wywołania modelu, 0 raportów."""
+    now, week, recipient_id = await _report_world(monkeypatch, date(2031, 3, 10))
+    calls: list[bool] = []
+
+    async with AsyncSessionLocal() as db:
+
+        def _model(system, prompt, chain):
+            calls.append(db.in_transaction())
+            return _MODEL_ANSWER
+
+        monkeypatch.setattr(quality, "_call_model", _model)
+        assert await quality.send_weekly_report(db, now) == 1
+        # Płatny wynik przeżywa awarię dalszych triggerów tego samego ticku.
+        await db.rollback()
+        assert await quality.send_weekly_report(db, now) == 0
+
+    assert calls == [False], "jedno wywołanie, bez otwartej transakcji sesji"
+    [report] = await _reports_of_week(week)
+    assert report.from_model is True
+    assert report.proposals[0]["title"] == "Za młodzi do Seniora"
+    async with AsyncSessionLocal() as db:
+        [note] = (
+            await db.scalars(
+                select(Notification).where(Notification.user_id == recipient_id)
+            )
+        ).all()
+    assert note.related_entity_id == report.id
+
+
+async def test_model_failure_falls_back_to_rules_and_keeps_the_tick_alive(monkeypatch):
+    now, week, recipient_id = await _report_world(monkeypatch, date(2031, 3, 17))
+
+    def _model(system, prompt, chain):
+        raise RuntimeError("model leży")
+
+    monkeypatch.setattr(quality, "_call_model", _model)
+    async with AsyncSessionLocal() as db:
+        assert await quality.send_weekly_report(db, now) == 1
+        assert await db.scalar(select(User.id).where(User.id == recipient_id))
+    [report] = await _reports_of_week(week)
+    assert report.from_model is False
+    assert report.proposals[0]["title"] == "„Za mało” — 4 odrzuceń"
+
+
+async def test_second_process_wins_during_the_model_call_and_no_bell_rings(
+    monkeypatch, caplog
+):
+    now, week, recipient_id = await _report_world(monkeypatch, date(2031, 3, 24))
+    monkeypatch.setattr(quality, "_call_model", lambda *_: _MODEL_ANSWER)
+    real_model_proposals = quality.model_proposals
+
+    async def _racing(db, data, notes):
+        proposals = await real_model_proposals(db, data, notes)
+        async with AsyncSessionLocal() as other:
+            other.add(
+                AutofillQualityReport(
+                    week_start=week,
+                    summary={"added": 1},
+                    proposals=[],
+                    from_model=False,
+                )
+            )
+            await other.commit()
+        return proposals
+
+    monkeypatch.setattr(quality, "model_proposals", _racing)
+    async with AsyncSessionLocal() as db:
+        assert await quality.send_weekly_report(db, now) == 0
+        assert await db.scalar(select(User.id).where(User.id == recipient_id))
+    [report] = await _reports_of_week(week)
+    assert report.summary == {"added": 1}
+    assert "nie udało się zrobić raportu" not in caplog.text
+    async with AsyncSessionLocal() as db:
+        assert not (
+            await db.scalars(
+                select(Notification).where(Notification.user_id == recipient_id)
+            )
+        ).all()
+
+
+async def test_sql_error_in_the_numbers_does_not_poison_the_tick_transaction(
+    monkeypatch,
+):
+    now, week, recipient_id = await _report_world(monkeypatch, date(2031, 3, 31))
+
+    async def _broken_summary(db, *, since, until, now):
+        await db.execute(text("SELECT 1/0"))
+
+    monkeypatch.setattr(quality, "summary", _broken_summary)
+    async with AsyncSessionLocal() as db:
+        await db.execute(
+            update(User).where(User.id == recipient_id).values(name="AFQ po błędzie")
+        )
+        assert await quality.send_weekly_report(db, now) == 0
+        # Dalsze triggery tego ticku działają, a ich wcześniejsza praca zostaje.
+        await db.commit()
+    assert await _reports_of_week(week) == []
+    async with AsyncSessionLocal() as db:
+        assert await db.scalar(select(User.name).where(User.id == recipient_id)) == (
+            "AFQ po błędzie"
+        )
 
 
 @pytest_asyncio.fixture
