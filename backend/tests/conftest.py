@@ -205,6 +205,19 @@ def _competition_rankings_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _policy_cache_off(monkeypatch):
+    """Polityka dostępu ma na produkcji 30-sekundowy bufor w procesie.
+
+    Testy na wspólnej bazie dosiewają wiersze polityki z pominięciem sesji
+    (`conn.execute`) i atrapami sesji, a bufor przeniósłby wynik między testami.
+    Zachowanie bufora sprawdza osobno `test_policy_cache.py`.
+    """
+    from app.services import policy_cache
+
+    monkeypatch.setattr(policy_cache, "_CACHE_TTL_SECONDS", -1)
+
+
+@pytest.fixture(autouse=True)
 def _cv_preview_reads_cleared():
     """Odczyt CV z `/cv/preview` żyje 30 min w procesie pod skrótem pliku.
 
