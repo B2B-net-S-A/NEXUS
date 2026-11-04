@@ -523,6 +523,54 @@ def _shape_contract_text(data: Any, _args: dict[str, Any]) -> Any:
     }
 
 
+def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
+    """Liczba okresu + wiersze „kto, gdzie, kiedy, czyja zasługa” bez linków API."""
+    if not isinstance(data, dict):
+        return data
+    rows = []
+    for item in data.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        cand = item.get("candidate") or {}
+        job = item.get("job") or {}
+        credited = item.get("credited_user") or {}
+        rows.append(
+            _clean(
+                {
+                    "candidate_id": cand.get("id"),
+                    "candidate": cand.get("name"),
+                    "job_id": job.get("id"),
+                    "job": job.get("working_title") or job.get("title"),
+                    "client": job.get("client_name"),
+                    "credited": credited.get("name"),
+                    "reached_at": item.get("reached_at"),
+                    "state": item.get("state"),
+                }
+            )
+        )
+    total = int(data.get("total") or 0)
+    page = int(data.get("page") or 1)
+    page_size = int(data.get("page_size") or MAX_LIST_ITEMS)
+    return trim(
+        _clean(
+            {
+                # Ta sama liczba co kafel; `total` = wiersze listy, bez tygodniowych
+                # wpisów DynaReportera sprzed 12.10.2026 (`history_total`).
+                "period_total": data.get("period_total"),
+                "history_total": data.get("history_total"),
+                "total": total,
+                "people": data.get("people"),
+                "period_start": data.get("period_start"),
+                "period_end": data.get("period_end"),
+                "scope": data.get("scope"),
+                "page": page,
+                "has_more": page * page_size < total,
+                "items": rows,
+            }
+        )
+    )
+
+
 def _shape_amendment_text(data: Any, _args: dict[str, Any]) -> Any:
     if not isinstance(data, dict):
         return trim(data)
@@ -1865,6 +1913,68 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             ),
         ),
         shape=as_is,
+    ),
+    JarvisTool(
+        name="activity_people",
+        label="Sprawdzam, kto się liczy",
+        description=(
+            "Imienna lista za liczbą (jak klik w liczbę lejka w Insights): kogo i w "
+            "jakiej rekrutacji zweryfikowano (verification), polecono klientowi "
+            "(recommendation), zaproszono na rozmowę u klienta (interview), "
+            "zaakceptowano (acceptance) albo zatrudniono (placement) — z datą i osobą, "
+            "która ma zasługę. Okres: jeden dzień (window=day, day), tydzień tego dnia "
+            "(window=week, day), miesiąc tego dnia (window=month, day; bez day bieżący) "
+            "albo dni od–do (window=range, date_from, date_to). Placement nie ma "
+            "window=day: dla jednego dnia podaj window=range. scope=team = cały "
+            "zespół/firma, mine = tylko moje. Pytanie ogólne („ile osób…”, „kto…”) bez "
+            "„ja/moje” → team; „Brak uprawnień” przy team znaczy, że rola nie widzi "
+            "zespołu — podaj wtedy swoje liczby i powiedz to. Na „ile” odpowiadaj "
+            "period_total (liczba z Insights), lista ma total wierszy po 20 na stronę: "
+            "has_more = kolejna strona przez page. Używaj do „ile dziś / w piątek…” "
+            "i „kto…”."
+        ),
+        input_schema=_schema(
+            {
+                "metric": {
+                    "type": "string",
+                    "enum": [
+                        "verification",
+                        "recommendation",
+                        "interview",
+                        "acceptance",
+                        "placement",
+                    ],
+                },
+                "window": {"type": "string", "enum": ["day", "week", "month", "range"]},
+                "day": {**STR, "format": "date"},
+                "date_from": {**STR, "format": "date"},
+                "date_to": {**STR, "format": "date"},
+                "scope": {"type": "string", "enum": ["mine", "team"]},
+                "page": {"type": "integer", "minimum": 1},
+            },
+            ("metric", "window"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/dashboard/v2/recruitment-activity/details",
+        section=ProductSection.pipeline,
+        entity_type="candidate",
+        build=lambda a: _get(
+            "/api/dashboard/v2/recruitment-activity/details",
+            _clean(
+                {
+                    "metric": a.get("metric"),
+                    "window": a.get("window"),
+                    "day": a.get("day"),
+                    "date_from": a.get("date_from"),
+                    "date_to": a.get("date_to"),
+                    "scope": "team" if a.get("scope") == "team" else "auto",
+                    "page": a.get("page"),
+                    "page_size": MAX_LIST_ITEMS,
+                }
+            ),
+        ),
+        shape=_shape_activity_people,
     ),
     JarvisTool(
         name="explain_match",
