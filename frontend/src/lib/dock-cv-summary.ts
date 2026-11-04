@@ -183,12 +183,17 @@ const NEWER_MARGIN_MS = 60_000;
  * PDF, DOC i DOCX, najpierw główne, potem najnowsze. Główne CV w TXT czy ODT
  * nie trafia do kopii — przegląd kodu 13.10.2026: ramka obiecywała plik,
  * którego „Użyj w tej rekrutacji” nie kopiowało. Plik „nieaktualny” też nie
- * (`cv_source.current_cv_filters`, audyt 13.10.2026).
+ * (`cv_source.current_cv_filters`, audyt 13.10.2026). Plik bez daty (import)
+ * idzie na koniec, a remis rozstrzyga najwyższe id, jak `current_cv_ordering`.
  */
 export function stageCopySource<T extends DockProfileCvDoc>(docs: readonly T[]): T | null {
   const usable = docs.filter((d) => /\.(pdf|docx?)$/i.test(d.filename) && !d.outdated_at);
-  const at = (d: T) => Date.parse(d.uploaded_at ?? d.created_at) || 0;
-  return [...usable].sort((a, b) => Number(b.is_primary) - Number(a.is_primary) || at(b) - at(a))[0] ?? null;
+  const at = (d: T) => (d.uploaded_at ? Date.parse(d.uploaded_at) || 0 : 0);
+  return (
+    [...usable].sort(
+      (a, b) => Number(b.is_primary) - Number(a.is_primary) || at(b) - at(a) || b.id - a.id,
+    )[0] ?? null
+  );
 }
 
 /**

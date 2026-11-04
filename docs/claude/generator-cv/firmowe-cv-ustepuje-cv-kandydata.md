@@ -44,8 +44,9 @@ przećwiczony na kopii produkcji; bieg na produkcji wymaga zgody Artura.
 - **Paczka CV:** od #2926 te osoby dostają w ZIP-ie plik kandydata i tak ma zostać,
   bo firmowe CV powstaje na osobę i nie nadaje się do hurtu
   (`oryginal-cv-tylko-po-generatorze.md`). Trasy nie zmieniamy. Sama zmiana flagi
-  podmienia plik w paczce tylko tam, gdzie dziś wygrywał plik bez daty albo wybór
-  między plikami bez daty był przypadkowy (10 osób na kopii).
+  podmieniała plik w paczce tylko tam, gdzie wygrywał plik bez daty albo wybór
+  między plikami bez daty był przypadkowy (10 osób na kopii); po poprawce kolejności
+  z sekcji niżej ta liczba spada, bo paczka bierze już plik z datą.
 - **Kopia etapu** dostaje plik tylko bez CV do klienta. Szkic i zatwierdzone CV mają
   swój wzór, plik wgrany ręcznie to wybór rekrutera, a kopia z bajtami w bazie nie
   dałaby się cofnąć.
@@ -55,3 +56,26 @@ przećwiczony na kopii produkcji; bieg na produkcji wymaga zgody Artura.
 - **Plik DOC jako główne CV** (20 osób) nie ma podglądu w przeglądarce, a generator
   go nie czyta i zostaje przy firmowym Wordzie. `--exclude-doc` je pomija.
 - **`--rollback` nie cofa odczytu AI** (`--reread`): profil osoby zostaje z nowego pliku.
+
+## Plik bez daty i remis w kolejności (04.11.2026, decyzja Artura)
+
+`current_cv_ordering` kończy się `uploaded_at DESC NULLS LAST, id DESC`. Nie dokładaj
+własnego rozstrzygnięcia w wywołaniu. Lustro na froncie: `stageCopySource`.
+
+- **Po co:** pliki z Traffita mają NULL w `uploaded_at`, a Postgres przy DESC stawia
+  NULL pierwszy. Plik bez daty wygrywał z CV wgranym w NEXUSIE, a między plikami bez
+  daty decydował układ wierszy: po `--commit` i `--rollback` naprawy flag paczka CV
+  dała inne bajty u 6 osób przy tych samych danych.
+- **Nie `COALESCE(uploaded_at, created_at)`.** Data wiersza to przy imporcie data
+  importu. Plik z Traffita wygrywałby wtedy z CV wgranym wcześniej tylko dlatego, że
+  import przyszedł później, a QC nazywałby go nowszym CV. Lista plików w profilu
+  (`GET …/documents`) zostaje przy `COALESCE`, bo tylko pokazuje pliki i ich daty.
+- **Ranga jest ważniejsza od daty.** Główny plik bez daty dalej wygrywa z nowszym
+  plikiem, a rodzaj „cv” bez daty z nowszym „other”.
+
+Pomiar (nocna kopia z 04.11.2026, tylko odczyt): 39 z 65 167 osób dostaje inny plik
+domyślny, wszystkie w randze „cv” bez głównego pliku. 28 przechodzi z pliku bez daty
+na plik z datą, 11 miało remis między plikami bez daty. 26 plików ma inne bajty, 13
+te same, 12 osób ma kartę w opublikowanej rekrutacji, 0 przejść między plikiem
+firmowym a niefirmowym. U 9 z 28 plik z datą powstał w bazie przed wierszem z Traffita,
+a prawdziwej daty pliku z Traffita nie znamy; Artur przyjął to ryzyko.

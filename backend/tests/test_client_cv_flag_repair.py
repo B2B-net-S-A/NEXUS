@@ -181,8 +181,8 @@ async def test_a_dated_file_beats_an_undated_import() -> None:
     [item], _ = await _plan(cid)
 
     assert item.successor_id == dated
-    # Dziś paczka bierze plik bez daty, więc naprawa ją zmienia i raport to mówi.
-    assert item.package_changes is True
+    # Paczka bierze ten sam plik z datą (`current_cv_ordering`), więc naprawa go nie zmienia.
+    assert item.package_changes is False
 
 
 async def test_doc_yields_to_pdf_among_undated_files() -> None:

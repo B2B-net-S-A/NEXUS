@@ -223,6 +223,20 @@ describe("nowe CV w rekrutacji (13.10.2026)", () => {
     expect(newerProfileCv(original, [outdated])).toBeNull();
   });
 
+  it("nowsze CV w profilu: plik z importu bez daty ustępuje plikowi z datą jak na serwerze (04.11.2026)", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const dated = doc(15, { uploaded_at: "2026-10-01T09:00:00Z" });
+    const imported = { ...doc(16), created_at: "2026-10-13T09:00:00Z" };
+    expect(newerProfileCv(original, [dated, imported])).toBeNull();
+  });
+
+  it("nowsze CV w profilu: między plikami bez daty wygrywa najwyższe id jak na serwerze (04.11.2026)", () => {
+    const original = snapshot("2026-10-08T10:00:00Z");
+    const older = { ...doc(17), created_at: "2026-10-13T09:00:00Z" };
+    const higherId = { ...doc(18), created_at: "2026-10-01T09:00:00Z" };
+    expect(newerProfileCv(original, [older, higherId])).toBeNull();
+  });
+
   it("nowsze CV w profilu: bez kopii i bez listy plików nie ma czego porównać", () => {
     const profileOnly = dockOriginalCv({
       snapshot: { has_snapshot: false },
