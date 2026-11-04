@@ -10,16 +10,18 @@ Odpowiada na pytania z ``docs/claude/integracje/ebi24-api-odczyt-i-pomiar.md``:
 * ile dokumentów każdego typu ma konto,
 * jaka część najnowszych faktur ma numer KSeF i status ``paid``,
 * czy ``getKsefData`` daje XML, który czyta parser NEXUSA,
-* w jakim formacie ``_createdDate`` działa filtr, po którym dostawca zaleca
-  pobierać nowe dokumenty (formatu wartości nie podał).
+* czy filtr ``_createdDate`` z samą datą, po którym dostawca zaleca pobierać nowe
+  dokumenty, naprawdę zawęża listę,
+* czy pola ``paidAmount`` i ``remainingAmount`` są w nagłówku, czy dopiero
+  w danych dokumentu, i czy zdarzają się płatności częściowe.
 
 Użycie (w kontenerze backendu, po ustawieniu ``EBI24_*``)::
 
     python -m scripts.ebi24_probe
-    python -m scripts.ebi24_probe --max-rows 2000 --xml-sample 10
+    python -m scripts.ebi24_probe --max-rows 2000 --xml-sample 10 --payment-sample 20
 
 Duże pobrania podręcznik dopuszcza w godzinach 20:00–7:00; domyślne limity to
-około 20 żądań.
+około 40 żądań.
 """
 
 from __future__ import annotations
@@ -103,6 +105,10 @@ def summarize(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         "paid_with_date": sum(
             row.get("paid") is True and bool(row.get("paidDate")) for row in rows
         ),
+        "header_paid_amount": sum(row.get("paidAmount") is not None for row in rows),
+        "header_remaining_amount": sum(
+            row.get("remainingAmount") is not None for row in rows
+        ),
         "issued_month": dict(sorted(months.items())),
         "created_date_shape": dict(
             Counter(_date_shape(row.get("_createdDate")) for row in rows)
@@ -132,9 +138,10 @@ async def _newest(
     return rows
 
 
-async def _created_since(
-    client: Ebi24Client, value: str, schema_total: int
-) -> dict[str, Any]:
+async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]:
+    """Filtr z dokładnością do dnia; odmowa jest wynikiem pomiaru, nie awarią."""
+
+    since = (business_today() - timedelta(days=DATE_FILTER_DAYS)).isoformat()
     criteria = {
         "_constructor": "AdvancedCriteria",
         "operator": "and",
@@ -147,7 +154,7 @@ async def _created_since(
             {
                 "fieldName": "_createdDate",
                 "operator": "greaterOrEqual",
-                "value": value,
+                "value": since,
             },
         ],
     }
@@ -156,22 +163,12 @@ async def _created_since(
     except Ebi24ApiError as error:
         if error.category != "rejected":
             raise
-        return {"accepted": False}
+        return {"days": DATE_FILTER_DAYS, "accepted": False}
     return {
+        "days": DATE_FILTER_DAYS,
         "accepted": True,
         "total": page.total,
         "narrowed": page.total < schema_total,
-    }
-
-
-async def _date_filter(client: Ebi24Client, schema_total: int) -> dict[str, Any]:
-    """Która forma wartości działa: odmowa jest wynikiem pomiaru, nie awarią."""
-
-    since = (business_today() - timedelta(days=DATE_FILTER_DAYS)).isoformat()
-    return {
-        "days": DATE_FILTER_DAYS,
-        "date": await _created_since(client, since, schema_total),
-        "datetime": await _created_since(client, f"{since}T00:00:00.000", schema_total),
     }
 
 
@@ -208,8 +205,49 @@ async def _xml_sample(
     return counts
 
 
+def _is_positive(value: object) -> bool:
+    return isinstance(value, int) and value > 0
+
+
+async def _payment_sample(
+    client: Ebi24Client, rows: Iterable[dict[str, Any]], limit: int
+) -> dict[str, int]:
+    """Pola płatności z danych dokumentu: po połowie opłaconych i nieopłaconych."""
+
+    readable = [row for row in rows if isinstance(row.get("_id"), str)]
+    paid = [row for row in readable if row.get("paid") is True]
+    unpaid = [row for row in readable if row.get("paid") is not True]
+    half = limit // 2
+    picked = (
+        paid[: max(half, limit - len(unpaid))]
+        + unpaid[: max(limit - half, limit - len(paid))]
+    )
+    counts = {
+        "read": 0,
+        "with_paid_amount": 0,
+        "with_remaining_amount": 0,
+        "partial": 0,
+        "unreadable": 0,
+    }
+    for row in picked:
+        try:
+            document = await client.get_document(row["_id"])
+        except Ebi24ApiError as error:
+            if error.category not in ("rejected", "not_found", "invalid_response"):
+                raise
+            counts["unreadable"] += 1
+            continue
+        paid_amount = document.get("paidAmount")
+        remaining = document.get("remainingAmount")
+        counts["read"] += 1
+        counts["with_paid_amount"] += paid_amount is not None
+        counts["with_remaining_amount"] += remaining is not None
+        counts["partial"] += _is_positive(paid_amount) and _is_positive(remaining)
+    return counts
+
+
 async def probe(
-    client: Ebi24Client, *, max_rows: int, xml_sample: int
+    client: Ebi24Client, *, max_rows: int, xml_sample: int, payment_sample: int
 ) -> dict[str, Any]:
     totals = {}
     for schema in SCHEMAS:
@@ -219,21 +257,29 @@ async def probe(
         totals[schema] = page.total
     newest = {}
     samples = {}
+    payments = {}
     for schema in INVOICE_SCHEMAS:
         rows = await _newest(client, schema, max_rows)
         newest[schema] = summarize(rows)
         samples[schema] = await _xml_sample(client, schema, rows, xml_sample)
+        payments[schema] = await _payment_sample(client, rows, payment_sample)
     return {
         "totals": totals,
         "newest": newest,
         "xml_sample": samples,
+        "payment_sample": payments,
         "date_filter": await _date_filter(client, totals["INCOME_INVOICE"]),
     }
 
 
-async def _run(max_rows: int, xml_sample: int) -> dict[str, Any]:
+async def _run(max_rows: int, xml_sample: int, payment_sample: int) -> dict[str, Any]:
     async with Ebi24Client(load_config()) as client:
-        return await probe(client, max_rows=max_rows, xml_sample=xml_sample)
+        return await probe(
+            client,
+            max_rows=max_rows,
+            xml_sample=xml_sample,
+            payment_sample=payment_sample,
+        )
 
 
 def _print(payload: dict[str, Any]) -> None:
@@ -244,13 +290,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--max-rows", type=int, default=1000)
     parser.add_argument("--xml-sample", type=int, default=5)
+    parser.add_argument("--payment-sample", type=int, default=10)
     args = parser.parse_args(argv)
     config = load_config()
     if not config.enabled:
         _print({"error": config.disabled_reason})
         return EXIT_DISABLED
     try:
-        _print(asyncio.run(_run(args.max_rows, args.xml_sample)))
+        _print(asyncio.run(_run(args.max_rows, args.xml_sample, args.payment_sample)))
     except Ebi24ApiError as error:
         _print(
             {

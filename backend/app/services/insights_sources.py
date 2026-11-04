@@ -99,22 +99,25 @@ _PORTAL_EVENTS = """
 
 # `max`, nie `min`: osoba zweryfikowana rok temu w innej rekrutacji i znowu po tym
 # zgłoszeniu ma się liczyć, a pierwsze wejście każdej pary jest osobnym wierszem.
+# `MATERIALIZED` i `ANY(ARRAY(...))`: planer nie umie oszacować `f`. 04.11.2026 produkcja
+# zakładała 1 wiersz zamiast ok. 5700 i dla każdego liczyła od nowa cały widok etapów,
+# więc zapytanie przekraczało 30 s. Tak etapy liczą się raz i tylko dla osób z `f`.
 _PORTAL_FLAGS = f"""
-    reached AS (
+    reached AS MATERIALIZED (
         SELECT m.candidate_id,
                max(m.first_reached_at) FILTER (WHERE m.stage::text = 'verified') AS verified_at,
                max(m.first_reached_at) FILTER (WHERE m.stage::text = 'cv_sent') AS cv_sent_at,
                max(m.first_reached_at) FILTER (WHERE m.stage::text = 'hired') AS hired_at
         FROM analytics_first_milestones m
         WHERE m.stage::text IN ('verified', 'cv_sent', 'hired')
-          AND m.candidate_id IN (SELECT candidate_id FROM f)
+          AND m.candidate_id = ANY(ARRAY(SELECT DISTINCT candidate_id FROM f))
         GROUP BY m.candidate_id
     ),
-    moved AS (
+    moved AS MATERIALIZED (
         SELECT cs.candidate_id, max(cs.moved_at) AS last_moved
         FROM candidate_stages cs
         WHERE cs.stage::text <> 'posting'
-          AND cs.candidate_id IN (SELECT candidate_id FROM f)
+          AND cs.candidate_id = ANY(ARRAY(SELECT DISTINCT candidate_id FROM f))
         GROUP BY cs.candidate_id
     ),
     flags AS (

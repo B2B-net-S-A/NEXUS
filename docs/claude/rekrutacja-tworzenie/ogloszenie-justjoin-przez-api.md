@@ -14,10 +14,10 @@ Kod: `POST /api/jobs/{id}/portal-ad/jjit` (`api/job_ads.py`),
 front `components/v2/job-ad/JjitPublishDialog.tsx`, karta w `AdPublications`
 (`jjitActions`, `state.jjit_api`).
 
-- **Działa dopiero przy `PORTAL_JJIT_ENABLED`.** Flaga wyłączona: `jjit_api` = `null`
-  i okno jest takie jak było. Włącza Artur przez „Coolify set env”; decyzja z 19.10.2026
-  wiąże to z logiem w profilu firmy (bez niego portal odmawia 422
-  `hiring.company.logo.required`, a odmowa wraca na kartę).
+- **Działa dopiero przy `PORTAL_JJIT_ENABLED`, włączonej na polecenie Artura 04.11.2026.**
+  Flaga wyłączona: `jjit_api` = `null` i okno jest takie jak było. Zmienia ją tylko
+  „Coolify set env”. Bez logo w profilu firmy portal odmawia 422
+  `hiring.company.logo.required`, a odmowa wraca na kartę.
 - **Na portal idzie zakładka JustJoin.IT, nie opis publiczny.** `portal_content.prepare`
   liczy ten sam render i tę samą kontrolę co odpowiedź okna, w chwili wysyłki. Znalezisko
   blokujące po kliknięciu = odmowa workera, nic nie wychodzi. Rozjazd treści między
@@ -45,5 +45,5 @@ front `components/v2/job-ad/JjitPublishDialog.tsx`, karta w `AdPublications`
 - **Link z portalu przechodzi `clean_url`.** Adres spoza domeny portalu nie trafia na listę
   rekrutacji jako odnośnik; ogłoszenie zostaje oznaczone bez linku.
 - **Bez migracji.** Kolejka to `job_postings`, stan to `job_ad_publications`.
-- **Niepotwierdzone na prawdziwym API:** `body` z `<ol>` (etapy procesu; dotąd wysyłaliśmy
-  tylko `h3`, `p`, `ul`). Przed włączeniem flagi: pełny cykl na sandboxie dostawcy.
+- **Niepotwierdzone na prawdziwym API:** `body` z `<ol>` (etapy procesu; na sandboxie
+  29.09.2026 wysyłaliśmy tylko `h3`, `p`, `ul`). Pierwsza publikacja na produkcji to pokaże.

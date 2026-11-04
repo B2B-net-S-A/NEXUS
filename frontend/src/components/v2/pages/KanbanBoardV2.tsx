@@ -4561,6 +4561,7 @@ headerAction={
  jobId={jobId}
  onOpenQc={() => setQcStageId(dockItem.id)}
  onTake={readOnly ? undefined : () => void takeCandidate(dockItem)}
+ taking={takingIds.has(dockItem.id)}
  clientId={clientId ?? null}
  currentStageLabel={dockItemColLabel}
  jobTitle={jobTitle}
