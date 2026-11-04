@@ -694,7 +694,7 @@ class _CvTextPhaseResult:
     CELOWO ``errors = 0``: nieudany plik dostaje znacznik w
     ``cv_extracted_data._cv_text_extraction`` i wraca po odroczeniu
     (``download_failed``/``no_file``/``error`` — runda 6 audytu) albo zostaje opisany jako beznadziejny
-    (``junk``/``legacy_doc``) — nic tu nie wymaga wstrzymywania watermarku, a
+    (``junk``/``empty``) — nic tu nie wymaga wstrzymywania watermarku, a
     wstrzymany watermark i tak niczego by w tej fazie nie ponowił.
     """
 
@@ -1162,7 +1162,6 @@ def _summarize(progress_dict: dict[str, Any]) -> dict[str, Any]:
         "empty",
         "no_improvement",
         "junk",
-        "legacy_doc",
         "unsupported_format",
         "no_file",
         "download_failed",

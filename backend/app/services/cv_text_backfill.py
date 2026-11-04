@@ -48,27 +48,26 @@ logger = logging.getLogger("cv_text_backfill")
 # those rows were invisible to every previous run and would stay invisible.
 MIN_USEFUL_TEXT_CHARS = 200
 
-# Extensions we can actually read. `.doc` is deliberately absent: the image ships
-# neither libreoffice nor antiword, so python-docx raises on binary OLE2 every
-# time. Since 2026-09-22 a real OLE2 file is recognised by its bytes, not its
-# name (see `extract_one`); the name only picks the temp-file suffix.
-_READABLE_EXTENSIONS = (".pdf", ".docx", ".txt")
-_KNOWN_EXTENSIONS = _READABLE_EXTENSIONS + (".doc",)
+# Rozszerzenie z nazwy wybiera tylko sufiks pliku tymczasowego; format czytamy
+# z bajtów (`sniff_extension`, od 22.09.2026).
+_KNOWN_EXTENSIONS = (".pdf", ".docx", ".txt", ".doc")
 
 _EXTRACTION_MARKER_KEY = "_cv_text_extraction"
 # Outcomes that will not change on a retry. Rows carrying one of these are
 # skipped, so a rerun spends its time on the unknowns instead of re-burning OCR
 # on the same corrupt PDFs. `error` and `download_failed` are NOT terminal —
-# those are worth another attempt.
+# those are worth another attempt. `legacy_doc` też już nie: oznaczał binarny Word,
+# którego nie było czym czytać, a od #2979 czyta go LibreOffice. Wiersze z tym
+# starym znacznikiem wracają więc do zakresu.
 _TERMINAL_OUTCOMES = frozenset(
-    {"legacy_doc", "unsupported_format", "junk", "empty", "no_improvement"}
+    {"unsupported_format", "junk", "empty", "no_improvement"}
 )
 # Outcomes that could have been WRONG before the extractor read the format from
 # the file's bytes (2026-09-22): 3 320 PDFs named `*.docx` were marked `empty`,
 # and a PDF named `*.odt` was `unsupported_format`. A marker of one of these
 # classes WITHOUT the `sniffed` flag gets one more attempt; the new marker
 # carries the flag, so the retry happens exactly once.
-_SNIFF_RETRY_OUTCOMES = frozenset({"empty", "unsupported_format", "legacy_doc"})
+_SNIFF_RETRY_OUTCOMES = frozenset({"empty", "unsupported_format"})
 _SNIFFED_FLAG = "sniffed"
 # Znacznik wiersza, którego tekst po ponownym odczycie nadal jest sklejony —
 # zakres „glued” go pomija, więc kolejne noce nie czytają go w kółko. Nie jest
@@ -104,7 +103,6 @@ class BackfillStats:
     # the exact conflation this taxonomy exists to prevent.
     no_improvement: int = 0
     junk: int = 0
-    legacy_doc: int = 0
     unsupported_format: int = 0
     no_file: int = 0
     download_failed: int = 0
@@ -183,9 +181,6 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
         path = tmp.name
     try:
         sniffed = sniff_extension(path)
-        if sniffed == ".doc" or (ext == ".doc" and sniffed is None):
-            # Binary OLE2 Word: the image has neither libreoffice nor antiword.
-            return ExtractionResult("legacy_doc")
         text = extract_text(path, filename or os.path.basename(storage_key))
     except UnsupportedCvFormat:
         return ExtractionResult("unsupported_format")
@@ -204,6 +199,11 @@ def extract_one(storage_key: str, filename: str | None) -> ExtractionResult:
         return ExtractionResult("junk")
     cleaned = sanitize(text).strip()
     if not cleaned:
+        # Word bez tekstu to jeszcze nie wyrok: `extract_text` oddaje "" także wtedy,
+        # gdy LibreOffice'a nie ma, był zajęty albo padł. RTF i HTML pod nazwą `.doc`
+        # (`sniffed` None) do LibreOffice'a celowo nie idą, więc dla nich jest końcowy.
+        if sniffed in (".doc", ".docx"):
+            return ExtractionResult("error")
         return ExtractionResult("empty")
     return ExtractionResult("extracted", cleaned)
 
