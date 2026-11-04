@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/scoring/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/candidates/{candidate_id}/scoring/{job_id}/feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidates/{candidate_id}/scoring/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/candidates/{candidate_id}/scoring/{job_id}/feedback": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

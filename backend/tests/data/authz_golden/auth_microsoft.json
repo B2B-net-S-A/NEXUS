@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

@@ -1251,3 +1251,173 @@ def test_role_order_has_a_ceiling_for_huge_inputs():
 
     texts = [f"{2000 + n % 20} – {2001 + n % 20}" for n in range(ROLES_MAX + 1)]
     assert newest_first(texts) is None
+
+
+# ── Numery w „Dlaczego nasz kandydat” i kategoria „Must-have” (04.11.2026) ──
+
+
+def _normalized(**fields):
+    return legacy._normalize_candidate_data(
+        {"name": "Jan Testowy", **fields}, fallback_name=None
+    )
+
+
+@pytest.mark.parametrize(
+    "points,expected",
+    [
+        (
+            ["1. Ponad 5 lat w konsultingu", "2) Certyfikat CISA", "3. Warsztaty"],
+            ["Ponad 5 lat w konsultingu", "Certyfikat CISA", "Warsztaty"],
+        ),
+        (["- 3.5 roku z Javą", "• Audyty NIST"], ["3.5 roku z Javą", "Audyty NIST"]),
+        (["• 1. Audyty NIST"], ["Audyty NIST"]),
+    ],
+)
+def test_why_points_lose_list_markers_the_template_adds_itself(points, expected):
+    assert _normalized(why_points=points)["why_points"] == expected
+
+
+@pytest.mark.parametrize(
+    "point",
+    [
+        "5 lat jako administrator",
+        "3.5 roku z Javą",
+        "2.5+ years of Go",
+        "10.000 transakcji na sekundę",
+    ],
+)
+def test_why_points_keep_a_number_that_is_a_fact(point):
+    assert _normalized(why_points=[point])["why_points"] == [point]
+
+
+def test_why_points_keep_a_number_that_does_not_follow_the_position():
+    points = ["Ponad 5 lat w konsultingu", "5. miejsce w hackathonie banku"]
+    assert _normalized(why_points=points)["why_points"] == points
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_why_points_example_has_no_numbering(language):
+    schema = legacy_prompt(language, False, "tailored").split('"education"')[0]
+    assert not re.search(r'"\d+\. ', schema)
+
+
+def _skills(*pairs):
+    return {"skills": [{"label": lab, "content": txt} for lab, txt in pairs]}
+
+
+def test_must_have_category_repeating_the_rest_disappears():
+    data = _skills(
+        (
+            "Must-have (zgodne z wymaganiami):",
+            ".NET, C#, React, Microsoft SQL Server (MSSQL), Azure Cosmos DB",
+        ),
+        ("Języki programowania:", "C#, JavaScript, TypeScript"),
+        ("Technologie .NET i backend:", ".NET 4.8, ASP.NET MVC"),
+        ("Frontend:", "React, Vue"),
+        ("Bazy danych:", "MSSQL, Azure Cosmos DB"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert [c["label"] for c in data["skills"]] == [
+        "Języki programowania:",
+        "Technologie .NET i backend:",
+        "Frontend:",
+        "Bazy danych:",
+    ]
+
+
+@pytest.mark.parametrize(
+    "language,label", [("pl", "Kluczowe technologie:"), ("en", "Key technologies:")]
+)
+def test_must_have_category_keeps_what_stands_nowhere_else(language, label):
+    data = _skills(
+        ("Must-have:", "C#, RabbitMQ, MassTransit"),
+        ("Języki programowania:", "C#"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, language) is True
+    assert data["skills"] == [
+        {"label": label, "content": "RabbitMQ, MassTransit"},
+        {"label": "Języki programowania:", "content": "C#"},
+    ]
+
+
+def test_must_have_and_nice_to_have_share_one_neutral_category():
+    data = _skills(
+        ("Must-have:", "Kafka, Docker"),
+        ("Nice-to-have:", "Docker, Terraform"),
+        ("Języki:", "Go"),
+    )
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert data["skills"] == [
+        {"label": "Kluczowe technologie:", "content": "Kafka, Docker, Terraform"},
+        {"label": "Języki:", "content": "Go"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Must-have technologies:",
+        "Wymagania klienta (posiadane):",
+        "Wymagania:",
+        "Key requirements:",
+    ],
+)
+def test_label_with_nothing_but_requirement_words_is_a_requirement_category(label):
+    data = _skills((label, "Kafka"), ("Kolejki:", "Kafka"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is True
+    assert data["skills"] == [{"label": "Kolejki:", "content": "Kafka"}]
+
+
+def test_plain_technologies_label_stays():
+    data = _skills(("Technologie:", "Kafka"), ("Umiejętności:", "Docker"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is False
+
+
+def test_generation_returns_points_and_skills_without_the_reported_defects(defaults):
+    defaults["response"] = _ai_json(
+        why_points=["1. Budowa API w Pythonie", "2. Praca z PostgreSQL"],
+        skills=[
+            {"label": "Must-have (zgodne z wymaganiami):", "content": "Python"},
+            {"label": "Języki programowania:", "content": "Python"},
+        ],
+    )
+    payload = _run("tailored", champion=_champion()).render_payload
+    assert payload["why_points"] == ["Budowa API w Pythonie", "Praca z PostgreSQL"]
+    assert [c["label"] for c in payload["skills"]] == ["Języki programowania:"]
+
+
+def test_java_is_not_treated_as_covered_by_javascript():
+    data = _skills(("Must-have:", "Java"), ("Języki:", "JavaScript"))
+    legacy.clean_requirement_skill_labels(data, "pl")
+    assert data["skills"][0]["content"] == "Java"
+
+
+def test_only_the_requirement_word_leaves_a_label_with_a_real_area():
+    data = _skills(("Must-have / Analytical tools:", "Power BI, Tableau"))
+    assert legacy.clean_requirement_skill_labels(data, "en") is True
+    assert data["skills"] == [
+        {"label": "Analytical tools:", "content": "Power BI, Tableau"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Analiza wymagań:",
+        "Requirements engineering:",
+        "Zarządzanie wymaganiami:",
+        "Języki programowania:",
+    ],
+)
+def test_a_real_area_about_requirements_stays(label):
+    data = _skills((label, "Jira, Confluence"))
+    assert legacy.clean_requirement_skill_labels(data, "pl") is False
+    assert data["skills"] == [{"label": label, "content": "Jira, Confluence"}]
+
+
+@pytest.mark.parametrize("language", ["pl", "en"])
+def test_prompt_forbids_requirement_words_in_skill_labels(language):
+    prompt = legacy_prompt(language, False, "tailored")
+    assert (
+        "NIE używaj w niej słów" if language == "pl" else "do NOT use the words"
+    ) in prompt

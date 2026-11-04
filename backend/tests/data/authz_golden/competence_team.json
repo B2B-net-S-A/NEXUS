@@ -26,15 +26,16 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/competence-team/rules/history": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "POST /api/competence-team/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
+  "DELETE /api/competence-team/assignments/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/competence-team": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/competence-team/rules/history": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PATCH /api/competence-team/people/{user_id}/allocation": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "POST /api/competence-team/rules/preview": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PUT /api/competence-team/assignments": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PUT /api/competence-team/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
  }
 }

@@ -19,9 +19,12 @@ cichym refaktorem:
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 _WORKFLOWS = Path(__file__).parents[2] / ".github" / "workflows"
@@ -286,7 +289,9 @@ def test_e2e_stack_job_runs_stack_scenarios_and_fails_on_skips() -> None:
     pre_merge_event = next(
         event for event in ("merge_group", "pull_request") if event in (_triggers(e2e))
     )
-    assert pre_merge_event in prod["if"], (
+    # Warunek zdarzeń stoi na jobie `e2e-account`, od którego zależy `playwright`.
+    assert prod["needs"] == "e2e-account"
+    assert pre_merge_event in e2e["jobs"]["e2e-account"]["if"], (
         "Bieg produkcyjny nie może chodzić w przebiegu weryfikującym kod przed "
         f"merge'em (zdarzenie {pre_merge_event!r})."
     )
@@ -475,13 +480,59 @@ def test_manifest_skip_switch_is_limited_to_the_e2e_stack() -> None:
 # ── Audyt 22.09.2026, runda 2 (OPS-N01..N08, REC-03, PROD-04) ─────────────
 
 
+@pytest.mark.parametrize(
+    ("event", "email", "password", "ready"),
+    [
+        ("schedule", "", "", "false"),
+        ("schedule", "konto@example.com", "", "false"),
+        ("workflow_dispatch", "", "", "false"),
+        ("schedule", "konto@example.com", "tajne", "true"),
+        # Włącznik włączony, sekretów brak: `playwright` ma pójść na czerwono.
+        ("workflow_run", "", "", "true"),
+    ],
+)
+def test_e2e_production_without_account_is_skipped_not_green(
+    tmp_path, event: str, email: str, password: str, ready: str
+) -> None:
+    """04.11.2026: nocny job był zielony przy 0 z 25 przypadków. Bez konta
+    `playwright` ma być `skipped`, czyli widoczny jako brak testu."""
+    account = _load("e2e.yml")["jobs"]["e2e-account"]
+    output, summary = tmp_path / "output", tmp_path / "summary"
+    result = subprocess.run(
+        ["bash", "-e", "-c", account["steps"][0]["run"]],
+        env={
+            "PATH": os.environ["PATH"],
+            "GITHUB_EVENT_NAME": event,
+            "GITHUB_OUTPUT": str(output),
+            "GITHUB_STEP_SUMMARY": str(summary),
+            "E2E_USER_EMAIL": email,
+            "E2E_USER_PASSWORD": password,
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"ready={ready}\n"
+    prod = _load("e2e.yml")["jobs"]["playwright"]
+    assert prod["if"] == "${{ needs.e2e-account.outputs.ready == 'true' }}"
+
+
+def test_e2e_production_run_with_zero_executed_cases_fails() -> None:
+    """Pominięty setup pomija wszystko, a Playwright kończy się wtedy kodem 0."""
+    steps = _load("e2e.yml")["jobs"]["playwright"]["steps"]
+    run = next(step["run"] for step in steps if step.get("name") == "Run tests")
+    assert 't.projectName === "prod-smoke" && t.status !== "skipped"' in run
+    assert '"${executed:-0}" -eq 0' in run
+    assert "[ \"$rc\" -ne 0 ] || rc=1" in run
+
+
 def test_e2e_stack_does_not_run_after_deploy() -> None:
     """OPS-N02: stack buduje się ze źródeł, nie z produkcji — bieg po Deploy
     powtarzał kolejkę merge'ów (757 min w 2 dni) i nie mówił nic o prod."""
     stack = _load("e2e.yml")["jobs"]["stack"]
     assert stack["if"] == "${{ github.event_name != 'workflow_run' }}"
-    prod = _load("e2e.yml")["jobs"]["playwright"]
-    assert "workflow_run" in prod["if"], "Po deployu biega `prod-smoke`."
+    account = _load("e2e.yml")["jobs"]["e2e-account"]
+    assert "workflow_run" in account["if"], "Po deployu biega `prod-smoke`."
 
 
 def test_ci_gate_frontend_typecheck_skips_steps_not_the_job_on_prs() -> None:

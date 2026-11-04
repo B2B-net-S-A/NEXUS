@@ -68,7 +68,7 @@ PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def test_screen_shows_seventeen_permissions_in_five_groups() -> None:
+def test_screen_shows_eighteen_permissions_in_five_groups() -> None:
     assert [permission.label for permission in catalog.PERMISSIONS] == [
         "Klienci, kontrakty i zamówienia: podgląd",
         "Klienci: dodawanie i edycja",
@@ -87,17 +87,18 @@ def test_screen_shows_seventeen_permissions_in_five_groups() -> None:
         "Sprzedaż: prowadzenie szans i kartoteki firm",
         "Raporty godzin: akceptacja całej firmy",
         "Wyniki firmy: podsumowania przychodu i marży",
+        "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
     ]
     assert [(group.label, len(group.permissions)) for group in catalog.GROUPS] == [
-        ("Klienci i kontrakty", 5),
+        ("Klienci i kontrakty", 6),
         ("Rekrutacje", 1),
         ("Pieniądze", 4),
         ("Ludzie", 5),
         ("Sprzedaż", 2),
     ]
-    assert sum(len(group.permissions) for group in catalog.GROUPS) == 17
+    assert sum(len(group.permissions) for group in catalog.GROUPS) == 18
     # Siatka przy starcie sprawdza ostatni zasiewany klucz — nowe na końcu.
-    assert catalog.SEEDED_KEYS[-1] == catalog.COMPANY_RESULTS
+    assert catalog.SEEDED_KEYS[-1] == catalog.CLIENT_CONTRACTS_VIEW
 
 
 def test_catalog_roles_are_exactly_the_application_roles() -> None:

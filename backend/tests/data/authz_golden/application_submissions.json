@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

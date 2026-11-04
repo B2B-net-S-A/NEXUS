@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/candidates/pins": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/candidates/pins": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/candidates/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

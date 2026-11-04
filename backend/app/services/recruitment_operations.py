@@ -12,7 +12,7 @@ up into the stage counts shown inside that request; they are not separate rows.
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Iterable, Sequence
 
@@ -296,7 +296,7 @@ def _record_from_mapping(row: object) -> _JobRecord:
 
 
 def _current_pipeline_subquery(
-    *, job_ids: Select | None = None, with_stage_row: bool = False
+    *, job_ids: Select | Sequence[int] | None = None, with_stage_row: bool = False
 ):
     columns = [
         _CURRENT_PIPELINE.c.candidate_id,
@@ -312,99 +312,75 @@ def _current_pipeline_subquery(
 
 
 @dataclass(frozen=True)
-class _SharedCandidateReadModels:
-    """Scoped aggregates for factual cross-process candidate sharing.
+class _SharedCandidateCounts:
+    """Factual cross-process candidate sharing inside one preset scope.
 
     A shared candidate has a current, non-terminal/non-hired stage in at least
-    two published jobs visible in the selected preset.  These read models do
-    not expose candidate identity and deliberately make no semantic-fit claim.
+    two published jobs visible in the selected preset.  These counts do not
+    expose candidate identity and deliberately make no semantic-fit claim.
     """
 
-    global_candidates: Subquery
-    global_memberships: Subquery
-    process_counts: Subquery
-    category_counts: Subquery
+    shared_candidates: int
+    processes_with_shared_candidates: int
+    by_job: dict[int, int]
+    # Kategoria (także „bez kategorii”) → (wspólni kandydaci, procesy z nimi).
+    by_category: dict[int | None, tuple[int, int]]
 
 
-def _shared_candidate_read_models(
-    scoped_jobs: Subquery,
-) -> _SharedCandidateReadModels:
-    latest = _current_pipeline_subquery(job_ids=select(scoped_jobs.c.job_id))
-    active_memberships = (
+def _scoped_jobs_statement(scope_filters: Sequence[object]) -> Select:
+    return (
         select(
-            latest.c.candidate_id,
-            latest.c.job_id,
-            scoped_jobs.c.competence_category_id,
+            Job.id.label("job_id"),
+            Job.competence_category_id.label("competence_category_id"),
+            Job.favorite_candidate_id.label("favorite_candidate_id"),
         )
-        .select_from(latest)
-        .join(scoped_jobs, scoped_jobs.c.job_id == latest.c.job_id)
-        .where(latest.c.stage.notin_(_OVERLAP_INACTIVE_STAGES))
-        .distinct()
-        .subquery()
+        .join(Client, Client.id == Job.client_id)
+        .where(*scope_filters)
     )
 
-    global_candidates = (
-        select(active_memberships.c.candidate_id)
-        .group_by(active_memberships.c.candidate_id)
-        .having(func.count(func.distinct(active_memberships.c.job_id)) > 1)
-        .subquery()
-    )
-    global_memberships = (
-        select(
-            active_memberships.c.candidate_id,
-            active_memberships.c.job_id,
-        )
-        .join(
-            global_candidates,
-            global_candidates.c.candidate_id == active_memberships.c.candidate_id,
-        )
-        .subquery()
-    )
-    process_counts = (
-        select(
-            global_memberships.c.job_id,
-            func.count(func.distinct(global_memberships.c.candidate_id)).label(
-                "shared_candidate_count"
-            ),
-        )
-        .group_by(global_memberships.c.job_id)
-        .subquery()
-    )
 
+def _shared_candidate_counts(
+    scoped_jobs: Iterable[object],
+    latest_rows: Iterable[_LatestStage],
+) -> _SharedCandidateCounts:
+    """Liczniki wspólnych kandydatów z już wczytanych wierszy, bez SQL-a.
+
+    Do 04.11.2026 były to zagnieżdżone podzapytania po widoku. `status`
+    i `work_state` są w pełni skorelowane, więc planista szacował 8 rekrutacji
+    zamiast 185 i powtarzał agregat dla każdego wiersza pętli: zapytanie dla
+    całej organizacji nie kończyło się w ciągu 425 s.
+    """
+    category_by_job = {row.job_id: row.competence_category_id for row in scoped_jobs}
+    jobs_by_candidate: dict[int, set[int]] = defaultdict(set)
+    for row in latest_rows:
+        if row.stage not in _OVERLAP_INACTIVE_STAGES:
+            jobs_by_candidate[row.candidate_id].add(row.job_id)
+
+    by_job: dict[int, int] = defaultdict(int)
+    candidates_by_category: dict[int | None, set[int]] = defaultdict(set)
+    jobs_by_category: dict[int | None, set[int]] = defaultdict(set)
+    shared_candidates = 0
     # Category cards describe where globally shared candidates are present.
     # The other process may belong to another category; requiring two jobs in
     # the same category would silently lose exactly those cross-category reuse
     # signals the operational view is meant to surface.
-    category_memberships = (
-        select(
-            active_memberships.c.competence_category_id,
-            active_memberships.c.candidate_id,
-            active_memberships.c.job_id,
-        )
-        .join(
-            global_candidates,
-            global_candidates.c.candidate_id == active_memberships.c.candidate_id,
-        )
-        .subquery()
-    )
-    category_counts = (
-        select(
-            category_memberships.c.competence_category_id,
-            func.count(func.distinct(category_memberships.c.candidate_id)).label(
-                "shared_candidates"
-            ),
-            func.count(func.distinct(category_memberships.c.job_id)).label(
-                "processes_with_shared_candidates"
-            ),
-        )
-        .group_by(category_memberships.c.competence_category_id)
-        .subquery()
-    )
-    return _SharedCandidateReadModels(
-        global_candidates=global_candidates,
-        global_memberships=global_memberships,
-        process_counts=process_counts,
-        category_counts=category_counts,
+    for candidate_id, job_ids in jobs_by_candidate.items():
+        if len(job_ids) < 2:
+            continue
+        shared_candidates += 1
+        for job_id in job_ids:
+            by_job[job_id] += 1
+            category_id = category_by_job[job_id]
+            candidates_by_category[category_id].add(candidate_id)
+            jobs_by_category[category_id].add(job_id)
+    return _SharedCandidateCounts(
+        shared_candidates=shared_candidates,
+        processes_with_shared_candidates=len(by_job),
+        by_job=dict(by_job),
+        by_category={
+            category_id: (len(candidates), len(jobs_by_category[category_id]))
+            for category_id, candidates in candidates_by_category.items()
+        },
     )
 
 
@@ -417,9 +393,9 @@ async def _load_latest_stages(
 ) -> list[_LatestStage]:
     if not job_ids:
         return []
-    latest = _current_pipeline_subquery(
-        job_ids=select(Job.id).where(Job.id.in_(job_ids)), with_stage_row=True
-    )
+    # Lista id, nie podzapytanie: warunek wchodzi wtedy do widoku i czytamy
+    # wiersze tych rekrutacji zamiast całej historii etapów.
+    latest = _current_pipeline_subquery(job_ids=list(job_ids), with_stage_row=True)
     result = await db.execute(
         _with_stage_def(
             latest,
@@ -723,27 +699,8 @@ async def list_recruitment_operations(
         category_id=category_id,
         mine_only=mine_only,
     )
-    scoped_jobs = (
-        select(
-            Job.id.label("job_id"),
-            Job.competence_category_id.label("competence_category_id"),
-            Job.favorite_candidate_id.label("favorite_candidate_id"),
-        )
-        .join(Client, Client.id == Job.client_id)
-        .where(*scope_filters)
-        .subquery()
-    )
-    shared = _shared_candidate_read_models(scoped_jobs)
-    summary_row = (
-        await db.execute(
-            select(
-                func.count(scoped_jobs.c.job_id).label("total"),
-                func.count(func.distinct(scoped_jobs.c.competence_category_id)).label(
-                    "category_total"
-                ),
-            )
-        )
-    ).one()
+    scoped_statement = _scoped_jobs_statement(scope_filters)
+    scoped_rows = (await db.execute(scoped_statement)).all()
     total = int(
         await db.scalar(
             select(func.count())
@@ -754,66 +711,30 @@ async def list_recruitment_operations(
         or 0
     )
 
-    all_job_ids = select(scoped_jobs.c.job_id)
-    latest_all = _current_pipeline_subquery(job_ids=all_job_ids)
-    pipeline_summary_row = (
-        await db.execute(
-            select(
-                func.count()
-                .filter(latest_all.c.stage.notin_(_OVERLAP_INACTIVE_STAGES))
-                .label("active_candidates"),
-                func.count()
-                .filter(
-                    latest_all.c.stage.notin_(_PROCESS_HIDDEN_STAGES),
-                    latest_all.c.candidate_id == scoped_jobs.c.favorite_candidate_id,
-                )
-                .label("active_favorites"),
-                select(func.count())
-                .select_from(shared.global_candidates)
-                .scalar_subquery()
-                .label("shared_candidates"),
-                select(func.count(func.distinct(shared.global_memberships.c.job_id)))
-                .select_from(shared.global_memberships)
-                .scalar_subquery()
-                .label("processes_with_shared_candidates"),
-            )
-            .select_from(latest_all)
-            .join(
-                scoped_jobs,
-                scoped_jobs.c.job_id == latest_all.c.job_id,
-            )
-        )
-    ).one()
-    active_candidates = int(pipeline_summary_row.active_candidates or 0)
-    active_favorites = int(pipeline_summary_row.active_favorites or 0)
-    shared_candidates = int(pipeline_summary_row.shared_candidates or 0)
-    processes_with_shared_candidates = int(
-        pipeline_summary_row.processes_with_shared_candidates or 0
+    # Filtry listy tylko zawężają zakres, więc ten odczyt obsługuje też stronę.
+    latest_rows = await _load_latest_stages(db, [row.job_id for row in scoped_rows])
+    shared = _shared_candidate_counts(scoped_rows, latest_rows)
+    favorite_by_job = {row.job_id: row.favorite_candidate_id for row in scoped_rows}
+    active_candidates = sum(
+        row.stage not in _OVERLAP_INACTIVE_STAGES for row in latest_rows
+    )
+    active_favorites = sum(
+        row.stage not in _PROCESS_HIDDEN_STAGES
+        and row.candidate_id == favorite_by_job.get(row.job_id)
+        for row in latest_rows
     )
 
+    scoped_jobs = scoped_statement.subquery()
     category_rows = (
         await db.execute(
             select(
                 scoped_jobs.c.competence_category_id,
                 CompetenceCategory.name_pl,
                 func.count(scoped_jobs.c.job_id).label("total"),
-                func.coalesce(
-                    func.max(shared.category_counts.c.shared_candidates), 0
-                ).label("shared_candidates"),
-                func.coalesce(
-                    func.max(shared.category_counts.c.processes_with_shared_candidates),
-                    0,
-                ).label("processes_with_shared_candidates"),
             )
             .outerjoin(
                 CompetenceCategory,
                 CompetenceCategory.id == scoped_jobs.c.competence_category_id,
-            )
-            .outerjoin(
-                shared.category_counts,
-                shared.category_counts.c.competence_category_id.is_not_distinct_from(
-                    scoped_jobs.c.competence_category_id
-                ),
             )
             .group_by(
                 scoped_jobs.c.competence_category_id,
@@ -829,44 +750,49 @@ async def list_recruitment_operations(
             id=row.competence_category_id,
             name=row.name_pl or "Bez kategorii",
             total=int(row.total),
-            shared_candidates=int(row.shared_candidates or 0),
-            processes_with_shared_candidates=int(
-                row.processes_with_shared_candidates or 0
-            ),
+            shared_candidates=shared.by_category.get(
+                row.competence_category_id, (0, 0)
+            )[0],
+            processes_with_shared_candidates=shared.by_category.get(
+                row.competence_category_id, (0, 0)
+            )[1],
         )
         for row in category_rows
     ]
 
     page_result = await db.execute(
         _job_rows_statement()
-        .add_columns(
-            func.coalesce(shared.process_counts.c.shared_candidate_count, 0).label(
-                "shared_candidate_count"
-            )
-        )
-        .outerjoin(
-            shared.process_counts,
-            shared.process_counts.c.job_id == Job.id,
-        )
         .where(*item_filters)
         .order_by(Job.deadline.asc().nullslast(), Job.created_at.desc(), Job.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )
-    job_rows = [_record_from_mapping(row) for row in page_result.all()]
-    processes = await _build_processes(db, job_rows)
+    job_rows = [
+        replace(
+            _record_from_mapping(row),
+            shared_candidate_count=shared.by_job.get(row.id, 0),
+        )
+        for row in page_result.all()
+    ]
+    processes = await _build_processes(db, job_rows, latest_rows=latest_rows)
     return RecruitmentOperationsListResponse(
         generated_at=datetime.now(timezone.utc),
         page=page,
         page_size=page_size,
         total=total,
         summary=RecruitmentOperationsSummary(
-            open_processes=int(summary_row.total or 0),
-            competence_categories=int(summary_row.category_total or 0),
+            open_processes=len(scoped_rows),
+            competence_categories=len(
+                {
+                    row.competence_category_id
+                    for row in scoped_rows
+                    if row.competence_category_id is not None
+                }
+            ),
             active_candidates=active_candidates,
-            processes_without_favorite=int(summary_row.total or 0) - active_favorites,
-            shared_candidates=shared_candidates,
-            processes_with_shared_candidates=processes_with_shared_candidates,
+            processes_without_favorite=len(scoped_rows) - active_favorites,
+            shared_candidates=shared.shared_candidates,
+            processes_with_shared_candidates=shared.processes_with_shared_candidates,
         ),
         categories=categories,
         items=processes,
@@ -881,29 +807,8 @@ async def _load_scoped_job_record(
     scope: _RecruitmentOperationsScope,
 ) -> _JobRecord:
     scope_filters = _job_filters(user, scope=scope)
-    scoped_jobs = (
-        select(
-            Job.id.label("job_id"),
-            Job.competence_category_id.label("competence_category_id"),
-            Job.favorite_candidate_id.label("favorite_candidate_id"),
-        )
-        .join(Client, Client.id == Job.client_id)
-        .where(*scope_filters)
-        .subquery()
-    )
-    shared = _shared_candidate_read_models(scoped_jobs)
     result = await db.execute(
-        _job_rows_statement()
-        .add_columns(
-            func.coalesce(shared.process_counts.c.shared_candidate_count, 0).label(
-                "shared_candidate_count"
-            )
-        )
-        .outerjoin(
-            shared.process_counts,
-            shared.process_counts.c.job_id == Job.id,
-        )
-        .where(Job.id == job_id, *scope_filters)
+        _job_rows_statement().where(Job.id == job_id, *scope_filters)
     )
     row = result.one_or_none()
     if row is None:
@@ -911,7 +816,13 @@ async def _load_scoped_job_record(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Opublikowana rekrutacja nie istnieje.",
         )
-    return _record_from_mapping(row)
+    scoped_rows = (await db.execute(_scoped_jobs_statement(scope_filters))).all()
+    latest_rows = await _load_latest_stages(db, [item.job_id for item in scoped_rows])
+    shared = _shared_candidate_counts(scoped_rows, latest_rows)
+    return replace(
+        _record_from_mapping(row),
+        shared_candidate_count=shared.by_job.get(job_id, 0),
+    )
 
 
 def _visible_similarity_status(

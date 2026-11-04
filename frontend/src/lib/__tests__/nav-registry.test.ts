@@ -106,7 +106,8 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
       // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
       // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
-      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "back-office", "finance"]],
+      // „Umowy klientów” (04.11.2026): tylko z uprawnienia, domyślnie admin.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "client-contracts", "care", "back-office", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
@@ -152,7 +153,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
     // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
     expect(groupsOf("admin")).toEqual([
       full[0],
-      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/client-contracts", "/finance"]],
       full[2],
     ]);
     for (const role of MENU_ROLES) {
@@ -198,6 +199,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/sales",
       "/clients",
       "/contracts",
+      "/client-contracts",
       "/finance",
       "/insights",
     ]);
@@ -414,6 +416,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       "/finance",
       // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
       "/sales",
+      // Umowy klientów (04.11.2026): bez sekcji produktu, uprawnienie admina.
+      "/client-contracts",
       ...SYSTEM,
     ],
     finance: [

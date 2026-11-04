@@ -21,7 +21,7 @@ import {
   type APIResponse,
 } from "@playwright/test";
 
-export const API_URL = process.env.E2E_API_URL || "https://api.nexus.dynaminds.pl";
+export const API_URL = process.env.E2E_API_URL || "https://api.nexus.b2bnetwork.pl";
 
 export type E2ERole = "admin" | "recruiter" | "delivery_lead" | "finance";
 

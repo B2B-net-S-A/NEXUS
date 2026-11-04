@@ -26,21 +26,27 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/b2b-generator/esign/mine": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/b2b-generator/esign/settings": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/b2b-generator/esign/{request_id}/withdraw": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/b2b-generator/generated/{generated_id}/esign/send": "PPPBPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/b2b-generator/esign/mine": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/b2b-generator/esign/settings": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/b2b-generator/esign/{request_id}/pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/b2b-generator/esign/{request_id}/signed-pdf": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/b2b-generator/generated/{generated_id}/esign": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/b2b-generator/generated/{generated_id}/esign/defaults": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/b2b-sign/{token}/pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/b2b-sign/{token}/signed-pdf": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/b2b-generator/esign/{request_id}/company-sign": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/b2b-generator/esign/{request_id}/extend": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/b2b-generator/esign/{request_id}/relink": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/b2b-generator/esign/{request_id}/take-over": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/b2b-generator/esign/{request_id}/withdraw": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/b2b-generator/generated/{generated_id}/esign/send": "PPPBPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/public/b2b-sign/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/b2b-sign/{token}/renewal": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/b2b-generator/esign/settings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

@@ -138,6 +138,12 @@ PERSONAS: tuple[Persona, ...] = (
     # Decyzja właściciela 02.11.2026: uprawnienie odebrane jednej osobie.
     # Na końcu listy — litery wzorca idą w kolejności person.
     Persona("finance-finance_module", UserRole.finance, revokes=("finance_module",)),
+    # Umowy klientów bez kwot (04.11.2026): Pracownik z samą listą i plikami.
+    Persona(
+        "employee+client_contracts_view",
+        UserRole.employee,
+        grants=("client_contracts_view",),
+    ),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

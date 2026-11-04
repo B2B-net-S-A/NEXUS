@@ -26,18 +26,19 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/my-people": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/my-people/team": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/my-people/team/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "DELETE /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/my-people": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/my-people/for-job/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/my-people/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "GET /api/my-people/team": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/my-people/team/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "POST /api/my-people/matches/seen": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/my-people/{candidate_id}/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/my-people/{candidate_id}/snooze": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

@@ -26,15 +26,16 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/autenti/contracts/{contract_id}/signatures": "PPDPDDDDPPPDDDDDDPPDDDDDDDP",
-  "GET /api/autenti/health": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "GET /api/autenti/signatures/{signature_id}": "PPDPDDDDPPPDDDDDDPPDDDDDDDP",
-  "POST /api/autenti/contracts/{contract_id}/send": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "POST /api/autenti/signatures/{signature_id}/remind": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "POST /api/autenti/signatures/{signature_id}/withdraw": "PPDPDDDDPPPDDPDDDDDDDDDDDDP",
-  "POST /api/autenti/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/autenti/contracts/{contract_id}/signatures": "PPDPDDDDPPPDDDDDDPPDDDDDDDPD",
+  "GET /api/autenti/health": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/autenti/signatures/{signature_id}": "PPDPDDDDPPPDDDDDDPPDDDDDDDPD",
+  "POST /api/autenti/contracts/{contract_id}/send": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "POST /api/autenti/signatures/{signature_id}/remind": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "POST /api/autenti/signatures/{signature_id}/withdraw": "PPDPDDDDPPPDDPDDDDDDDDDDDDPD",
+  "POST /api/autenti/webhook": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

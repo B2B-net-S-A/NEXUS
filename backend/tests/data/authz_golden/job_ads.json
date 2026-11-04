@@ -26,24 +26,25 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/job-ads/career-queue": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/job-ads/missing": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/jjit": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/pracuj-mail": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/portal-ad/remind": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "DELETE /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/job-ads/career-queue": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/job-ads/missing": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "GET /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/career": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/generate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/jjit": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/pracuj-mail": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/pracuj-mail/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/jobs/{job_id}/portal-ad/remind": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PUT /api/job-ads/fixed-blocks": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PUT /api/jobs/{job_id}/portal-ad": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PUT /api/jobs/{job_id}/portal-ad/publications/{portal}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "PUT /api/jobs/{job_id}/portal-ad/skips/{channel}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

@@ -55,6 +55,7 @@ from app.services.cv_generator_b2b.legacy_v7._helpers import (
     _fix_experience_years,
     _fix_scoped_years,
     _normalize_candidate_data,
+    clean_requirement_skill_labels,
     screening_text_without_questions,
     strip_unsupported_terms,
 )
@@ -101,7 +102,8 @@ PIPELINE_ID = "legacy_v7"
 # branża tylko ze źródła, nagłówek bez tłumaczenia.
 # 9 (15.10.2026): polska uczelnia w polskim CV ma polską nazwę.
 # 10 (02.11.2026): „obecnie” tylko, gdy oryginał tak mówi.
-PROMPT_VERSION = 10
+# 11 (04.11.2026): why_points bez numeracji, kategorie umiejętności bez „must-have”.
+PROMPT_VERSION = 11
 
 
 def build_generation_date_block(language: Language, today: date) -> str:
@@ -315,6 +317,10 @@ def run_legacy_generation(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    # Kategoria „Must-have” zdradza pisanie pod ogłoszenie i powtarza resztę
+    # umiejętności (04.11.2026).
+    if clean_requirement_skill_labels(candidate_data, language):
+        logger.info("[cv_b2b][%s] requirement skill labels cleaned", request_id)
     # Polska uczelnia w polskim CV po polsku także wtedy, gdy model przepisał
     # angielską nazwę ze źródła (15.10.2026).
     localize_education(candidate_data, language)

@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/fx": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
-  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/fx": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/fx/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/fx/refresh": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

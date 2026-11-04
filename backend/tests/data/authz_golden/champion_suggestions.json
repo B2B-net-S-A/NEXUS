@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "employee+client_contracts_view"
  ],
  "routes": {
-  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/champion-suggestions/{suggestion_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/champion-suggestions/{suggestion_id}/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/champion-suggestions/{suggestion_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
+  "POST /api/champion-suggestions/{suggestion_id}/reject": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
  }
 }

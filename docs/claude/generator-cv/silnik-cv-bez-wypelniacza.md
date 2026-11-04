@@ -295,6 +295,26 @@ wymagania w całym CV 109 → 110 na 175. Wymagania w opisach ról 76 → 70 (pl
 85): prompt tego nie podnosi, różnica mieści się w rozrzucie modelu. Od tego
 jest pytanie o rolę przy potwierdzeniu i przed generacją.
 
+## Numery w „Dlaczego nasz kandydat” i kategoria „Must-have” (04.11.2026)
+
+Zgłoszenia z zespołu: punkty „1. …”, „2. …” obok punktorów i pierwsza kategoria
+umiejętności „Must-have (zgodne z wymaganiami)”, która powtarza pozostałe. Prompt
+miał numerowane przykłady w schemacie `why_points`, a od #2876 kazał nazywać
+pierwsze kategorie „obszarami z wymagań klienta”. Na kopii produkcji z 03.11 numerów
+nie ma w żadnym z 3754 CV sprzed przełączenia generatora na Sola (#2965), „Must-have”
+i podobne etykiety są w 5.
+
+- **Prompt `legacy_v7` (wersja 11):** przykłady bez numerów, punkt bez znaków listy,
+  nazwa kategorii to obszar, bez słów „must-have”, „nice-to-have”, „wymagania”.
+- **`_strip_why_markers`** zdejmuje znak listy i numer zgodny z pozycją punktu. Zostają
+  „3.5 roku” i „5. miejsce w hackathonie” na innym miejscu niż piąte.
+- **`clean_requirement_skill_labels`:** kategoria z samą nazwą o wymaganiach znika, a
+  technologia, której nie ma w innych kategoriach (całe słowa, „Java” nie stoi
+  w „JavaScript”), zostaje pod „Kluczowe technologie”. „Must-have / Analytical tools”
+  traci samo słowo. „Analiza wymagań” to prawdziwy obszar i zostaje.
+- Kod v10 bez zmian: jego prompt nie ma numerów ani tej reguły. CV wygenerowane
+  wcześniej nie zmieniają się same.
+
 ## Daty stanowisk jak w oryginale (02.11.2026)
 
 Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.
