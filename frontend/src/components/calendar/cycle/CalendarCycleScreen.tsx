@@ -37,6 +37,7 @@ import { PlanPrepDialog } from "./PlanPrepDialog";
 import { PrecallDoneDialog } from "./Prep2Skip";
 import { PrepReviewDialog, type PrepReviewTab } from "./PrepReviewDialog";
 import { ReschedulePrepDialog } from "./ReschedulePrepDialog";
+import { RescheduleInterviewDialog } from "./RescheduleInterview";
 import { SlotDecisionDialog, SlotRequestDialog } from "./SlotDialogs";
 
 const VIEWS: { value: CycleView; label: string }[] = [
@@ -63,6 +64,7 @@ type Dialog =
       prepNo: 1 | 2;
       mode?: "late" | "edit" | "cancel";
     }
+  | { kind: "reschedule_interview"; pair: PairInfo; eventId: number }
   | { kind: "precall_done"; pair: PairInfo; skip: Prep2Skip }
   | null;
 
@@ -249,6 +251,9 @@ export function CalendarCycleScreen({
           prepNo: action.prepNo,
           mode: action.mode,
         });
+        break;
+      case "reschedule_interview":
+        setDialog({ kind: "reschedule_interview", pair: action.pair, eventId: action.eventId });
         break;
       case "precall_done":
         setDialog({ kind: "precall_done", pair: action.pair, skip: action.skip });
@@ -441,6 +446,14 @@ export function CalendarCycleScreen({
           prepNo={dialog.prepNo}
           mode={dialog.mode}
           interview={prepInterviewForPair(data, dialog.pair)}
+        />
+      ) : null}
+      {dialog?.kind === "reschedule_interview" ? (
+        <RescheduleInterviewDialog
+          open
+          onOpenChange={(o) => !o && setDialog(null)}
+          eventId={dialog.eventId}
+          pair={dialog.pair}
         />
       ) : null}
       <PrepReviewDialog

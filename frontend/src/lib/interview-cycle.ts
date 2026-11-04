@@ -817,6 +817,7 @@ export type CycleAction =
       /** Brak = „late” (prep po rozmowie u klienta); „edit”/„cancel” z wiersza prepu (17.10.2026). */
       mode?: "late" | "edit" | "cancel";
     }
+  | { type: "reschedule_interview"; pair: PairInfo; eventId: number }
   | { type: "open_event"; eventId: number }
   /** 0482: telefon przed rozmową bez Prepu 2 odbyty. */
   | { type: "precall_done"; pair: PairInfo; skip: Prep2Skip };

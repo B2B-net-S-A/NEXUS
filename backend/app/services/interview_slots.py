@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import or_, select, tuple_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduling import business_date, local_now
@@ -546,6 +546,20 @@ def mark_client_replied(req: ClientInterviewSlotRequest, *, user_id: int) -> Non
         req.client_replied_at = datetime.now(timezone.utc)
         req.client_replied_by = user_id
     req.client_reply_pending = False
+
+
+async def drop_client_reply_after_move(db: AsyncSession, event_id: int) -> None:
+    """Rozmowa przełożona: „Odpisz klientowi” podsuwałoby tekst ze starym
+    terminem, a o nowym DL i tak już z klientem pisze (zgłoszenie 04.11.2026).
+    ``client_replied_at`` zostaje puste — nikt tej odpowiedzi nie wysłał."""
+    await db.execute(
+        update(ClientInterviewSlotRequest)
+        .where(
+            ClientInterviewSlotRequest.event_id == event_id,
+            ClientInterviewSlotRequest.client_reply_pending.is_(True),
+        )
+        .values(client_reply_pending=False)
+    )
 
 
 async def change_confirmed_slot(

@@ -1,5 +1,25 @@
 [
   {
+    "id": "zmien-termin-rozmowy",
+    "title": "„Zmień termin” przy rozmowie u klienta",
+    "why": "Klient przełożył rozmowę? Zmieniasz jej termin wprost w panelu kandydata, tak jak prep. Prepy, telefon i debrief zostają przy tej rozmowie, a rekruter i Delivery Lead dostają powiadomienie.",
+    "tier": "dot",
+    "shipped_on": "2026-11-04",
+    "pr": 3030,
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Kalendarz → nazwisko na karcie → Prepy i rozmowy",
+    "href": "/calendar",
+    "section": "pipeline",
+    "dot_anchor": "calendar.interview.reschedule"
+  },
+  {
     "id": "pytania-klienta-w-notatkach",
     "title": "Pytania klienta i notatka po rozmowie są w Notatkach kandydata",
     "why": "Po odrzuceniu kandydat znika z kalendarza, a pytania klienta zostają na górze jego Notatek, z kopiowaniem. Niżej rozwiniesz pytania z innych rozmów w tej rekrutacji, przed prepem kolejnej osoby.",

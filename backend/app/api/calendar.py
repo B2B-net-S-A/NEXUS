@@ -59,6 +59,7 @@ from app.services.candidate_contact_hooks import (
     maybe_remove_calendar_handoff,
     maybe_sync_calendar_handoff,
 )
+from app.services import interview_slots
 from app.services import loop_heartbeat
 from app.services import screening_calls
 from app.services.calendar_all_day import normalize_all_day
@@ -771,6 +772,11 @@ async def update_event(
     await _notify_client_interview_patch(
         db, event, current_user, previous_start, previous_status
     )
+    if (
+        event.event_type == EventType.client_interview
+        and event.start_time != previous_start
+    ):
+        await interview_slots.drop_client_reply_after_move(db, event.id)
 
     current_handoff = (
         event.candidate_id,
@@ -810,6 +816,41 @@ async def update_event(
     await db.commit()
     await db.refresh(event)
     return await _event_response(db, event, current_user)
+
+
+async def move_client_interview(
+    db: AsyncSession,
+    event: CalendarEvent,
+    actor: User,
+    *,
+    start: datetime,
+    end: datetime,
+) -> None:
+    """Nowy termin rozmowy u klienta z panelu osoby (zgłoszenie 04.11.2026).
+
+    Kolejność jak w PATCH: najpierw Outlook, bo synchronizacja cofnęłaby zapis
+    tylko w NEXUSIE, a odmowa Grapha zostawia wydarzenie nietknięte.
+    """
+    previous_start = event.start_time
+    previous_status = event.status
+    changes = {"start_time": start, "end_time": end}
+    outlook_fields = _outlook_changed_fields(event, changes)
+    if outlook_fields:
+        await _push_outlook_changes(db, event, changes, outlook_fields)
+    event.start_time = start
+    event.end_time = end
+    event.reminder_sent_at = None
+    await _notify_client_interview_patch(
+        db, event, actor, previous_start, previous_status
+    )
+    await interview_slots.drop_client_reply_after_move(db, event.id)
+    record_calendar_audit(
+        db,
+        action=CALENDAR_EVENT_UPDATED,
+        user_id=actor.id,
+        event_id=event.id,
+        override=user_is_override(actor),
+    )
 
 
 def _upcoming(*starts: Optional[datetime]) -> bool:

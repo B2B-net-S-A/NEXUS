@@ -397,6 +397,23 @@ describe("CalendarCycleScreen", () => {
     expect(mocks.push).toHaveBeenCalledWith("/calendar?scope=jobs&view=week&event=44");
   });
 
+  it("„Szczegóły” znikają, gdy serwer mówi, że tej osobie wydarzenie się nie otworzy", async () => {
+    const original = mocks.get.getMockImplementation();
+    mocks.get.mockImplementation((url: string, ...rest: unknown[]) =>
+      url === "/api/interview-cycle/events/44"
+        ? Promise.resolve({
+            data: { id: 44, start: "2031-01-01T10:00:00Z", end: null, started: false, can_open_details: false },
+          })
+        : (original as (u: string, ...r: unknown[]) => unknown)(url, ...rest),
+    );
+    mocks.search = "scope=jobs&cycle=11-22";
+    renderScreen();
+    const panel = await screen.findByTestId("cycle-candidate-card");
+    await waitFor(() =>
+      expect(within(panel).queryByRole("button", { name: "Szczegóły" })).not.toBeInTheDocument(),
+    );
+  });
+
   it("bez kandydatów w cyklu jest komunikat, bez pustego panelu", async () => {
     mocks.get.mockImplementation((url: string) =>
       url === "/api/interview-cycle"

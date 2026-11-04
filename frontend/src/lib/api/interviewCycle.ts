@@ -61,6 +61,10 @@ export interface InterviewEventInfo {
   start: string;
   end: string | null;
   started: boolean;
+  /** „Zmień termin”: rozmowa przed nami i osoba z pary (decyduje serwer). */
+  can_reschedule?: boolean;
+  /** „Szczegóły” otwierają wydarzenie kalendarza, a to widzi tylko jego właściciel. */
+  can_open_details?: boolean;
 }
 
 export const interviewCycleApi = {
@@ -143,6 +147,14 @@ export const interviewCycleApi = {
     api
       .post<{ event_id: number; start: string; end: string | null }>(
         "/api/interview-cycle/client-interviews",
+        body,
+      )
+      .then((r) => r.data),
+  /** Klient przełożył rozmowę: nowy termin tego samego wydarzenia (04.11.2026). */
+  rescheduleInterview: (eventId: number, body: { start: string; duration_minutes: number }) =>
+    api
+      .post<{ event_id: number; start: string; end: string | null }>(
+        `/api/interview-cycle/events/${eventId}/reschedule`,
         body,
       )
       .then((r) => r.data),
