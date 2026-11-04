@@ -79,6 +79,31 @@ describe("ekrany błędów", () => {
     expect(screen.queryByRole("button", { name: "Ponów" })).toBeNull();
   });
 
+  it("zamknięta rekrutacja: powód to koniec rekrutacji, nie termin ważności", async () => {
+    renderPanel(
+      transportWith(
+        {},
+        {
+          fetchPanel: () =>
+            Promise.reject(
+              Object.assign(new Error("x"), {
+                response: { status: 410, data: { detail: "Ta rekrutacja jest już zamknięta." } },
+              }),
+            ),
+        },
+      ),
+    );
+    expect(await screen.findByText(/Ta rekrutacja jest już zakończona/)).toBeInTheDocument();
+    expect(screen.queryByText(/Minął termin/)).toBeNull();
+    expect(screen.queryByTestId("client-panel-matrix")).toBeNull();
+  });
+
+  it("wygasły link dalej mówi o terminie ważności", async () => {
+    renderPanel(transportWith({}, failingWith(410)));
+    expect(await screen.findByText(/Minął termin ważności linku/)).toBeInTheDocument();
+    expect(screen.queryByText(/zakończona/)).toBeNull();
+  });
+
   it("awaria serwera to nie „link nieaktualny” ani pusta lista; „Ponów” wczytuje panel", async () => {
     const good = fictionalPanelTransport();
     const fetchPanel = vi
