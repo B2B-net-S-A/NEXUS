@@ -1,5 +1,6 @@
 """Per-request correlation without trusting caller-supplied private values."""
 
+from dataclasses import dataclass
 from uuid import UUID, uuid4
 from contextvars import ContextVar
 import logging
@@ -10,6 +11,27 @@ import sentry_sdk
 
 correlation_ids: ContextVar[dict | None] = ContextVar(
     "request_correlation", default=None
+)
+
+
+@dataclass
+class RequestDbUsage:
+    """Zapytania jednego żądania. `seconds` obejmuje też kolejkę w pętli zdarzeń."""
+
+    statements: int = 0
+    seconds: float = 0.0
+
+    def finished(self, seconds: float) -> None:
+        self.statements += 1
+        self.seconds += seconds
+
+    def rounded_ms(self) -> float:
+        return round(self.seconds * 1000, 2)
+
+
+# Obiekt, nie liczby: zadania potomne dostają kopię kontekstu, ale ten sam licznik.
+request_db_usage: ContextVar[RequestDbUsage | None] = ContextVar(
+    "request_db_usage", default=None
 )
 
 
@@ -50,6 +72,8 @@ class RequestCorrelationMiddleware:
         correlation_token = correlation_ids.set(
             {"request_id": request_id, "operation_id": operation_id}
         )
+        db_usage = RequestDbUsage()
+        db_usage_token = request_db_usage.set(db_usage)
         with sentry_sdk.isolation_scope() as context:
             context.set_context(
                 "correlation", {"request_id": request_id, "operation_id": operation_id}
@@ -79,6 +103,7 @@ class RequestCorrelationMiddleware:
                 await self.app(scope, receive, send_correlated)
             finally:
                 correlation_ids.reset(correlation_token)
+                request_db_usage.reset(db_usage_token)
                 route = getattr(scope.get("route"), "path", "unmatched-route")
                 extra = {
                     "event_kind": "http_outcome",
@@ -86,6 +111,8 @@ class RequestCorrelationMiddleware:
                     "method": scope.get("method", "UNKNOWN"),
                     "status_code": status_code,
                     "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    "db_statements": db_usage.statements,
+                    "db_ms": db_usage.rounded_ms(),
                     "request_id": request_id,
                     "operation_id": operation_id,
                 }

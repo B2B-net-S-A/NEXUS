@@ -6,6 +6,10 @@ let compatible = false
 const USAGE_COUNTER_KEY = 'nexus_usage_counter'
 let usageCounter: boolean | undefined
 let probing: Promise<void> | undefined
+// Bez przerwy każde żądanie po nieudanej sondzie wysyłało następną: 04.11.2026
+// przy nasyconym backendzie 151 sond na 10 minut zamiast 7–14.
+const RETRY_AFTER_FAILURE_MS = 60_000
+let nextProbeAt = 0
 export function apiSupportsCorrelation(): boolean { return compatible }
 /** Licznik użycia obszarów włączony na API: wtedy (i tylko wtedy) wolno wysłać `X-Nexus-Screen`. */
 export function apiWantsUsageScreen(): boolean {
@@ -23,11 +27,12 @@ function rememberUsageCounter(value: boolean): void {
 
 export function probeTelemetryCapability(): Promise<void> {
   if (probing) return probing
+  if (Date.now() < nextProbeAt) return Promise.resolve()
   const base = process.env.NEXT_PUBLIC_API_URL || 'https://api.nexus.dynaminds.pl'
   probing = (async () => {
     try {
       // A simple request (no custom headers) works against both API versions.
-      const response = await fetch(`${base.replace(/\/$/, '')}/api/health`, {
+      const response = await fetch(`${base.replace(/\/$/, '')}/api/health/live`, {
         credentials: 'omit', signal: AbortSignal.timeout(5000),
       })
       compatible = response.ok && /^[a-f0-9-]{36}$/i.test(response.headers.get('x-request-id') ?? '')
@@ -36,7 +41,10 @@ export function probeTelemetryCapability(): Promise<void> {
       }
       rememberUsageCounter(compatible && (await response.json()).usageCounter === true)
     } catch { /* Errors still report; tracing waits for a compatible API. */ }
-    finally { probing = undefined }
+    finally {
+      if (!compatible) nextProbeAt = Date.now() + RETRY_AFTER_FAILURE_MS
+      probing = undefined
+    }
   })()
   return probing
 }

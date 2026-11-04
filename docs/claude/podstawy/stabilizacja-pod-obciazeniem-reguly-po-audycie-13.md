@@ -39,7 +39,23 @@ ustaliły reguły, które łatwo cofnąć „przy okazji”:
   opóźnienie pętli zdarzeń, szczyt wypożyczonych połączeń, czas wypożyczenia
   jednego połączenia. To dane do decyzji o puli i procesach (F06) — zanim
   zmienisz `pool_size`/`max_overflow`, spójrz na nie. Połączenia mają
-  `application_name=nexus-backend` w `pg_stat_activity`.
+  `application_name=nexus-backend` w `pg_stat_activity`. Od 04.11.2026 także
+  `gc_gen2_count`, `gc_gen2_ms_sum` i `gc_gen2_ms_max`.
+- **Wolna trasa to zwykle liczba zapytań razy kolejka w pętli, nie wolny SQL**
+  (pomiar 04.11.2026). Główny wątek płaci ok. 1,4 ms CPU za zapytanie; przy
+  220–346 zapytaniach/s to 30–47% rdzenia (zmierzone 32–49%), a baza zajmuje ok. 25%.
+  Kanban z 75 zapytaniami: 0,14 s na stagingu, 13,8 s w szczycie.
+  `idle in transaction` i pula 60/60 to głównie skutek tej kolejki. Pola
+  `db_statements` i `db_ms` w `http_outcome` mówią, ile zapytań zrobiła trasa
+  i ile na nie czekała (`db_ms` obejmuje kolejkę w pętli). Trasa z dziesiątkami
+  zapytań spowalnia też wszystkie inne.
+- **`freeze_startup_heap()` w lifespanie, przed pętlami w tle.** Ponad 1,3 mln
+  obiektów z importu nie wchodzi do pełnej zbiórki GC, która zatrzymuje cały
+  proces. Staging: 589 ms bez zamrożenia, 51 ms po nim. Nie usuwaj tego bez
+  porównania `gc_gen2_ms_max`.
+- **`pipeline_scores_stages` w logu** podaje czasy etapów `pipeline-scores`.
+  Trasa miała 04.11 p50 5,5–10,5 s przy spokojnym kanbanie, a przyczyna nie
+  była wtedy ustalona.
 - **Błąd ładowania chunka JS przeładowuje stronę raz** (`lib/chunk-reload.ts`,
   `ChunkReloadGuard` w layoucie + `app/error.tsx`) — stara karta po deployu.
 
