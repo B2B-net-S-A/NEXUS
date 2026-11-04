@@ -19,7 +19,9 @@ utknęło — bez zaglądania w logi.
 * ``admin_cases_mail`` — czytnik skrzynki: ostatni przebieg z błędem albo
   starszy niż 30 min (pętla co 5 min),
 * ``hr_jobs`` — rezerwacje ``hr_job_runs``: ``failed`` z ostatniej doby albo
-  ``claimed`` bez końca dłużej niż 2 h (przebieg zabity w połowie).
+  ``claimed`` bez końca dłużej niż 2 h, też z ostatniej doby (przebieg zabity
+  w połowie; rezerwacji z godzinowym kluczem nikt już nie przejmie i bez tej
+  granicy trzymałaby sondę w ``degraded`` na stałe).
 """
 
 from __future__ import annotations
@@ -145,6 +147,7 @@ async def hr_jobs_state(db: AsyncSession, *, now: Optional[datetime] = None) -> 
                     HrJobRun.status == "claimed",
                     HrJobRun.finished_at.is_(None),
                     HrJobRun.claimed_at < moment - JOBS_STUCK_AFTER,
+                    HrJobRun.claimed_at >= moment - JOBS_FAILED_WINDOW,
                 ),
             )
         )
