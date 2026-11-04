@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import { fetchAuthMethods, type AuthMethods } from "./helpers/session";
 
-const EMAIL = process.env.E2E_USER_EMAIL || "artur@b2bnet.pl";
+const EMAIL = process.env.E2E_USER_EMAIL || "e2e-admin@example.com";
 const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 
 test.describe("Authentication", () => {

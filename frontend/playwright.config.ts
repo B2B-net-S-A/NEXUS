@@ -7,9 +7,9 @@ import path from "path";
  * - `ci-chromium`: scenariusze oznaczone `@stack`, uruchamiane w CI na
  *   efemerycznym stacku z `docker-compose.e2e.yml`. Tylko tu wolno ZAPISYWAĆ
  *   dane — każdy scenariusz zakłada własne rekordy przez API.
- * - `prod-smoke`: wcześniejsze specy UI przeciw żywej instancji (domyślnie
- *   produkcja). Wyklucza `@stack` i `@writes`, żeby nocny bieg nie tworzył
- *   rekordów biznesowych na produkcji.
+ * - `prod-smoke`: specy UI przeciw żywej instancji (domyślnie produkcja), na
+ *   koncie z rolą `automation` (tylko odczyt). Wyklucza `@stack` i `@writes`, żeby
+ *   nocny bieg nie tworzył rekordów biznesowych na produkcji.
  * - `preview-chromium`: publiczne harnessy `/preview/*`, bez logowania.
  *
  * `setup` loguje się raz przez UI i zapisuje stan przeglądarki (token żyje
@@ -19,7 +19,7 @@ import path from "path";
  * API idą przez `e2e/helpers/api.ts` z nagłówkiem Bearer.
  */
 const AUTH_STATE = path.join(__dirname, "e2e", ".auth", "state.json");
-const BASE_URL = process.env.E2E_BASE_URL || "https://nexus.dynaminds.pl";
+const BASE_URL = process.env.E2E_BASE_URL || "https://nexus.b2bnetwork.pl";
 // Trace, wideo i zrzuty nagrywamy WYŁĄCZNIE przy lokalnym stacku (pusta baza CI).
 // Przeciw produkcji niosłyby token konta E2E z localStorage i odpowiedzi API
 // z danymi z bazy, a raport bywał wgrywany jako artefakt publicznego repo

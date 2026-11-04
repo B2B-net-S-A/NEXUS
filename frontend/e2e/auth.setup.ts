@@ -13,7 +13,7 @@ import path from "path";
 
 import { fetchAuthMethods, openSessionViaApi } from "./helpers/session";
 
-const EMAIL = process.env.E2E_USER_EMAIL || "artur@b2bnet.pl";
+const EMAIL = process.env.E2E_USER_EMAIL || "e2e-admin@example.com";
 const PASSWORD = process.env.E2E_USER_PASSWORD || "";
 
 export const AUTH_STATE_PATH = path.join(__dirname, ".auth", "state.json");
