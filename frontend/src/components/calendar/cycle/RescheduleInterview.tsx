@@ -47,6 +47,7 @@ export function InterviewRescheduleButton({
   return (
     <button
       type="button"
+      data-tour="calendar.interview.reschedule"
       onClick={onEdit}
       className={cn(
         "h-8 rounded-md border border-border bg-card px-2.5 text-xs font-semibold hover:bg-muted",
