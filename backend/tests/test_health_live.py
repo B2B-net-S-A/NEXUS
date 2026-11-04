@@ -41,7 +41,10 @@ async def test_live_answers_without_the_database(monkeypatch):
         response = await client.get("/api/health/live")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "alive", "version": "abc1234"}
+    body = response.json()
+    assert (body["status"], body["version"]) == ("alive", "abc1234")
+    # Sonda przeglądarki czyta tę flagę zamiast pełnego `/api/health`.
+    assert isinstance(body["usageCounter"], bool)
 
 
 async def test_live_needs_no_authentication():

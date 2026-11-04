@@ -20,7 +20,7 @@ from app.core.database import get_db
 from app.models.activity import Activity
 from app.models.candidate_document import CandidateDocument
 from app.models.client_panel import ClientPanelCandidate, ClientPanelRequest
-from app.models.job import Job
+from app.models.job import Job, JobStatus
 from app.models.user import User, UserRole
 from app.services import client_panel as panel_service
 from app.services import client_panel_evidence as evidence_service
@@ -123,6 +123,10 @@ async def update_job_panel(
     job = await _job_for(db, current_user, job_id)
     panel = await panel_service.get_or_create_panel(db, job_id, current_user.id)
     was_enabled = panel.enabled
+    if body.enabled and not was_enabled and job.status == JobStatus.closed:
+        raise HTTPException(
+            status_code=409, detail=panel_service.MSG_ENABLE_ON_CLOSED_JOB
+        )
     for field in ("show_rate", "show_other_candidates", "allow_actions"):
         value = getattr(body, field)
         if value is not None:

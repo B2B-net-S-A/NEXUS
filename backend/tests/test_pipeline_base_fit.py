@@ -139,3 +139,19 @@ async def test_failed_batch_does_not_drop_membership_or_fabricate_zero(monkeypat
     assert not result["counts"]["coverage_complete"]
     assert "private text" not in str(result)
     db.rollback.assert_awaited_once()
+
+
+async def test_stage_timings_go_to_the_log_as_numbers_only(caplog):
+    metrics = {
+        "stages": {
+            "batch": {"calls": 1, "total_ms": 12.345, "max_ms": 12.345},
+            "rerank": {"calls": 0, "total_ms": 0.0, "max_ms": 0.0},
+        }
+    }
+    with caplog.at_level("INFO"):
+        pipeline._log_stage_timings(7, 3, metrics)
+    record = next(
+        r for r in caplog.records if r.getMessage() == "pipeline_scores_stages"
+    )
+    assert (record.job_id, record.cards) == (7, 3)
+    assert record.stages == {"batch": {"calls": 1, "total_ms": 12.3, "max_ms": 12.3}}

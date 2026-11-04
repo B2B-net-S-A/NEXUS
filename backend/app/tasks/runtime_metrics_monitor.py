@@ -12,7 +12,11 @@ co ``INTERVAL_SECONDS`` loguje ``runtime_metrics`` (Alloy → Loki):
   (liczone zdarzeniami `checkout`/`checkin` puli);
 * ``pool_probe_checkout_ms`` — ile trwało wypożyczenie JEDNEGO połączenia na
   koniec okna (nic nie wykonuje). Kilka ms = pula ma zapas; setki ms albo
-  ``pool_probe_error`` = żądania czekają w kolejce puli.
+  ``pool_probe_error`` = żądania czekają w kolejce puli;
+* ``gc_gen2_count`` / ``gc_gen2_ms_sum`` / ``gc_gen2_ms_max`` — pełne sprzątanie
+  pamięci Pythona, które zatrzymuje cały proces. Pomiar 04.11.2026: 10 z 14
+  nieprzerwanych bloków CPU trwało 1,5–2 s, a to tej metryki brakowało, żeby
+  przypisać je wprost do GC.
 
 Wyłącznie liczby, bez treści zapytań i danych. Awaria pomiaru nigdy nie
 przerywa pętli.
@@ -21,8 +25,10 @@ przerywa pętli.
 from __future__ import annotations
 
 import asyncio
+import gc
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy import event
@@ -79,6 +85,50 @@ class LagWindow:
         }
 
 
+@dataclass
+class GcWindow:
+    """Czas pełnych zbiórek GC w bieżącym oknie (`gc.callbacks`)."""
+
+    count: int = 0
+    sum_ms: float = 0.0
+    max_ms: float = 0.0
+    clock: Callable[[], float] = time.perf_counter
+    _started: float | None = None
+
+    def callback(self, phase: str, info: dict[str, int]) -> None:
+        if info["generation"] != 2:
+            return
+        if phase == "start":
+            self._started = self.clock()
+        elif self._started is not None:
+            elapsed_ms = (self.clock() - self._started) * 1000
+            self._started = None
+            self.count += 1
+            self.sum_ms += elapsed_ms
+            self.max_ms = max(self.max_ms, elapsed_ms)
+
+    def take(self) -> dict[str, float | int]:
+        stats = {
+            "gc_gen2_count": self.count,
+            "gc_gen2_ms_sum": round(self.sum_ms, 1),
+            "gc_gen2_ms_max": round(self.max_ms, 1),
+        }
+        self.count, self.sum_ms, self.max_ms = 0, 0.0, 0.0
+        return stats
+
+
+def freeze_startup_heap() -> None:
+    """Wyjmij obiekty z importu i startu spod pełnego sprzątania pamięci.
+
+    Trasy, schematy i metadane to ponad 1,3 mln obiektów, które żyją do końca
+    procesu, a każda pełna zbiórka przechodzi je od nowa i zatrzymuje pętlę
+    zdarzeń. Staging 04.11.2026, ten sam ruch: pełna zbiórka 589 ms bez
+    zamrożenia, 51 ms po nim. Wołać przed startem pętli w tle.
+    """
+    gc.collect()
+    gc.freeze()
+
+
 def attach_pool_usage(engine: AsyncEngine) -> PoolUsage:
     usage = PoolUsage()
     sync_engine = engine.sync_engine
@@ -129,6 +179,8 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
         engine = default_engine
     usage = attach_pool_usage(engine)
     window = LagWindow()
+    gc_window = GcWindow()
+    gc.callbacks.append(gc_window.callback)
     loop = asyncio.get_running_loop()
     while True:
         try:
@@ -140,6 +192,7 @@ async def runtime_metrics_monitor_loop(engine: AsyncEngine | None = None) -> Non
                     "event_kind": "runtime_metrics",
                     "window_seconds": INTERVAL_SECONDS,
                     **window.take(),
+                    **gc_window.take(),
                     **pool_snapshot(engine),
                     "pool_in_use_max": usage.take_window_max(),
                     "pool_probe_checkout_ms": probe_ms,

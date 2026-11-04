@@ -68,7 +68,11 @@ _CLOSED_COLUMNS = {"closed", "hired"}
 
 MSG_NOT_FOUND = "Ten link nie istnieje albo został odwołany."
 MSG_EXPIRED = "Ten link wygasł. Poproś o nowy osobę prowadzącą rekrutację."
+# Ten tekst rozpoznaje ekran klienta (`panelFailureKind` w `ClientPanelApp.tsx`).
 MSG_JOB_CLOSED = "Ta rekrutacja jest już zamknięta."
+MSG_ENABLE_ON_CLOSED_JOB = (
+    "Ta rekrutacja jest zamknięta. Link by nie działał, więc panelu nie da się włączyć."
+)
 MSG_PERSON_NOT_FOUND = "Nie znaleziono tej osoby w panelu."
 MSG_CV_UNAVAILABLE = "CV tej osoby nie jest teraz dostępne w panelu."
 MSG_FILE_NOT_FOUND = "Nie znaleziono tego pliku."
@@ -957,6 +961,7 @@ async def admin_view(db: AsyncSession, job: Job) -> dict[str, Any]:
             )
         ) or 0
     return {
+        "job_closed": job.status == JobStatus.closed,
         "enabled": bool(panel and panel.enabled),
         "show_rate": panel.show_rate if panel else True,
         "show_other_candidates": panel.show_other_candidates if panel else True,
@@ -1025,6 +1030,9 @@ async def stamp_for_download(
         async with db.begin_nested():
             panel = await panel_for_job(db, job_id)
             if panel is None or not panel.enabled or is_expired(panel):
+                return docx
+            job = await db.get(Job, job_id)
+            if job is None or job.status == JobStatus.closed:
                 return docx
             token = current_token(panel)
             if token is None:

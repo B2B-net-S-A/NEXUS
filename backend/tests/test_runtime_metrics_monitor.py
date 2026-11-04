@@ -41,14 +41,63 @@ def test_lag_window_reports_p99_max_and_resets() -> None:
     for value in list(range(100)) + [-3]:
         window.add(float(value))
     stats = window.take()
-    assert stats == {"loop_lag_ms_p99": 98.0, "loop_lag_ms_max": 99.0, "loop_lag_samples": 101}
+    assert stats == {
+        "loop_lag_ms_p99": 98.0,
+        "loop_lag_ms_max": 99.0,
+        "loop_lag_samples": 101,
+    }
     assert window.take()["loop_lag_samples"] == 0
+
+
+def test_gc_window_times_only_full_collections_and_resets() -> None:
+    window = monitor.GcWindow()
+    clock = iter([10.0, 11.5, 20.0, 20.25])
+    window.clock = lambda: next(clock)
+    window.callback("start", {"generation": 1})  # gen1 nie zatrzymuje na sekundy
+    window.callback("stop", {"generation": 1})
+    for _ in range(2):
+        window.callback("start", {"generation": 2})
+        window.callback("stop", {"generation": 2})
+    assert window.take() == {
+        "gc_gen2_count": 2,
+        "gc_gen2_ms_sum": 1750.0,
+        "gc_gen2_ms_max": 1500.0,
+    }
+    assert window.take() == {
+        "gc_gen2_count": 0,
+        "gc_gen2_ms_sum": 0.0,
+        "gc_gen2_ms_max": 0.0,
+    }
+
+
+def test_gc_window_ignores_stop_without_start() -> None:
+    # Podpięcie w trakcie zbierania: pierwszy „stop” nie ma pary.
+    window = monitor.GcWindow()
+    window.callback("stop", {"generation": 2})
+    assert window.take()["gc_gen2_count"] == 0
+
+
+def test_freeze_startup_heap_collects_first_and_then_freezes(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(monitor.gc, "collect", lambda: calls.append("collect") or 0)
+    monkeypatch.setattr(monitor.gc, "freeze", lambda: calls.append("freeze"))
+    monitor.freeze_startup_heap()
+    assert calls == ["collect", "freeze"]
+
+
+def test_lifespan_freezes_heap_before_background_tasks() -> None:
+    source = (BACKEND / "app" / "main.py").read_text("utf-8")
+    assert source.index("freeze_startup_heap()") < source.index(
+        "def _start_background_tasks()"
+    )
 
 
 def test_pool_snapshot_reads_queue_pool_counters_and_tolerates_other_pools() -> None:
     engine = SimpleNamespace(
         sync_engine=SimpleNamespace(
-            pool=SimpleNamespace(size=lambda: 20, checkedout=lambda: 7, overflow=lambda: -13)
+            pool=SimpleNamespace(
+                size=lambda: 20, checkedout=lambda: 7, overflow=lambda: -13
+            )
         )
     )
     assert monitor.pool_snapshot(engine) == {
@@ -65,7 +114,9 @@ def test_pool_snapshot_reads_queue_pool_counters_and_tolerates_other_pools() -> 
 
 
 @pytest.mark.asyncio
-async def test_probe_checkout_reports_error_class_instead_of_raising(monkeypatch) -> None:
+async def test_probe_checkout_reports_error_class_instead_of_raising(
+    monkeypatch,
+) -> None:
     class _Broken:
         @asynccontextmanager
         async def connect(self):
@@ -99,7 +150,9 @@ async def test_probe_checkout_measures_milliseconds() -> None:
 
 def test_loop_is_registered_in_lifespan() -> None:
     main = (BACKEND / "app/main.py").read_text(encoding="utf-8")
-    assert '"runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop())' in main
+    assert (
+        '"runtime_metrics": asyncio.create_task(runtime_metrics_monitor_loop())' in main
+    )
 
 
 def test_connect_args_name_the_application_only_for_asyncpg() -> None:

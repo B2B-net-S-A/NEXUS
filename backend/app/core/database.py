@@ -1,4 +1,5 @@
 import json
+import time
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any, AsyncIterator
 
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase, ORMExecuteState, Session
 
 from app.core.config import settings
+from app.core.request_correlation import request_db_usage
 
 
 def _json_serializer(value: Any) -> str:
@@ -61,6 +63,31 @@ engine = create_async_engine(
     # które idą do logów i Sentry. SQL zostaje, wartości nie.
     hide_parameters=True,
 )
+
+
+def attach_request_db_usage(sync_engine: Any) -> None:
+    """Licznik zapytań żądania do `http_outcome`; poza żądaniem nic nie robi.
+
+    Pomiar 04.11.2026: główny wątek płaci ok. 1,4 ms CPU za zapytanie, a czas
+    trasy to ich liczba razy kolejka w pętli zdarzeń. Bez tej liczby na trasę
+    nie da się wskazać, gdzie zapytań jest za dużo.
+    """
+
+    def started(_conn, _cursor, _statement, _params, context, _executemany) -> None:
+        if request_db_usage.get() is not None:
+            context._nexus_started = time.perf_counter()
+
+    def finished(_conn, _cursor, _statement, _params, context, _executemany) -> None:
+        usage = request_db_usage.get()
+        began = getattr(context, "_nexus_started", None)
+        if usage is not None and began is not None:
+            usage.finished(time.perf_counter() - began)
+
+    event.listen(sync_engine, "before_cursor_execute", started)
+    event.listen(sync_engine, "after_cursor_execute", finished)
+
+
+attach_request_db_usage(engine.sync_engine)
 
 AsyncSessionLocal = async_sessionmaker(
     bind=engine,

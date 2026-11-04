@@ -189,9 +189,15 @@ function SetupTab({
           label="Panel włączony"
           hint="Link i kod QR w każdym CV tej rekrutacji"
           checked={settings.enabled}
-          disabled={update.isPending}
+          disabled={update.isPending || (settings.job_closed && !settings.enabled)}
           onChange={(value) => void setEnabled(value)}
         />
+        {settings.job_closed && settings.enabled ? (
+          <p className="mt-2 rounded-md bg-warning-muted px-2.5 py-1.5 text-xs text-warning-muted-foreground">
+            Ta rekrutacja jest zamknięta, więc link z CV teraz nie działa. Klient widzi informację
+            o zakończeniu rekrutacji.
+          </p>
+        ) : null}
         <Toggle
           label="Stawka do klienta"
           hint="Pokazuje stawkę do klienta. Oczekiwania kandydata nigdy nie wychodzą poza NEXUS."
@@ -263,8 +269,9 @@ function SetupTab({
           </div>
         ) : (
           <p className="mt-2.5 text-xs text-muted-foreground">
-            Link powstanie po włączeniu panelu i będzie ważny 60 dni. Do tego czasu klient niczego
-            nie widzi.
+            {settings.job_closed
+              ? "Ta rekrutacja jest zamknięta. Link by nie działał, więc panelu nie da się włączyć."
+              : "Link powstanie po włączeniu panelu i będzie ważny 60 dni. Do tego czasu klient niczego nie widzi."}
           </p>
         )}
       </section>
