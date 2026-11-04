@@ -19,6 +19,8 @@ import { currentYearMonth } from "@/components/hr/time/time-format";
 import { useAuthStore } from "@/store/auth";
 import { warsawToday } from "@/lib/warsaw-date";
 import { monthTitlePl, shiftMonth } from "@/lib/date-pl";
+import { HR_CAST, shiftDay } from "../hr-fixtures";
+import { olaRequests, personMonth } from "../hr-my-time/fixtures";
 import HrMyTimePreviewPage from "../hr-my-time/page";
 
 // Cała strona z prawdziwymi ekranami — na obciążonej maszynie 5 s nie wystarcza.
@@ -37,6 +39,7 @@ function open(search: string) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   attempts.mockClear();
   window.history.replaceState({}, "", "/");
   useAuthStore.setState({ user: null, realUser: null });
@@ -173,6 +176,27 @@ describe("/preview/hr-my-time", () => {
       }),
     ).toBeInTheDocument();
     expect(attempted()).toEqual([]);
+  });
+
+  it("Mój miesiąc w dniu urlopu z fikstury (4. dzień roboczy): dziś nadal ma przycisk i podpowiedź", async () => {
+    vi.useFakeTimers({ toFake: ["Date"], now: new Date("2026-11-05T09:00:00+01:00") });
+    const user = userEvent.setup();
+    open("?tab=month");
+
+    await user.click(await screen.findByRole("button", { name: "Dodaj wpis 2026-11-05" }));
+    const entry = await screen.findByRole("dialog");
+    expect(within(entry).getByRole("button", { name: "Wstaw opis z pracy w NEXUSIE" })).toBeEnabled();
+    expect(attempted()).toEqual([]);
+  });
+
+  it("fikstura przez dwa lata: dziś nie jest dniem urlopu, a wniosek wskazuje dzień z miesiąca", () => {
+    for (let today = "2026-01-01"; today < "2028-01-01"; today = shiftDay(today, 1)) {
+      const period = { year: Number(today.slice(0, 4)), month: Number(today.slice(5, 7)) };
+      const { days } = personMonth(HR_CAST.ola, period, today, "draft");
+      expect(days.find((day) => day.date === today)?.capacity, today).not.toBeNull();
+      const request = olaRequests(period, "uop", today).find((row) => row.id === "lv-ola-1");
+      expect(days.filter((day) => day.leave).map((day) => day.date), today).toEqual([request?.start_date]);
+    }
   });
 
   it("Urlopy (UoP): okolicznościowy z załącznikiem — pobranie, usunięcie, „Dołącz kolejny”", async () => {

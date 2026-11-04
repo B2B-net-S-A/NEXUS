@@ -203,14 +203,28 @@ function request(
 }
 
 /**
+ * Dzień urlopu w miesiącu: 4. dzień roboczy, a gdy to akurat „dziś”, dzień
+ * wcześniej. Dzień urlopu nie ma przycisku „Dodaj wpis”, a „dziś” w harnessie
+ * ma być bez wpisu i z podpowiedzią opisu.
+ */
+function leaveDayOf(month: string, today: string): string {
+  const workDays = harnessWorkDays(month);
+  return workDays[3] === today ? workDays[2] : workDays[3];
+}
+
+/**
  * Wnioski Oli: urlop w tym miesiącu (wpisany do „Mojego miesiąca”), zaplanowany
  * i odrzucony. Na B2B i zleceniu (etap 2, D5) to zgłoszenia: wchodzą od razu,
  * bez akceptującego; zaplanowane ma kolizję zgłoszoną przez koordynatorkę.
  */
-export function olaRequests(current: YearMonth, form: EmploymentType = "uop"): LeaveRequestRow[] {
+export function olaRequests(
+  current: YearMonth,
+  form: EmploymentType = "uop",
+  today: string = warsawToday(),
+): LeaveRequestRow[] {
   const month = isoMonth(current);
   const next = shiftMonth(month, 1);
-  const leaveDay = harnessWorkDays(month)[3];
+  const leaveDay = leaveDayOf(month, today);
   const nextDays = harnessWorkDays(next);
   const previous = harnessWorkDays(shiftMonth(month, -1));
   if (form !== "uop") {
@@ -454,7 +468,7 @@ export function personMonth(
   const approved = mode === "approved" || mode === "submitted";
   const month = isoMonth(period);
   const workDays = harnessWorkDays(month);
-  const leaveDay = workDays[3];
+  const leaveDay = leaveDayOf(month, today);
   const overtimeDay = workDays[4];
   const plannedRemote = workDays.find((day) => day > today) ?? null;
   let entryId = period.month * 1000;
