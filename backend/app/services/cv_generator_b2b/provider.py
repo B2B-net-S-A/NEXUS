@@ -223,6 +223,9 @@ def analyze_with_ai(
     if system:
         kwargs["system"] = system
         kwargs["cache_system"] = True
+        # 44% wywołań dzieli mniej niż 5 minut, a 96% mniej niż godzina (30 dni
+        # do 02.11.2026), więc 5-minutowy cache trafiał tylko w co trzecim.
+        kwargs["cache_system_ttl"] = "1h"
     if response_schema is not None:
         kwargs["output_config"] = {
             "format": {"type": "json_schema", "schema": response_schema}

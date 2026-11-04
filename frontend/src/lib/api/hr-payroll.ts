@@ -42,6 +42,33 @@ export interface MinimumRates {
   currency: "PLN";
 }
 
+/** Oznaczenie „Do sprawdzenia” (tylko Płace): nic nie blokuje, odznacza wiersz. */
+export interface BonusFlag {
+  code: string;
+  label: string;
+  detail: string;
+  /** `amount_rule`: kwota z reguły do porównania z kwotą z arkusza. */
+  rule_amount?: string;
+}
+
+/** Etapy placementu dla osoby: podpis, kontrakt, zamówienie, start. */
+export interface BonusStageFacts {
+  signed: boolean;
+  contract_active: boolean;
+  order: boolean;
+  started: boolean;
+  start_date: string | null;
+}
+
+export interface MissingRateContract {
+  contract_id: number;
+  candidate: string;
+  client: string;
+  start_date: string;
+  recruiter_name: string | null;
+  dl_name: string | null;
+}
+
 export interface BonusRow {
   id: number;
   recipient_user_id: number;
@@ -72,8 +99,16 @@ export interface BonusRow {
   cancel_reason: string | null;
   /** Kwota propozycji automatu poprawiona ręcznie. */
   edited: boolean;
+  /** Wiersz z arkusza Delivery: kwota i osoba przyszły z pliku, nie z reguły. */
+  from_sheet?: boolean;
+  /** Anulowana przez automat: dzień końca kontraktu. */
+  cancel_ended_on?: string | null;
   /** Widok miesiąca: przyznana premia z placementu, a kontrakt skończył się przed terminem. */
   contract_ended_early?: boolean;
+  /** Osoba zmieniona ręcznie przez Płace (automat jej nie nadpisuje). */
+  edited_recipient?: boolean;
+  flags?: BonusFlag[];
+  stages?: BonusStageFacts;
   /** Tylko dla Płac: reguły i liczby, z których wyszła kwota. */
   rule_snapshot?: Record<string, unknown>;
   /** Listy Płac: czy widz może zatwierdzić propozycję (ręczną przełożonego — tylko Płace). */
@@ -148,6 +183,10 @@ export interface PayrollMonthDetail {
   people: PayrollPerson[];
   bonuses: BonusRow[];
   in_progress: BonusRow[];
+  /** Tylko Płace: propozycje z późniejszych miesięcy. */
+  later?: BonusRow[];
+  /** Tylko Płace: kontrakty, którym nie da się policzyć marży. */
+  missing_rates?: MissingRateContract[];
   totals?: Record<string, string>;
   warnings?: CloseWarning[];
 }
@@ -157,6 +196,7 @@ export interface PayrollMonthDetail {
  * założył (D2): szacunek z tych samych reguł, nic nie jest zapisane.
  */
 export interface BonusForecast {
+  stages?: BonusStageFacts | null;
   key: string;
   contract_id: number;
   role: "dl" | "dl_extra" | "recruiter";
@@ -216,8 +256,25 @@ export interface PersonPayroll {
 export interface ExtraDlRule {
   dl_user_id: number;
   recipient_user_id: number;
+  /** Pusta lista = każdy klient. */
+  client_ids?: number[];
+  client_names?: string[];
   dl_name?: string | null;
   recipient_name?: string | null;
+}
+
+export interface DlHoursRule {
+  user_id: number;
+  hours: number;
+  name?: string | null;
+}
+
+export interface IndividualRecruiterRule {
+  user_id: number;
+  base_percent: string;
+  step_percent: string;
+  expert_percent: string;
+  name?: string | null;
 }
 
 export interface BonusRules {
@@ -228,6 +285,10 @@ export interface BonusRules {
   eligible_business_days: number;
   currency: Currency;
   extra_dl: ExtraDlRule[];
+  /** Klienci z przypisanym Delivery Leadem, do zakresu dodatkowej premii. */
+  client_options?: { id: number; name: string }[];
+  dl_hours?: DlHoursRule[];
+  individual_recruiters?: IndividualRecruiterRule[];
   automation_since: string | null;
   league_types: string[];
 }
@@ -247,9 +308,23 @@ export interface BonusInput {
   period_year: number;
   period_month: number;
   description?: string | null;
+  contract_id?: number | null;
 }
 
-export type BonusPatch = Partial<Omit<BonusInput, "recipient_user_id">>;
+export type BonusPatch = Partial<BonusInput> & { change_reason?: string | null };
+
+export interface PlacementOption {
+  contract_id: number;
+  label: string;
+  start_date: string | null;
+}
+
+export interface BonusDecisions {
+  signed: BonusRow[];
+  league: BonusRow[];
+  check: BonusRow[];
+  vouchers: { id: number; label: string; period: string; rank: number; name: string }[];
+}
 
 export const payrollKeys = {
   all: ["hr", "payroll"] as const,
@@ -356,6 +431,115 @@ export function useDeleteRate() {
       await api.delete(`/api/hr/payroll/rates/${rateId}`);
     },
     onSuccess: invalidate,
+  });
+}
+
+export type SettlementRowStatus =
+  | "matches"
+  | "differs"
+  | "zero"
+  | "inactive"
+  | "no_contract"
+  | "no_placement"
+  | "no_person"
+  | "self"
+  | "already_assigned";
+
+export interface SettlementImportRow {
+  index: number;
+  person: string;
+  candidate: string;
+  amount: string;
+  note: string;
+  recipient_user_id: number | null;
+  recipient_name: string | null;
+  recipient_active: boolean | null;
+  contract_id: number | null;
+  contract_label: string | null;
+  start_date: string | null;
+  role: string | null;
+  keyed: boolean;
+  category: BonusCategory;
+  automat_name: string | null;
+  automat_amount: string | null;
+  selected: boolean;
+  status: SettlementRowStatus;
+}
+
+export interface SettlementImportPreview {
+  year: number;
+  month: number;
+  rows: SettlementImportRow[];
+  counts: Partial<Record<SettlementRowStatus, number>>;
+  total: string;
+}
+
+/** Porównanie arkusza z NEXUSEM. Nic nie zapisuje, plik zostaje w przeglądarce. */
+export function useSettlementImportPreview(year: number, month: number) {
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return (
+        await api.post<SettlementImportPreview>(
+          `/api/hr/payroll/months/${year}/${month}/settlement-import/preview`,
+          form,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        )
+      ).data;
+    },
+  });
+}
+
+export function useApplySettlementImport(year: number, month: number) {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (rows: SettlementImportRow[]) =>
+      (
+        await api.post<{ assigned: number; rejected: number; skipped: number }>(
+          `/api/hr/payroll/months/${year}/${month}/settlement-import`,
+          { rows },
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useBonusDecisions(enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "decisions"],
+    queryFn: async () => (await api.get<BonusDecisions>("/api/hr/payroll/decisions")).data,
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+export function useConfirmVoucher() {
+  const invalidate = useInvalidatePayroll();
+  return useMutation({
+    mutationFn: async (id: number) =>
+      (await api.post(`/api/hr/payroll/vouchers/${id}/confirm`)).data,
+    onSuccess: invalidate,
+  });
+}
+
+export function useContractBonuses(contractId: number, enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "contract", contractId],
+    queryFn: async () =>
+      (await api.get<{ items: BonusRow[] }>(`/api/hr/payroll/contracts/${contractId}/bonuses`)).data
+        .items,
+    enabled,
+  });
+}
+
+export function usePlacementOptions(enabled: boolean) {
+  return useQuery({
+    queryKey: [...payrollKeys.all, "placement-options"],
+    queryFn: async () =>
+      (await api.get<{ items: PlacementOption[] }>("/api/hr/payroll/placement-options")).data.items,
+    enabled,
+    staleTime: 5 * 60_000,
   });
 }
 

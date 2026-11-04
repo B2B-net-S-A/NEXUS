@@ -27,6 +27,7 @@ from app.services.b2b_contract_generator.gender import gender_forms
 from app.services.b2b_contract_generator.rate_clause import (
     RateStage,
     build_rate_clause,
+    build_rate_lines,
 )
 
 TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "app" / "templates" / "contract"
@@ -1069,6 +1070,127 @@ class TestCorrespondenceAddress:
 
 
 # ── Stawka progresywna (rate_clause + walidacja etapów) ──────────────────────
+
+
+def _progressive_contract_paragraphs(language: str, **overrides) -> list:
+    import io
+
+    from docx import Document
+
+    from app.schemas.b2b_contract_generator import B2BRenderRequest
+    from app.services.b2b_contract_generator.docx_renderer import render_from_context
+    from app.services.b2b_contract_generator.render_context import build_render_context
+
+    req = B2BRenderRequest(
+        language=language,
+        partner_name="Jan Kowalski",
+        partner_business_address="ul. Testowa 1, 00-001 Warszawa",
+        client_name="ACME Bank S.A.",
+        rate_candidate=122,
+        **overrides,
+    )
+    data = render_from_context(build_render_context(req, None), language=language)
+    return list(Document(io.BytesIO(data)).paragraphs)
+
+
+_TWO_STAGES = {
+    "rate_stages": [
+        {
+            "rate": 122,
+            "effective_from": date(2026, 11, 16),
+            "effective_to": date(2027, 5, 31),
+        },
+        {"rate": 127, "effective_from": date(2027, 6, 1)},
+    ]
+}
+
+
+class TestRateLines:
+    """Stawka progresywna jako podpunkty a) b) (zgłoszenie działu umów 03.11.2026)."""
+
+    def test_two_stages_pl(self):
+        assert build_rate_lines(
+            [
+                RateStage(
+                    rate=122,
+                    effective_from=date(2026, 11, 16),
+                    effective_to=date(2027, 5, 31),
+                ),
+                RateStage(rate=127, effective_from=date(2027, 6, 1)),
+            ],
+            language="pl",
+            currency="PLN",
+        ) == [
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
+            "16.11.2026 do dnia 31.05.2027,",
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027",
+        ]
+
+    def test_single_stage_has_no_lines(self):
+        assert (
+            build_rate_lines([RateStage(rate=150)], language="pl", currency="PLN") == []
+        )
+
+    def test_docx_pl_matches_the_requested_wording(self):
+        paragraphs = _progressive_contract_paragraphs("pl", **_TWO_STAGES)
+        texts = [p.text for p in paragraphs]
+        at = next(i for i, t in enumerate(texts) if t.startswith("Z tytułu należytego"))
+        assert texts[at] == (
+            "Z tytułu należytego wykonania Usług Partnerowi przysługuje wynagrodzenie "
+            "obliczane jako iloczyn liczby godzin faktycznego świadczenia Usług w "
+            "danym miesiącu oraz stawki godzinowej w wysokości:"
+        )
+        assert texts[at + 1] == (
+            "a) 122 PLN (słownie: sto dwadzieścia dwa złote) w okresie od dnia "
+            "16.11.2026 do dnia 31.05.2027,"
+        )
+        assert texts[at + 2] == (
+            "b) 127 PLN (słownie: sto dwadzieścia siedem złotych) od dnia 01.06.2027 "
+            "netto + VAT."
+        )
+        # Podpunkty nie są kolejnymi ustępami: bez numeracji, a ustęp 2 zostaje 2.
+        assert paragraphs[at]._p.pPr.numPr is not None
+        for line in paragraphs[at + 1 : at + 3]:
+            assert line._p.pPr.numPr is None
+        assert paragraphs[at + 3]._p.pPr.numPr is not None
+
+    def test_docx_en_keeps_its_closing_words(self):
+        texts = [p.text for p in _progressive_contract_paragraphs("en", **_TWO_STAGES)]
+        at = next(i for i, t in enumerate(texts) if t.startswith("For the proper"))
+        assert texts[at].endswith("an hourly rate of:")
+        assert texts[at + 1].startswith("a) 122 PLN (in words:")
+        assert texts[at + 1].endswith(",")
+        assert texts[at + 2].startswith("b) 127 PLN (in words:")
+        assert texts[at + 2].endswith(
+            "net + VAT in accordance with the applicable regulations."
+        )
+
+    @pytest.mark.parametrize("language", ["pl", "en"])
+    def test_docx_single_rate_sentence_is_unchanged(self, language):
+        texts = [p.text for p in _progressive_contract_paragraphs(language)]
+        assert not any(t.startswith("a) 122") for t in texts)
+        phrase = {
+            "pl": "w wysokości 122 PLN (słownie: sto dwadzieścia dwa złote) netto + VAT.",
+            "en": " net + VAT in accordance with the applicable regulations.",
+        }[language]
+        assert any(phrase in t for t in texts)
+
+    @pytest.mark.parametrize("language", ["pl", "en"])
+    def test_html_mirror_has_the_same_lines(self, language):
+        html_path = TEMPLATE_DIR / f"umowa_b2b_{language}.html"
+        template = _jinja_env.from_string(html_path.read_text(encoding="utf-8"))
+        ctx = _sample_context(language)
+        progressive = {
+            **ctx,
+            "b2b": {**ctx["b2b"], "rate_lines": ["a) 1 PLN,", "b) 2 PLN"]},
+        }
+        html = template.render(**progressive)
+        assert "<p>a) 1 PLN,</p>" in html
+        suffix = "netto + VAT." if language == "pl" else "net + VAT"
+        assert f"<p>b) 2 PLN {suffix}" in html
+        # Kontrakt bez listy (`_contract_vars` zawsze ją daje) renderuje zdanie.
+        single = {**ctx, "b2b": {**ctx["b2b"], "rate_lines": []}}
+        assert ctx["b2b"]["rate_clause"] in template.render(**single)
 
 
 class TestRateClause:

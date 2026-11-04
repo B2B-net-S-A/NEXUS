@@ -134,7 +134,7 @@ async def subscribe_all_for_connection(
     Returns the rows that succeeded. Used from the OAuth callback so a single
     transient Graph 5xx on one resource doesn't block the whole connect.
     """
-    if not await connection_owner_is_eligible(db, conn):
+    if not await connection_owner_is_eligible(db, conn, sales_ok=True):
         logger.warning(
             "subscription enrolment refused for ineligible connection_id=%s",
             conn.id,
@@ -142,7 +142,7 @@ async def subscribe_all_for_connection(
         return []
 
     rows: list[GraphSubscription] = []
-    async with GraphClient(conn, db) as gc:
+    async with GraphClient(conn, db, sales_ok=True) as gc:
         for resource, change_type in resources:
             try:
                 row = await subscribe(db, gc, conn, resource, change_type)
@@ -238,7 +238,7 @@ async def unsubscribe_all_for_connection(
     rows = list((await db.execute(stmt)).scalars().all())
     if not rows:
         return
-    async with GraphClient(conn, db) as gc:
+    async with GraphClient(conn, db, sales_ok=True) as gc:
         for row in rows:
             try:
                 await unsubscribe(db, gc, row)

@@ -866,6 +866,26 @@ describe("ScreeningFullForm — to, co już wiemy, stoi pod swoim polem (12.10.2
     expect(field("work_mode").querySelector('[data-testid="screening-suggestions"]')).toBeNull();
   });
 
+  it("długa dostępność z notatek nie rozpycha kolumny — skrót z pełną treścią w title (28.10.2026)", async () => {
+    const raw = "W lipcu 2025 zatrudniony na UoP, z 30-dniowym okresem wypowiedzenia, może zacząć od września";
+    serverState = formState({
+      suggestions_from_notes: {
+        availability: { raw, notice_period: null, available_from: null, source_note_id: 1, noted_at: "2025-03-14" },
+      },
+    });
+    mount();
+    await screen.findByRole("region", { name: "Warunki" });
+
+    const chips = field("availability").querySelector('[data-testid="screening-suggestions"]') as HTMLElement;
+    const text = chips.querySelector("[title]") as HTMLElement;
+    expect(text.getAttribute("title")).toContain(raw);
+    expect(text).toHaveClass("truncate");
+    // Kolumna `auto` (siatka bez grid-cols-1) rośnie do pełnej długości tekstu
+    // z `truncate`: przy 1280 × 720 pola miały 1218 px w kolumnie 426 px.
+    const grid = field("availability").closest(".grid") as HTMLElement;
+    expect(grid).toHaveClass("grid-cols-1");
+  });
+
   it("pod „Trybem pracy” stoi tryb z profilu kandydata; bez niego nic", async () => {
     mocks.candidate.mockResolvedValue({ data: { max_onsite_days_per_week: 2 } });
     mount();

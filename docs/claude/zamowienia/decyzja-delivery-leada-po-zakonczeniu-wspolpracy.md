@@ -24,6 +24,15 @@ poszerzenie CHECK-a na prodzie WYMAGA jawnego DROP+ADD):
   linii, a nocny cron widzi `end_date < today`, stawia `ended` i domyka linię
   z powrotem — bez nowej sprawy i bez alertu, bo `_ensure_md_case` trafia
   w istniejący wiersz.
+- **Decyzja działa też w dniu zakończenia (02.11.2026).** `/terminate` z datą
+  dziś daje „Kończący się” i `end_date` = dziś, a reguła FIN-01 (zaplanowane
+  zakończenie wygrywa z zamówieniem) odmawiała wtedy wskrzeszenia. Następnej nocy
+  umowa się kończyła, a linia wracała na `completed`, mimo rozstrzygniętej sprawy.
+  `restore` podaje teraz `revoked_termination_date=case.effective_date`: odwołuje
+  tylko tę datę. Nocny reconcile tego nie podaje, więc FIN-01 obowiązuje go dalej,
+  a zakończenie przeplanowane na inną datę też wygrywa z decyzją. Umowy inne niż
+  B2B nadal nie wracają: ich daty końca zamówienie nie zeruje (na kopii z 02.11
+  żadna taka umowa nie ma sprawy o pulę).
 - **Data zakończenia jest DECYZJĄ, nie odtworzeniem.** Oryginalna `end_date`
   linii przepadła przy offboardingu (sprawa snapshotuje pulę, stawki i numer
   zamówienia — nie okres), więc serwer nie ma jej skąd wziąć. Przy zamówieniu

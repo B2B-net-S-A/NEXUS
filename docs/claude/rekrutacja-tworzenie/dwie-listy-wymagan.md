@@ -157,3 +157,12 @@ prawie wszystkich (789128: „architektura chmury” → 0 osób w „Szukaj w b
     ≥ 20 wiersz zostaje, jak go odczytano — edytor ostrzega (#2698).
   - Wynik to dodatek: awaria bazy albo sufit 8 s (`REACH_TIMEOUT_S`) zostawia odczyt bez
     zmian. Słowa z CV oznaczają źródło wierszy jako „ai”, nie „z maila”.
+- **30.10.2026 — pełne brzmienie wiersza z zamiennikami (zgłoszenie: „dodałem prince2 lub agile,
+  a tylko agile się pokazuje”).** `row_label` dopisuje zamienniki tylko dla różnych technologii
+  ze słownika (tak czyta je bramka), więc wiersz „Prince2* / Agile / Prince2” miał etykietę „Agile”.
+  Kopia z 22.10: 164 z 1 523 wierszy w 74 rekrutacjach pokazywało mniej, niż wpisano. Etykiety
+  nie zmieniamy (bramka, kontrakt wymagań, krytyczne); `response_context` niesie
+  `requirement_full_labels` (etykieta → „Agile lub Prince2”, tylko gdy dłuższe), a czytają je
+  Brief, „Wymagania” w panelu osoby i pasek nad CV. Bez innej pisowni tej samej nazwy i bez rdzenia
+  będącego początkiem pokazanego słowa. Klucze, krytyczne i słownik zostają po etykiecie.
+  Lupa „Szukaj w CV” dostaje słowa wiersza także przy wymaganiu niekrytycznym.

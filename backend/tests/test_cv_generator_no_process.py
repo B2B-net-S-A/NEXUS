@@ -310,6 +310,44 @@ async def test_position_equal_to_job_title_still_gets_a_clean_header(monkeypatch
     assert source.job_title == "Data Platform Developer"
 
 
+@pytest.mark.parametrize(
+    "typed, override, header",
+    [
+        # Pole podpowiada rolę z rekrutacji: ten sam tekst to nie decyzja rekrutera.
+        ("Data Platform Developer", "", "Data Platform Developer"),
+        # Wpisany numer schodzi, bo plik ma go już ze wzoru klienta.
+        ("ZOB-3103 Senior Developer", "Senior Developer", "Senior Developer"),
+        ("ZOB-3103", "", "Data Platform Developer"),
+    ],
+)
+async def test_typed_position_is_a_decision_without_client_number(
+    monkeypatch, typed, override, header
+):
+    world = await _world()
+    async with AsyncSessionLocal() as db:
+        document = CandidateDocument(
+            candidate_id=world["candidate_id"],
+            filename="typed.docx",
+            storage_key=f"cv/test/typed-{world['candidate_id']}.docx",
+            is_primary=True,
+        )
+        db.add(document)
+        (await db.get(Job, world["job_id"])).title = "Data Platform Developer (51234)"
+        await db.commit()
+        document_id = document.id
+    monkeypatch.setattr(object_storage, "download_cv", lambda key: _docx())
+    async with AsyncSessionLocal() as db:
+        source = await load_candidate_generation_source(
+            db,
+            candidate_id=world["candidate_id"],
+            stage_id=world["stage_id"],
+            cv_document_id=document_id,
+            position=typed,
+        )
+    assert source.position_override == override
+    assert source.job_title == header
+
+
 async def test_stage_row_attach_and_stage_less_rows_share_the_list(
     pv_client: AsyncClient,
 ):

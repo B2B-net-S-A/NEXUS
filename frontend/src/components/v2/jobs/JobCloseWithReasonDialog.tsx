@@ -21,7 +21,12 @@ import { AppModal } from "@/components/ds";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
 import { extractErrorMsg, jobsApi } from "@/lib/api";
-import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
+import {
+  activeCardsWarningFrom,
+  closeAnywayLabel,
+  peopleAccusative,
+  type ActiveCardsWarning,
+} from "@/lib/job-close";
 import { isSelectableCloseReason } from "@/lib/job-close-reasons";
 import type { JobCloseReason } from "@/types/client-profile";
 
@@ -168,7 +173,7 @@ export function JobCloseWithReasonDialog({
             {mode === "change"
               ? "Zapisz powód"
               : activeCards
-                ? "Zamknij mimo to"
+                ? closeAnywayLabel(activeCards)
                 : "Zamknij rekrutację"}
           </Button>
         </>
@@ -203,6 +208,24 @@ export function ActiveCardsNotice({ warning }: { warning: ActiveCardsWarning }) 
       <p>{warning.message}</p>
       {warning.breakdown ? <p className="font-medium">{warning.breakdown}</p> : null}
       <p>Odrzuć albo przenieś te osoby przed zamknięciem, albo zamknij mimo to.</p>
+      {warning.recipients.length > 0 ? (
+        <div className="mt-2 space-y-1 rounded-md border border-warning/30 bg-card p-2.5 text-foreground">
+          <p className="font-medium">Po zamknięciu damy znać rekruterom — mail i „Rekrutacje”:</p>
+          <ul className="space-y-0.5">
+            {warning.recipients.map((r) => (
+              <li key={r.userId} className="flex flex-wrap items-baseline gap-x-1.5">
+                <span className="font-medium">{r.name}</span>
+                <span className="text-muted-foreground">
+                  — {r.breakdown || peopleAccusative(r.people)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-xs text-muted-foreground">
+            Każdy dostanie listę swoich osób od „CV wysłane”, żeby dać im znać.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

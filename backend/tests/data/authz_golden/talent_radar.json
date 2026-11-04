@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/talent-radar/parse-champion": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "POST /api/talent-radar/search": "PPPPPPPDPPPPPPPPPPPPDPPPPD"
+  "POST /api/talent-radar/interpret": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/talent-radar/parse-champion": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "POST /api/talent-radar/search": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
  }
 }

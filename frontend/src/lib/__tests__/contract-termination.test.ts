@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   agreementTerminationPayload,
+  contractProjectEnd,
+  defaultNonCompetePlan,
   emptyTerminationForm,
   missingTerminationFields,
   statusEventDetailsText,
@@ -8,6 +10,26 @@ import {
   terminationFormError,
   terminationWarnings,
 } from "@/lib/contract-termination";
+
+describe("contractProjectEnd", () => {
+  // R8-N13-1: `terminated_at` przeżywa przedłużenie i niesie pierwsze zakończenie.
+  it("bierze datę końca przed datą zakończenia", () => {
+    expect(
+      contractProjectEnd({ end_date: "2026-10-07", terminated_at: "2026-09-30" }),
+    ).toBe("2026-10-07");
+    expect(
+      contractProjectEnd({ end_date: "2026-08-31", terminated_at: "2026-09-30" }),
+    ).toBe("2026-08-31");
+  });
+
+  it("bez daty końca zostaje data zakończenia, bez obu — nic", () => {
+    expect(contractProjectEnd({ end_date: null, terminated_at: "2026-09-30" })).toBe(
+      "2026-09-30",
+    );
+    expect(contractProjectEnd({ end_date: null, terminated_at: null })).toBeNull();
+    expect(contractProjectEnd({})).toBeNull();
+  });
+});
 
 describe("suggestedLastDay", () => {
   // Umowa 2026 (`notice_end_date` w backendzie): okres wypowiedzenia ze
@@ -38,6 +60,18 @@ describe("walidacja i ostrzeżenia", () => {
   it("samo zakończenie projektu jest kompletne z powodem i datą", () => {
     expect(missingTerminationFields(base)).toEqual([]);
     expect(agreementTerminationPayload(base)).toBeNull();
+  });
+
+  it("przy jednej umowie brakuje odpowiedzi „Co z umową B2B?”, zbiorczo nie", () => {
+    expect(missingTerminationFields(base, { requirePlan: true })).toEqual(["Co z umową B2B"]);
+    expect(missingTerminationFields({ ...base, agreementPlan: "keep" }, { requirePlan: true })).toEqual([]);
+    expect(missingTerminationFields(base)).toEqual([]);
+  });
+
+  it("zakaz konkurencji domyślnie zostaje, przy przejściu do klienta — zdjęty", () => {
+    expect(defaultNonCompetePlan("poached_by_client")).toBe("release");
+    expect(defaultNonCompetePlan("project_ended")).toBe("keep");
+    expect(defaultNonCompetePlan("")).toBe("keep");
   });
 
   it("rozwiązanie umowy wymaga trybu, strony i obu dat", () => {
@@ -114,6 +148,23 @@ describe("statusEventDetailsText", () => {
 
   it("ręczna zmiana nie ma dodatkowej linii", () => {
     expect(statusEventDetailsText(null)).toBeNull();
+  });
+});
+
+describe("statusEventDetailsText — rozwiązanie zapisane po zakończeniu", () => {
+  it("opisuje porozumienie podpisane poza NEXUSEM", () => {
+    expect(
+      statusEventDetailsText({
+        source: "agreement_termination_recorded",
+        contract_id: 318,
+        agreement_terminated: true,
+        mode: "mutual_agreement",
+        agreement_last_day: "2026-09-30",
+      }),
+    ).toBe(
+      "Rozwiązanie umowy zapisane po zakończeniu (kontrakt #318) · Porozumienie stron · " +
+        "ostatni dzień umowy 30.09.2026",
+    );
   });
 });
 

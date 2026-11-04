@@ -39,6 +39,8 @@ class HrModule(StrEnum):
     settlements = "settlements"
     #: Zgody na wydatki i premie poza umową (0483) — domyślnie wyłączone.
     approvals = "approvals"
+    #: Kolejka spraw całego back office'u (0637) — domyślnie wyłączona.
+    back_office = "back_office"
 
 
 def normalize(raw: object) -> dict[str, bool]:
@@ -61,7 +63,9 @@ async def load_modules(db: AsyncSession) -> dict[str, bool]:
 #: (decyzja Artura 21.10.2026) — wydatki i premie na razie idą mailem, więc
 #: ekran, ikona w pasku, „Wydatki ze zgodą” w Finansach i zasady w Ustawieniach
 #: znikają, dopóki ktoś nie włączy modułu w Ustawienia → Kadry → Moduły.
-NO_ADMIN_PREVIEW = frozenset({HrModule.approvals})
+#: „Back office” (decyzja Artura 02.11.2026): wszyscy widzą nową kolejkę jednego
+#: dnia, po włączeniu modułu; do tego czasu menu i Opieka zostają bez zmian.
+NO_ADMIN_PREVIEW = frozenset({HrModule.approvals, HrModule.back_office})
 
 
 def module_open_for(user: User, modules: Mapping[str, bool], key: str) -> bool:

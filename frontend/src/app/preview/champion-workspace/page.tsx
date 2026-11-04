@@ -58,6 +58,7 @@ const JOB_AD: JobAdState = {
       start: "",
       duration: "",
       language: "",
+      city: "",
       responsibilities: [],
       requirements: [],
       nice_to_have: [],
@@ -85,6 +86,9 @@ const JOB_AD: JobAdState = {
     },
   ],
   career: NO_CAREER_PAGE,
+  reminders: null,
+  pracuj_request: null,
+  jjit_api: null,
 };
 const isoDay = (offsetDays: number) =>
   new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);

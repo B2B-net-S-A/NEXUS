@@ -62,6 +62,7 @@ from app.models.candidate_consent import (
 from app.models.candidate_document import CandidateDocument, CandidateDocumentKind
 from app.models.invite_link import CandidateInviteLink
 from app.models.job import Job
+from app.models.candidate_source_event import SourceChannel
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import NotificationType
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
@@ -233,6 +234,15 @@ def parse_optional_fields(
     return out
 
 
+def _link_channel(link: CandidateInviteLink) -> SourceChannel:
+    """Kanał zdarzenia źródła: link ogólny albo link do rekrutacji, osobno od portali."""
+    return (
+        SourceChannel.career_link_job
+        if link.job_id is not None
+        else SourceChannel.career_link_general
+    )
+
+
 def link_key(link: CandidateInviteLink) -> str:
     """Nie-sekretny klucz linku: SHA-256 sekretu (v2) albo PK (legacy)."""
     if link.token_sha256:
@@ -380,9 +390,28 @@ async def submit_application(
         )
         return {"ok": True, "status": "received"}
 
-    candidate = await _create_candidate(
-        db, ref=ref, applicant=applicant, cv=cv, content=content, screening=screening
+    # Nagrobek nie blokuje zgłoszenia: osoba sama wysyła CV i daje nową zgodę.
+    # Zostaje ślad w historii, a dzwonek powtarza go w `_notify_owner`.
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        record_recreated_after_erasure,
     )
+
+    erased_email = await email_was_erased(db, normalized_email)
+    candidate = await _create_candidate(
+        db,
+        ref=ref,
+        applicant=applicant,
+        cv=cv,
+        content=content,
+        screening=screening,
+        erased_before=erased_email,
+    )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=None, via=VIA_SELF_APPLICATION
+        )
     await db.commit()
     candidate_id = candidate.id
 
@@ -395,6 +424,7 @@ async def submit_application(
             related_entity_id=candidate_id,
             target=f"/candidates/{candidate_id}",
             duplicate=False,
+            erased_before=erased_email,
         )
 
     await _confirm_to_applicant(
@@ -453,10 +483,7 @@ async def _record_duplicate_application(
     zamiast procesu wiersz ``application_screenings`` (``pending``); bramki
     twarde (czarna lista, weto HM) sprawdza pętla przy decyzji.
     """
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.api import public_share
     from app.api.application_submissions import (
         _attach_cv_as_document,
@@ -601,7 +628,7 @@ async def _record_duplicate_application(
     db.add(
         CandidateSourceEvent(
             candidate_id=existing.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -623,12 +650,10 @@ async def _create_candidate(
     cv: UploadFile,
     content: bytes,
     screening: bool = False,
+    erased_before: bool = False,
 ) -> Candidate:
     from app.api import public_share
-    from app.models.candidate_source_event import (
-        CandidateSourceEvent,
-        SourceChannel,
-    )
+    from app.models.candidate_source_event import CandidateSourceEvent
     from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
     from app.services.candidate_stage_cv_service import create_original_cv_snapshot
     from app.services.candidate_claim import link_claim_kwargs
@@ -715,6 +740,7 @@ async def _create_candidate(
             first_name=applicant.first_name,
             last_name=applicant.last_name,
             utm_source=applicant.utm.get("source"),
+            erased_before=erased_before,
         )
     elif link.job_id is not None:
         stage_exists = await db.scalar(
@@ -798,7 +824,7 @@ async def _create_candidate(
     db.add(
         CandidateSourceEvent(
             candidate_id=candidate.id,
-            channel=SourceChannel.posting,
+            channel=_link_channel(link),
             job_id=link.job_id,
             utm_source=applicant.utm.get("source"),
             utm_medium=applicant.utm.get("medium"),
@@ -846,8 +872,12 @@ async def _notify_owner(
     blocked_reason: Optional[str] = None,
     extra: Optional[str] = None,
     in_job: Optional[ExistingCard] = None,
+    erased_before: bool = False,
 ) -> None:
     """Dzwonek dla właściciela linku. Po commicie, nigdy nie rzuca.
+
+    ``erased_before`` = TO zgłoszenie założyło profil na adres z nagrobka;
+    kolejne zgłoszenia tej osoby tego zdania już nie powtarzają.
 
     audyt 22.09 r2 (SEC-06): gdy właściciel linku do rekrutacji jest już
     nieaktywny, zgłoszenie dostaje rekruter i Delivery Lead tej rekrutacji —
@@ -906,6 +936,11 @@ async def _notify_owner(
             message += (
                 " Ta osoba była już w bazie — nowe CV dołączono do jej profilu "
                 "jako dodatkowy dokument, dane profilu bez zmian."
+            )
+        if erased_before:
+            message += (
+                " Profil z tym adresem był już trwale usunięty; osoba "
+                "zgłosiła się sama."
             )
         if (
             job_id is not None

@@ -10,8 +10,10 @@ import {
   readCvSeen,
   readJobSearch,
   readListSearch,
+  readJobSearchReturn,
   readRecentSearches,
   recentKeywords,
+  writeJobSearchReturn,
   writeJobSearch,
   writeListSearch,
 } from "@/lib/search-memory";
@@ -91,13 +93,34 @@ describe("search-memory", () => {
     });
   });
 
+  it("powrót do okna rekrutacji: ostatnia osoba i wybrani osobno dla każdej rekrutacji", () => {
+    expect(readJobSearchReturn(5)).toEqual({ lastOpenedId: null, picked: [] });
+    writeJobSearchReturn(5, { lastOpenedId: 11 });
+    writeJobSearchReturn(5, { picked: [11, 12] });
+    writeJobSearchReturn(6, { picked: [99] });
+    expect(readJobSearchReturn(5)).toEqual({ lastOpenedId: 11, picked: [11, 12] });
+    expect(readJobSearchReturn(6)).toEqual({ lastOpenedId: null, picked: [99] });
+  });
+
+  it("powrót do okna rekrutacji: śmieci w pamięci są pomijane", () => {
+    window.sessionStorage.setItem(
+      "nexus:search-memory:job-return:5",
+      JSON.stringify({ lastOpenedId: "x", picked: [1, "2", null, 3] }),
+    );
+    expect(readJobSearchReturn(5)).toEqual({ lastOpenedId: null, picked: [1, 3] });
+    window.sessionStorage.setItem("nexus:search-memory:job-return:5", "{zepsute");
+    expect(readJobSearchReturn(5)).toEqual({ lastOpenedId: null, picked: [] });
+  });
+
   it("wylogowanie czyści całą pamięć wyszukiwań", () => {
+    writeJobSearchReturn(5, { lastOpenedId: 11, picked: [11] });
     writeListSearch({ query: "q=java" });
     pushRecentSearch(7, entry("q=java"));
     window.localStorage.setItem("inny-klucz", "zostaje");
     clearSearchMemory();
     expect(readListSearch()).toBeNull();
     expect(readRecentSearches(7)).toEqual([]);
+    expect(readJobSearchReturn(5)).toEqual({ lastOpenedId: null, picked: [] });
     expect(window.localStorage.getItem("inny-klucz")).toBe("zostaje");
   });
 });

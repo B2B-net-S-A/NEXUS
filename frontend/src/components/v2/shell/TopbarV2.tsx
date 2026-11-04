@@ -17,6 +17,7 @@ import { JobsNotificationsDropdown } from "./JobsNotificationsDropdown";
 import { ContractsNotificationsDropdown } from "./ContractsNotificationsDropdown";
 import { AbsentTodayButton } from "@/components/hr/leave/AbsentTodayButton";
 import { ConsentsTopbarButton } from "@/components/hr/approvals/ConsentsTopbarButton";
+import { BonusDecisionsTopbarButton } from "@/components/hr/payroll/BonusDecisionsTopbarButton";
 import { InterviewNotificationsDropdown } from "./InterviewNotificationsDropdown";
 import { hasSectionAccess } from "@/lib/section-access";
 import { useAuthStore } from "@/store/auth";
@@ -27,6 +28,7 @@ import {
   TOPBAR_SEARCH_CLASS,
 } from "./topbar-layout";
 import { P0TopbarButton } from "@/components/v2/jobs/p0/P0TopbarButton";
+import { NoveltiesTopbarButton } from "@/components/novelties/NoveltiesTopbarButton";
 
 interface Props {
   onOpenMobileSidebar: () => void;
@@ -91,6 +93,8 @@ export function TopbarV2({
       <div className={TOPBAR_ACTIONS_CLASS}>
         {/* P0 — ultrapilne rekrutacje (27.10.2026): u każdego, przed resztą. */}
         <P0TopbarButton />
+        {/* Nowości do przeklikania (28.10.2026) — tylko gdy coś czeka. */}
+        <NoveltiesTopbarButton />
         {/* Liga Mistrzów: miejsce i punkty kwartału — nie ściska się, cele oddają segmenty. */}
         <MyLeagueWidget className="hidden md:block" />
         <MyKpiWidget variant="compact" className="hidden md:block" />
@@ -109,6 +113,8 @@ export function TopbarV2({
         <InterviewNotificationsDropdown />
         {/* Zgody na wydatki i premie do decyzji (0483); przy zerze jej nie ma. */}
         <ConsentsTopbarButton />
+        {/* Premie i vouchery do decyzji Płac (30.10.2026); przy zerze jej nie ma. */}
+        <BonusDecisionsTopbarButton />
         {/* „Ludzie w NEXUSIE”: nieobecni dziś (moduł urlopów); przy zerze go nie ma. */}
         <AbsentTodayButton />
         <QuickActionsV2

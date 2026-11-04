@@ -56,6 +56,7 @@ from app.services.effective_access import resolve_effective_access
 from app.services import (
     board_flow,
     candidate_followups,
+    screening_calls,
     closing_candidates,
     cpro_sender,
     cv_in_transit,
@@ -63,6 +64,7 @@ from app.services import (
     dl_send_queue,
     move_requirements,
     new_job_leads,
+    new_person_setup,
     pending_job_completion,
     prep_attention,
     request_allocation_proposals,
@@ -208,6 +210,19 @@ class AllocationProposalRow(BaseModel):
     leave_until: Optional[date] = None
     base_matches: Optional[int] = None
     proposed_at: datetime
+
+
+class NewPersonSetupRow(BaseModel):
+    """Osoba do ustawienia (0612) — kształt = ``new_person_setup.NewPersonRow``."""
+
+    user_id: int
+    name: str
+    email: str
+    since: datetime
+    # Konto po pierwszym logowaniu — nikt jeszcze nie zdecydował, kim jest.
+    needs_decision: bool
+    # Czego brakuje rekruterowi: "categories", "manager".
+    missing: list[str] = []
 
 
 class NewJobLeadRow(BaseModel):
@@ -396,6 +411,21 @@ class FlowNewRequestRow(BaseModel):
     assigned_by_name: Optional[str] = None
 
 
+class BookedCallRow(BaseModel):
+    """Umówiony telefon na screening w „Czeka na Ciebie” (03.11.2026)."""
+
+    event_id: int
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    job_working_title: Optional[str] = None
+    client_name: Optional[str] = None
+    start_time: datetime
+    note: Optional[str] = None
+    in_outlook: bool = False
+
+
 class FlowPairRow(BaseModel):
     candidate_id: int
     candidate_name: str
@@ -408,6 +438,8 @@ class FlowPairRow(BaseModel):
     # Screening: czego brakuje do „Zweryfikowany” (`sheet`, `rate`).
     # `why_candidate`: rekrutacja bez pytań — brakuje oceny zamiast arkusza.
     missing: list[Literal["sheet", "why_candidate", "rate"]] = []
+    # Umówiony telefon tej osoby — lista „brakuje danych” mówi, kiedy będzie okazja.
+    call_at: Optional[datetime] = None
     # Zweryfikowany: stan QC CV (`passed`, `failed`, `overridden`, `unchecked`).
     qc_status: Optional[str] = None
 
@@ -519,6 +551,7 @@ class BoardTasksResponse(BaseModel):
     # 0372: follow-up z kandydatem, gdy klient milczy — telefony tej osoby
     # (termin do końca jutra) i kandydaci, u których prowadzi proces, a dzwoni
     # ktoś inny.
+    booked_calls: list[BookedCallRow] = []
     followups: list[FollowupRow] = []
     followups_by_others: list[FollowupRow] = []
     # Czy ta osoba może ustawić osobę od Cpro (admin albo DL Nordei) — front
@@ -534,6 +567,9 @@ class BoardTasksResponse(BaseModel):
     # Kto prowadzi rekrutacje przekazane do searchu w ostatnich dniach — lista
     # informacyjna, tylko dla admina i Head of Recruitment.
     new_job_leads: list[NewJobLeadRow] = []
+    # 0612 (28.10.2026): „Nowe osoby do ustawienia” — admin i Head of
+    # Recruitment. `None` = liczenie się nie powiodło.
+    new_people: Optional[list[NewPersonSetupRow]] = []
     # „Twoje CV w drodze” — druga strona przekazań, dla rekrutera kandydata.
     # `None` = osoba usunęła listę z pulpitu albo liczenie się nie powiodło.
     cv_in_transit: Optional[CvInTransitBlock] = None
@@ -671,6 +707,9 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     job_leads = (
         await new_job_leads.load_safely(db, now=now) if can_decide_proposals else []
     )
+    people_rows = (
+        await new_person_setup.load_rows_safely(db) if can_decide_proposals else []
+    )
     # Finanse nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
     transit = (
         None
@@ -700,7 +739,35 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
         if dl_review
         else {}
     )
+    calls = await screening_calls.for_user_safely(db, current_user)
+    flow_out = _flow_block(flow, skip_contract_ids=_agreement_ids(agreements))
+    if flow_out is not None:
+        starts = {(c.candidate_id, c.job_id): c.start_time for c in calls}
+        for row in flow_out.screening:
+            row.call_at = starts.get((row.candidate_id, row.job_id))
+        # „Twoje blokady” proszą o decyzję przed końcem blokady, a umówiony
+        # telefon już nią jest: osoba stoi na liście telefonów.
+        flow_out.claimed = [
+            row
+            for row in flow_out.claimed
+            if (row.candidate_id, row.job_id) not in starts
+        ]
     return BoardTasksResponse(
+        booked_calls=[
+            BookedCallRow(
+                event_id=c.event_id,
+                candidate_id=c.candidate_id,
+                candidate_name=c.candidate_name,
+                job_id=c.job_id,
+                job_title=c.job_title,
+                job_working_title=c.job_working_title,
+                client_name=c.client_name,
+                start_time=c.start_time,
+                note=c.note,
+                in_outlook=c.in_outlook,
+            )
+            for c in calls
+        ],
         followups=followups,
         followups_by_others=followups_by_others,
         cpro_to_send=[BoardTaskRow(**t.as_dict()) for t in mine[svc.KIND_CPRO_TO_SEND]],
@@ -727,6 +794,11 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
         can_decide_proposals=can_decide_proposals,
         allocation_leave_known=leave_known,
         new_job_leads=[NewJobLeadRow(**asdict(lead)) for lead in job_leads],
+        new_people=(
+            None
+            if people_rows is None
+            else [NewPersonSetupRow(**row.as_dict()) for row in people_rows]
+        ),
         cv_in_transit=_transit_block(transit),
         pending_jobs=(
             PendingJobsBlock(
@@ -761,7 +833,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
             if agreements is not None
             else None
         ),
-        flow=_flow_block(flow, skip_contract_ids=_agreement_ids(agreements)),
+        flow=flow_out,
         finance=_finance_block(finance),
         prep_attention=[
             PrepAttentionRow(
@@ -1050,6 +1122,72 @@ async def get_closing_candidates(
         total=result.total,
         step_counts=result.step_counts,
         show_client_rate=show_client_rate,
+    )
+
+
+class DepartedCareRow(BaseModel):
+    candidate_id: int
+    candidate_name: str
+    job_id: int
+    job_title: str
+    client_name: Optional[str] = None
+    column: str
+    moved_at: Optional[datetime] = None
+    caretaker_user_id: int
+    caretaker_name: str
+
+
+class DepartedCareGroup(BaseModel):
+    departed_user_id: int
+    departed_name: str
+    since: datetime
+    pairs: int
+    jobs: int
+    clients: list[str]
+    columns: dict[str, int]
+    rows: list[DepartedCareRow]
+
+
+class DepartedCareOverdue(BaseModel):
+    user_id: int
+    name: str
+    pairs: int
+    departed: list[str]
+    since: datetime
+
+
+class DepartedCareResponse(BaseModel):
+    """Kandydaci po osobach, które odeszły — opieka Delivery Leada (28.10.2026)."""
+
+    groups: list[DepartedCareGroup]
+    total: int
+    # Head of Recruitment i admin: niedomknięte po 10 dniach roboczych, per DL.
+    overdue: list[DepartedCareOverdue] = []
+    escalate_after_days: int
+
+
+@router.get("/departed-care", response_model=DepartedCareResponse)
+async def get_departed_care(
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> DepartedCareResponse:
+    """Kafel „Po osobach, które odeszły” i lista do domknięcia
+    (``services/departure_care.py``)."""
+    from app.services import departure_care
+
+    groups = departure_care.rows_payload(
+        await departure_care.open_care(db, caretaker_id=current_user.id)
+    )
+    overdue = (
+        await departure_care.overdue_by_caretaker(db)
+        if current_user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+        else []
+    )
+    return DepartedCareResponse(
+        groups=groups,
+        total=sum(g["pairs"] for g in groups),
+        overdue=overdue,
+        escalate_after_days=departure_care.ESCALATE_AFTER_DAYS,
     )
 
 

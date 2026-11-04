@@ -1,7 +1,11 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PersonPanelColumn, PersonPanelSideProvider } from "@/components/v2/person/PersonPanelSide";
 import type { JointContextPair } from "@/lib/api/screeningForm";
+import { useAuthStore } from "@/store/auth";
 
 import { JointScreeningPicker } from "../JointScreeningPicker";
 
@@ -172,5 +176,185 @@ describe("JointScreeningPicker — pamięć rozmowy (16.10.2026, D1 A)", () => {
     );
     expect(screen.getByTestId("joint-picker-notice")).toHaveTextContent("Wróciła 1 odpowiedź z pamięci — Java Developer.");
     expect(screen.queryByRole("button", { name: "Cofnij" })).toBeNull();
+  });
+});
+
+describe("JointScreeningPicker — bliźniaki (0614)", () => {
+  it("locks a twin in the conversation and offers to add the person to a missing twin", () => {
+    const onToggle = vi.fn();
+    const onAddAndJoin = vi.fn();
+    render(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        missingTwins={[
+          { job_id: 5, title: "Programista Python C", client_id: 1, verified_stage_def_id: 3, budget_hourly: 110 },
+        ]}
+        selected={new Set([2])}
+        onToggle={onToggle}
+        onAddAndJoin={onAddAndJoin}
+        addingJobId={null}
+      />,
+    );
+    const twin = screen.getByRole("checkbox", { name: /Programista Python B/ });
+    expect(twin).toBeChecked();
+    expect(twin).toBeDisabled();
+    expect(screen.getAllByText("🔒 bliźniak")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "+ Dodaj do bliźniaka" }));
+    expect(onAddAndJoin).toHaveBeenCalledWith(5);
+  });
+});
+
+describe("JointScreeningPicker — kandydat nie bierze udziału w bliźniaku (0614)", () => {
+  it("lets the recruiter skip a locked twin with a reason and undo it", () => {
+    const onTwinSkip = vi.fn();
+    const { rerender } = render(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        selected={new Set([2])}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+        twinSkips={new Map()}
+        onTwinSkip={onTwinSkip}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Nie bierze udziału w tej rekrutacji…" }));
+    fireEvent.change(screen.getByRole("combobox", { name: /Powód — Programista Python B/ }), {
+      target: { value: "candidate_declined" },
+    });
+    expect(onTwinSkip).toHaveBeenCalledWith(2, "candidate_declined");
+
+    rerender(
+      <JointScreeningPicker
+        anchorTitle="Programista Python"
+        pairs={[pair({ job_id: 2, title: "Programista Python B", twin: true })]}
+        suggestions={[]}
+        missingTwins={[
+          { job_id: 5, title: "Programista Python C", client_id: 1, verified_stage_def_id: 3, budget_hourly: 110 },
+        ]}
+        selected={new Set()}
+        onToggle={vi.fn()}
+        onAddAndJoin={vi.fn()}
+        addingJobId={null}
+        twinSkips={new Map([[2, "candidate_declined"], [5, "client_rejected"]])}
+        onTwinSkip={onTwinSkip}
+      />,
+    );
+    expect(screen.getByTestId("twin-skip-2")).toHaveTextContent("Nie bierze udziału: Kandydat nie chce tej rekrutacji");
+    expect(screen.getByRole("checkbox", { name: /nie bierze udziału/ })).not.toBeChecked();
+    // Pominięty brakujący bliźniak nie proponuje już dodania osoby.
+    expect(screen.queryByRole("button", { name: "+ Dodaj do bliźniaka" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Cofnij" })[0]);
+    expect(onTwinSkip).toHaveBeenLastCalledWith(2, null);
+  });
+});
+
+/** Rozwinięty panel osoby w szerokim oknie z zapamiętanym „Trybem rozmowy”. */
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+function InConversationMode({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <PersonPanelSideProvider>
+        <PersonPanelColumn split>{children}</PersonPanelColumn>
+      </PersonPanelSideProvider>
+    </QueryClientProvider>
+  );
+}
+
+describe("JointScreeningPicker — tryb rozmowy (29.10.2026)", () => {
+  const originalMatchMedia = window.matchMedia;
+
+  function conversationModeOn() {
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia;
+    useAuthStore.setState({ user: { id: 7 } as never, hydrated: true });
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ compact: true }));
+  }
+
+  afterEach(() => {
+    window.matchMedia = originalMatchMedia;
+    window.localStorage.clear();
+    useAuthStore.setState({ user: null });
+  });
+
+  const baseProps = {
+    anchorTitle: "Senior ETL / Snowflake Engineer",
+    anchorReference: "43020",
+    pairs: [
+      pair({ job_id: 2, title: "Data Engineer" }),
+      pair({ job_id: 3, title: "BI Developer" }),
+    ],
+    suggestions: [{ job_id: 4, title: "Data Architect", client_name: null, score: 74, matching_must: [], gap_must: [] }],
+    selected: new Set([2]),
+    onToggle: vi.fn(),
+    onAddAndJoin: vi.fn(),
+    addingJobId: null,
+  };
+
+  it("lista zwija się do jednej linii z wybranymi; „Zmień” ją rozwija, „Zwiń do linii” zwija", () => {
+    conversationModeOn();
+    render(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} />
+      </InConversationMode>,
+    );
+    const line = screen.getByTestId("joint-screening-picker");
+    expect(line).toHaveAttribute("data-collapsed");
+    expect(line).toHaveTextContent("Senior ETL / Snowflake Engineer + 1 rekrutacja");
+    expect(line).toHaveTextContent("pasuje też do 1");
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień rekrutacje w tej rozmowie" }));
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByRole("checkbox", { name: /Data Engineer/ })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zwiń do linii" }));
+    expect(screen.getByTestId("joint-screening-picker")).toHaveAttribute("data-collapsed");
+  });
+
+  it("bliźniak bez tej osoby, odmowa serwera, trwające dodanie i „Dodano do Nowych” pokazują pełną listę", () => {
+    conversationModeOn();
+    const { rerender } = render(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} error="Ta osoba ma zamkniętą kartę w tej rekrutacji." />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zwiń do linii" })).not.toBeInTheDocument();
+
+    rerender(
+      <InConversationMode>
+        <JointScreeningPicker {...baseProps} addingJobId={4} />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+
+    rerender(
+      <InConversationMode>
+        <JointScreeningPicker
+          {...baseProps}
+          manualAdd={{ candidateId: 1, fromJobId: 10, onAdd: vi.fn(), addedNote: "Dodano do Nowych: Data Architect" }}
+        />
+      </InConversationMode>,
+    );
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.getByTestId("joint-add-note")).toHaveTextContent("Dodano do Nowych");
+  });
+
+  it("poza trybem rozmowy lista wygląda jak dotąd", () => {
+    render(<JointScreeningPicker {...baseProps} />);
+    expect(screen.getByTestId("joint-screening-picker")).not.toHaveAttribute("data-collapsed");
+    expect(screen.queryByRole("button", { name: "Zmień rekrutacje w tej rozmowie" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Zwiń do linii" })).not.toBeInTheDocument();
   });
 });

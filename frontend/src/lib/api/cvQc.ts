@@ -16,12 +16,16 @@ export type QcFixKind =
   | "bold_all"
   | "generate_cv"
   | "upload_consent"
+  /** Zrzut zgody nie pasuje do rekrutacji (F37, 27.10.2026) — „Wymień zrzut”. */
+  | "replace_consent"
   | "ask_candidate"
   | "remove_term"
   | "ai"
   | "spelling"
   /** „Ułóż od najnowszego” — kolejność stanowisk (16.10.2026). */
-  | "role_order";
+  | "role_order"
+  /** „Przywróć daty z oryginału” — okres stanowiska inny niż w oryginale (02.11.2026). */
+  | "restore_dates";
 
 /** Na czym w odczycie oryginału stoi „oryginał ma tę umiejętność w tej roli”. */
 export type QcEvidenceKind = "description" | "technologies" | "title";
@@ -49,6 +53,8 @@ export interface QcItem {
   evidence?: string | null;
   evidence_kind?: QcEvidenceKind | null;
   searched?: QcSearch[];
+  /** Fragment oryginału z tą samą rzeczą pod inną nazwą: pytanie zamiast „nie ma”. */
+  similar?: { term: string; quote: string } | null;
   /** Tylko w `QcCheck.dismissed_items`: kto, kiedy i dlaczego oznaczył „To nieprawda”. */
   dismissal?: QcDismissal | null;
 }
@@ -116,6 +122,8 @@ export interface QcCv {
   generated_document_id: number | null;
   document_id: number | null;
   filename: string | null;
+  /** Szkic etapu wczytany z pliku Word bez AI (brak w wynikach sprzed 29.10.2026). */
+  from_word_file?: boolean;
   /** `false` = pogrubień nie da się odczytać (CV z PDF-a). */
   bold_known: boolean;
   updated_at: string | null;
@@ -164,10 +172,18 @@ export interface QcResult {
   /** Czy TA osoba może przesunąć kartę mimo uwag QC. */
   can_override?: boolean;
   confirmations?: QcConfirmation[];
+  /** Firmy z ról osoby do pola „W której roli?” przy potwierdzeniu. */
+  confirm_roles?: string[];
   run_id: number | null;
   computed_at: string | null;
   cv: QcCv | null;
-  original_cv: { source: "snapshot" | "profile_text" | null; filename: string | null; text: string | null };
+  original_cv: {
+    source: "snapshot" | "profile_text" | null;
+    filename: string | null;
+    text: string | null;
+    snapshot_at?: string | null;
+    newer_profile_cv?: { filename: string; uploaded_at: string } | null;
+  };
   client_request: QcClientRequest;
   checks: QcCheck[];
 }
@@ -205,6 +221,7 @@ export type QcFixAction =
   | { action: "remove_term"; term: string }
   | { action: "spelling" }
   | { action: "role_order" }
+  | { action: "restore_dates"; role_index?: number }
   | { action: "years" }
   | { action: "title" }
   | { action: "strip_client_rules" }
@@ -262,6 +279,21 @@ export function useCvQc(stageId: number | null, enabled = true) {
     // liczy QC od nowa.
     staleTime: 0,
     refetchOnMount: "always",
+  });
+}
+
+/**
+ * Zrzut zgody RODO przy CV z QC (miniatura przy `consent_matches`, 27.10.2026).
+ * Klucz pod `cvQcQueryKey`: „Wymień zrzut” odświeża QC, a z nim obraz.
+ */
+export function useQcConsentScreenshot(stageId: number) {
+  return useQuery<Blob>({
+    queryKey: [...cvQcQueryKey(stageId), "consent-screenshot"],
+    queryFn: () =>
+      api
+        .get<Blob>(`/api/pipeline/stages/${stageId}/qc/consent-screenshot`, { responseType: "blob" })
+        .then((r) => r.data),
+    retry: false,
   });
 }
 
@@ -346,7 +378,9 @@ export function useQcOverride(stageId: number | null, onChanged?: () => void) {
 /** Pozycja „spoza oryginału” z listy QC i to, co powiedział kandydat. */
 export interface QcConfirmBody {
   term: string;
-  text?: string;
+  text: string;
+  /** Firma, której dotyczy fakt; bez niej trafia tylko do umiejętności. */
+  role?: string;
 }
 
 /** „Potwierdzone z kandydatem” — serwer zapisuje notatkę pary i zwraca świeży wynik QC. */
@@ -376,4 +410,37 @@ export function useQcDismiss(stageId: number | null, onChanged?: () => void) {
 /** Przywrócenie pominiętej uwagi — bez ciała, świeży wynik QC w odpowiedzi. */
 export function useQcRestore(stageId: number | null, onChanged?: () => void) {
   return useQcWrite<number>(stageId, (dismissalId) => `dismissals/${dismissalId}/restore`, onChanged, () => undefined);
+}
+
+/** Fakt z rozmowy, którego nie ma w oryginale: krok przed generacją CV. */
+export interface QcRoleFact {
+  term: string;
+  quote: string;
+}
+
+export interface QcRoleFacts {
+  facts: QcRoleFact[];
+  roles: string[];
+}
+
+export const qcRoleFactsQueryKey = (stageId: number) => ["qc-role-facts", stageId] as const;
+
+export function useQcRoleFacts(stageId: number | null) {
+  return useQuery<QcRoleFacts>({
+    queryKey: qcRoleFactsQueryKey(stageId ?? 0),
+    queryFn: ({ signal }) =>
+      api.get<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, { signal }).then((r) => r.data),
+    enabled: stageId != null && stageId > 0,
+  });
+}
+
+export function useSaveQcRoleFact(stageId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation<QcRoleFacts, unknown, { term: string; role: string }>({
+    mutationFn: (body) =>
+      api.post<QcRoleFacts>(`/api/pipeline/stages/${stageId}/qc/role-facts`, body).then((r) => r.data),
+    onSuccess: (data) => {
+      queryClient.setQueryData(qcRoleFactsQueryKey(stageId ?? 0), data);
+    },
+  });
 }

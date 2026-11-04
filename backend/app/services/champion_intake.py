@@ -317,6 +317,13 @@ def date(value):
     return None
 
 
+def hour_minute(value):
+    match = re.fullmatch(
+        r"([01]?\d|2[0-3])[:.]([0-5]\d)(?::[0-5]\d)?", str(value).strip()
+    )
+    return f"{int(match[1]):02d}:{match[2]}" if match else None
+
+
 # A requirement longer than this reads like prose rather than a technology. It
 # is KEPT (in the stack and in `jobs.must_skills`) and only flagged: until
 # 09.2026 crossing either bound moved the entry to `intake.unresolved` and out
@@ -624,6 +631,7 @@ def prepare_profile(
         "work_mode": mode,
         "start_date": date,
         "deadline": date,
+        "deadline_time": hour_minute,
     }
     text_limits = {
         "role_name": 255,
@@ -1163,6 +1171,7 @@ def _rubric_job_value(job, key, column):
 
 def response_context(job):
     deadline = getattr(job, "deadline", None)
+    deadline_time = getattr(job, "deadline_time", None)
 
     return {
         "validation": validation(job.champion_profile, job),
@@ -1179,11 +1188,13 @@ def response_context(job):
             },
             "role_name": getattr(job, "title", None),
             "deadline": deadline.isoformat() if deadline else None,
+            "deadline_time": deadline_time.strftime("%H:%M") if deadline_time else None,
             # 0407: edytor startuje sekcję 1 z pary pól (tydzień / miesiąc).
             "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
         },
         "critical_resolution": critical_resolution_payload(job),
         "requirement_find_words": requirement_find_words_payload(job),
+        "requirement_full_labels": requirement_full_labels_payload(job),
     }
 
 
@@ -1231,6 +1242,14 @@ def critical_resolution_payload(job) -> dict:
     }
 
 
+def requirement_full_labels_payload(job) -> dict[str, str]:
+    """Pełne brzmienie wymagań z zamiennikami (`champion_requirement_rows.full_labels`)."""
+    from app.services.champion_requirement_rows import full_labels
+
+    profile = getattr(job, "champion_profile", None)
+    return full_labels(profile.get("stack") if isinstance(profile, dict) else None)
+
+
 def requirement_find_words_payload(job) -> dict[str, list[str]]:
     """Słowa lupy „Szukaj w CV” dla każdego wymagania (16.10.2026).
 
@@ -1238,8 +1257,10 @@ def requirement_find_words_payload(job) -> dict[str, list[str]]:
     — ekran pokazuje jedne albo drugie) → słowa, których lupa szuka w podglądzie
     CV: opcje i warianty nazw tak jak bramka, a przy krytycznej z wyboru DL
     także słowa jej wiersza. Do tej daty lupa szukała całej etykiety („.NET lub
-    C#”) jako jednej frazy i nie znajdowała niczego.
+    C#”) jako jednej frazy i nie znajdowała niczego. Od 30.10.2026 także słowa
+    wiersza niekrytycznego: „Agile lub Prince2” szuka obu.
     """
+    from app.services.champion_requirement_rows import label_row_words
     from app.services.critical_skills import critical_gate_options, match_must_labels
     from app.services.keyword_suggest import requirement_find_words
 
@@ -1253,6 +1274,7 @@ def requirement_find_words_payload(job) -> dict[str, list[str]]:
             if isinstance(item, dict) and isinstance(item.get("name"), str):
                 labels.append(item["name"])
     row_words = critical_gate_options(job)
+    own_rows = label_row_words(stack)
     out: dict[str, list[str]] = {}
     for raw in labels:
         label = raw.strip()
@@ -1265,7 +1287,7 @@ def requirement_find_words_payload(job) -> dict[str, list[str]]:
             (w for name, w in row_words.items() if match_must_labels([name], [label])),
             (),
         )
-        for word in extra:
+        for word in (*extra, *own_rows.get(label, ())):
             # Rdzeń „kolejk*” szuka początku słowa — w lupie to po prostu fragment.
             word = word.strip().rstrip("*")
             if len(word) >= 2 and word.casefold() not in seen:

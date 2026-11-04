@@ -32,6 +32,20 @@ describe("QueryProvider", () => {
     expect(seen).toBe(0);
   });
 
+  it("nie odświeża przy powrocie do karty — ikony paska odświeża gniazdo (27.10.2026)", () => {
+    let seen: unknown;
+    function Probe() {
+      seen = useQueryClient().getDefaultOptions().queries?.refetchOnWindowFocus;
+      return null;
+    }
+    render(
+      <QueryProvider>
+        <Probe />
+      </QueryProvider>,
+    );
+    expect(seen).toBe(false);
+  });
+
   it("nie używa pustego providera zamiast QueryClientProvider", () => {
     expect(QueryClientProvider).toBeDefined();
   });

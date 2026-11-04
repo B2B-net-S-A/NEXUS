@@ -12,10 +12,11 @@ from app.models.notification import NotificationType
 
 BACKEND = Path(__file__).resolve().parents[1]
 MIGRATION = BACKEND / "alembic" / "versions" / "0525_job_p0.py"
+REQUEST_MIGRATION = BACKEND / "alembic" / "versions" / "0610_job_p0_request.py"
 
 
-def _migration_module():
-    spec = importlib.util.spec_from_file_location("m0525", MIGRATION)
+def _migration_module(path: Path = MIGRATION):
+    spec = importlib.util.spec_from_file_location(path.stem, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -43,3 +44,19 @@ def test_model_knows_every_p0_column() -> None:
     columns = set(Job.__table__.columns.keys())
     assert {"p0_until", "p0_reason", "p0_set_at", "p0_set_by"} <= columns
     assert NotificationType.job_p0_set.value == "job_p0_set"
+
+
+def test_p0_request_columns_and_notification_type_are_mirrored() -> None:
+    """0610: prośba DL o P0 — to samo lustro w entrypoincie i w modelu."""
+    module = _migration_module(REQUEST_MIGRATION)
+    entry = _entrypoint()
+    for statement in (*module.COLUMNS, module.ADD_NOTIFICATION_TYPE):
+        assert _squash(statement) in entry, statement
+    columns = set(Job.__table__.columns.keys())
+    assert {
+        "p0_request_reason",
+        "p0_request_duration",
+        "p0_requested_at",
+        "p0_requested_by",
+    } <= columns
+    assert NotificationType.job_p0_requested.value == "job_p0_requested"

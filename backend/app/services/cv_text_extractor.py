@@ -30,6 +30,9 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
+from dataclasses import dataclass
 from typing import Optional
 
 from app.core.log_safety import safe_filename
@@ -231,7 +234,7 @@ _PDF_WORKER_MAX_CHARS = 2_000_000
 _BACKEND_ROOT = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words")
+_WORKER_OPS = ("pdf", "native", "pdfminer", "pages", "words", "all_pages", "word")
 #: Sufit liczby słów z położeniem (tabela zamówienia ma ich kilkaset).
 _PDF_WORKER_MAX_WORDS = 50_000
 
@@ -292,6 +295,53 @@ def _run_pdf_worker(
     except ValueError:
         return None
     return result if isinstance(result, dict) else None
+
+
+#: Strona z mniejszą liczbą znaków idzie do OCR (test paczki umów 30.10.2026:
+#: Aneks NBP miał 9 z 13 stron skanem obok tekstu na pozostałych).
+_OCR_PAGE_MIN_CHARS = 50
+#: Sufit odczytu dokumentu prawnego; najdłuższy skan z paczki ma 248 stron.
+ALL_PAGES_MAX = 500
+#: Limit czasu odczytu wszystkich stron: start + sekundy na stronę, z sufitem.
+_ALL_PAGES_TIMEOUT_BASE_SECONDS = 150
+_ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS = 10
+_ALL_PAGES_TIMEOUT_MAX_SECONDS = 3600
+
+
+@dataclass(frozen=True)
+class AllPagesText:
+    """Tekst wszystkich stron PDF-a i to, ile z nich przeczytał OCR."""
+
+    text: str
+    pages: int
+    ocr_pages: int
+
+
+def all_pages_timeout(pages: Optional[int]) -> int:
+    """Skan OCR-uje się kilka sekund na stronę, więc limit rośnie ze stronami."""
+    return min(
+        _ALL_PAGES_TIMEOUT_BASE_SECONDS
+        + _ALL_PAGES_TIMEOUT_PER_PAGE_SECONDS * min(pages or 0, ALL_PAGES_MAX),
+        _ALL_PAGES_TIMEOUT_MAX_SECONDS,
+    )
+
+
+def extract_pdf_all_pages_sandboxed(path: str) -> Optional[AllPagesText]:
+    """Cały PDF dla dokumentów prawnych: tekst stron, a strony bez tekstu z OCR.
+
+    CV i zamówienia zostają przy ``extract_text`` (OCR 10 pierwszych stron).
+    ``None`` = limit czasu, limit pamięci albo uszkodzony plik.
+    """
+    pages = pdf_page_count_sandboxed(path)
+    result = _run_pdf_worker("all_pages", path, timeout=all_pages_timeout(pages))
+    text = result.get("text") if result else None
+    if not isinstance(text, str):
+        return None
+    return AllPagesText(
+        text=text,
+        pages=int(result.get("pages") or 0),
+        ocr_pages=int(result.get("ocr_pages") or 0),
+    )
 
 
 def _extract_pdf(path: str) -> Optional[str]:
@@ -359,6 +409,60 @@ def _worker_words(path: str) -> Optional[list]:
         return None
 
 
+def _ocr_one_page(path: str, number: int) -> str:
+    """OCR jednej strony (numer od 1); strona na dysku, nie w pamięci procesu."""
+    import tempfile
+
+    import pytesseract  # type: ignore[import-untyped]
+    from pdf2image import convert_from_path  # type: ignore[import-untyped]
+
+    with tempfile.TemporaryDirectory(prefix="nexus-ocr-") as tmpdir:
+        images = convert_from_path(
+            path,
+            dpi=200,
+            first_page=number,
+            last_page=number,
+            size=_OCR_PAGE_MAX_PX,
+            output_folder=tmpdir,
+        )
+        return "\n".join(
+            pytesseract.image_to_string(image, lang="pol+eng") for image in images
+        )
+
+
+def _worker_all_pages(path: str) -> dict:
+    """Strona po stronie: tekst z PDF-a, a gdy go brak, OCR tej strony."""
+    try:
+        import pdfplumber  # type: ignore[import-untyped]
+
+        # Jeden wątek: odczyt skanu nie może zająć wszystkich rdzeni serwera.
+        os.environ["OMP_THREAD_LIMIT"] = "1"
+        parts: list[str] = []
+        ocr_pages = 0
+        with pdfplumber.open(path) as pdf:
+            total = len(pdf.pages)
+            for number, page in enumerate(pdf.pages[:ALL_PAGES_MAX], start=1):
+                text = page.extract_text() or ""
+                if looks_glued(text):
+                    tight = page.extract_text(x_tolerance=1) or ""
+                    if avg_word_length(tight) < avg_word_length(text):
+                        text = tight
+                page.close()
+                if len(text.strip()) < _OCR_PAGE_MIN_CHARS:
+                    try:
+                        scanned = _ocr_one_page(path, number)
+                    except Exception:  # noqa: BLE001 — zostaje tekst strony
+                        scanned = ""
+                    if len(scanned.strip()) > len(text.strip()):
+                        text = scanned
+                        ocr_pages += 1
+                if text.strip():
+                    parts.append(text)
+        return {"text": "\n\n".join(parts), "pages": total, "ocr_pages": ocr_pages}
+    except Exception:  # noqa: BLE001 — wynik best-effort
+        return {"text": None}
+
+
 def _worker_pdfminer(path: str) -> Optional[str]:
     try:
         from pdfminer.high_level import extract_text as _pdfminer_extract
@@ -404,6 +508,10 @@ def _worker_main(argv: list[str]) -> int:
         payload["text"] = _worker_pdfminer(path)
     elif op == "words":
         payload["words"] = _worker_words(path)
+    elif op == "all_pages":
+        payload = _worker_all_pages(path)
+    elif op == "word":
+        payload["text"] = _worker_word(path)
     else:
         payload["pages"] = _worker_page_count(path)
     text = payload.get("text")
@@ -414,8 +522,90 @@ def _worker_main(argv: list[str]) -> int:
     return 0
 
 
+#: Tylko prawdziwy Word po bajtach. RTF czy HTML pod nazwą `.doc` zostają bez
+#: tekstu: arkusz stylów z HTML-a wykonywał żądanie mimo blokady linków w profilu.
+_WORD_IMPORT_FILTERS = {".doc": "MS Word 97", ".docx": "MS Word 2007 XML"}
+
+
+def _worker_word(path: str) -> Optional[str]:
+    """Plik Worda przez LibreOffice do PDF-a, dalej zwykły odczyt PDF (z OCR)."""
+    infilter = _WORD_IMPORT_FILTERS.get(sniff_extension(path) or "")
+    if not infilter:
+        return None
+    try:
+        from app.core.zip_guard import assert_safe_ooxml
+        from app.services.cv_pdf_preview import docx_to_pdf
+
+        # `_extract_docx` połyka odmowę strażnika, więc bomba ZIP dochodzi aż tutaj.
+        assert_safe_ooxml(path)
+        with open(path, "rb") as handle:
+            pdf = docx_to_pdf(handle.read(), infilter=infilter)
+        with tempfile.TemporaryDirectory(prefix="nexus-word-") as tmpdir:
+            target = os.path.join(tmpdir, "word.pdf")
+            with open(target, "wb") as handle:
+                handle.write(pdf)
+            return _extract_pdf_inprocess(target)
+    except Exception as e:  # noqa: BLE001 — wynik best-effort
+        logger.warning(
+            "[cv_text_extractor] LibreOffice failed on %s: %s",
+            safe_filename(path),
+            type(e).__name__,
+        )
+        return None
+
+
+# LibreOffice to ciężki proces (`cv_pdf_preview`): jedna zamiana naraz na proces
+# webowy, a kolejka z limitem, żeby seria plików nie zabrała wątków innym trasom.
+_word_slot = threading.BoundedSemaphore(1)
+_WORD_SLOT_WAIT_SECONDS = 60
+#: LibreOffice rezerwuje więcej przestrzeni adresowej niż pdfplumber i tesseract:
+#: prawdziwe CV (69 KB) przy 1,5 GB kończyło się sygnałem 11, od 1,75 GB czytało się.
+WORD_WORKER_MEMORY_BYTES = 2560 * 1024 * 1024
+
+
+def _extract_word_via_pdf(path: str) -> Optional[str]:
+    """Tekst Worda z LibreOffice, w procesie odczytu z limitem pamięci i czasu."""
+    from app.services.cv_pdf_preview import soffice_path
+
+    if not soffice_path():
+        return None
+    if not _word_slot.acquire(timeout=_WORD_SLOT_WAIT_SECONDS):
+        logger.warning(
+            "[cv_text_extractor] %s: LibreOffice zajęty, plik bez odczytu",
+            safe_filename(path),
+        )
+        return None
+    try:
+        result = _run_pdf_worker("word", path, memory_bytes=WORD_WORKER_MEMORY_BYTES)
+    finally:
+        _word_slot.release()
+    text = result.get("text") if result else None
+    return text if isinstance(text, str) else None
+
+
+def _extract_word(path: str) -> Optional[str]:
+    """Word: python-docx, a gdy prawie nic nie odczytał, LibreOffice.
+
+    python-docx odrzuca binarny `.doc`, a w `.docx` pomija pola tekstowe
+    i kontrolki, więc takie CV miało pusty tekst i `/from-cv` odpowiadał 400
+    (03.11.2026, zgłoszenia z Pracuj.pl przepadały). LibreOffice jest tylko
+    ścieżką zapasową, bo wolny: pomiar na kopii produkcji to 0,4–2,6 s na plik.
+    """
+    text = _extract_docx(path)
+    if len((text or "").strip()) >= _OCR_FALLBACK_THRESHOLD_CHARS:
+        return text
+    via_pdf = _extract_word_via_pdf(path)
+    if len(via_pdf or "") > len(text or ""):
+        logger.info(
+            "[cv_text_extractor] %s extracted via LibreOffice (python-docx too short)",
+            safe_filename(path),
+        )
+        return via_pdf
+    return text
+
+
 def _extract_docx(path: str) -> Optional[str]:
-    """Extract text from a DOCX (or legacy .doc, best-effort) via python-docx."""
+    """Extract text from a DOCX via python-docx (binary .doc always fails here)."""
     try:
         from docx import Document  # type: ignore[import-untyped]
 
@@ -572,7 +762,7 @@ def extract_text(file_path: str, filename: str) -> str:
     if ext == ".pdf":
         raw = _extract_pdf(file_path)
     elif ext in (".docx", ".doc"):
-        raw = _extract_docx(file_path)
+        raw = _extract_word(file_path)
     elif ext == ".txt":
         raw = _extract_txt(file_path)
     else:

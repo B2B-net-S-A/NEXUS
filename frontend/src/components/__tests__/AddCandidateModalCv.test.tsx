@@ -192,6 +192,70 @@ describe("AddCandidateModal — start od CV", () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalledWith("Kandydat dodany pomyślnie"));
   });
 
+  describe("adres z profilu trwale usuniętego", () => {
+    const erased = {
+      response: {
+        status: 409,
+        data: { detail: { code: "candidate_erased", message: "Zdanie serwera" } },
+      },
+    };
+
+    function refuseFirstSave(prefix: string) {
+      let refused = false;
+      apiPost.mockImplementation((url: string) => {
+        if (url.startsWith("/api/candidates/cv/preview")) {
+          return Promise.resolve({ data: PREVIEW } as never);
+        }
+        if (url.startsWith(prefix) && !refused) {
+          refused = true;
+          return Promise.reject(erased);
+        }
+        if (url.startsWith("/api/candidates/from-cv")) {
+          return Promise.resolve({ data: { candidate: { id: 501 } } } as never);
+        }
+        if (url === "/api/candidates" || url.startsWith("/api/candidates?")) {
+          return Promise.resolve({ data: { id: 501 } } as never);
+        }
+        return Promise.resolve({ data: [] } as never);
+      });
+    }
+
+    it("zapis z CV pyta rekrutera i po zgodzie ponawia z confirm_erased", async () => {
+      refuseFirstSave("/api/candidates/from-cv");
+      const user = userEvent.setup();
+      const { onSuccess } = renderModal();
+      pickCv();
+      await screen.findByText(/Uzupełniono z CV/);
+
+      await user.click(screen.getByRole("button", { name: "Dodaj kandydata" }));
+      await user.click(await screen.findByRole("button", { name: "Dodaj mimo to" }));
+
+      await waitFor(() => expect(onSuccess).toHaveBeenCalled());
+      expect(callsTo("/api/candidates/from-cv").at(-1)?.[0]).toBe(
+        "/api/candidates/from-cv?confirm_erased=true",
+      );
+    });
+
+    it("anulowanie pytania niczego nie zapisuje i zostawia okno", async () => {
+      refuseFirstSave("/api/candidates/from-cv");
+      const user = userEvent.setup();
+      const { onSuccess, onClose } = renderModal();
+      pickCv();
+      await screen.findByText(/Uzupełniono z CV/);
+
+      await user.click(screen.getByRole("button", { name: "Dodaj kandydata" }));
+      await screen.findByRole("button", { name: "Dodaj mimo to" });
+      await user.click(screen.getByRole("button", { name: "Anuluj" }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: "Dodaj mimo to" })).not.toBeInTheDocument(),
+      );
+      expect(callsTo("/api/candidates/from-cv")).toHaveLength(1);
+      expect(onSuccess).not.toHaveBeenCalled();
+      expect(onClose).not.toHaveBeenCalled();
+    });
+  });
+
   it("wyczyszczone pole idzie jako jawne \"\", a reszta formularza w tym samym żądaniu", async () => {
     const user = userEvent.setup();
     renderModal();

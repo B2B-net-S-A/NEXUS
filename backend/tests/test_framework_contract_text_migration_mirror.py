@@ -56,11 +56,15 @@ def test_model_columns_match_the_ddl() -> None:
     }
     model_columns = set(ClientFrameworkContract.__table__.columns.keys())
     assert added <= model_columns
-    assert added == {name for name in model_columns if name.startswith("text_")}
+    # `text_ocr_pages` doszła w 0627 (AMENDMENT_COLUMN_DDL).
+    assert added == {name for name in model_columns if name.startswith("text_")} - {
+        "text_ocr_pages"
+    }
 
     table = TABLE_DDL[0]
     for column in ClientFrameworkContractChunk.__table__.columns.keys():
-        assert re.search(rf"\b{column}\b", table), column
+        if column != "amendment_id":  # doszła w 0627
+            assert re.search(rf"\b{column}\b", table), column
     assert "ON DELETE CASCADE" in table
     assert "uq_client_framework_contract_chunks_position" in table
 
@@ -79,3 +83,37 @@ def test_health_deep_probes_both_tables_and_model_is_registered() -> None:
     assert '("client_framework_contract_chunks", ClientFrameworkContractChunk)' in main
     models = (BACKEND / "app" / "models" / "__init__.py").read_text(encoding="utf-8")
     assert "from app.models.client_framework_contract_chunk import" in models
+
+
+def test_0627_chains_after_cover_sheets_and_mirrors_the_single_source() -> None:
+    from app.models.client_contract_amendment import ClientContractAmendment
+    from app.models.client_framework_contract_chunk import (
+        ClientFrameworkContractChunk,
+    )
+    from app.services.framework_contract_text_schema import (
+        AMENDMENT_ALL_DDL,
+        AMENDMENT_COLUMN_DDL,
+    )
+
+    migration = BACKEND / "alembic" / "versions" / "0627_client_amendment_text.py"
+    source = migration.read_text(encoding="utf-8")
+    assert 'revision = "0627_client_amendment_text"' in source
+    assert 'down_revision = "0626_client_cover_sheet_templates"' in source
+    assert "schema.AMENDMENT_ALL_DDL" in source
+    entrypoint = (BACKEND / "entrypoint.sh").read_text(encoding="utf-8")
+    assert "*_fc_text.AMENDMENT_ALL_DDL" in entrypoint
+    for statement in AMENDMENT_ALL_DDL:
+        assert "IF NOT EXISTS" in statement or "IF EXISTS" in statement, statement
+    amendment_columns = {
+        statement.split("ADD COLUMN IF NOT EXISTS ")[1].split()[0]
+        for statement in AMENDMENT_COLUMN_DDL
+        if "client_contract_amendments " in statement
+    }
+    model_columns = set(ClientContractAmendment.__table__.columns.keys())
+    assert amendment_columns == {c for c in model_columns if c.startswith("text_")}
+    assert "amendment_id" in ClientFrameworkContractChunk.__table__.columns
+
+
+def test_health_deep_probes_the_amendment_columns() -> None:
+    main = (BACKEND / "app" / "main.py").read_text(encoding="utf-8")
+    assert '("client_contract_amendments", ClientContractAmendment)' in main

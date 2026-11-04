@@ -15,7 +15,10 @@ PDF raportu godzin) bierze słowa z formy osoby:
 
 Przy B2B i zleceniu dzień ponad 8 h to „godziny ponad 8 h”, nie „nadgodziny”
 (bramka uprawnienia ``can_log_overtime`` zostaje — zmieniają się tylko słowa),
-a premia to „wynagrodzenie dodatkowe” (decyzja Artura 21.10.2026).
+a premia to „wynagrodzenie dodatkowe” (decyzja Artura 21.10.2026). Domyślny
+opis dnia w raporcie („Wypełnij miesiąc”, auto-wpis płatnej puli) to przy B2B
+i zleceniu „Realizacja usług zgodnie z umową”, przy UoP „Praca standardowa”
+(decyzja Artura 28.10.2026).
 
 Brak formy (osoba bez kartoteki) = jak umowa o pracę. ``EMPLOYMENT_TERMS`` ma
 lustro słowo w słowo we froncie (``frontend/src/lib/hr-employment-terms.ts``,
@@ -69,6 +72,7 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "bonuses": "premie",
         "bonuses_genitive": "premii",
         "bonuses_tab": "Premie i stawka",
+        "standard_description": "Praca standardowa",
     },
     "b2b": {
         "form": "B2B",
@@ -103,6 +107,7 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "bonuses": "wynagrodzenie dodatkowe",
         "bonuses_genitive": "wynagrodzenia dodatkowego",
         "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
+        "standard_description": "Realizacja usług zgodnie z umową",
     },
     "zlecenie": {
         "form": "Umowa zlecenie",
@@ -137,6 +142,7 @@ EMPLOYMENT_TERMS: dict[str, dict[str, str]] = {
         "bonuses": "wynagrodzenie dodatkowe",
         "bonuses_genitive": "wynagrodzenia dodatkowego",
         "bonuses_tab": "Wynagrodzenie dodatkowe i stawka",
+        "standard_description": "Realizacja usług zgodnie z umową",
     },
 }
 
@@ -158,6 +164,7 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "cancelled_title": "Nieobecność anulowana",
         "conflict_title": "Kolizja z Twoją nieobecnością",
         "bonus_new_title": "Masz nową premię",
+        "bonus_ready_title": "Premia może zostać naliczona",
         "bonus_changed_title": "Twoja premia została zmieniona",
         "bonus_cancelled_title": "Premia została anulowana",
         "bonus_cancelled_verb": "została anulowana",
@@ -176,6 +183,7 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "cancelled_title": "Przerwa w świadczeniu usług anulowana",
         "conflict_title": "Kolizja z Twoją przerwą w świadczeniu usług",
         "bonus_new_title": "Masz nowe wynagrodzenie dodatkowe",
+        "bonus_ready_title": "Wynagrodzenie dodatkowe może zostać naliczone",
         "bonus_changed_title": "Twoje wynagrodzenie dodatkowe zostało zmienione",
         "bonus_cancelled_title": "Wynagrodzenie dodatkowe zostało anulowane",
         "bonus_cancelled_verb": "zostało anulowane",
@@ -197,6 +205,7 @@ BACKEND_TERMS: dict[str, dict[str, str]] = {
         "cancelled_title": "Nieobecność anulowana",
         "conflict_title": "Kolizja z Twoją nieobecnością",
         "bonus_new_title": "Masz nowe wynagrodzenie dodatkowe",
+        "bonus_ready_title": "Wynagrodzenie dodatkowe może zostać naliczone",
         "bonus_changed_title": "Twoje wynagrodzenie dodatkowe zostało zmienione",
         "bonus_cancelled_title": "Wynagrodzenie dodatkowe zostało anulowane",
         "bonus_cancelled_verb": "zostało anulowane",
@@ -253,7 +262,7 @@ def bonus_message(
     state = f" {words['bonus_cancelled_verb']}" if cancelled else ""
     return (
         f"{capitalize(words['bonus'])} za {period}{state}. "
-        f"Szczegóły w „Moim czasie” → {capitalize(words['bonuses'])}."
+        f"Szczegóły w „Mojej współpracy” → {capitalize(words['bonuses'])}."
     )
 
 

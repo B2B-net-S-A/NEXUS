@@ -27,7 +27,8 @@ z kategorią, brak urlopów z Compassa, jednorazowa kolejka przy handoffie) —
   zniknął — zapisywał te same priorytety 1/2. 1. priorytet jeden na osobę (częściowy UNIQUE), zdjęcie głównej
   jest dozwolone (stare trasy `/api/team-structure/sourcer-categories` tego nie
   pozwalały i zostały nietknięte). `users.allocation_excluded` = „Poza
-  przydziałem”. Zasady (próg bazy dla sourcera, godzina przeglądu) w
+  przydziałem”. Zasady (od 29.10.2026 dziewięć, zakładka „Automat przydziału” —
+  `automat-przydzialu-zasady-w-ustawieniach.md`) w
   `app_settings['request_allocation_rules']`. Przypisania ze screena:
   `scripts/seed_competence_team_2026_09.py` (same id kont).
 - **Automat**: czysty planer `services/request_allocation_plan.py` (testy

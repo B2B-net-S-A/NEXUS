@@ -40,6 +40,7 @@
     ["IIS", "tools", ["microsoft iis"]],
     ["SAP", "tools", []],
     ["SIEM", "tools", []],
+    ["SailPoint IdentityIQ", "tools", ["sailpoint iiq", "identityiq", "identity iq", "sailpoint identity iq", "iiq"]],
     ["UML", "standards", []],
     ["BPMN", "standards", ["bpmn 2.0"]],
     ["SOAP", "standards", []],

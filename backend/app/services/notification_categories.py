@@ -102,7 +102,7 @@ CATEGORY_INFO: dict[NotificationCategory, CategoryInfo] = {
     ),
     NotificationCategory.people: CategoryInfo(
         "Czas i ludzie",
-        "Urlopy i zastępstwa, timesheety, premie, wejścia i odejścia, sprawy administracja@ i sprzęt.",
+        "Nieobecności i zastępstwa, raporty godzin, rozliczenia, wejścia i odejścia, sprawy administracja@ i sprzęt.",
     ),
     NotificationCategory.system: CategoryInfo(
         "Konto i system",
@@ -144,6 +144,16 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # i osoba znowu nad nią pracuje. Zmiana Twojego przydziału, jak wyżej.
     _T.recruiter_parked: _C.mentions,
     _T.recruiter_restored: _C.mentions,
+    # 0607: zamknięto rekrutację z Twoimi osobami od „CV wysłane” — imienne
+    # zadanie (daj im znać), nie do wyciszenia jak przydział.
+    _T.job_closed_people_waiting: _C.mentions,
+    # 0635: klient odrzucił Twoją osobę / chce rozmowy (mail CPro) — imienne
+    # zadanie: napisz do kandydata, potwierdź termin, zdecyduj o zamknięciu.
+    _T.cpro_candidate_rejected: _C.mentions,
+    _T.cpro_interview_change: _C.mentions,
+    _T.cpro_close_needs_decision: _C.mentions,
+    # 0621: osoby po rekruterze, który odszedł — imienny obowiązek DL-a.
+    _T.departed_pairs_care: _C.mentions,
     # Czat
     _T.job_chat_message: _C.chat,
     # Ruchy w rekrutacjach
@@ -158,6 +168,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     # 0450: championi rekrutacji — zapis listy i powrót do szukania (D8).
     _T.champions_changed: _C.pipeline,
     _T.champion_search_resumed: _C.pipeline,
+    _T.job_twin_linked: _C.pipeline,
     _T.pending_verification: _C.pipeline,
     # Zaległości i przypomnienia
     _T.stage_stuck_7d: _C.reminders,
@@ -176,6 +187,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.job_ad_nudge: _C.reminders,
     # 0525: P0 na rekrutacji Twojego zespołu (mail obowiązkowy).
     _T.job_p0_set: _C.reminders,
+    # 0610: Delivery Lead prosi o P0 (do Head of Recruitment).
+    _T.job_p0_requested: _C.reminders,
+    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    _T.job_idle_reminder: _C.reminders,
     # 0409: propozycje automatu przydziału czekają na akceptację.
     _T.request_allocation_proposals: _C.reminders,
     # Terminy rekrutacji
@@ -188,6 +203,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.post_interview_t45: _C.interviews,
     _T.post_interview_t2h_escalation: _C.interviews,
     _T.interview_slots_requested: _C.interviews,
+    _T.client_panel_request: _C.interviews,
     _T.interview_slot_chosen: _C.interviews,
     _T.interview_slot_confirmed: _C.interviews,
     _T.interview_debrief_saved: _C.interviews,
@@ -247,6 +263,7 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.signature_signed: _C.contracts,
     _T.signature_rejected: _C.contracts,
     _T.signature_failed: _C.contracts,
+    _T.signature_renewal_requested: _C.contracts,
     # KPI
     _T.powercalling_kpi: _C.kpi,
     _T.kpi_coach: _C.kpi,
@@ -265,6 +282,10 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.hr_lifecycle_task: _C.people,
     _T.hr_work_handover: _C.people,
     _T.admin_case_assigned: _C.people,
+    _T.back_office_escalated: _C.people,
+    _T.back_office_assigned: _C.people,
+    _T.portal_low_rating: _C.people,
+    _T.portal_monthly_review: _C.people,
     _T.equipment_task: _C.people,
     _T.equipment_protocol_signed: _C.people,
     _T.equipment_return_reminder: _C.people,
@@ -287,7 +308,11 @@ CATEGORY_BY_TYPE: dict[NotificationType, NotificationCategory] = {
     _T.ai_spend_alert: _C.system,
     _T.automation_failing: _C.system,
     _T.candidate_data_access_alert: _C.system,
+    _T.new_person_signed_in: _C.system,
+    # 0619: ważne ogłoszenie HoR albo admina (mail obowiązkowy).
+    _T.announcement_important: _C.system,
     _T.teams_prep_scope_missing: _C.system,
+    _T.hr_m365_scope_missing: _C.system,
 }
 
 
@@ -343,6 +368,8 @@ _SPLIT_GROUPS: dict[
             _T.request_review_needed,
             _T.client_job_opened,
             _T.job_p0_set,
+            _T.job_p0_requested,
+            _T.job_idle_reminder,
             _T.request_allocation_proposals,
         ),
     ),
@@ -422,6 +449,7 @@ _SPLIT_GROUPS: dict[
             _T.signature_signed,
             _T.signature_rejected,
             _T.signature_failed,
+            _T.signature_renewal_requested,
             _T.equipment_return_due_14d,
         ),
     ),

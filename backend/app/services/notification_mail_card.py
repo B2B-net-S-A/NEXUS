@@ -115,6 +115,10 @@ SPECS: dict[str, _Spec] = {
         label="Wybierz termin z kandydatem",
         cycle_step="pick",
     ),
+    # Treść wpisał klient, niezweryfikowany: mail mówi tylko, co czeka w panelu.
+    "client_panel_request": _Spec(
+        "Odpowiedz klientowi w panelu", label="Otwórz panel klienta"
+    ),
     "interview_slot_chosen": _Spec(
         "Potwierdź termin u klienta", label="Potwierdź termin", cycle_step="confirm"
     ),
@@ -160,6 +164,27 @@ SPECS: dict[str, _Spec] = {
     "job_p0_set": _Spec(
         "Rekrutacja na P0 — ultrapilne", chip="P0", label="Otwórz rekrutację"
     ),
+    "job_p0_requested": _Spec(
+        "Prośba o P0 do zatwierdzenia", chip="P0", label="Otwórz pulpit"
+    ),
+    "job_closed_people_waiting": _Spec(
+        "Daj znać swoim osobom",
+        chip="Rekrutacja zamknięta",
+        label="Otwórz Tablicę",
+        use_title=True,
+    ),
+    "departed_pairs_care": _Spec(
+        "Domknij kandydatów po osobie, która odeszła",
+        chip="Odejście z firmy",
+        label="Otwórz listę",
+        use_title=True,
+    ),
+    "job_idle_reminder": _Spec(
+        "Rekrutacje bez ruchu",
+        chip="Bez ruchu",
+        label="Otwórz rekrutację",
+        use_title=True,
+    ),
     "request_assignment_changed": _Spec(
         "Nowa rekrutacja dla Ciebie", chip="Nowa rekrutacja", label="Otwórz rekrutację"
     ),
@@ -171,8 +196,18 @@ SPECS: dict[str, _Spec] = {
     "hire_missing_contract": _Spec("Dodaj umowę", label="Otwórz kandydata"),
     "automation_failing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
     "teams_prep_scope_missing": _Spec("Sprawdź automat", chip="Awaria", label="Otwórz"),
+    "hr_m365_scope_missing": _Spec(
+        "Dopisz osoby do grupy", chip="Awaria", label="Otwórz kartę"
+    ),
     "candidate_data_access_alert": _Spec(
         "Sprawdź alarm", chip="Bezpieczeństwo", label="Sprawdź konta"
+    ),
+    # 0612: nowa osoba po pierwszym logowaniu — przyciski otwierają okno
+    # „Ustaw” na pulpicie (`?nowa-osoba=`), decyzja zapada dopiero w oknie.
+    "new_person_signed_in": _Spec("Zdecyduj, kim jest nowa osoba", label="Zdecyduj"),
+    # 0619: ważne ogłoszenie — temat to tytuł ogłoszenia.
+    "announcement_important": _Spec(
+        "Ważne ogłoszenie", chip="Ogłoszenie", label="Otwórz pulpit", use_title=True
     ),
     # Czas i ludzie — temat bez rodzaju nieobecności.
     "hr_leave_requested": _Spec("Zatwierdź nieobecność", label="Zatwierdź"),
@@ -315,7 +350,7 @@ def _facts(ntype: str, hr: bool, facts: MailFacts) -> tuple[tuple[str, str], ...
 def _about(ntype: str, hr: bool, facts: MailFacts) -> Optional[str]:
     if hr:
         parts = [facts.person]
-    elif ntype == "request_assignment_changed":
+    elif ntype in {"request_assignment_changed", "job_closed_people_waiting"}:
         parts = [facts.job, facts.client]
     else:
         parts = [facts.candidate, facts.client]
@@ -361,6 +396,11 @@ def _buttons(
             MailButton("Zatwierdź", with_params(link, decide="approve"), "primary"),
             MailButton("Odrzuć", with_params(link, decide="reject"), "neg"),
             MailButton("Otwórz wniosek", with_params(link, decide=None)),
+        )
+    if ntype == "new_person_signed_in" and "nowa-osoba=" in link:
+        return (
+            MailButton(spec.label, link, "primary"),
+            MailButton("Zostaw jako Konsultanta", with_params(link, zostaw="1"), "neg"),
         )
     if ntype == "hr_leave_requested":
         # Wniosek „do wiadomości” (zastępca przy L4) albo bez numeru w linku.
@@ -462,6 +502,7 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
     from app.models.candidate import Candidate
     from app.models.client import Client
     from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+    from app.models.client_panel import ClientPanelRequest
     from app.models.contract import Contract
     from app.models.job import Job
     from app.models.user import User
@@ -480,6 +521,12 @@ async def load_facts(db: Any, notif: Any) -> MailFacts:
             )
             values["duration_minutes"] = req.duration_minutes
             values["chosen_index"] = req.chosen_index
+    if entity == "client_panel_request" and entity_id:
+        panel_request = await db.get(ClientPanelRequest, entity_id)
+        if panel_request is not None:
+            if panel_request.candidate_id:
+                refs.setdefault("candidate", panel_request.candidate_id)
+            refs.setdefault("job", panel_request.job_id)
     if entity == "contract" and entity_id:
         contract = await db.get(Contract, entity_id)
         if contract is not None:

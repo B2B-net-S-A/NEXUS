@@ -499,6 +499,36 @@ async def test_granting_the_permission_is_itself_logged(app_client: AsyncClient)
     assert [event.reason_code for event in events] == ["granted"]
 
 
+async def test_board_report_permission_is_logged_and_listed(app_client: AsyncClient):
+    target_id, _ = await _user(app_client, role=UserRole.admin)
+    _, admin = await _user(app_client, role=UserRole.admin)
+
+    granted = await app_client.put(
+        f"/api/admin/users/{target_id}",
+        json={"receives_board_report": True},
+        headers=admin,
+    )
+    assert granted.status_code == 200, granted.text
+    listing = await app_client.get("/api/admin/users", headers=admin)
+    row = next(item for item in listing.json() if item["id"] == target_id)
+    assert row["receives_board_report"] is True
+
+    async with AsyncSessionLocal() as db:
+        events = list(
+            (
+                await db.execute(
+                    select(CriticalEvent).where(
+                        CriticalEvent.event_type == "user.board_report_permission",
+                        CriticalEvent.entity_id == target_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [event.reason_code for event in events] == ["granted"]
+
+
 # ── Pozostałe usunięcia w Historii zdarzeń ───────────────────────────────────
 
 

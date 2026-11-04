@@ -146,10 +146,18 @@ export interface ManagedInNexusChipProps {
 
 export function ManagedInNexusChip({ job }: ManagedInNexusChipProps) {
   if (!job.managed_in_nexus) return null;
+  const label = MANAGED_IN_NEXUS_LABELS.chip(formatDate(job.managed_in_nexus_at));
 
   return (
-    <Badge variant="success" data-testid="managed-in-nexus-chip">
-      {MANAGED_IN_NEXUS_LABELS.chip(formatDate(job.managed_in_nexus_at))}
+    // W wąskiej kolumnie nagłówka skraca się z wielokropkiem (pełny tekst
+    // w dymku), zamiast wychodzić pod zakładki (28.10.2026).
+    <Badge
+      variant="success"
+      className="max-w-full"
+      title={label}
+      data-testid="managed-in-nexus-chip"
+    >
+      <span className="min-w-0 truncate">{label}</span>
     </Badge>
   );
 }

@@ -1,0 +1,28 @@
+{
+  "url": "https://www.linkedin.com/in/zofia-testowa-123/",
+  "heading": { "text": "Zofia Testowa", "level": 2 },
+  "top": { "lines": [
+    "Zofia Testowa", "She/Her", "· 2nd",
+    "Senior Java Developer · Spring | Kotlin",
+    "Kraków, Małopolskie, Poland", "·", "Contact info",
+    "Fikcyjna Software", "Politechnika Wymyślona",
+    "500+ connections", "Connect", "Message", "More"
+  ] },
+  "sections": [
+    { "heading": "About", "itemsBy": null, "items": [], "lines": [
+      "About", "Buduję systemy płatności w Javie od 2016 roku.", "Lubię porządne testy.", "…see more"
+    ] },
+    { "heading": "Experience", "itemsBy": "hr", "lines": [], "items": [
+      [ "Senior Java Developer", "Fikcyjna Software · Full-time", "May 2023 - Present · 3 yrs 6 mos", "Kraków, Poland · Hybrid", "Prowadzę zespół płatności.", "IBC conference.jpg" ],
+      [ "Przykładowy Bank SA", "Full-time · 4 yrs", "Java Developer", "May 2019 - Apr 2023 · 4 yrs", "Warsaw, Poland", "Junior Java Developer", "Oct 2017 - May 2019 · 1 yr 8 mos" ],
+      [ "Stażystka", "Wymyślony Software House · Internship", "Jan 2017 - Sep 2017 · 9 mos" ]
+    ] },
+    { "heading": "Skills", "itemsBy": "hr", "lines": [], "items": [
+      [ "Java", "Endorsed by Anna Fikcyjna and 3 others", "12 endorsements" ],
+      [ "Spring Boot", "3 experiences across Fikcyjna Software and 1 other company" ],
+      [ "Show all 24 skills" ]
+    ] }
+  ],
+  "listItems": [],
+  "links": []
+}

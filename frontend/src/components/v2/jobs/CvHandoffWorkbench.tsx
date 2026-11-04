@@ -47,7 +47,6 @@ import {
 import { useToast } from "@/components/Toast";
 import { useCapability } from "@/hooks/useCapability";
 import { CLIENT_SEND_DENIED_MESSAGE } from "@/hooks/usePipelineMove";
-import { permissionLabel } from "@/lib/permissions";
 import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,8 +140,9 @@ export interface CvHandoffWorkbenchProps extends WorkbenchPanelProps {
    * stawki ukryte.
    */
   canWriteClientRate?: boolean;
-  /** Nordea (DZ → Cpro) — tam „CV wysłane" wysyła wytypowana osoba bez
-   *  stawki; poza Nordeą wysyła wyłącznie DL ze stawką (Pipeline v4). */
+  /** Nordea (DZ → Cpro) — tam „CV wysłane” to „Wysłane do Cpro”; do kolejki
+   *  Cpro wkłada DL po akceptacji ze stawką (od 13.10.2026), poza Nordeą
+   *  wysyła wyłącznie DL ze stawką (Pipeline v4). */
   cproEnabled?: boolean;
   /**
    * Aktualny budżet PLN/h rekrutacji (`effective_budget_hourly`) — odznaka
@@ -817,7 +817,7 @@ export function CvHandoffWorkbench({
                   }`}
               </ChromeBanner>
 
-              {canWriteClientRate ? (
+              {canWriteClientRate && (
                 <DockSection title="Stawka do klienta">
                   <div className="grid grid-cols-[1.2fr_minmax(0,1fr)] gap-3">
                     <div className="flex flex-col gap-1.5">
@@ -869,12 +869,6 @@ export function CvHandoffWorkbench({
                       : "Bez stawki do klienta nie wyślesz. Stawka do klienta jest punktem odniesienia dla zamówienia klienta; do umowy idzie stawka kandydata."}
                   </p>
                 </DockSection>
-              ) : (
-                <p className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-                  {cproEnabled
-                    ? `Do Cpro wysyła się z kolejki Cpro, po akceptacji osoby z uprawnieniem „${permissionLabel("recruitment_manage")}” — to ona wpisuje stawkę do Cpro.`
-                    : `${CLIENT_SEND_DENIED_MESSAGE} Ona też ustala stawkę do klienta.`}
-                </p>
               )}
 
               {CV_CLIENT_LINKS_UI_ENABLED && (
@@ -1023,13 +1017,15 @@ export function CvHandoffWorkbench({
             readOnly={readOnly}
             {...progressProps}
           />
-          <p
-            data-testid="cv-send-later-note"
-            className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
-          >
-            Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
-            „Zweryfikowany”. CV możesz przygotować już teraz.
-          </p>
+          {canWriteClientRate && (
+            <p
+              data-testid="cv-send-later-note"
+              className="rounded-lg border border-dashed border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+            >
+              Wysyłka do klienta (stawka i „Oznacz CV Wysłane”) będzie dostępna na etapie
+              „Zweryfikowany”. CV możesz przygotować już teraz.
+            </p>
+          )}
         </>
       ) : !selected && later && laterColumn ? (
         <>
@@ -1081,6 +1077,17 @@ export function CvHandoffWorkbench({
             {...progressProps}
           />
 
+          {/* 27.10.2026 (zgłoszenie rekruterki): bez uprawnienia wysyłki dok był
+              martwym przyciskiem — poza Nordeą zablokowany, u Nordei serwer
+              odpowiada 403 (do kolejki Cpro wkłada DL po akceptacji), a rekruter
+              klikał go zamiast „Przekaż Delivery Leadowi”. Zostaje jedno zdanie. */}
+          {!canWriteClientRate ? (
+            <p data-testid="cv-send-not-yours" className="px-1 text-[11px] text-muted-foreground">
+              {cproEnabled
+                ? "Do Cpro wysyła Delivery Lead po akceptacji. Twój krok: przekaż osobę do „QC CV”."
+                : "Do klienta wysyła Delivery Lead po przeglądzie. Twój krok: przekaż osobę do „QC CV”."}
+            </p>
+          ) : (
           <section
             aria-label="Wysyłka do klienta"
             className="space-y-3 rounded-xl border border-border bg-card p-3"
@@ -1101,6 +1108,7 @@ export function CvHandoffWorkbench({
               </p>
             ) : null}
           </section>
+          )}
 
           <details className="rounded-xl border border-border bg-card px-3 py-2 text-xs">
             <summary className="cursor-pointer font-medium text-foreground">

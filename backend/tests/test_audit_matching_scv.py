@@ -92,6 +92,38 @@ def test_dotnet_prefix_does_not_swallow_asp_net():
     assert ss._canon_skill("ASP.NET") != ss._canon_skill(".NET")
 
 
+def test_skill_names_are_canonicalized_once_not_per_question(monkeypatch):
+    """Tablica (`/pipeline-scores`) pyta `skill_present` ~12 tys. razy na 130
+    osób i przy każdym pytaniu kanonizowała od nowa wszystkie skille osoby:
+    514 tys. wywołań, do 0,5 s CPU bez oddania pętli (pomiar 27.10.2026)."""
+
+    subs: list[str] = []
+
+    class _Counting:
+        def __init__(self, pattern):
+            self.pattern = pattern
+
+        def sub(self, repl, text):
+            subs.append(text)
+            return self.pattern.sub(repl, text)
+
+    monkeypatch.setattr(
+        ss,
+        "_SIGNIFICANT_SKILL_SIGNS",
+        tuple((_Counting(p), w) for p, w in ss._SIGNIFICANT_SKILL_SIGNS),
+    )
+    cache_clear = getattr(ss._canon_skill, "cache_clear", None)
+    if cache_clear is not None:
+        cache_clear()
+    skills = [f"Umiejetnosc{i}" for i in range(40)]
+    for i in range(300):
+        assert ss.skill_present(f"Wymagana{i % 10}", skills) is False
+    assert ss.skill_present("Umiejetnosc7", ["umiejetnosc 7"]) is True
+    # Każda odrębna nazwa raz (4 znaki znaczące na nazwę), nie raz na pytanie.
+    distinct = set(subs)
+    assert len(subs) == 4 * len(distinct)
+
+
 @pytest.mark.parametrize("required", _LANGS)
 @pytest.mark.parametrize("has", _LANGS)
 def test_c_family_matrix_dealbreaker(required, has):

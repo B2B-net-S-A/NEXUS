@@ -1,28 +1,29 @@
-import { TerminalChrome } from "@/components/career/TerminalChrome";
-import { TwoToneTitle } from "@/components/career/CareerHero";
+import { BrandPage, BrandTitle, brandStyles as s } from "@/components/career/brand/BrandShell";
+import { CareerThemeScope } from "@/components/career/CareerThemeScope";
+import { careerHref } from "@/lib/career/host";
+
+import { careerRequestContext } from "./_context";
 
 /** 404 strony kariery — także każdy adres spoza listy na hoście kariery. */
-export default function CareerNotFound() {
+export default async function CareerNotFound() {
+  const { base, host } = await careerRequestContext();
+  const homeHref = careerHref(base, { to: "home" });
   return (
-    <>
-      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
-      <main className="kr-log">
-        <span>
-          <span className="kr-r" aria-hidden="true">
-            ${" "}
-          </span>
-          cd ~/b2bnetwork/kariera
-        </span>
-        <span>
-          <span className="kr-r">[err]</span> <span className="kr-g">404</span>{" "}
-          <span className="kr-c">{"// nie ma takiej strony albo link wygasł"}</span>
-        </span>
-        <TwoToneTitle className="kr-log-title" first="Nie znaleziono" second="strony." inline />
-        <span className="kr-log-text">
-          Sprawdź, czy link z ogłoszenia jest kompletny. Aktualne rekrutacje publikują nasi
-          rekruterzy na LinkedInie.
-        </span>
-      </main>
-    </>
+    <CareerThemeScope theme="grafit">
+      <BrandPage homeHref={homeHref} rodoHref={careerHref(base, { to: "rodo" })} hostLabel={host}>
+        <main className={`${s.wrap} ${s.message}`}>
+          <BrandTitle text="Nie znaleziono strony." />
+          <p className={s.messageText}>
+            Sprawdź, czy link z ogłoszenia jest kompletny — albo zobacz wszystkie otwarte
+            rekrutacje B2B Network.
+          </p>
+          <div className={`${s.actions} ${s.messageActions}`}>
+            <a className={s.btn} href={homeHref}>
+              Wszystkie otwarte rekrutacje
+            </a>
+          </div>
+        </main>
+      </BrandPage>
+    </CareerThemeScope>
   );
 }

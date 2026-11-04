@@ -81,6 +81,7 @@ from app.services import (
 )
 from app.services import candidate_rate_change as rate_change
 from app.services import recommendation_cards as cards
+from app.services import screening_calls
 from app.services import screening_form_rules as rules
 from app.services.move_requirements import sheet_filled
 from app.services.recommendation_card_assist import (
@@ -608,6 +609,17 @@ JOINT_REASON_MESSAGES: dict[str, str] = {
 }
 
 
+def joint_work_mode(job: Job) -> dict[str, Any]:
+    """Tryb pracy rekrutacji — przy stawce we wspólnym screeningu bliźniaków
+    (0614, 28.10.2026): inna stawka tylko przy innym trybie pracy."""
+    policy = getattr(job, "remote_policy", None)
+    return {
+        "remote_policy": policy.value if hasattr(policy, "value") else policy,
+        "onsite_days_per_week": getattr(job, "onsite_days_per_week", None),
+        "onsite_days_per_month": getattr(job, "onsite_days_per_month", None),
+    }
+
+
 async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
     """Rekrutacja, z której otwarto panel — klient i budżet do formularza wspólnego."""
     from app.models.client import Client
@@ -630,6 +642,7 @@ async def joint_anchor(db: AsyncSession, job: Job) -> dict[str, Any]:
         "client_id": job.client_id,
         "client_name": client_name,
         "budget_hourly": float(budget) if budget is not None else None,
+        **joint_work_mode(job),
     }
 
 
@@ -719,6 +732,7 @@ async def joint_pairs(
                 "reason": reason,
                 "reason_message": JOINT_REASON_MESSAGES.get(reason or ""),
                 "budget_hourly": float(budget) if budget is not None else None,
+                **joint_work_mode(job),
             }
         )
     return out
@@ -769,6 +783,16 @@ async def load_state(
     fields = {
         key: dict(value) for key, value in current.fields.items() if key != "rate"
     }
+    # Powrót w ciągu 30 dni (28.10.2026): pola z poprzedniej próby liczą się,
+    # ale widok mówi, z której rozmowy są.
+    opened = (
+        state.process.opened_at
+        if state.process is not None and (state.process.attempt_no or 1) > 1
+        else None
+    )
+    for value in fields.values():
+        if opened is not None and not cards.is_current(value, opened):
+            value["previous_attempt"] = True
     previous = {
         key: dict(value) for key, value in current.previous.items() if key != "rate"
     }
@@ -1657,6 +1681,10 @@ async def save(
     )
     if outcome.saved_version is not None:
         outcome.claimed = await _claim_on_save(db, state=state, user=user)
+        # Zapisany screening to odbyty telefon: termin gaśnie sam.
+        await screening_calls.complete_for_pair(
+            db, candidate_id=candidate.id, job_id=job.id
+        )
     return outcome
 
 

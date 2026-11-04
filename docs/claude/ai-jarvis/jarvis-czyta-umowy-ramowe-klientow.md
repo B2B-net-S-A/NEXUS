@@ -43,9 +43,21 @@ Voyage i Anthropic, bramka jak pobranie PDF-a. Raport:
   do `WEB_SAFE_TOOLS`.
 - **Stan odczytu nie rusza `updated_at` umowy** (jawne
   `updated_at=ClientFrameworkContract.updated_at` w każdym UPDATE).
-- **Skan:** OCR czyta 10 pierwszych stron (limit ekstraktora CV), a
-  `reading_note` mówi to przy umowie, gdy znaków na stronę jest mniej niż 200.
+- **Skan (od 30.10.2026):** umowy i aneksy czyta
+  `extract_pdf_all_pages_sandboxed`: tekst strony z PDF-a, a strona poniżej
+  50 znaków idzie do OCR. Do 500 stron, limit czasu rośnie ze stronami, jeden
+  odczyt naraz w procesie i jeden wątek tesseracta. CV i zamówienia zostają przy
+  10 pierwszych stronach. Test paczki: 17 skanów umów było czytanych w 170 z 701
+  stron, a Aneks NBP miał 9 z 13 stron skanem obok tekstu i nikt tego nie widział.
+  `reading_note` przy stronach z OCR ostrzega przed pismem ręcznym, bo data
+  wpisana długopisem nie przechodzi przez OCR.
 - Stan indeksu: `GET /api/admin/index-coverage` → `client_documents`.
   Kolekcji nie sprawdza żadna sonda `/api/health`.
-- Poza zakresem: aneksy, PDF-y zamówień, umowy kontraktorów, plakietka stanu
-  odczytu w zakładce „Umowy”.
+- **Aneksy (0627, 30.10.2026):** umowa bywa przedłużona samym aneksem (EY, aneks
+  nr 3). Fragmenty aneksu leżą w tej samej tabeli (`amendment_id`), bo `id` wiersza
+  to identyfikator punktu w Qdrancie. Punkt aneksu ma w payloadzie
+  `client_amendment_id` zamiast `framework_contract_id`, dlatego podmiana pliku
+  umowy nie kasuje jego wektorów. Narzędzie `read_contract_amendment`, trasa
+  `…/amendments/{id}/text` z tą samą bramką co pobranie pliku aneksu.
+- Poza zakresem: PDF-y zamówień, umowy kontraktorów, plakietka stanu odczytu
+  w zakładce „Umowy”.

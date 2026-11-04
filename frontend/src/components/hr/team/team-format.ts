@@ -47,7 +47,7 @@ export function bonusCell(bonuses: TeamBonuses | null): Cell {
   return {
     text: `${bonuses.count} · ${total}`,
     sub: bonuses.proposals
-      ? `${countPl(bonuses.proposals, "propozycja", "propozycje", "propozycji")} — decydują Płace`
+      ? `${countPl(bonuses.proposals, "propozycja", "propozycje", "propozycji")} — decydują Rozliczenia`
       : undefined,
   };
 }

@@ -31,6 +31,7 @@ from app.models.notification import Notification, NotificationType
 from app.models.user import User, UserRole
 from app.services import notification_delivery as delivery
 from app.services.job_ad import reminders
+from app.services.section_permissions import resolve_effective_section_access_for_users
 from app.tasks import notification_email_outbox as outbox
 
 pytestmark = pytest.mark.asyncio
@@ -200,7 +201,8 @@ async def test_mail_is_built_from_fresh_state_and_skipped_when_done(
     monkeypatch,
 ) -> None:
     now = datetime.now(timezone.utc)
-    _wire_policy(monkeypatch, _policy_on(now - timedelta(days=3)))
+    policy = _policy_on(now - timedelta(days=3))
+    _wire_policy(monkeypatch, policy)
     monkeypatch.setattr(outbox, "email_channel_enabled", lambda: True)
     sent: list[tuple[str, str, str]] = []
 
@@ -224,30 +226,29 @@ async def test_mail_is_built_from_fresh_state_and_skipped_when_done(
                     published_by=lead.id,
                 )
             )
+            notifs = []
             for user in (lead, rec):
-                title, message, link = (
-                    f"{reminders.TITLE_MISSING}: {job.title}",
-                    "Brakuje: Strona kariery.",
-                    f"/jobs/{job.id}?ogloszenie=kariera",
+                notif = Notification(
+                    user_id=user.id,
+                    notification_type=NotificationType.job_ad_missing,
+                    title=f"{reminders.TITLE_MISSING}: {job.title}",
+                    message="Brakuje: Strona kariery.",
+                    link=f"/jobs/{job.id}?ogloszenie=kariera",
+                    related_entity_type="job",
+                    related_entity_id=job.id,
                 )
-                db.add(
-                    Notification(
-                        user_id=user.id,
-                        notification_type=NotificationType.job_ad_missing,
-                        title=title,
-                        message=message,
-                        link=link,
-                        related_entity_type="job",
-                        related_entity_id=job.id,
-                    )
-                )
+                db.add(notif)
+                notifs.append(notif)
             await db.commit()
-            # Przebieg ma limit prób, a baza testów niesie wpisy innych testów —
-            # wołamy kolejkę, aż oba maile wyjdą (jak kolejne minuty pętli).
-            for _ in range(20):
-                await outbox.dispatch(db)
-                if {lead.email, rec.email} <= {to for to, _s, _t in sent}:
-                    break
+            # Wprost krok `dispatch` dla jednego wiersza: kolejka idzie od
+            # najstarszych wpisów całej bazy testów i jej limit prób zjadały
+            # wiersze innych testów z tego samego sharda (27.10, kolejka).
+            users = [await db.get(User, u.id) for u in (lead, rec)]
+            await resolve_effective_section_access_for_users(db, users)
+            kinds = [delivery.JOB_AD_KIND]
+            cutoffs = {delivery.JOB_AD_KIND: policy.cutoff_for(delivery.JOB_AD_KIND)}
+            for notif, user in zip(notifs, users):
+                assert await outbox._deliver(db, notif, user, kinds, cutoffs) is True
         by_to = {to: (subject, text) for to, subject, text in sent}
         subject, text = by_to[lead.email]
         assert subject == f"[NEXUS] Wstaw ogłoszenia · {job.title}"

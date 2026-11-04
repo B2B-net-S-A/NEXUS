@@ -66,6 +66,18 @@ describe("reasonChips — powód w wierszu", () => {
     expect(proposalReasonChips(undefined)).toEqual({ shown: [], hidden: [] });
   });
 
+  it("technologia sprzed ponad 3 lat = „zapytaj” z rokiem", () => {
+    expect(
+      proposalReasonChips([
+        { label: "java", level: "must", status: "met", verified: false },
+        { label: "angular", level: "must", status: "unknown", verified: false, lastUsedYear: 2020 },
+      ]).shown,
+    ).toEqual([
+      { tone: "met", label: "java" },
+      { tone: "ask", label: "angular · 2020" },
+    ]);
+  });
+
   it("wyszukiwanie: rozbicie dopasowania i must-have zdaniem", () => {
     expect(
       breakdownReasonChips({ matching_must: ["Angular"], gap_must: ["TypeScript"] }, ["5 lat w finansach"]).shown,

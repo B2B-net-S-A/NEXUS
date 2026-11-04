@@ -34,7 +34,7 @@ from app.services.request_semantics import (
     is_read_only_http_request,
     is_read_only_post_path,
 )
-from app.services.action_permissions import ProductAction
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.effective_access import resolve_effective_access
 from app.services.permission_denial import ensure_any_permission, ensure_permission
 from app.services.service_account_auth import (
@@ -366,6 +366,10 @@ async def get_authenticated_user(
         if impersonate_raw
         else user
     )
+    # Licznik użycia (`services/access_usage`) liczy osobę przy ekranie: bez
+    # tokenów integracji i bez admina w „Podglądzie jako”, bo to nie jej wejście.
+    if not is_client_token and not impersonate_raw:
+        request.state.access_usage_user_id = user.id
     # Authoritative request-local snapshot. No process cache: policy edits are
     # immediately consistent across multiple API workers/pods.
     await resolve_effective_access(db, [effective_user])
@@ -618,20 +622,21 @@ DeliveryLeadPlus = Annotated[
 async def _require_board_reader(
     current_user: User = Depends(require_onboarded_user),
 ) -> User:
-    """„Moduł Finanse" albo Rada nadzorcza."""
+    """„Wyniki firmy" albo Rada nadzorcza."""
 
     if not current_user.has_role(UserRole.board):
-        ensure_permission(current_user, ProductAction.finance_module)
+        ensure_permission(current_user, ProductAction.company_results)
     return current_user
 
 
-_require_board_reader.required_permissions = (ProductAction.finance_module,)
+_require_board_reader.required_permissions = (ProductAction.company_results,)
 
 # Widok „Firma" w /insights (kokpit z kwotami, ranking klientów z MRR):
-# uprawnienie „Moduł Finanse" (domyślnie admin i Finanse) albo rola Rada
-# nadzorcza (0490, decyzja Artura 21.10.2026 — Rada widzi kwoty kokpitu, ale
-# nie dostaje modułu Finanse z jego zapisami: faktury, zgody, zmiany
-# w zamówieniach). Decyzja Artura 24.09.2026: Head of Recruitment zajmuje się
+# uprawnienie „Wyniki firmy" (domyślnie tylko admin; decyzja Artura 02.11.2026:
+# Finanse pracują na pojedynczych rekordach) albo rola Rada nadzorcza (0490,
+# decyzja Artura 21.10.2026 — Rada widzi kwoty kokpitu, ale nie dostaje modułu
+# Finanse z jego zapisami: faktury, zgody, zmiany w zamówieniach). Decyzja
+# Artura 24.09.2026: Head of Recruitment zajmuje się
 # rekrutacją i NIE widzi pieniędzy (marża, przychód, kwoty per klient) — do
 # tego dnia wchodził tu razem z Finansami. Ta decyzja dotyczy WYŁĄCZNIE widoku
 # „Firma” w Insights: stawkę do klienta w kartach rekrutacji (profil kandydata
@@ -643,15 +648,17 @@ BoardReader = Annotated[User, Depends(_require_board_reader)]
 async def _require_board_trend_reader(
     current_user: User = Depends(require_onboarded_user),
 ) -> User:
-    """„Moduł Finanse", Rada nadzorcza albo Head of Recruitment (bez kwot)."""
+    """„Moduł Finanse" (bez kwot), „Wyniki firmy", Rada albo HoR (bez kwot)."""
 
-    if not current_user.has_any_role(UserRole.head_of_recruitment, UserRole.board):
+    if not current_user.has_any_role(
+        UserRole.head_of_recruitment, UserRole.board
+    ) and not has_permission(current_user, ProductAction.company_results):
         ensure_permission(current_user, ProductAction.finance_module)
     return current_user
 
 
-# Tabele rok-do-roku: „Moduł Finanse" · Rada nadzorcza · Head of Recruitment.
-# HoR dostaje je BEZ metryk pieniężnych (router redaguje odpowiedź przez
+# Tabele rok-do-roku: „Moduł Finanse" · „Wyniki firmy" · Rada nadzorcza · HoR.
+# Finanse i HoR dostają je BEZ metryk pieniężnych (router redaguje odpowiedź przez
 # ``action_permissions.reads_board_money``) — placementy, hit ratio, konsultanci i zejścia to
 # jego praca, kwoty już nie.
 BoardTrendReader = Annotated[User, Depends(_require_board_trend_reader)]
@@ -659,6 +666,17 @@ BoardTrendReader = Annotated[User, Depends(_require_board_trend_reader)]
 # Head of Recruitment + admin — zarządzanie strukturą zespołu rekrutacji
 # (macierze sourcer×kategoria, TAC→DL, DL→klienci), edycja targetów KPI,
 # zamykanie kwartałów Liga Mistrzów.
+# Cudze wyniki linków aplikacyjnych (decyzja Artura 02.11.2026). Rekruter widzi tylko
+# swoje przez ``/me/career-link/*``.
+LinkResultsManager = Annotated[
+    User,
+    Depends(
+        require_roles(
+            UserRole.admin, UserRole.head_of_recruitment, UserRole.delivery_lead
+        )
+    ),
+]
+
 HeadOfRecruitmentPlus = Annotated[
     User,
     Depends(require_roles(UserRole.admin, UserRole.head_of_recruitment)),

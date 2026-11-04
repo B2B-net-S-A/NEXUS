@@ -11,11 +11,22 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Any
 
-from sqlalchemy import DateTime, and_, cast, create_engine, or_, select, text, true
+from sqlalchemy import (
+    DateTime,
+    String,
+    and_,
+    cast,
+    create_engine,
+    func,
+    or_,
+    select,
+    text,
+    true,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +147,43 @@ CATALOG = (
         recipient_rule="Rekruterzy pracujący nad rekrutacją i jej Delivery Lead, "
         "bez osoby, która ustawiła P0. W mailu: rekrutacja, klient, powód i termin.",
     ),
+    # Mail obowiązkowy (28.10.2026) — `services/job_closed_notices.py`.
+    dict(
+        id="job_closed",
+        label="Rekrutacja zamknięta — Twoje osoby czekają",
+        module="Rekrutacje",
+        trigger="Ktoś zamknął rekrutację, w której Twoje osoby stoją w „CV wysłane”, "
+        "„Rozmowie u klienta” albo „Umowie”. Automaty (Traffit, scalanie, "
+        "stare szkice) nie wysyłają. Gdy rekrutację zamknie mail CPro od Nordei, "
+        "mail dostaje każdy rekruter z kartą w toku.",
+        recipient_rule="Rekruter osoby: ten, kto ją zweryfikował, a bez weryfikacji "
+        "ten, kto ją dodał; bez osoby, która zamknęła. W mailu: rekrutacja, klient, "
+        "powód zamknięcia i lista osób.",
+    ),
+    # Mail obowiązkowy (28.10.2026) — `services/departure_care.py`.
+    dict(
+        id="departed_care",
+        label="Kandydaci po osobie, która odeszła",
+        module="Rekrutacje",
+        trigger="Konto rekrutera zostało wyłączone (odejście z firmy), a w Twoich "
+        "rekrutacjach zostali jego kandydaci. Przypomnienie po 5 dniach roboczych, "
+        "gdy coś jeszcze nie jest domknięte.",
+        recipient_rule="Delivery Lead rekrutacji; bez niego główny Delivery Lead "
+        "klienta, a bez niego Head of Recruitment. W mailu: kto odszedł, ile osób "
+        "w ilu rekrutacjach i na jakich etapach.",
+    ),
+    # Mail obowiązkowy (28.10.2026) — `services/job_idle.py`.
+    dict(
+        id="job_idle",
+        label="Rekrutacje bez ruchu",
+        module="Rekrutacje",
+        trigger="Od 14 dni w rekrutacji nie poszło CV do klienta ani nie wpisano "
+        "odpowiedzi klienta. Po 21 dniach także do Head of Recruitment, po 28 "
+        "NEXUS zamyka rekrutację. „Jeszcze trwa” liczy od nowa.",
+        recipient_rule="Delivery Lead rekrutacji (bez niego: Head of Recruitment); "
+        "po 21 dniach i przy zamknięciu także Head of Recruitment. Jeden zbiorczy "
+        "mail dziennie na osobę.",
+    ),
     # Maile natychmiast (22.10.2026, „brak maila o terminach rozmów”) — typy
     # dzwonka z `BELL_MAIL_TYPES`, treść = tytuł i opis wpisu w dzwonku.
     dict(
@@ -205,7 +253,8 @@ CATALOG = (
         module="System",
         trigger="Ten sam automat (przegląd bazy, propozycje, auto-CV) padł 3 razy z rzędu; "
         "DL albo rekruter jest poza grupą, w której aplikacja zakłada prepy w Teams "
-        "(najwyżej raz dziennie).",
+        "(najwyżej raz dziennie); osoba ma skrzynkę poza zakresem aplikacji „NEXUS Kadry” "
+        "(po uzgadnianiu o 7:00).",
         recipient_rule="Aktywni administratorzy.",
     ),
     # 0508 (22.10.2026): alarm bez blokady — `services/candidate_data_access_alerts.py`.
@@ -217,6 +266,26 @@ CATALOG = (
         "ponad 25 plików albo wyeksportował ponad 200 osób w ciągu dnia (konto "
         "młodsze niż 14 dni — progi o połowę niższe); 3 nowe konta otwierają CV "
         "w tej samej godzinie. Najwyżej jeden alarm dziennie na osobę.",
+        recipient_rule="Aktywni administratorzy i Head of Recruitment.",
+    ),
+    # Mail obowiązkowy (28.10.2026) — `services/announcements.py`.
+    dict(
+        id="announcement",
+        label="Ważne ogłoszenie",
+        module="System",
+        trigger="Head of Recruitment albo administrator opublikował na pulpicie "
+        "ogłoszenie oznaczone „ważne”.",
+        recipient_rule="Odbiorcy ogłoszenia (wszyscy albo wybrane role), bez autora. "
+        "W mailu: tytuł, treść i do kiedy ogłoszenie jest widoczne.",
+    ),
+    # 0612 (28.10.2026): nowa osoba po pierwszym logowaniu — `services/new_person_setup.py`.
+    dict(
+        id="new_person",
+        label="Nowa osoba w NEXUSIE",
+        module="System",
+        trigger="Ktoś zalogował się pierwszy raz przez Microsoft i dostał konto "
+        "„Konsultant/Kontraktor”. Zdecyduj, czy to rekruter (rola, kategorie "
+        "kompetencji, koordynator), czy zostaje konsultantem.",
         recipient_rule="Aktywni administratorzy i Head of Recruitment.",
     ),
     # „Ludzie w NEXUSIE” (17.10.2026) — typy `HR_MAIL_TYPES`, treść składa
@@ -232,12 +301,12 @@ CATALOG = (
         "i odejścia, sprawa administracja@, zadania sprzętu, podpisany protokół "
         "i konsultant przekazany z opieki do front office, zgoda na wydatek albo premię "
         "poza umową do decyzji i decyzja o niej.",
-        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (przełożony "
-        "albo Kadry), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
+        recipient_rule="Osoba, na którą sprawa czeka: akceptujący wniosku (koordynator "
+        "albo Administracja współpracy), koordynator osoby na B2B i zleceniu, wnioskodawca, zastępca, "
         "przejmujący pracę, wykonawca zadania, "
         "przypisany do sprawy, osoby z uprawnieniem „Sprzęt”, a przy przekazaniu do "
         "front office: head pionu front office, Head of Recruitment i Delivery "
-        "Leadzi, przy zgodzie — przełożony autora albo zatwierdzający z Ustawień. W mailu "
+        "Leadzi, przy zgodzie — koordynator autora albo zatwierdzający z Ustawień. W mailu "
         "nie ma rodzaju nieobecności ani kwot — poza mailem do decydującego o zgodzie "
         "(kwota i „po co”, decyzja Artura 20.10.2026).",
     ),
@@ -246,10 +315,10 @@ CATALOG = (
         id="hr_bonus",
         label="Masz nową premię",
         module="Ludzie",
-        trigger="Płace przyznały, zmieniły albo anulowały Ci premię (na B2B "
+        trigger="Rozliczenia przyznały, zmieniły albo anulowały Ci premię (na B2B "
         "i zleceniu: wynagrodzenie dodatkowe), także premię poza umową po zgodzie.",
         recipient_rule="Osoba, której premia dotyczy. W mailu: za co i za który "
-        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Moim czasie”.",
+        "miesiąc, bez kwoty (decyzja Artura 26.10.2026); kwota jest w „Mojej współpracy”.",
     ),
     # Poranny skrót (07.10.2026) — `tasks/daily_digest_email.py`.
     dict(
@@ -272,7 +341,7 @@ CATALOG = (
         label="Miesięczne podsumowanie Rady",
         module="Statystyki",
         trigger="1. dzień roboczy miesiąca od 8:00 — kokpit Rady i porównanie rok do roku za zamknięty miesiąc.",
-        recipient_rule="Aktywne konta z uprawnieniem „Moduł Finanse” albo z rolą „Rada nadzorcza”, z dostępem do sekcji Insights (mail niesie przychód i marżę).",
+        recipient_rule="Aktywne konta z rolą „Rada nadzorcza” oraz osoby z imiennym nadaniem w „Osoby i role”, z dostępem do sekcji Insights (mail niesie zbiorczy przychód i marżę firmy).",
     ),
     # Mail do Rady przy każdym placemencie (decyzja Artura 22.10.2026) —
     # `services/board_placement_alerts.py`, wysyła pętla raportów.
@@ -364,6 +433,10 @@ class DeliveryPolicy:
         reason = self.types.get(kind, {}).get("paused_reason")
         return reason if isinstance(reason, str) and reason else None
 
+    def kept_off(self, kind: str) -> bool:
+        """Admin zostawił ten zwykły rodzaj wyłączony („Zostaw wyłączone”)."""
+        return isinstance(self.types.get(kind, {}).get("kept_off_at"), str)
+
     @property
     def effective_enabled(self) -> bool:
         return any(self.kind_enabled(kind) for kind in ROUTINE_KINDS)
@@ -381,6 +454,10 @@ HR_BONUS_KIND = "hr_bonus"
 CLIENT_JOB_KIND = "client_job_opened"
 JOB_AD_KIND = "job_ad_reminders"
 JOB_P0_KIND = "job_p0"
+JOB_CLOSED_KIND = "job_closed"
+DEPARTED_CARE_KIND = "departed_care"
+ANNOUNCEMENT_KIND = "announcement"
+JOB_IDLE_KIND = "job_idle"
 
 # Maile obowiązkowe (decyzja Artura 26.10.2026): sprawy, na które ktoś czeka.
 # Pomiar na kopii produkcji z 22.10: nikt z 38 kont nie wyłączył sobie maila,
@@ -396,11 +473,22 @@ REQUIRED_KINDS = frozenset(
         CLIENT_JOB_KIND,
         JOB_AD_KIND,
         JOB_P0_KIND,
+        JOB_CLOSED_KIND,
+        DEPARTED_CARE_KIND,
+        ANNOUNCEMENT_KIND,
+        JOB_IDLE_KIND,
         "client_interview",
         "dl_review",
         "cv_returned",
         "client_accepted",
         "hire_documents",
+        # 29.10.2026: nowa osoba po pierwszym logowaniu i trzy rodzaje z 22.10
+        # (prep, umowa przedwstępna, zadania od zespołu) były zwykłymi rodzajami
+        # i nikt ich nie włączył — 0 maili przy 40 dzwonkach na produkcji.
+        "new_person",
+        "prep_change",
+        "pre_contract",
+        "team_task",
         "signature_request",
         "delivery_alert",
         HR_MAIL_KIND,
@@ -409,6 +497,22 @@ REQUIRED_KINDS = frozenset(
         "system_failure",
     }
 )
+# Zwykły rodzaj startuje wyłączony dla całej firmy i włącza go admin. Każdy
+# rodzaj z katalogu jest obowiązkowy albo stoi tu z powodem — strażnik
+# `test_every_mail_kind_has_a_decision_who_turns_it_on` (29.10.2026: nowy
+# rodzaj bez tej decyzji nie wychodził mailem i nikt o tym nie wiedział).
+ADMIN_DECIDES: dict[str, str] = {
+    "chat_unread": "Czat ma własne okienko w pasku; mail to dodatek po 15 min offline.",
+    "mentions": "Informacja, nie blokuje cudzej pracy (decyzja 26.10.2026).",
+    "pipeline_stage": "Reguły etapów konfiguruje admin — bez nich mail zalałby skrzynki.",
+    "rate_change": "Informacja dla Delivery Leada; firma decyduje, czy idzie mailem.",
+    "job_deadline": "Przypomnienie o terminie, do wyłączenia przez konto (26.10.2026).",
+    "application_confirmation": "Mail do kandydata — bez maili do kandydatów (decyzja Artura).",
+    "daily_digest": "Poranny skrót zbiera resztę dzwonka; admin decyduje o całej firmie.",
+    "kpi_weekly_report": "Raport okresowy, nie sprawa, na którą ktoś czeka.",
+    "board_monthly_report": "Raport dla Rady z przychodem i marżą — włącza admin.",
+    "board_placement_alert": "Mail do Rady z marżą przy placemencie — włącza admin.",
+}
 PAUSE_REASON_MAX = 500
 
 
@@ -442,6 +546,10 @@ HR_MAIL_TYPES: tuple[str, ...] = (
     "hr_lifecycle_task",
     "hr_work_handover",
     "admin_case_assigned",
+    "back_office_escalated",
+    "back_office_assigned",
+    "portal_low_rating",
+    "portal_monthly_review",
     "equipment_task",
     "equipment_protocol_signed",
     "equipment_return_reminder",
@@ -468,6 +576,7 @@ HR_MAIL_TYPES: tuple[str, ...] = (
 BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "client_interview": (
         "interview_slots_requested",
+        "client_panel_request",
         "interview_slot_chosen",
         "interview_slot_confirmed",
         "interview_changed",
@@ -479,11 +588,15 @@ BELL_MAIL_TYPES: dict[str, tuple[str, ...]] = {
     "pre_contract": ("pre_contract",),
     "team_task": ("cpro_send_assigned", "note_reply", "candidate_claim_taken"),
     "hire_documents": ("hired_order_missing", "hire_missing_contract"),
-    JOB_P0_KIND: ("job_p0_set",),
+    JOB_P0_KIND: ("job_p0_set", "job_p0_requested"),
+    JOB_CLOSED_KIND: ("job_closed_people_waiting",),
+    DEPARTED_CARE_KIND: ("departed_pairs_care",),
+    ANNOUNCEMENT_KIND: ("announcement_important",),
+    JOB_IDLE_KIND: ("job_idle_reminder",),
 }
 
 
-def notification_kind(notification_type: Any) -> str | None:
+def _type_kinds() -> dict[str, str]:
     return {
         **dict.fromkeys(HR_MAIL_TYPES, HR_MAIL_KIND),
         **{t: kind for kind, types in BELL_MAIL_TYPES.items() for t in types},
@@ -502,13 +615,106 @@ def notification_kind(notification_type: Any) -> str | None:
         "b2b_signature_requested": "signature_request",
         "automation_failing": "system_failure",
         "teams_prep_scope_missing": "system_failure",
+        "hr_m365_scope_missing": "system_failure",
         "candidate_data_access_alert": "data_access_alert",
+        "new_person_signed_in": "new_person",
         "client_job_opened": CLIENT_JOB_KIND,
         "job_ad_missing": JOB_AD_KIND,
         "job_ad_backlog": JOB_AD_KIND,
         "job_ad_nudge": JOB_AD_KIND,
         "hr_bonus_assigned": HR_BONUS_KIND,
-    }.get(getattr(notification_type, "value", notification_type))
+    }
+
+
+def notification_kind(notification_type: Any) -> str | None:
+    return _type_kinds().get(getattr(notification_type, "value", notification_type))
+
+
+def bell_types_by_kind() -> dict[str, tuple[str, ...]]:
+    """Odwrotność `notification_kind`: typy dzwonka, z których idzie dany mail."""
+    out: dict[str, list[str]] = {}
+    for ntype, kind in _type_kinds().items():
+        out.setdefault(kind, []).append(ntype)
+    return {kind: tuple(sorted(types)) for kind, types in out.items()}
+
+
+# Baner „wyłączone, a ludzie na nie czekają” (29.10.2026) liczy dzwonki z tylu dni.
+SILENCED_WINDOW_DAYS = 7
+
+
+def silenced_kinds(
+    policy: DeliveryPolicy, counts: dict[str, tuple[int, int]]
+) -> list[dict[str, Any]]:
+    """Rodzaje wyłączone dla firmy, w których NEXUS tworzy dzwonki, a admin
+    nie zdecydował, że zostają wyłączone. ``counts`` = {rodzaj: (dzwonki,
+    nieprzeczytane)} z ostatnich `SILENCED_WINDOW_DAYS` dni.
+
+    Globalnie wyłączona wysyłka i wstrzymany z powodem mail obowiązkowy to
+    decyzje admina widoczne na ekranie — nie trafiają na baner.
+    """
+    if not policy.enabled:
+        return []
+    labels = {spec["id"]: spec["label"] for spec in CATALOG}
+    rows = [
+        dict(id=kind, label=labels[kind], bells=bells, unread=unread)
+        for kind, (bells, unread) in counts.items()
+        if kind in ROUTINE_KINDS
+        and bells > 0
+        and not policy.kind_enabled(kind)
+        and not policy.kept_off(kind)
+        and not policy.paused_reason(kind)
+    ]
+    return sorted(rows, key=lambda row: (-row["bells"], row["id"]))
+
+
+async def _silenced_counts(
+    db: AsyncSession, policy: DeliveryPolicy, now: datetime
+) -> dict[str, tuple[int, int]]:
+    """Dzwonki z ostatnich dni w rodzajach, które dziś nie idą mailem."""
+    from app.models.notification import Notification
+
+    kinds = {
+        kind: types
+        for kind, types in bell_types_by_kind().items()
+        if kind in ROUTINE_KINDS
+        and not policy.kind_enabled(kind)
+        and not policy.kept_off(kind)
+    }
+    if not policy.enabled or not kinds:
+        return {}
+    type_kind = {t: kind for kind, types in kinds.items() for t in types}
+    ntype = cast(Notification.notification_type, String)
+    rows = (
+        await db.execute(
+            select(
+                ntype,
+                func.count(),
+                func.count().filter(Notification.is_read.is_(False)),
+            )
+            .where(
+                ntype.in_(list(type_kind)),
+                Notification.created_at >= now - timedelta(days=SILENCED_WINDOW_DAYS),
+            )
+            .group_by(ntype)
+        )
+    ).all()
+    counts: dict[str, tuple[int, int]] = {}
+    for name, bells, unread in rows:
+        kind = type_kind[name]
+        prev = counts.get(kind, (0, 0))
+        counts[kind] = (prev[0] + bells, prev[1] + unread)
+    return counts
+
+
+async def silenced_view(db: AsyncSession, policy: DeliveryPolicy) -> list[dict]:
+    """Baner dla admina; awaria liczenia nie może zabrać ekranu."""
+    try:
+        async with db.begin_nested():
+            counts = await _silenced_counts(db, policy, datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001 — baner jest informacją, nie warunkiem
+        logger.warning("silenced notification email count failed", exc_info=True)
+        return []
+    return silenced_kinds(policy, counts)
 
 
 DIGEST_KIND = "daily_digest"
@@ -588,6 +794,7 @@ IMMEDIATE_KINDS = (
     "signature_request",
     "system_failure",
     "data_access_alert",
+    "new_person",
     HR_MAIL_KIND,
     HR_BONUS_KIND,
     CLIENT_JOB_KIND,
@@ -674,15 +881,20 @@ def updated_value(
     toggles: dict[str, bool],
     now: datetime,
     reason: str | None = None,
+    keep_off: frozenset[str] | set[str] = frozenset(),
 ) -> dict:
     """Pure transition used after locking the stored row. Never accept client cutoffs.
 
     Wyłączenie maila obowiązkowego wymaga powodu (`RequiredKindReasonMissing`);
     powód i chwila zostają w rodzaju, dopóki admin nie włączy go z powrotem —
     po tym znaku `ensure_required_kinds` nie włącza go sam przy starcie.
+    `keep_off` (29.10.2026): admin zostawia wyłączony zwykły rodzaj — znacznik
+    `kept_off_at` zdejmuje go z banera i znika przy włączeniu.
     """
     if not set(toggles) <= ROUTINE_KINDS:
         raise ValueError("unknown notification email type")
+    if not set(keep_off) <= set(ADMIN_DECIDES):
+        raise ValueError("only an admin-decided email type can be kept off")
     reason = (reason or "").strip()[:PAUSE_REASON_MAX]
     global_cutoff = previous.send_not_before
     if enabled and (not previous.enabled or global_cutoff is None):
@@ -699,6 +911,10 @@ def updated_value(
             "email_enabled": is_enabled,
             "send_not_before": cutoff.isoformat() if cutoff else None,
         }
+        if not is_enabled and kind in keep_off:
+            types[kind]["kept_off_at"] = now.isoformat()
+        elif not is_enabled and not was_enabled and previous.kept_off(kind):
+            types[kind]["kept_off_at"] = old["kept_off_at"]
         if kind not in REQUIRED_KINDS or is_enabled:
             continue
         if was_enabled:
@@ -730,6 +946,13 @@ def policy_changes(before: DeliveryPolicy, after: DeliveryPolicy) -> dict[str, A
             types[kind] = {"from": was, "to": now_on}
     if types:
         changes["types"] = types
+    kept = sorted(
+        kind
+        for kind in ROUTINE_KINDS
+        if after.kept_off(kind) and not before.kept_off(kind)
+    )
+    if kept:
+        changes["kept_off"] = kept
     return changes
 
 
@@ -748,6 +971,9 @@ def _changes_summary(changes: dict[str, Any]) -> str:
         parts.append("wyłączono: " + ", ".join(off))
     if on:
         parts.append("włączono: " + ", ".join(on))
+    kept = [labels[k] for k in changes.get("kept_off", [])]
+    if kept:
+        parts.append("zostawiono wyłączone: " + ", ".join(kept))
     return "Maile automatyczne dla całej firmy — " + "; ".join(parts)
 
 
@@ -805,6 +1031,7 @@ async def save_policy(
     admin_id: int,
     actor: Any = None,
     reason: str | None = None,
+    keep_off: frozenset[str] | set[str] = frozenset(),
 ) -> None:
     await db.execute(
         insert(AppSetting)
@@ -825,6 +1052,7 @@ async def save_policy(
         toggles=toggles,
         now=datetime.now(timezone.utc),
         reason=reason,
+        keep_off=keep_off,
     )
     row.updated_by = admin_id
     # Przełącznik działa na całą firmę, a do 09.10.2026 nie zostawiał śladu
@@ -1022,6 +1250,9 @@ async def admin_view(db: AsyncSession) -> dict[str, Any]:
             "scope": queue.get("scope", "routine_email"),
         },
         types=types,
+        # Wyłączone rodzaje, w których powstają dzwonki (29.10.2026).
+        silenced=await silenced_view(db, policy),
+        silenced_window_days=SILENCED_WINDOW_DAYS,
         excluded_channels=[
             dict(
                 id="manual_m365",

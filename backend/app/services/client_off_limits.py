@@ -187,6 +187,15 @@ def current_confirmations() -> dict[int, str]:
     return _confirmations.get() or {}
 
 
+def add_confirmation(candidate_id: int, how: str) -> None:
+    """Potwierdzenie spoza nagłówka — wtyczka LinkedIn zadaje pytanie
+    w panelu i podaje odpowiedź w ciele żądania, bo osoba dodawana z LinkedIna
+    nie ma jeszcze id, które dałoby się wpisać do nagłówka."""
+    if how not in HOW_LABELS and how != SKIP:
+        raise ValueError(f"unknown off-limits answer: {how}")
+    _confirmations.set({**current_confirmations(), candidate_id: how})
+
+
 class OffLimitsConfirmationMiddleware:
     """Czyta ``X-Off-Limits-Confirmation`` do zmiennej kontekstu żądania."""
 

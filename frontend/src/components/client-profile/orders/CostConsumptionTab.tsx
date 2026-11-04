@@ -14,7 +14,7 @@ import {
   type OrderLineRead,
 } from "@/lib/api/orderGroups";
 import { previewCostEntry } from "@/lib/cost-consumption";
-import { formatDateTimePl } from "@/lib/date-pl";
+import { formatDateTimePl, formatIsoDatePl } from "@/lib/date-pl";
 import { consumptionMonthOptions, monthLabelPl } from "@/lib/order-consumption";
 import { cn, parseDecimalInput, sanitizeDecimalInput } from "@/lib/utils";
 import { formatPLN } from "@/types/client-profile";
@@ -85,6 +85,12 @@ export function CostConsumptionTab({ clientId, group, line, canEdit }: CostConsu
       consumptionMonthOptions(line.start_date ?? group.start_date, line.end_date ?? group.end_date, new Date()),
     [line.start_date, line.end_date, group.start_date, group.end_date],
   );
+  // Osoba dopisana od przyszłego miesiąca nie ma jeszcze czego rozliczać —
+  // zamiast pustego formularza mówimy, od kiedy pracuje (ticket 28.10.2026).
+  const startDate = line.start_date ?? group.start_date ?? null;
+  const now = new Date();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const startsLater = startDate !== null && startDate.slice(0, 7) > currentMonth;
 
   // Po zapisie zmienia się karta zamówienia (zafakturowano, pozostało, uwaga
   // „Brak zejścia”) i historia — nie tylko ta tabela.
@@ -215,6 +221,12 @@ export function CostConsumptionTab({ clientId, group, line, canEdit }: CostConsu
           Brak zejścia za {monthLabelPl(missingMonth)} — import Finansów za ten miesiąc nie miał faktury tej osoby.
         </p>
       ) : null}
+      {startsLater && startDate ? (
+        <p className="rounded-md bg-muted/50 p-2 text-xs text-foreground">
+          Zaczyna pracę {formatIsoDatePl(startDate)}. Pierwsze zejście przyjdzie z importu Finansów za{" "}
+          {monthLabelPl(startDate.slice(0, 7))}.
+        </p>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">
@@ -270,7 +282,8 @@ export function CostConsumptionTab({ clientId, group, line, canEdit }: CostConsu
 
       {data.rows.length === 0 ? (
         <p className="rounded-md border border-dashed border-border px-3 py-6 text-center text-sm text-muted-foreground">
-          Brak wpisów. Zejścia przychodzą z importu Finansów{canEdit ? "; brakujący miesiąc dodasz niżej." : "."}
+          Brak wpisów. Zejścia przychodzą z importu Finansów
+          {canEdit && !startsLater ? "; brakujący miesiąc dodasz niżej." : "."}
         </p>
       ) : (
         <div className="relative overflow-x-auto">
@@ -410,7 +423,7 @@ export function CostConsumptionTab({ clientId, group, line, canEdit }: CostConsu
         </div>
       )}
 
-      {canEdit ? (
+      {canEdit && !startsLater ? (
         <fieldset className="rounded-md border border-border p-3">
           <legend className="px-1 text-xs font-semibold text-muted-foreground">
             {editingMonth ? `Edycja wpisu za ${formatPeriodMonthPl(editingMonth)}` : "Nowy wpis miesięczny"}

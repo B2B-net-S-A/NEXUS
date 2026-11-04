@@ -45,6 +45,8 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
 ### Decyzje Artura (21.10.2026)
 
 - **Przegrana** to WYŁĄCZNIE `competitor` — rekrutację wzięła inna firma.
+  Od 28.10.2026 także `no_activity` — NEXUS zamknął po 28 dniach bez ruchu
+  Delivery Leada (`rekrutacje-bez-ruchu-zamykaja-sie-same.md`).
 - **Wygrana**: zatrudnienie od nas (`analytics_first_milestones`), zwykle z powodem
   `filled_by_us`. Licznik hit ratio dalej liczy zatrudnienia, nie sam powód.
 - **Nie liczy się** (poza mianownikiem każdego hit ratio): `duplicate`,
@@ -106,3 +108,42 @@ konkurencję”, 20 „Inny” (6 z notatką o duplikacie).
   do zdania o hit ratio, ile zamknięć nie liczy się; cel DL
   (`/api/kpis/me/goals` → `closed_neutral`) pokazuje to jako osobny fakt.
   Liczy `competitions.dl_neutral_closed_counts` — lustro mianownika ligi.
+
+## Rekruterzy osób od „CV wysłane” dostają wiadomość (28.10.2026)
+
+Zgłoszenie Delivery Leada z 28.10.2026: rekruterka nie wiedziała, że
+rekrutacja jej osób wysłanych do klienta została zamknięta, i nie dała im
+znać. Zamknięcie nie wysyłało nikomu nic (zespół szedł do „Poprzedni
+rekruter” z `notify=False`). Kopia produkcji z 22.10: z 61 rekrutacji
+zamkniętych 12–22.10 w 43 zostało 216 osób od „CV wysłane” w górę u 29
+rekruterów. Makiety: https://claude.ai/artifact/GVRGA3y9ikN3RVB6uiKeRy.
+
+### Decyzje Artura (28.10.2026)
+
+- **Kto dostaje:** osoba, która prowadzi kandydata (`prowadzi-przypisanie-osoby.md`):
+  przypisana „Prowadzi”, bez przypisania pierwszy weryfikujący pary
+  (`stage_verifier.first_verifier`), a bez weryfikacji ten, kto dodał osobę.
+  Bez osoby, która zamyka, i bez kont nieaktywnych.
+- **Za które osoby:** bieżąca karta w „CV wysłane”, „Rozmowie u klienta”
+  albo „Akceptacji i umowie” (`job_closed_notices.NOTIFY_COLUMNS`). Nowi,
+  Screening, Zweryfikowany i QC CV — bez wiadomości.
+- **Co dostaje:** dzwonek `job_closed_people_waiting` w temacie „Rekrutacje”
+  z dymkiem i mail obowiązkowy (`job_closed` w `REQUIRED_KINDS`); treść:
+  rekrutacja, klient, kto zamknął, powód, lista osób (do 8 nazwisk). Link
+  prowadzi na Tablicę zamkniętej rekrutacji, gdzie czeka pasek.
+- **Które zamknięcia:** tylko przez człowieka — `POST /close` i `PATCH`
+  ze `status: "closed"` wołają `notify_closed` przed commitem. Nie
+  `close_job_core`: automaty (archiwum Traffita, scalanie, stare szkice)
+  zamykają hurtem i bez nikogo, kto by to potwierdził.
+- **Kandydaci:** NEXUS nie pisze do nich sam. Rekruter odrzuca osobę
+  dzisiejszym oknem odrzucenia z mailem z własnej skrzynki.
+- **Okno zamykania** pokazuje listę przed zamknięciem: 409
+  `active_cards_warning` niesie `recipients` (`user_id`, `name`, `people`,
+  `columns`), `ActiveCardsNotice` rysuje ją we wszystkich trzech oknach,
+  a przycisk mówi „Zamknij i powiadom N osób” (bez odbiorców: „…mimo to”).
+- **Tablica zamkniętej rekrutacji** pokazuje rekruterowi pasek z jego osobami
+  od „CV wysłane” (ta sama osoba karty co wyżej — `lib/job-closed-waiting.ts`)
+  i „Odrzuć i napisz” (okno odrzucenia pierwszej z nich). Bez „Pokaż tylko
+  moje”: filtr „Kto dodał” liczy osobę karty bez weryfikującego, więc
+  pokazałby inny zbiór. Pasek liczy się z kart, więc widać go też na
+  rekrutacjach zamkniętych przed 28.10; maili wstecz nie ma.

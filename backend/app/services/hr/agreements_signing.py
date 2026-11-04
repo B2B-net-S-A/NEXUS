@@ -294,7 +294,7 @@ async def withdraw(db: AsyncSession, agreement_id: int, *, actor: User) -> HrAgr
         raise AgreementConflict("Wycofać można tylko umowę wysłaną do podpisu.")
     process_id = agreement.autenti_process_id
     await _withdraw_in_autenti(process_id)
-    _back_to_draft(agreement, "Wycofana z Autenti przez Kadry.")
+    _back_to_draft(agreement, "Wycofana z Autenti przez Administrację współpracy.")
     agreement.updated_by = actor.id
     audit.record(
         db,

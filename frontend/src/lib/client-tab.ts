@@ -31,7 +31,10 @@ export type ClientTab =
   // (`struktura`, 17.10.2026) i „Technologie” (`technologie`, 16.10.2026) —
   // dawne klucze w adresie prowadzą tu (`LEGACY_CLIENT_TABS`).
   | "ludzie"
-  | "zespol";
+  | "zespol"
+  // Sprzedaż (27.10.2026): powiązana firma sprzedaży i jej szanse — tylko
+  // z uprawnieniem „Sprzedaż: podgląd”.
+  | "sprzedaz";
 
 export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "profil",
@@ -46,6 +49,7 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
   "analityka",
   "ludzie",
   "zespol",
+  "sprzedaz",
 ] as const;
 
 /**
@@ -54,7 +58,13 @@ export const CLIENT_TAB_KEYS: readonly ClientTab[] = [
  * „Delivery Lead” (`zespol`) też tu jest (makieta P5): DL widać w nagłówku,
  * a notatki o stacku mają jedno wejście w „Ludziach i technologiach”.
  */
-export const CLIENT_MORE_TABS: readonly ClientTab[] = ["zespol", "importy-md", "faktury", "analityka"];
+export const CLIENT_MORE_TABS: readonly ClientTab[] = [
+  "zespol",
+  "importy-md",
+  "faktury",
+  "analityka",
+  "sprzedaz",
+];
 
 /**
  * Dawne zakładki → „Ludzie i technologie” z widokiem (linki z powiadomień,

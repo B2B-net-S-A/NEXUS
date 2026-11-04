@@ -30,6 +30,7 @@ import {
   Settings,
   Star,
   Store,
+  TrendingUp,
   UserRound,
   Users,
   Wallet,
@@ -73,7 +74,8 @@ export type NavFeatureFlag =
   | "hrMyTime"
   | "hrPeople"
   | "hrEquipment"
-  | "hrCare";
+  | "hrCare"
+  | "hrBackOffice";
 
 export type NavSectionKey =
   | "sourcing"
@@ -95,7 +97,7 @@ export type NavUser =
 export type NavVisibilityOptions = {
   contactQueueEnabled: boolean;
   /** Stan modułu kadrowego; brak = pozycje „Ludzi w NEXUSIE” ukryte. */
-  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean };
+  hr?: { myTime: boolean; people: boolean; equipment: boolean; care: boolean; backOffice?: boolean };
 };
 
 /** Użytkownik, dla którego liczy się adres docelowy pozycji (`resolveHref`). */
@@ -310,9 +312,9 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // zawężenia) i `nav.talent_radar` w lib/capabilities.ts.
     //
     // Od 21.09.2026 radar to tryb ekranu „Kandydaci" (`?mode=request`) i nie
-    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates` (np. viewer
-    // `user`), nie wejdzie na /candidates, więc dla niego adres zostaje
-    // samodzielną stroną /talent-radar (działa dla każdej roli).
+    // stoi w menu — tylko w palecie. Kto NIE ma `nav.candidates`, nie wejdzie
+    // na /candidates, więc dla niego adres zostaje samodzielną stroną
+    // /talent-radar (działa dla każdej roli).
     id: "talent-radar",
     href: "/talent-radar",
     resolveHref: (user) =>
@@ -406,6 +408,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     inSidebar: false,
   },
   {
+    // Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery,
+    // Pracuj.pl albo JustJoin.IT — tu prowadzi zbiorczy mail przypomnień.
+    // W menu nie stoi, paleta ma skrót.
+    id: "missing-ads",
+    href: "/jobs/ogloszenia",
+    label: "Ogłoszenia do nadrobienia",
+    icon: Briefcase,
+    section: "pipeline",
+    placement: "primary",
+    paletteKeywords: ["ogłoszenia", "pracuj", "justjoin", "kariera", "nadrobić", "przypomnienia"],
+    inPalette: true,
+    inSidebar: false,
+  },
+  {
     // Umowy przedwstępne (0506, 21.10.2026): prośby DL / HoR / rekrutera przy
     // osobach — stan, ważność, termin B2B, decyzje o karze. W menu nie stoi
     // (wejście z listy rekrutacji i kafelka), paleta ma skrót.
@@ -430,7 +446,7 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     // „Rekrutacje” (sekcja Pipeline); w menu nie stoi, wejście jest z kafelka.
     id: "jobs-daily",
     href: "/jobs/daily",
-    label: "Na daily",
+    label: "Przegląd requestów",
     icon: Briefcase,
     section: "pipeline",
     placement: "primary",
@@ -588,12 +604,26 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     placement: "primary",
     inPalette: true,
   },
+  // Sprzedaż (Atlas → NEXUS, 26.10.2026): firmy, szanse, kontakty, zadania.
+  // Bez sekcji produktu (jak „Ludzie”) — decyduje uprawnienie „Sprzedaż: podgląd”.
+  {
+    id: "sales",
+    href: "/sales",
+    label: "Sprzedaż",
+    icon: TrendingUp,
+    section: "system",
+    permission: CAPABILITY_PERMISSIONS["nav.sales"],
+    capability: "nav.sales",
+    placement: "primary",
+    paletteKeywords: ["sprzedaż", "szanse", "lejek", "firmy", "atlas", "crm"],
+    inPalette: true,
+  },
   // „Ludzie w NEXUSIE” (16.10.2026). Sekcja „system” = bez sekcji produktu;
   // widoczność rozstrzyga flaga z `/api/hr/config`, a każdą trasę serwer.
   {
     id: "my-time",
     href: "/my-time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     icon: CalendarClock,
     section: "system",
     featureFlag: "hrMyTime",
@@ -634,6 +664,20 @@ export const NAV_REGISTRY: readonly NavEntry[] = [
     featureFlag: "hrCare",
     placement: "primary",
     paletteKeywords: ["opieka", "konsultanci", "przepięcia", "technologie"],
+    inPalette: true,
+  },
+  // Kolejka spraw back office'u (moduł `back_office`, decyzja Artura 02.11.2026):
+  // przy włączonym module zastępuje pozycję „Opieka nad konsultantami”, a stare
+  // linki `/care` dalej otwierają ten sam ekran.
+  {
+    id: "back-office",
+    href: "/back-office",
+    label: "Back office",
+    icon: HeartHandshake,
+    section: "system",
+    featureFlag: "hrBackOffice",
+    placement: "primary",
+    paletteKeywords: ["opieka", "konsultanci", "sprawy", "kolejka", "premie", "umowy"],
     inPalette: true,
   },
   {
@@ -682,7 +726,11 @@ export const NAV_PRIMARY_GROUPS: readonly {
     title: "Praca",
     ids: ["dashboard", "jobs", "candidates", "calendar", "my-time"],
   },
-  { key: "clients", title: "Klienci i umowy", ids: ["clients", "contracts", "care", "finance"] },
+  {
+    key: "clients",
+    title: "Klienci i umowy",
+    ids: ["sales", "clients", "contracts", "care", "back-office", "finance"],
+  },
   { key: "company", title: "Firma", ids: ["insights", "people", "equipment"] },
 ];
 
@@ -711,7 +759,9 @@ function featureFlagOn(
     case "hrEquipment":
       return opts.hr?.equipment ?? false;
     case "hrCare":
-      return opts.hr?.care ?? false;
+      return (opts.hr?.care ?? false) && !opts.hr?.backOffice;
+    case "hrBackOffice":
+      return opts.hr?.backOffice ?? false;
   }
 }
 

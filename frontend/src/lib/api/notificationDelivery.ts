@@ -22,6 +22,13 @@ export interface NotificationDeliveryType {
   provider_status?: string;
 }
 
+export interface NotificationSilencedKind {
+  id: string;
+  label: string;
+  bells: number;
+  unread: number;
+}
+
 export interface NotificationDeliveryOverview {
   enabled: boolean;
   updated_at: string | null;
@@ -49,6 +56,10 @@ export interface NotificationDeliveryOverview {
     legacy_suppressed: number;
   };
   types: NotificationDeliveryType[];
+  /** Rodzaje wyłączone dla firmy, w których powstają dzwonki (29.10.2026). */
+  silenced?: NotificationSilencedKind[];
+  /** Z ilu dni liczone są dzwonki w `silenced`. */
+  silenced_window_days?: number;
   excluded_channels: { id: string; label: string; description: string }[];
 }
 
@@ -57,6 +68,8 @@ export interface NotificationDeliveryUpdate {
   types: { id: string; email_enabled: boolean }[];
   /** Wymagany, gdy zapis wstrzymuje mail obowiązkowy. */
   reason?: string;
+  /** „Zostaw wyłączone” z banera — rodzaj znika z niego do ponownego włączenia. */
+  keep_off?: string[];
 }
 
 export const notificationDeliveryApi = {

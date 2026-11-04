@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_config
 from app.models.m365 import M365Connection
+from app.models.user import User
 from app.services.b2b_esign.service import SIGNED_COPY_DAYS
 from app.services.m365 import sender as m365_sender
 
@@ -75,9 +76,12 @@ def _deadline(moment: datetime) -> str:
 
 
 def contractor_sign_message(
-    *, number: str, url: str, expires_at: datetime
+    *, number: str, url: str, expires_at: datetime, renewed: bool = False
 ) -> tuple[str, str]:
-    """(temat, treść) pierwszego maila do kontraktora z linkiem do podpisu."""
+    """(temat, treść) maila do kontraktora z linkiem do podpisu.
+
+    ``renewed``: nowy link po terminie na tym samym PDF-ie (27.10.2026) — plik
+    podpisany wcześniej nadal przejdzie, więc mail to mówi."""
     num = html.escape(number)
     steps = "".join(
         f'<li style="margin: 0 0 3px; {_FONT}">{step}</li>'
@@ -87,9 +91,16 @@ def contractor_sign_message(
             "Wgraj podpisany plik na tej samej stronie.",
         )
     )
+    lead = (
+        f"poprzedni link do umowy o współpracy B2B nr {num} wygasł, przesyłam "
+        "nowy. Umowa się nie zmieniła: jeśli plik jest już podpisany, wgraj go "
+        "bez ponownego podpisu."
+        if renewed
+        else f"przesyłam do podpisu umowę o współpracy B2B nr {num}."
+    )
     body = (
         _p("Dzień dobry,")
-        + _p(f"przesyłam do podpisu umowę o współpracy B2B nr {num}.", margin="0")
+        + _p(lead, margin="0")
         + _button(url, "Otwórz umowę do podpisu")
         + _p(f"Link działa do {_deadline(expires_at)}.", small=True)
         + _p("<b>Jak podpisać</b>", margin="0 0 4px")
@@ -101,7 +112,35 @@ def contractor_sign_message(
             small=True,
         )
     )
-    return f"Umowa B2B nr {number} do podpisu", body
+    subject = (
+        f"Nowy link: umowa B2B nr {number} do podpisu"
+        if renewed
+        else f"Umowa B2B nr {number} do podpisu"
+    )
+    return subject, body
+
+
+def contractor_extended_message(
+    *, number: str, expires_at: datetime
+) -> tuple[str, str]:
+    """(temat, treść) maila o przedłużonym terminie (27.10.2026).
+
+    Link się nie zmienia i żyje tylko w pierwszym mailu (w bazie jest jego
+    skrót), więc mail mówi, że działa dłużej."""
+    body = (
+        _p("Dzień dobry,")
+        + _p(
+            f"termin podpisu umowy B2B nr {html.escape(number)} jest dłuższy. "
+            "Link z poprzedniego maila działa teraz do "
+            f"{_deadline(expires_at)}."
+        )
+        + _p(
+            "Jeśli nie masz podpisu kwalifikowanego albo link nie działa, "
+            "odpisz na tego maila.",
+            small=True,
+        )
+    )
+    return f"Umowa B2B nr {number}: dłuższy termin podpisu", body
 
 
 def contractor_reminder_message(
@@ -180,6 +219,19 @@ def contractor_copy_message(*, number: str) -> tuple[str, str]:
     return subject, body
 
 
+async def cc_emails(db: AsyncSession, user_ids: Sequence[int]) -> list[str]:
+    """Adresy osób w DW (aktywne konta z e-mailem) — w kolejności z wysyłki."""
+    if not user_ids:
+        return []
+    rows = await db.execute(
+        select(User.id, User.email).where(
+            User.id.in_(list(user_ids)), User.is_active.is_(True)
+        )
+    )
+    emails = {uid: email for uid, email in rows.all() if email}
+    return [emails[uid] for uid in user_ids if uid in emails]
+
+
 async def mailbox_connected(db: AsyncSession, user_id: int) -> bool:
     connection = await db.scalar(
         select(M365Connection).where(M365Connection.user_id == user_id)
@@ -197,6 +249,7 @@ async def send_from(
     candidate_id: int | None,
     request_key: str,
     attachments: Sequence[m365_sender.FileAttachment] = (),
+    cc: Sequence[str] = (),
 ) -> tuple[bool, Optional[str]]:
     """(wysłano, powód) — ``request_key`` chroni przed drugą wysyłką przy ponowieniu."""
     if not user_id or not to:
@@ -211,6 +264,7 @@ async def send_from(
             db,
             connection,
             to=[to],
+            cc=[address for address in cc if address and address != to],
             subject=subject,
             body_html=body_html,
             candidate_id=candidate_id,

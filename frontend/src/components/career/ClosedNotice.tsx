@@ -1,90 +1,91 @@
 import type { CareerRecruiterJob } from "@/lib/career/api";
-import { genitiveName, jobHandle, jobLocationLabel } from "@/lib/career/format";
+import { genitiveName, jobLocationLabel } from "@/lib/career/format";
 
-import { TerminalChrome } from "./TerminalChrome";
+import { BrandPage, BrandTitle, brandStyles as s } from "./brand/BrandShell";
 
 /**
  * Rekrutacja zamknięta (albo link odwołany). Odsyła do innych otwartych
  * rekrutacji tej osoby (lista z API — działa także bez stałego linku) i do jej
  * stałego linku, gdy go ma (makieta 5b, etap 5). Bez obu — prośba o kontakt
  * tam, skąd kandydat ma link, zamiast ślepego „szukaj na LinkedInie”.
+ * Od 29.10.2026 w barwach marki (szablon rekrutacji), nie jako log terminala.
  */
 export function ClosedNotice({
-  jobHandle: closedHandle,
+  jobTitle,
   recruiterFirstName,
   recruiterPageHref,
-  recruiterSlug,
   otherJobs,
   jobHref,
+  homeHref,
+  rodoHref,
+  hostLabel,
 }: {
-  jobHandle: string;
+  jobTitle: string;
   recruiterFirstName: string;
   recruiterPageHref: string | null;
-  recruiterSlug: string | null;
   otherJobs: CareerRecruiterJob[];
   jobHref: (slug: string) => string;
+  homeHref: string;
+  rodoHref: string;
+  hostLabel: string;
 }) {
   const firstName = recruiterFirstName.trim();
   const who = firstName || "Nasz zespół";
   const hasJobs = otherJobs.length > 0;
   return (
-    <>
-      <TerminalChrome path={`~/b2bnetwork/kariera — zsh — ${closedHandle}`} state="closed" />
-      <main className="kr-log">
-        <span>
-          <span className="kr-r" aria-hidden="true">
-            ${" "}
-          </span>
-          ./aplikuj.sh
-        </span>
-        <span>
-          <span className="kr-r">[err]</span> <span className="kr-g">{closedHandle}</span>{" "}
-          <span className="kr-c">{"// rekrutacja została zamknięta"}</span>
-        </span>
-        <h1 className="kr-log-title">
-          <span className="kr-title-a">Ten proces jest</span>{" "}
-          <span className="kr-title-b">zakończony.</span>
-        </h1>
-        {hasJobs ? (
-          <span className="kr-log-text">
-            {who} prowadzi teraz inne rekrutacje — zobacz, czy coś
-            pasuje{recruiterPageHref ? ", albo zostaw CV do bazy." : "."}
-          </span>
-        ) : recruiterPageHref ? (
-          <span className="kr-log-text">
-            {who} prowadzi kolejne rekrutacje. Zostaw CV — odezwie się, gdy pojawi się
-            podobny projekt.
-          </span>
-        ) : (
-          <span className="kr-log-text">
-            {firstName
-              ? `Odezwij się do ${genitiveName(firstName)} tam, skąd masz ten link — podpowie, co jest teraz otwarte.`
-              : "Odezwij się do osoby, od której masz ten link — podpowie, co jest teraz otwarte."}
-          </span>
-        )}
+    <BrandPage homeHref={homeHref} rodoHref={rodoHref} hostLabel={hostLabel}>
+      <main className={s.main}>
+        <div className={`${s.wrap} ${s.message}`}>
+          <p className={s.badge}>
+            <span className={`${s.badgeDot} ${s.badgeDotOff}`} aria-hidden="true" />
+            Rekrutacja zamknięta · {jobTitle}
+          </p>
+          <BrandTitle text="Ten proces jest zakończony." />
+          <p className={s.messageText}>
+            {hasJobs
+              ? `${who} prowadzi teraz inne rekrutacje — zobacz, czy coś pasuje${recruiterPageHref ? ", albo zostaw CV do bazy." : "."}`
+              : recruiterPageHref
+                ? `${who} prowadzi kolejne rekrutacje. Zostaw CV — odezwie się, gdy pojawi się podobny projekt.`
+                : firstName
+                  ? `Odezwij się do ${genitiveName(firstName)} tam, skąd masz ten link — podpowie, co jest teraz otwarte.`
+                  : "Odezwij się do osoby, od której masz ten link — podpowie, co jest teraz otwarte."}
+          </p>
 
-        {hasJobs ? (
-          <section aria-label="Inne otwarte rekrutacje" className="kr-list" style={{ marginTop: 16 }}>
-            <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
-              {otherJobs.map((job) => (
-                <li key={job.slug}>
-                  <a className="kr-row" href={jobHref(job.slug)}>
-                    <span>{jobHandle(job)}</span>
-                    <span className="kr-g kr-row-loc">{jobLocationLabel(job)}</span>
-                    <span className="kr-r kr-row-open">otwórz →</span>
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
+          {hasJobs ? (
+            <section aria-label="Inne otwarte rekrutacje" className={s.otherJobs}>
+              <ul className={s.jobRows}>
+                {otherJobs.map((job) => {
+                  const where = jobLocationLabel(job);
+                  return (
+                    <li key={job.slug}>
+                      <a className={s.jobRow} href={jobHref(job.slug)}>
+                        <span className={s.jobRowText}>
+                          <span className={s.jobRowTitle}>{job.title}</span>
+                          {where ? <span className={s.jobRowMeta}>{where}</span> : null}
+                        </span>
+                        <span className={s.jobRowGo} aria-hidden="true">
+                          Zobacz →
+                        </span>
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
 
-        {recruiterPageHref ? (
-          <a className="kr-btn" href={recruiterPageHref}>
-            $ cd ~/{recruiterSlug} — zostaw CV w bazie
-          </a>
-        ) : null}
+          <div className={`${s.actions} ${s.messageActions}`}>
+            {recruiterPageHref ? (
+              <a className={s.btn} href={recruiterPageHref}>
+                Zostaw CV u {genitiveName(firstName)}
+              </a>
+            ) : null}
+            <a className={recruiterPageHref ? s.btnOutline : s.btn} href={homeHref}>
+              Wszystkie otwarte rekrutacje
+            </a>
+          </div>
+        </div>
       </main>
-    </>
+    </BrandPage>
   );
 }

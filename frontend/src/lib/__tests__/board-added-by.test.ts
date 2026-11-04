@@ -154,3 +154,106 @@ describe("„Prowadzi” w filtrze „Kto dodał” (25.10.2026)", () => {
     expect(labels).toContain("Tomasz Rybak");
   });
 });
+
+describe("„Biorę” w filtrze „Kto dodał” (27.10.2026)", () => {
+  // Rekruterka wzięła osobę dodaną przez kolegę i szukała jej pod „Ty”.
+  const taken = {
+    ...person(1, 7, "Tomasz Rybak"),
+    taken_by_user_id: 5,
+    taken_by_name: "Ola Biorąca",
+  };
+
+  it("osoba, która wzięła, liczy się zamiast dodającej", () => {
+    expect(matchesAddedBy(taken, { kind: "user", userId: 5 })).toBe(true);
+    expect(matchesAddedBy(taken, { kind: "user", userId: 7 })).toBe(false);
+  });
+
+  it("„Prowadzi” wygrywa z osobą, która wzięła", () => {
+    const assigned = { ...taken, owner_user_id: 9, owner_name: "Maria Przypisana" };
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 9 })).toBe(true);
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 5 })).toBe(false);
+  });
+
+  it("osoba od systemu po „Dzwonię” nie jest już „System”", () => {
+    const fromSystem = { ...taken, added_to_job_by_id: null, entry_source: "system" };
+    expect(matchesAddedBy(fromSystem, { kind: "system" })).toBe(false);
+    expect(matchesAddedBy(fromSystem, { kind: "user", userId: 5 })).toBe(true);
+  });
+
+  it("„Ty” liczy wziętych, dodający traci ich z licznika", () => {
+    const options = addedByOptions([taken, person(2, 7, "Tomasz Rybak")], {
+      id: 5,
+      name: "Ola Biorąca",
+    });
+    const count = (key: string) => options.find((o) => o.key === key)?.count;
+    expect(count("user:5")).toBe(1);
+    expect(count("user:7")).toBe(1);
+  });
+});
+
+describe("Po osobach, które odeszły (28.10.2026)", () => {
+  const cared = { ...person(1, 7, "Anna Przykładowa"), care_user_id: 5 };
+  const own = person(2, 5, "Maria Opiekunka");
+
+  it("filtr pokazuje karty w opiece niezależnie od osoby karty", () => {
+    expect(matchesAddedBy(cared, { kind: "departed" })).toBe(true);
+    expect(matchesAddedBy(own, { kind: "departed" })).toBe(false);
+    expect(parseAddedBy("departed")).toEqual({ kind: "departed" });
+    expect(addedByParam({ kind: "departed" })).toBe("departed");
+  });
+
+  it("menu ma pozycję z licznikiem tylko, gdy takie karty są", () => {
+    const options = addedByOptions([cared, own], { id: 5, name: "Maria Opiekunka" });
+    expect(options.find((o) => o.key === "departed")).toMatchObject({
+      label: "Po osobach, które odeszły",
+      count: 1,
+    });
+    expect(addedByOptions([own], { id: 5 }).some((o) => o.key === "departed")).toBe(false);
+  });
+});
+
+describe("od „Zweryfikowanego” liczy się osoba, która zweryfikowała (29.10.2026)", () => {
+  // Zgłoszenie rekruterki z 29.10.2026: w „CV wysłane” cztery karty z jej
+  // imieniem (zweryfikowała), a „Kto dodał → Ty” pokazywał jedną — dwie dodał
+  // kolega, jedną silnik „Nowi na 20”.
+  const sent = [
+    { candidate_id: 1, added_to_job_by_id: 8, verified_by_id: 7 },
+    { candidate_id: 2, added_to_job_by_id: 8, verified_by_id: 7 },
+    { candidate_id: 3, added_to_job_by_id: null, entry_source: "system", verified_by_id: 7 },
+    { candidate_id: 4, added_to_job_by_id: 7, verified_by_id: 7 },
+  ];
+  const me = { kind: "user", userId: 7 } as const;
+
+  it("filtr pokazuje wszystkie karty z osobą, która zweryfikowała", () => {
+    expect(sent.filter((p) => matchesAddedBy(p, me, "cv_sent")).map((p) => p.candidate_id)).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(matchesAddedBy(sent[0], { kind: "user", userId: 8 }, "cv_sent")).toBe(false);
+    expect(matchesAddedBy(sent[2], { kind: "system" }, "cv_sent")).toBe(false);
+  });
+
+  it("menu liczy je u osoby, która zweryfikowała", () => {
+    const columns = [
+      { stage: "cv_sent", name: "CV wysłane", category: "internal", items: sent },
+    ];
+    const options = addedByOptions(peopleInProgress(columns), { id: 7, name: "Marta Nowak" });
+    expect(options.map((o) => [o.label, o.count])).toEqual([
+      ["Wszyscy", 4],
+      ["Ty (Marta Nowak)", 4],
+    ]);
+  });
+
+  it("przed weryfikacją i bez kolumny — jak dotąd: „Biorę”, potem dodająca", () => {
+    const back = { candidate_id: 5, added_to_job_by_id: 8, verified_by_id: 7 };
+    expect(matchesAddedBy(back, { kind: "user", userId: 8 }, "screening")).toBe(true);
+    expect(matchesAddedBy(back, { kind: "user", userId: 8 })).toBe(true);
+    const taken = { candidate_id: 6, added_to_job_by_id: 8, taken_by_user_id: 9 };
+    expect(matchesAddedBy(taken, { kind: "user", userId: 9 }, "new")).toBe(true);
+  });
+
+  it("„Prowadzi” wygrywa także z osobą, która zweryfikowała", () => {
+    const assigned = { candidate_id: 7, added_to_job_by_id: 8, verified_by_id: 7, owner_user_id: 9 };
+    expect(matchesAddedBy(assigned, { kind: "user", userId: 9 }, "cv_sent")).toBe(true);
+    expect(matchesAddedBy(assigned, me, "cv_sent")).toBe(false);
+  });
+});

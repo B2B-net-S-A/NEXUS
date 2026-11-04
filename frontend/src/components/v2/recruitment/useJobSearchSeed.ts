@@ -56,6 +56,11 @@ export function useJobSearchSeed(
     queryKey: ["champion-profile", jobId],
     queryFn: () => championApi.get(jobId).then((r) => r.data),
     enabled: on,
+    // Pasek źródeł pobierał profil przy każdym wejściu na rekrutację
+    // (27.10.2026). Zapis profilu z tego konta unieważnia klucz
+    // (`lib/champion-cache.ts`); zmiana kolegi dochodzi najpóźniej po 5 min,
+    // a w otwartym edytorze od razu (ten sam klucz, domyślne `staleTime`).
+    staleTime: 5 * 60_000,
   });
   const championSettled = champion.isSuccess || champion.isError;
   // Błąd odczytu profilu nie blokuje wyszukiwania — zostaje profil z rekrutacji.

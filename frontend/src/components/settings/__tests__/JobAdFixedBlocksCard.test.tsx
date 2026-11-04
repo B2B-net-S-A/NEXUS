@@ -19,6 +19,7 @@ const BLOCKS: FixedBlocks = {
     about: "Firma Przykładowa łączy specjalistów z projektami.",
   },
   en: { offer: ["private medical care"], process: ["Interview"], about: "We connect people." },
+  pracuj_caretaker: { name: "", email: "ogloszenia@example.com" },
 };
 
 function renderCard() {
@@ -65,6 +66,29 @@ describe("JobAdFixedBlocksCard", () => {
     await waitFor(() =>
       expect(toast.showSuccess).toHaveBeenCalledWith("Stałe części ogłoszenia zapisane."),
     );
+  });
+
+  it("opiekun Pracuj.pl zapisuje się razem z blokami, imię w jednej linii", async () => {
+    renderCard();
+    const email = await screen.findByLabelText("Adres e-mail");
+    expect(email).toHaveValue("ogloszenia@example.com");
+    fireEvent.change(screen.getByLabelText("Imię (do powitania)"), {
+      target: { value: "  Nicola  " },
+    });
+    fireEvent.change(email, { target: { value: " opiekun@example.com " } });
+    fireEvent.click(screen.getByRole("button", { name: "Zapisz" }));
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    expect(apiMock.put).toHaveBeenCalledWith("/api/job-ads/fixed-blocks", {
+      ...BLOCKS,
+      pracuj_caretaker: { name: "Nicola", email: "opiekun@example.com" },
+    });
+  });
+
+  it("serwer bez opiekuna (przed wdrożeniem) — pole ma skrzynkę ogłoszeń Pracuj.pl", async () => {
+    const { pracuj_caretaker: _unused, ...older } = BLOCKS;
+    apiMock.get.mockResolvedValue({ data: older });
+    renderCard();
+    expect(await screen.findByLabelText("Adres e-mail")).toHaveValue("ogloszenia@pracuj.pl");
   });
 
   it("bloki po angielsku edytuje się osobno", async () => {

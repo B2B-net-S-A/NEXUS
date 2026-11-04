@@ -31,6 +31,7 @@ describe("contracts list navigation state", () => {
         statusFilter: ["active", "ending"],
         typeFilter: [],
         endingSoon: false,
+        agreementNotTerminated: false,
         startFrom: "",
         startTo: "",
         orderEndFrom: "",
@@ -57,6 +58,7 @@ describe("contracts list navigation state", () => {
       statusFilter: [],
       typeFilter: ["b2b", "uop"],
       endingSoon: true,
+      agreementNotTerminated: false,
       startFrom: "",
       startTo: "",
       orderEndFrom: "",
@@ -87,6 +89,7 @@ describe("contracts list navigation state", () => {
       statusFilter: ["active"],
       typeFilter: [],
       endingSoon: false,
+      agreementNotTerminated: false,
       startFrom: "2026-01-01",
       startTo: "2026-06-30",
       orderEndFrom: "2026-09-01",
@@ -118,6 +121,26 @@ describe("contracts list navigation state", () => {
     expect(url).toBe("/contracts?status=active&status=ending&page=2&contract=467");
     expect(parseContractsListState("contract=abc").state.selected).toBeUndefined();
     expect(parseContractsListState("contract=-3").state.selected).toBeUndefined();
+  });
+
+  it("round-trips „Umowa nierozwiązana” and opens it across all statuses", () => {
+    // Zakończony + Kończący się: domyślne Aktywne/Kończące się ucięłyby
+    // zakończone, więc wejście z samym filtrem nie bierze domyślnych statusów.
+    const parsed = parseContractsListState("agreement=not_terminated");
+    expect(parsed.explicit).toBe(true);
+    expect(parsed.state.agreementNotTerminated).toBe(true);
+    expect(parsed.state.statusFilter).toEqual([]);
+    expect(buildContractsListUrl(parsed.state)).toBe(
+      "/contracts?status=all&agreement=not_terminated",
+    );
+    // Jawny status zostaje i łączy się z filtrem.
+    expect(
+      parseContractsListState("status=ended&agreement=not_terminated").state
+        .statusFilter,
+    ).toEqual(["ended"]);
+    expect(
+      parseContractsListState("agreement=1").state.agreementNotTerminated,
+    ).toBe(false);
   });
 
   it("drops an unknown sort key and a malformed date instead of sending them", () => {

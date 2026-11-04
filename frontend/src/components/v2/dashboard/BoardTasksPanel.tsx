@@ -9,6 +9,10 @@
  *    admin ją akceptuje, zmienia albo odrzuca (`AllocationProposalsSection`).
  *    Pierwsza sekcja panelu; widzi ją wyłącznie osoba, która o propozycjach
  *    decyduje (`can_decide_proposals`),
+ *  - „Nowe osoby do ustawienia” (0612, 28.10.2026) — konto po pierwszym
+ *    logowaniu przez Microsoft czeka na decyzję, kim jest, a rekruterowi
+ *    brakuje kategorii albo przełożonego; okno „Ustaw” (`NewPeopleSection`).
+ *    Admin i Head of Recruitment; liczy się do tego, czy coś „czeka”.
  *  - „Nowe rekrutacje — kto prowadzi" — dla admina i Head of Recruitment:
  *    kto jest rekruterem prowadzącym świeżo przekazanych rekrutacji (automat
  *    albo osoba wskazana przez Delivery Leada) i „Zmień" tam, gdzie się nie
@@ -85,6 +89,7 @@ import {
 import { AllocationProposalsSection } from "@/components/v2/dashboard/AllocationProposalsSection";
 import { WidgetErrorBlock } from "@/components/v2/dashboard/WidgetState";
 import { FollowupSection } from "@/components/v2/followups/FollowupSection";
+import { BookedCallsSection } from "@/components/v2/dashboard/BookedCallsSection";
 import {
   groupCproByJob,
   useBoardTasks,
@@ -96,6 +101,8 @@ import { countPl } from "@/lib/plural-pl";
 import { withoutHiddenPanels, type DashboardPanelKey } from "@/lib/dashboard-panels";
 import { toCompleteCounts, withoutToCompleteLists } from "@/lib/dashboard-to-complete";
 import { transitToFixTotal } from "@/lib/cv-in-transit";
+import { useDepartedCare } from "@/lib/departed-care";
+import { hasRole, useAuthStore } from "@/store/auth";
 
 import {
   AgreementTasksSection,
@@ -103,11 +110,13 @@ import {
   agreementTasksCount,
 } from "./AgreementTasksSection";
 import { BoardFlowOthers, BoardFlowSections, flowWorkCount, hasFlowOthers } from "./BoardFlowSections";
+import { DepartedCareSection, departedCareCount } from "./DepartedCareSection";
 import { BOARD_TASKS_ROWS, Section } from "./BoardTasksSection";
 import { RateChangesSection, RateChangesWaitingSection } from "./RateChangesSection";
 import { CproQueueDialog, CproSenderControl } from "./CproQueueDialog";
 import { CvInTransitSection } from "./CvInTransitSection";
 import { NewJobLeadsSection } from "./NewJobLeadsSection";
+import { NewPeopleSection } from "./NewPeopleSection";
 import { PendingJobsSection, hasPendingJobsContent } from "./PendingJobsSection";
 import { PrepAttentionSection } from "./PrepAttentionSection";
 import { RequirementFixesSection } from "./RequirementFixesSection";
@@ -169,6 +178,12 @@ export function BoardTasksPanel({
   inTile = false,
 }: BoardTasksPanelProps = {}) {
   const query = useBoardTasks();
+  // „Po osobach, które odeszły” (28.10.2026): opiekunem jest DL, główny DL
+  // klienta albo Head of Recruitment; admin i HoR widzą też licznik per DL.
+  const me = useAuthStore((s) => s.user);
+  const care = useDepartedCare(
+    hasRole(me, "delivery_lead", "head_of_recruitment", "admin"),
+  );
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [cproJob, setCproJob] = useState<number | null>(null);
   const [cproOpen, setCproOpen] = useState(false);
@@ -217,18 +232,25 @@ export function BoardTasksPanel({
   }
   const preps = data.prep_attention ?? [];
   const followups = data.followups ?? [];
+  const bookedCalls = data.booked_calls ?? [];
   // Serwer wysyła propozycje tylko osobie decydującej; flaga jest drugim
   // zamkiem — bez niej sekcji nie ma, nawet gdyby wiersze przyszły.
   const proposals =
     data.can_decide_proposals === true ? (data.allocation_proposals ?? []) : [];
+  // „Nowe osoby do ustawienia” (0612) — zadanie admina i Head of Recruitment.
+  const newPeople = data.can_decide_proposals === true ? (data.new_people ?? []) : [];
+  const newPeopleFailed = data.can_decide_proposals === true && data.new_people === null;
   const total =
+    newPeople.length +
     proposals.length +
     data.cpro_to_send.length +
     data.cpro_sent.length +
     preps.length +
     followups.length +
+    bookedCalls.length +
     agreementTasksCount(data.agreements) +
     flowWorkCount(data.flow, data.finance) +
+    departedCareCount(care.data) +
     (data.rate_changes?.length ?? 0);
   // „Twoje CV w drodze”: gdy coś wróciło albo panel i tak stoi — kolumna
   // w panelu; gdy nie — sam wąski pasek nad pulpitem (także z pustym stanem,
@@ -423,12 +445,21 @@ export function BoardTasksPanel({
             </li>
           </Section>
         )}
+        <BookedCallsSection rows={bookedCalls} />
+        <NewPeopleSection rows={newPeople} />
+        {newPeopleFailed ? <NewPeopleFailed /> : null}
         <AllocationProposalsSection
           rows={proposals}
           leaveKnown={data.allocation_leave_known !== false}
         />
         <NewJobLeadsSection rows={leads} />
         {showLoad ? <TeamLoadSection /> : null}
+        <DepartedCareSection
+          data={care.data}
+          failed={care.isError}
+          expanded={expanded["departed_care"] === true}
+          onToggle={() => toggle("departed_care")}
+        />
         {movePrompt}
         <PendingJobsSection
           pending={data.pending_jobs}
@@ -502,6 +533,19 @@ function RequirementFixesFailed() {
       className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground lg:col-span-3"
     >
       Nie udało się policzyć „Wymagań do poprawy” — odśwież pulpit.
+    </p>
+  );
+}
+
+/** Awaria liczenia „Nowych osób do ustawienia” (`new_people: null`). */
+function NewPeopleFailed() {
+  return (
+    <p
+      role="status"
+      data-testid="new-people-failed"
+      className="rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground lg:col-span-3"
+    >
+      Nie udało się policzyć „Nowych osób do ustawienia” — odśwież pulpit.
     </p>
   );
 }

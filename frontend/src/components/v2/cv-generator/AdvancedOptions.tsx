@@ -17,8 +17,12 @@ export interface AdvancedOptionsProps {
   position: string;
   onPositionChange: (value: string) => void;
   positionRequired: boolean;
-  /** Stanowisko podpowiedziane z tytułu rekrutacji. */
+  /** W polu jest stanowisko z rekrutacji, a nie wpisane ręcznie. */
   positionFromJob: boolean;
+  /** Stanowisko z rekrutacji; pusty napis = rekrutacja go nie ma albo nie ma procesu. */
+  positionDefault: string;
+  /** Panel w karcie nie ma „Reguł klienta”, więc pokazuje wynik pod polem. */
+  outcome?: { header: string | null; filename: string | null } | null;
   projectRef: string;
   onProjectRefChange: (value: string) => void;
   projectRefVisible: boolean;
@@ -41,6 +45,7 @@ export function AdvancedOptions(props: AdvancedOptionsProps) {
     <div className="mt-4 border-t border-border pt-3">
       <button
         type="button"
+        data-tour="cv.position"
         aria-expanded={props.open}
         aria-controls={panelId}
         onClick={() => props.onOpenChange(!props.open)}
@@ -67,19 +72,50 @@ export function AdvancedOptions(props: AdvancedOptionsProps) {
             <label htmlFor={positionId} className="block text-sm font-semibold text-foreground">
               Stanowisko{props.positionRequired ? star : null}
             </label>
-            <Input
-              id={positionId}
-              value={props.position}
-              maxLength={300}
-              onChange={(event) => props.onPositionChange(event.target.value)}
-              placeholder="np. Analityk Biznesowy"
-              className="sm:max-w-md"
-            />
-            <p className="text-xs text-muted-foreground">
-              {props.positionFromJob
-                ? "Z tytułu rekrutacji — generator dopasuje z niego nazwę stanowiska w nagłówku (język CV, bez numerów zapytań). Wpisz własne, żeby trafiło do nagłówka i nazwy pliku dosłownie."
-                : "Trafia do nagłówka CV i do nazwy pliku dosłownie."}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                id={positionId}
+                value={props.position}
+                maxLength={300}
+                onChange={(event) => props.onPositionChange(event.target.value)}
+                placeholder="np. Analityk Biznesowy"
+                className="sm:max-w-md"
+              />
+              {props.positionFromJob && props.position ? <StatusChip tone="ok">z rekrutacji</StatusChip> : null}
+              {!props.positionFromJob && props.positionDefault ? (
+                <button
+                  type="button"
+                  onClick={() => props.onPositionChange(props.positionDefault)}
+                  className="rounded-md text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  Przywróć z rekrutacji
+                </button>
+              ) : null}
+            </div>
+            {props.positionFromJob && !props.position ? (
+              <p className="text-xs font-medium text-warning-muted-foreground">
+                Nazwa od klienta to przedmiot usługi, a Champion nie ma roli. Wpisz stanowisko, które ma zobaczyć klient.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {props.positionFromJob
+                  ? "Tak stanowisko pójdzie do nagłówka CV i nazwy pliku. Możesz je zmienić tylko dla tego CV."
+                  : props.positionDefault
+                    ? "Własna nazwa, tylko w tym CV. Rekrutacja zostaje bez zmian."
+                    : "Trafia do nagłówka CV i do nazwy pliku."}
+              </p>
+            )}
+            {props.outcome?.header ? (
+              <p className="text-xs text-foreground [overflow-wrap:anywhere]" data-testid="cv-position-outcome">
+                Nagłówek CV: {props.outcome.header}
+                {props.outcome.filename ? (
+                  <>
+                    <br />
+                    Plik: <span className="font-mono">{props.outcome.filename}</span>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
           </div>
           {props.projectRefVisible ? (
             <div className="space-y-1.5">

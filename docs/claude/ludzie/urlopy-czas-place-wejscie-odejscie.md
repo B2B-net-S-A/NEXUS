@@ -17,6 +17,10 @@
   422 przy wniosku albo zgodzie, wykonawca M365 odmawia (`substitute_outside_company`).
 - Akceptacja urlopu usuwa godziny z dni urlopu w „Moim miesiącu” i przelicza
   sumę kontrolną (`time_hooks.on_leave_approved` / `on_leave_cancelled`).
+  Pół dnia nie kasuje godzin, tylko skraca zwykłe ręczne wpisy dnia do 4 h
+  (od najpóźniej dodanego, nadgodzin i auto-wpisu `leave_paid` nie rusza;
+  ślad `leave_hours_trimmed`) — decyzja Artura z 28.10.2026, bo wpis 8 h
+  sprzed wniosku dawał akceptującemu 12 h.
 - Powiadomienia (dymek) i mail zastępcy nie zdradzają rodzaju ani notatki (D6);
   mail „Czas i ludzie” nie niesie rodzaju nikomu, także przełożonemu i Kadrom
   (`services/hr/hr_mail.py`, reguła w `modul-ludzie-dostep-schemat-i-przelaczenie.md`).
@@ -123,6 +127,9 @@ decyduje o słowach i o przebiegu nieobecności.
 - Nowy wniosek: powiadomienie do przełożonego i do zastępcy („w zastępstwie
   za …”); L4 — zastępca dostaje „do wiadomości” bez rodzaju.
 - Ślad decyzji: `details.as_substitute_for` = „w zastępstwie za …” (+ id).
+- Osoba od Cpro wskazuje we wniosku osobnego zastępcę do Cpro
+  (`cpro_substitute_user_id`, 29.10.2026) — reguła w
+  `rekrutacja-tablica/cpro-zastepca-z-wniosku-urlopowego.md`.
 - Plakietka przy osobie poza „Ludźmi” (lista „@”, kolumna „Rekruter” na
   `/jobs`) bierze `GET /api/hr/leave/absence` raz na listę i tylko przy
   otwartym module urlopów; awaria = brak plakietki, nie błąd ekranu. Po
@@ -149,6 +156,14 @@ decyduje o słowach i o przebiegu nieobecności.
   dnia urlopu, zamknięcie po ostatnim, `forwardTo` (kopia), domeny firmy z
   `SSO_ALLOWED_DOMAINS`. Reguła Outlooka nie ma warunków czasowych — sprzątanie
   sierot w uzgadnianiu 07:00 jest obowiązkowe.
+- **W interfejsie to „kopia poczty”, nie „przekierowanie”** (decyzja Artura
+  02.11.2026). Zgłoszenie „poczta idzie tylko do zastępcy” nie potwierdziło się
+  w regule NEXUSA (`forwardTo`, odczyt skrzynek z produkcji 02.11), a ekrany mówiły
+  „Przekieruj pocztę”, choć oryginał zostaje w skrzynce osoby. Zastępca dostaje
+  kopie tylko od osób spoza firmy (`forward_rules.filters`) i okno zgłoszenia mówi
+  to wprost. Dzwonki o bieżącej pracy dalej idą tylko do zastępcy, który ją przejął
+  (`notification_triggers._operational_recipient`) — tak zostaje, decyzja Artura
+  z tego samego dnia. Warstwa techniczna (`forward_*`) zostaje po angielsku.
 - Wydarzenie w kalendarzu: prywatne „Poza biurem”, bez rodzaju nieobecności.
 - **Osoba, która odeszła** (konto wyłączone albo kartoteka `exited`, 19.10.2026):
   jej skrzynka jest poza grupą aplikacji, więc Graph odpowiada 403. Uzgadnianie
@@ -156,6 +171,17 @@ decyduje o słowach i o przebiegu nieobecności.
   jej zaległe operacje jako `skipped: user_exited` bez wywołania Graph
   (`executor.left_company`). Właściciel urlopu bez kartoteki z aktywnym kontem
   nadal jest uzgadniany.
+- **„Skrzynki z błędem” w karcie to tylko skrzynki czytane** (02.11.2026):
+  uzgadnianie zdejmuje `last_error` skrzynek, których nie czytało (licznik
+  `stale_errors_cleared`), bo 11 z 18 pozycji to były osoby po odejściu i konto
+  bez kartoteki, a błąd sam by nie zniknął. Tych błędów się nie odfiltrowuje przy
+  wyświetlaniu.
+- **Nowe konto trzeba dopisać do grupy** `nexus-kadry-skrzynki@b2bnetwork.pl`
+  (`Add-DistributionGroupMember`, Exchange Online). NEXUS tego nie robi: wszystkie
+  konta założone 18–29.10.2026 miały 403. Odczyt skrzynki poza grupą nie blokuje
+  złożenia wniosku, a operacje urlopu po 6 próbach kończą jako `failed`. Po dopisaniu
+  uzgadnianie o 7:00 samo odtwarza autoodpowiedź i regułę trwającego urlopu oraz
+  zamyka reguły po urlopie; nieudane wydarzenie w kalendarzu wymaga „Ponów”.
 - **Uprawnienia rejestracji „NEXUS Kadry”**: APPLICATION `MailboxSettings.ReadWrite`,
   `Calendars.ReadWrite`, `Mail.Send` zawężone RBAC for Applications do skrzynek
   zespołu, plus `User.Read.All` (odczyt profili niżej). `User.Read.All` to
@@ -182,7 +208,11 @@ decyduje o słowach i o przebiegu nieobecności.
   module urlopów.
 - **Karta Microsoft 365 → przekierowania** (`m365/forward_admin.py`):
   `GET /forwards` (z bazy), `POST /forwards/check` (odczyt reguł na żywo,
-  tylko tryb `live`; inny tryb = zdanie, nie błąd), `POST /forwards/close`
+  tylko tryb `live`; inny tryb = zdanie, nie błąd; od 02.11.2026 kolumna
+  „Skrzynka osoby”: `forward_rules.mailbox_state` czyta same rodzaje akcji, włączona
+  reguła z `redirectTo`, `delete` albo `permanentDelete` to „Maile mogą nie zostawać”.
+  Warunków reguły nie ocenia, więc to sygnał do sprawdzenia, a przekierowania
+  z Exchange Graph nie pokazuje), `POST /forwards/close`
   (`forward_rule_close` przez kolejkę; reguły trwającego urlopu ze zgodą tak
   nie zamkniesz — 409, od tego jest wyłączenie we wniosku), `POST /reconcile`
   („Uzgodnij teraz”: bez rezerwacji dnia i bez 7:00; blokada
@@ -213,6 +243,21 @@ decyduje o słowach i o przebiegu nieobecności.
   autoodpowiedź urlopu zaczynającego się nie wcześniej — wykonawca pisze taką
   tylko do skrzynki bez naszej trwającej, więc osoba wyłączyła tę pierwszą.
   Przekazanie autoodpowiedzi po anulowaniu pomija wnioski z Outlooka.
+- **Anulowanie terminu, który już trwa albo minął** (decyzja Artura
+  28.10.2026): osoba faktycznie była nieobecna, więc od pierwszego dnia
+  (`start_date <= business_today()`) sama nie anuluje ani zatwierdzonego, ani
+  OCZEKUJĄCEGO wniosku — `own_cancel_refusal` = 422, `can_cancel: false`,
+  warunek `start_date > dziś` także w UPDATE `cancel_own`. Cofa przełożony albo
+  Kadry (`POST /approvals/{id}/cancel`) i od pierwszego dnia musi podać powód:
+  ciało `{reason}` 3–500 znaków (`approver_cancel_refusal`, brak = 422 po
+  polsku; przed pierwszym dniem powód opcjonalny, a bez powodu UPDATE ma
+  warunek `start_date > dziś`). Powód idzie do śladu `leave_cancelled`
+  (`details.reason`, wrażliwość `health` jak notatka) i tylko do dymka osoby
+  („… Powód: …”); przełożony i zastępca dostają dymek bez powodu, a mail
+  ucina treść przed „Powód: ” (`hr_mail.mail_text`, D6). Front: „Anuluj”
+  w „Wszystkich wnioskach” przy trwającym albo minionym terminie otwiera
+  `CancelLeaveDialog` (słowa raportu godzin z formy osoby), przyszły — zwykłe
+  `useConfirmV2`.
 - **„Wszystkie wnioski”**: `counts` per status w odpowiedzi historii (zakres
   i filtry bez statusu), plakietki źródła „Wpis za pracownika”, „Z Outlooka”,
   „Import z Compassa”.
@@ -307,8 +352,26 @@ z odnośnikiem `hr_documents.leave_request_id`.
   timesheetu; ponad 8 h (do 16 h) to nadgodziny — tylko z prawem
   (`can_log_overtime`, Kadry, admin) i z uzasadnieniem. Pełny dzień urlopu
   blokuje wpis, pół dnia zajmuje 4 h; płatny urlop B2B z puli to auto-wpis.
+- **„Godziny bez limitu”** (`no_hours_limit`, kartoteka, decyzja Artura 02.11.2026,
+  bo osoba na wielu projektach raportuje ponad 8 h dziennie): reguła idzie za osobą,
+  której raport dotyczy, nie za wpisującym. Bez sufitu 16 h na sumę dnia i bez opisu
+  godzin ponad 8 h. Wpis ponad 8 h nadal ma `is_overtime`; bez opisu dostaje tekst
+  `NO_LIMIT_REASON`, bo CHECK `ck_timesheet_entries_overtime` wymaga uzasadnienia,
+  a raport i PDF mają dalej pokazywać takie dni. Zostają: jeden wpis ≤ 24 h (CHECK),
+  blokada pełnego dnia urlopu, „Wypełnij miesiąc” ≤ 8 h dziennie.
 - Przejścia: szkic → wysłany → zaakceptowany; zwrot do szkicu z notatką; cofnięcie
   akceptacji. Nikt nie akceptuje własnego timesheetu (CHECK `approved_by <> user_id`).
+- **„Wycofaj i popraw”** (decyzja Artura 03.11.2026, makiety:
+  https://claude.ai/artifact/UpVkY1wB3yqT7yMpM8v725): osoba cofa własny wysłany raport
+  do szkicu, dopóki nikt go nie przyjął (`time_flow.withdraw`, przyjęty i zamknięty
+  w płacach = 409, ślad `timesheet_withdrawn`, dzwonek do akceptujących). Powód: osoba
+  po wysłaniu nie miała żadnej akcji, a poprawka jednego dnia szła wiadomością do koordynatora.
+- **Pół dnia i za dużo godzin widać** (`overLeaveLimit`, `LeaveLimitNotice`): wpis
+  sprzed #2764 (28.10.2026) zostaje, bo skracanie działa tylko przy nowym zgłoszeniu.
+  W całej firmie od września był jeden taki dzień; poprawia się go ręcznie, „Skróć do 4 h”.
+  Godziny ponad limit z uzasadnieniem to nadgodziny, nie ten przypadek. Wpis otwiera
+  kliknięcie w opis albo godziny; plus dokłada nowy wpis, więc na pełnym dniu pole
+  godzin jest puste, bo podpowiedź 8 h kończyła się odmową „przekroczyłaby 16 h”.
 - **`pdf_hash` = funkcja Compassa co do bajtu** (`time_hash.py`, sortowanie jak
   w JavaScripcie, `toFixed(2)`). Zmiana algorytmu = każdy zaimportowany PDF zgłosi
   rozbieżność. Wektory w `tests/test_hr_time_hash.py` policzono kodem Compassa.
@@ -341,6 +404,12 @@ z odnośnikiem `hr_documents.leave_request_id`.
     zatrudnienia z kartoteki (`work_start_date`–`last_working_day`, też
     w `days_missing`). Poprawka samego opisu albo projektu wpisu nie przelicza
     nadgodzin dnia (audyt 19.10.2026).
+  - Domyślny opis dnia (bez opisu roli i szablonu; też auto-wpis płatnej
+    puli) to słowo formy `standard_description`: B2B i zlecenie „Realizacja
+    usług zgodnie z umową”, UoP „Praca standardowa” (decyzja Artura
+    28.10.2026). Stare wpisy zostają; przepisane były tylko szkice X/2026
+    (`scripts/timesheet_standard_description_rewrite.py`, podgląd →
+    `--apply`). Raportów z `pdf_hash` nie przepisuje się — hash liczy opis.
   - „Szablony opisów” osoby (dodaj, edytuj, usuń, kolejność = `sort_order`)
     i karta „Domyślne opisy godzin” w Ustawieniach → Kadry (role NEXUSA bez
     `user`/`sourcer`/`tac`) — na istniejących trasach `/api/hr/time/me/templates`
@@ -381,6 +450,13 @@ z odnośnikiem `hr_documents.leave_request_id`.
   ustawiasz / nie usuwasz — zrobi to druga osoba z Płac albo administrator.”;
   administrator może (ślad w audycie jak zawsze). Na własnej kartotece
   `can_edit_rates = false`.
+- **„Mój czas → Premie i stawka” idzie po miesiącach płac** (zgłoszenie z 03.11.2026,
+  makieta wariant A wybrana przez Artura): rząd miesięcy, „podstawa + premie = razem”
+  z `/me/settlement` i lista wybranego miesiąca (`period_year`/`period_month`, prognoza
+  z `eligible_on`), „Wszystkie” przywraca pełną listę. Kwoty „w drodze” stoją poza sumą,
+  otwarty miesiąc bez godzin ma kreskę zamiast „0,00 zł”, a awaria rozliczenia nie
+  pokazuje sumy, bo byłaby zaniżona. Na start otwiera się najnowszy miesiąc z kwotą.
+  Kolumna „Etap” pokazuje bieżący i następny krok, cała ścieżka jest w dymku.
 - **Premia ręczna od przełożonego to propozycja** (decyzja Artura 19.10.2026,
   `payroll_bonuses.approval_refusal`): powstaje jako `proposed` (bez `assigned_by`,
   ślad `bonus_proposed`, bez dzwonka osobie); zatwierdzają ją tylko Płace, nigdy jej
@@ -401,6 +477,8 @@ z odnośnikiem `hr_documents.leave_request_id`.
   `source_key` unikalny (automat nie dubluje), `rule_snapshot` przy naliczeniu.
   Termin premii z placementu = start kontraktu + 21 dni roboczych firmy (święta
   ustawowe i dni wolne firmy — ten sam kalendarz co urlop, decyzja 17.10.2026);
+  miesiąc wypłaty = następny po starcie, nie wcześniej niż miesiąc terminu
+  (`bonus_rules.payout_period`, decyzja Artura 30.10.2026 za arkuszem Delivery);
   premia DL = 10% × marża/h × 168 h; rekruter progami marży PLN/h. Progi
   i „dodatkowa premia DL” to ustawienia (`app_settings['hr_bonus_rules']`),
   w kodzie nie ma żadnej osoby.
@@ -425,8 +503,68 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odmawia (422) pustej daty i daty wcześniejszej niż zapisana; zepsuty wpis
   `hr_bonus_rules` daje reguły domyślne, ale z zapisaną datą (nieczytelna data =
   automat nie zakłada nowych propozycji), nigdy okno 120 dni.
+- **Premia od podpisu, decyzja Płac w każdej chwili** (decyzje Artura 30.10.2026).
+  Podpis obu stron aktywuje kontrakt z datą startu, a aktywacja zakłada propozycje,
+  więc premia istnieje od podpisu. Bez stawki nie ma wiersza (kwota musi być dodatnia):
+  kontrakt jest w zakładce „Bez stawki” (`bonus_decisions.contracts_missing_rates`).
+  Płace (9 kont na 30.10: administratorzy i Finanse) zatwierdzają także przed terminem;
+  przełożony nadal od terminu. Warunek wypłaty to zamówienie i próg dni roboczych
+  (`eligible_business_days`): brak zamówienia po terminie nie jest odmową, tylko
+  oznaczeniem `no_order` i ostrzeżeniem `bonus_no_order` przy zamknięciu, bo część
+  kontraktów, głównie Nordei, nie ma w NEXUSIE daty zamówienia.
+- **Ręczne zmiany są trwałe:** `edited_amount`, `edited_recipient`, `edited_period`
+  w migawce; automat przelicza tylko pozostałe pola (`placement_bonuses.EDIT_MARKS`).
+  Zmiana osoby wymaga powodu i uprawnienia Płace. „Usuń premię” to `cancel_bonus`
+  z powodem w `cancel_note`: wiersz zostaje, automat go nie przywraca.
+- **Oznaczenia „Do sprawdzenia”** (`bonus_flags.py`, tylko Płace): konto nieaktywne,
+  marża ponad 100 zł/h, brak zamówienia, inna osoba prowadząca dalsze etapy, druga
+  rekrutacja z zatrudnieniem, replacement, niepełny etat. Nic nie blokują, tylko
+  odznaczają wiersz w „Zatwierdź zaznaczone”.
+- **Reguły osób:** `dl_hours` (godziny DL inne niż `monthly_hours`) i
+  `individual_recruiters` (procent marży zamiast progów, od 3. startu w miesiącu
+  rośnie dla całego miesiąca). W kodzie nie ma osób, listy są w ustawieniach.
+- **Ikona premii w pasku** (`GET /decisions`): z podpisanych umów, Liga i wyścigi, do
+  sprawdzenia. Wyścig miesięczny zostaje voucherem: „Potwierdź” zapisuje ślad
+  w `app_settings['hr_voucher_confirmations']`, bez przelewu i bez Płac. Etapy
+  (podpis, kontrakt, zamówienie, start, dni) są w „Moim czasie”, dzwonek tylko
+  „może zostać naliczona” (`notify_ready`, raz, bez kwoty) i przy zatwierdzeniu.
+  Nie pisz „przepracował 160 h”: NEXUS zna dni robocze od startu, nie godziny.
+- **Rozliczenie z arkusza** (`services/hr/settlement_import.py`, „Wczytaj arkusz”
+  w „Premie do decyzji”, decyzja Artura 30.10.2026): Płace wczytują plik Delivery,
+  widzą porównanie z automatem i przyznają zaznaczone wiersze. Plik nie jest
+  zapisywany, uwagi z arkusza nie trafiają do opisu premii. Wiersz z kontraktem
+  przejmuje klucz automatu `contract:<id>:<rola>`, więc automat go nie zdubluje;
+  kwota 0 odrzuca propozycję na stałe (`settlement_import`). Konto nieaktywne jest
+  domyślnie odznaczone. Pomiar na kopii: 110 wierszy, 158 691,39 zł, 103 przyznane,
+  7 z kwotą 0 pominiętych. Podwójna premia za podpis to wyjątek tylko za
+  październik 2026: wypłata w miesiącu podpisu, bez warunku godzin i na ryzyko
+  firmy (decyzja Artura 30.10.2026), dlatego idzie arkuszem, a nie regułą automatu,
+  i nie daje ostrzeżenia `bonus_contract_ended_early`.
 - Zakończenie kontraktu przed terminem anuluje premię, cofnięcie zakończenia ją
   przywraca (`app/services/hr/contract_hooks.py`).
+- **Automat po arkuszu** (zgłoszenia Płac i decyzje Artura 02.11.2026):
+  - Kontrakt sprzed `automation_since` nie dostaje nowych wierszy, także gdy import
+    założył pierwszy: automat uzgadnia to, co jest. Nocny przebieg 02.11 dopisał
+    tak 15 pozycji (13 614,40 zł), w tym premie wstrzymane kwotą 0 i nieaktywne konta.
+  - Wiersz z arkusza nie znika przez koniec kontraktu: oznaczenie „Kontrakt
+    zakończony przed terminem”. Propozycja automatu jest anulowana jak dotąd,
+    z datą końca w migawce (`ended_on`, powód na ekranie i w „Moim czasie”).
+  - Aktywny kontrakt kończy się tylko `end_date` (`placement_bonuses.contract_end`):
+    `terminated_at` przy statusie aktywnym to ślad po przywróceniu, nie koniec.
+  - Ta sama osoba nie dostaje premii DL i dodatkowej premii DL za jeden placement;
+    w imporcie odbiorca reguły dostaje rolę `dl_extra`. Wiersz z kwotą 0 zostaje
+    jako odmowa (`settlement_import`), także bez wcześniejszej propozycji.
+  - Reguła dodatkowej premii ma opcjonalne `client_ids`: pusta lista = każdy klient.
+    Wiersz z arkusza spoza listy dostaje oznaczenie „Poza zakresem reguły”.
+  - Znaczniki `edited_*` z importu chronią arkusz przed automatem i nie są zmianą:
+    ekran mówi wtedy „z arkusza”, a „kwota poprawiona” i „osoba zmieniona” zostają dla
+    zmian po imporcie (`amount_edited_after_import`, `recipient_edited_after_import`).
+    Kwota inna niż z reguły i niż podwójna z reguły daje oznaczenie `amount_rule`
+    i przycisk „Ustaw kwotę z reguły”. Uwaga z arkusza (`settlement_note`) jest
+    w migawce, którą widzą tylko Płace.
+  - DL z rolą rekrutera, który domyka po rekruterze z wyłączonym kontem, dostaje
+    tylko premię DL: osobę zweryfikowała u tego klienta osoba, która odeszła
+    (`PlacementContext.closed_after_departure`). Wyjątek od decyzji z 25.10.2026.
 - Zamknięcie miesiąca: propozycje premii muszą mieć decyzję, ostrzeżenia wymagają
   potwierdzenia, linie zamrożone w `payroll_lines`, timesheety zablokowane.
   Ponowne otwarcie tylko admin, z powodem. Zamknięcie blokuje okres i timesheety
@@ -501,6 +639,18 @@ z odnośnikiem `hr_documents.leave_request_id`.
   odpowiedzi `GET /api/hr/time/team/{rok}/{miesiąc}` (kalendarz firmy × 8 h, ta
   sama co w „Moim miesiącu”). Lista zwinięta do 5 wierszy (najpierw brak
   raportu, potem do akceptacji, szkice, zaakceptowane) z „Pokaż wszystkie (N)”.
+  Nad tabelą chipy statusu z liczbami (decyzja Artura 02.11.2026, po prośbie HoR):
+  wybrany status pokazuje wszystkich, bez zwijania. Zastąpiły pasek podsumowania,
+  który po strzałce miesiąca dalej pokazywał miesiąc z adresu.
+- **Cofnięcie nieobecności z podglądu raportu** (decyzja Artura 02.11.2026): osoba
+  od pierwszego dnia sama terminu nie anuluje, a droga przez „Zdecydowane” była
+  niewidoczna z chipu „Raporty godzin”. W podglądzie przy pierwszym dniu terminu
+  w miesiącu stoją „Cofnij …” i „Zmień daty”: te same okna i trasy co w historii
+  (`CancelLeaveDialog`, `EditLeaveDialog`), te same reguły (`canEditRow`, D5).
+  Termin bierzemy z `useLeaveHistory` po osobie, bez nowego API. Zapytanie idzie
+  tylko przy `can_decide` i `me.leave_approver`, więc same „Raporty godzin” i
+  zastępca nieobecnego przełożonego przycisku nie mają. Cofnięcie zostawia dni
+  puste: godzin nie wpisuje samo, bo potwierdza je osoba albo akceptujący.
 
 ## „Mój czas” — przegląd, saldo, premie w drodze, rozliczenie (etap 2, 17.10.2026)
 
@@ -688,6 +838,9 @@ Schemat: `hr_settlement_schema.py` (migracja `0468_hr_settlements`, stany w docs
   przechodzi istniejącymi ścieżkami zapisu — rekrutacje, DL rekrutacji, klienci
   DL, „Moi ludzie”, podwładni), wyłączenie konta dzień później — ale dopiero po przekazaniu
   całej pracy (inaczej „Wyłącz konto teraz” z jawnym „mimo to”, zapisanym w śladzie).
+  Samo wyłączenie konta (każdą drogą) dzieli dodatkowo żywe pary kandydatów
+  osoby między Delivery Leadów ich rekrutacji, którzy je domykają (28.10.2026,
+  `rekrutacja-tablica/odejscie-rekrutera-opieka-delivery-leada.md`).
   Sprawy z nieprzekazaną pracą nie da się zamknąć; przejmujący nie może sam odchodzić
   do dnia przekazania. Konto wyłącza wyłącznie sprawa odejścia (nie brak osoby na
   liście), raz na sprawę; admina nie wyłącza automat; przebieg z więcej niż limitem

@@ -126,6 +126,23 @@ class FrameworkContractPassage(BaseModel):
     first_chunk: int
     last_chunk: int
     text: str
+    # Fragment aneksu do tej umowy; puste = treść samej umowy.
+    amendment_id: Optional[int] = None
+    amendment_name: Optional[str] = None
+    amendment_effective_date: Optional[date] = None
+
+
+class FrameworkContractAmendmentReading(BaseModel):
+    """Aneks umowy i to, czy jego treść da się czytać."""
+
+    id: int
+    name: str
+    effective_date: date
+    has_file: bool
+    readable: bool
+    pages: Optional[int] = None
+    total_chunks: Optional[int] = None
+    note: Optional[str] = None
 
 
 class FrameworkContractReading(BaseModel):
@@ -141,6 +158,7 @@ class FrameworkContractReading(BaseModel):
     pages: Optional[int] = None
     total_chunks: Optional[int] = None
     amendments_count: int = 0
+    amendments: list[FrameworkContractAmendmentReading] = Field(default_factory=list)
     note: Optional[str] = None
 
 
@@ -156,6 +174,13 @@ class FrameworkContractSearchResponse(BaseModel):
 
 class FrameworkContractTextResponse(BaseModel):
     contract: FrameworkContractReading
+    passage: Optional[FrameworkContractPassage] = None
+    next_chunk: Optional[int] = None
+    note: Optional[str] = None
+
+
+class FrameworkContractAmendmentTextResponse(BaseModel):
+    amendment: FrameworkContractAmendmentReading
     passage: Optional[FrameworkContractPassage] = None
     next_chunk: Optional[int] = None
     note: Optional[str] = None

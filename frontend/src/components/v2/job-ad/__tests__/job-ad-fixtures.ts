@@ -3,11 +3,14 @@
 import {
   NO_CAREER_PAGE,
   type AdCareerState,
+  type AdJjitApi,
+  type AdReminders,
   type AdContent,
   type AdFinding,
   type AdPublication,
   type AdTechItem,
   type JobAdState,
+  type PracujRequest,
 } from "@/lib/api/jobAd";
 
 export const CONTENT: AdContent = {
@@ -17,6 +20,7 @@ export const CONTENT: AdContent = {
   start: "listopad 2026",
   duration: "12 miesięcy",
   language: "polski",
+  city: "",
   responsibilities: ["rozwój mikroserwisów", "przeglądy kodu"],
   requirements: ["min. 5 lat doświadczenia w Javie", "praktyka z Apache Kafka"],
   nice_to_have: ["Kubernetes i OpenShift"],
@@ -50,6 +54,9 @@ export function adState(
     lang?: "pl" | "en";
     publications?: AdPublication[];
     career?: AdCareerState;
+    reminders?: AdReminders | null;
+    pracuj_request?: PracujRequest | null;
+    jjit_api?: AdJjitApi | null;
   } = {},
 ): JobAdState {
   const content = patch.content ?? CONTENT;
@@ -73,6 +80,9 @@ export function adState(
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
     career: patch.career ?? NO_CAREER_PAGE,
+    reminders: patch.reminders ?? null,
+    pracuj_request: patch.pracuj_request ?? null,
+    jjit_api: patch.jjit_api ?? null,
     rendered: {
       title: `${content.title} (k/m/x)`,
       pracuj: {
@@ -154,6 +164,9 @@ export const EMPTY_STATE: JobAdState = {
   can_copy: false,
   publications: [],
   career: NO_CAREER_PAGE,
+  reminders: null,
+  pracuj_request: null,
+  jjit_api: null,
 };
 
 export const PRACUJ_URL = "https://www.pracuj.pl/praca/przyklad,oferta,1000000001";

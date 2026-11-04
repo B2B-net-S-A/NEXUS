@@ -25,6 +25,7 @@ import {
 
 vi.mock("@/lib/telemetry-capability", () => ({
   apiSupportsCorrelation: () => false,
+  apiWantsUsageScreen: () => false,
   probeTelemetryCapability: vi.fn().mockResolvedValue(undefined),
 }));
 

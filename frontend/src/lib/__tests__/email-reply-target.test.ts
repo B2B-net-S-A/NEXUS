@@ -21,6 +21,25 @@ describe("planThreadReply (runda 6 audytu)", () => {
     });
   });
 
+  it("nie odpowiada na pustą odpowiedź kandydata na zaproszenie", () => {
+    const inviteReply = {
+      ...msg(2, "received"),
+      subject: "Accepted: Rozmowa",
+      body_html: null,
+      body_text: "",
+      body_preview: "",
+    } as EmailMessage;
+    const real = { ...msg(1, "received"), body_preview: "Treść" } as EmailMessage;
+    expect(planThreadReply([real, inviteReply], undefined, "kandydat@firma.pl")).toEqual({
+      mode: "reply",
+      replyTo: real,
+    });
+    expect(planThreadReply([inviteReply], undefined, "kandydat@firma.pl")).toEqual({
+      mode: "new",
+      defaultTo: "kandydat@firma.pl",
+    });
+  });
+
   it("runda 7: nie odpowiada na mail HM-a ani kolegi w tym samym wątku", () => {
     const hm = {
       id: 3,

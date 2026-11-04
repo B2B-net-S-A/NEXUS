@@ -71,3 +71,14 @@ wziąć obrazu. Teraz rekruter wgrywa go przy generacji, a renderer wkleja sam.
   (decyzja Artura 12.10.2026; ślad `consent_carried_from_stage_id`). To świadome
   poluzowanie wiązania zgody z numerem projektu i etapem dla kopii — zgoda dla
   jednego klienta nadal nigdy nie trafia do CV dla innego.
+- **Prośba o zgodę wychodzi z NEXUSA (decyzja Artura 03.11.2026, wariant B).**
+  Przy ramce „Zgoda RODO: brak zrzutu” przycisk „Poproś kandydata o zgodę” otwiera
+  okno maila z adresem i tekstem z `lib/consent-mail.ts`: imię i nazwisko, numer
+  ZOB (także zapis „ZOB 2996”, bez niego z nazwy rekrutacji) i B2B.net S.A. Tekst
+  jest brzmieniem PKO BP, więc przy innym kliencie przycisku nie ma. Rekruter dalej
+  wgrywa zrzut odpowiedzi kandydata, nie swojej prośby (`recruiter_request`).
+  Bez skrzynki M365 „Program pocztowy” dostaje ten sam temat i treść.
+- **Opis od klienta z „[Nazwa Dostawcy]”** pokazuje w tym miejscu podświetlone
+  „B2B.net S.A.” tylko na ekranie; `jobs.description` zostaje jak w zapytaniu.
+  Akapit zgody na karcie klienta PKO BP stoi w „Zasadach procesu” (znacznik
+  `pko_playbook_consent_moved` w `entrypoint.sh`, seed poprawiony).

@@ -71,6 +71,7 @@ _JOBS = (
     _T.champion_profile_updated,
     _T.champions_changed,
     _T.champion_search_resumed,
+    _T.job_twin_linked,
     _T.job_deadline_7d,
     _T.job_deadline_3d,
     _T.job_deadline_1d,
@@ -81,6 +82,13 @@ _JOBS = (
     _T.request_review_needed,
     _T.client_job_opened,
     _T.job_p0_set,
+    _T.job_p0_requested,
+    _T.job_closed_people_waiting,
+    _T.cpro_candidate_rejected,
+    _T.cpro_interview_change,
+    _T.cpro_close_needs_decision,
+    _T.departed_pairs_care,
+    _T.job_idle_reminder,
     _T.request_allocation_proposals,
     # 0526: brakujące ogłoszenia (codzienne, bez dymka).
     _T.job_ad_missing,
@@ -107,6 +115,7 @@ _CONTRACTS = (
     _T.signature_signed,
     _T.signature_rejected,
     _T.signature_failed,
+    _T.signature_renewal_requested,
     # Prośba do DL o „Oznacz jako podpisaną” (droga mailowa).
     _T.b2b_signature_requested,
     # Umowę Twojej osoby wygenerował ktoś inny — wyślij ją i pilnuj podpisu.
@@ -164,6 +173,13 @@ _JOBS_TOAST = (
     _T.request_review_needed,
     _T.client_job_opened,
     _T.job_p0_set,
+    _T.job_p0_requested,
+    _T.job_closed_people_waiting,
+    _T.cpro_candidate_rejected,
+    _T.cpro_interview_change,
+    _T.cpro_close_needs_decision,
+    _T.departed_pairs_care,
+    _T.job_idle_reminder,
     _T.request_allocation_proposals,
     _T.care_front_office_handoff,
 )
@@ -199,7 +215,10 @@ def enrich_realtime_event(event: Mapping[str, Any]) -> Mapping[str, Any]:
     except ValueError:
         topic, toast = _P.other, True
     else:
-        topic, toast = topic_for(ntype), ntype in TOAST_TYPES
+        # `force_toast`: przypomnienie o umówionym telefonie ma wyskoczyć, choć
+        # reszta tematu „Kalendarz” tylko podbija licznik.
+        topic = topic_for(ntype)
+        toast = ntype in TOAST_TYPES or data.get("force_toast") is True
     return {**event, "data": {**data, "topic": topic.value, "toast": toast}}
 
 

@@ -2,8 +2,11 @@
 
 /**
  * Lewa kolumna okna: fakty „Z tej rekrutacji”, czego brakuje, warunki
- * wpisane w ogłoszeniu (start, długość, język pracy) i przypomnienie
+ * wpisane w ogłoszeniu (miasto, start, długość, język pracy) i przypomnienie
  * o widełkach.
+ *
+ * Miasto ma pole od 28.10.2026: lokalizacja rekrutacji bywa adresem biura
+ * klienta, a po adresie łatwo go wygooglować. Puste = miasto z rekrutacji.
  *
  * Wpisane, a niezapisane warunki trzyma okno (`drafts`): ponowne wczytanie
  * ogłoszenia po odrzuconym zapisie nie może ich wyczyścić.
@@ -17,8 +20,8 @@ import type { AdContent, AdFact, AdReadinessItem } from "@/lib/api/jobAd";
 
 import type { AdDrafts } from "./job-ad-edit";
 
-export type AdTerms = Pick<AdContent, "start" | "duration" | "language">;
-export const TERM_KEYS = ["start", "duration", "language"] as const;
+export type AdTerms = Pick<AdContent, "city" | "start" | "duration" | "language">;
+export const TERM_KEYS = ["city", "start", "duration", "language"] as const;
 
 interface AdFactsRailProps {
   facts: AdFact[];
@@ -38,6 +41,7 @@ const TERM_FIELDS: ReadonlyArray<{
   label: string;
   placeholder: string;
 }> = [
+  { key: "city", label: "Miasto w ogłoszeniu", placeholder: "np. Warszawa" },
   { key: "start", label: "Start projektu", placeholder: "np. listopad 2026" },
   {
     key: "duration",
@@ -65,6 +69,9 @@ export function AdFactsRail({
   const value = (key: keyof AdTerms) => drafts[key] ?? saved(key);
   const dirty = TERM_KEYS.some((key) => value(key).trim() !== saved(key));
   const missing = readiness.filter((item) => !item.present);
+  const recruitmentCity = facts.find((fact) => fact.key === "city")?.value;
+  const placeholderOf = (key: keyof AdTerms, fallback: string) =>
+    key === "city" && recruitmentCity ? `Z rekrutacji: ${recruitmentCity}` : fallback;
 
   return (
     <aside
@@ -118,6 +125,7 @@ export function AdFactsRail({
           onSubmit={(event) => {
             event.preventDefault();
             void onSaveTerms({
+              city: value("city").trim(),
               start: value("start").trim(),
               duration: value("duration").trim(),
               language: value("language").trim(),
@@ -132,7 +140,7 @@ export function AdFactsRail({
               <span className="text-xs text-muted-foreground">{label}</span>
               <Input
                 value={value(key)}
-                placeholder={placeholder}
+                placeholder={placeholderOf(key, placeholder)}
                 maxLength={80}
                 className="h-8 text-[13px]"
                 onChange={(event) =>
@@ -154,7 +162,8 @@ export function AdFactsRail({
             </Button>
           ) : null}
           <p className="text-xs text-muted-foreground">
-            Zapis dotyczy ogłoszenia. Puste pole = ogłoszenie pomija ten punkt.
+            Zapis dotyczy ogłoszenia. Puste miasto = miasto z rekrutacji, bez ulicy. Pozostałe
+            puste pola ogłoszenie pomija.
           </p>
         </form>
       ) : null}

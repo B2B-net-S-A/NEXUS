@@ -157,7 +157,22 @@ export function messageFromApiResponse(
     ) {
       return "Tekst zawiera niedozwolony, niewidoczny znak (NUL) — usuń go albo wpisz tekst ponownie.";
     }
-    const first = detail[0] as { msg?: unknown; loc?: unknown } | null;
+    const first = detail[0] as {
+      msg?: unknown;
+      loc?: unknown;
+      type?: unknown;
+      ctx?: { max_length?: unknown; actual_length?: unknown };
+    } | null;
+    const max = first?.ctx?.max_length;
+    if (first?.type === "too_long" && typeof max === "number") {
+      const actual = first.ctx?.actual_length;
+      return `Za dużo pozycji na liście: najwyżej ${max}${
+        typeof actual === "number" ? `, jest ${actual}` : ""
+      }.`;
+    }
+    if (first?.type === "string_too_long" && typeof max === "number") {
+      return `Tekst jest za długi: najwyżej ${max} znaków.`;
+    }
     if (typeof first?.msg === "string") {
       const loc = Array.isArray(first.loc) ? first.loc : [];
       // Tylko `body` to dane wpisane przez użytkownika — tam nazwa pola

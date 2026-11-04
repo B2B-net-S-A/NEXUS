@@ -85,7 +85,7 @@ jobs:
       - name: Okno wdrożeń 18:00–08:00
         if: ${{ inputs.mode == 'redeploy' }}
         env:
-          FREEZE_WINDOW: ${{ vars.DEPLOY_FREEZE_WINDOW || '8-18' }}
+          FREEZE_WINDOW: "8-18"
           EMERGENCY: ${{ inputs.emergency }}
           REASON: ${{ inputs.reason }}
         run: |

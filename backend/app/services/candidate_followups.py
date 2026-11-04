@@ -49,7 +49,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.scheduling import is_business_day
-from app.models.calendar_event import CalendarEvent, EventStatus, EventType
+from app.models.calendar_event import (
+    BOOKED_CALL_LOCATION,
+    CalendarEvent,
+    EventStatus,
+    EventType,
+)
 from app.models.call import Call, CallStatus
 from app.models.candidate import Candidate
 from app.models.candidate_followup import CONTACT_OUTCOMES, CandidateFollowup
@@ -425,7 +430,18 @@ async def _waiting_processes(
         else set()
     )
 
+    # Odejście z firmy (28.10.2026): parę osoby z wyłączonym kontem domyka
+    # Delivery Lead rekrutacji (``departure_care``) — telefon idzie do niego.
+    from app.services.departure_care import caretaker_ids  # noqa: PLC0415
+
+    caretakers = await caretaker_ids(
+        db, [(r.candidate_id, r.job_id) for r, _, _ in pairs]
+    )
+
     def _owner(r) -> Optional[int]:
+        caretaker = caretakers.get((r.candidate_id, r.job_id))
+        if caretaker is not None:
+            return caretaker
         chain = [u for u in (r.verifier_id, r.sender_id, r.recruiter_id) if u]
         return next((u for u in chain if u in active_ids), chain[0] if chain else None)
 
@@ -569,6 +585,12 @@ async def _last_contacts(
                 CalendarEvent.event_type != EventType.client_interview,
                 CalendarEvent.event_type != EventType.deadline,
                 CalendarEvent.status != EventStatus.cancelled,
+                # Umówiony telefon liczy się dopiero po zamknięciu z wynikiem:
+                # sam termin, który minął, nie znaczy, że ktoś zadzwonił.
+                or_(
+                    CalendarEvent.status != EventStatus.scheduled,
+                    CalendarEvent.location.is_distinct_from(BOOKED_CALL_LOCATION),
+                ),
                 CalendarEvent.start_time <= now,
             )
             .distinct(CalendarEvent.candidate_id)

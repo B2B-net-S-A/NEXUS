@@ -10,8 +10,9 @@ Wartości domyślne to reguły Compassa (``lib/types/bonus.ts:242-253``,
   powyżej 40 i poniżej 50 → 1500, od 50 → 2000; marża ujemna = bez premii,
 * **dodatkowa premia DL** — w Compassie reguła zaszyta w kodzie razem
   z adresami e-mail dwóch osób. Tu to USTAWIENIE: lista par
-  ``{dl_user_id → recipient_user_id}``, domyślnie pusta (repo jest publiczne,
-  w kodzie nie ma nikogo).
+  ``{dl_user_id → recipient_user_id}`` z opcjonalną listą klientów
+  (``client_ids``, decyzja Artura 02.11.2026), domyślnie pusta (repo jest
+  publiczne, w kodzie nie ma nikogo).
 
 Funkcje liczące są czyste (bez bazy), żeby testy granic nie potrzebowały
 Postgresa; kalendarz firmy z dniami wolnymi podaje wołający
@@ -72,6 +73,34 @@ class BonusRulesError(ValueError):
 class ExtraDlRule:
     dl_user_id: int
     recipient_user_id: int
+    #: Pusta lista = każdy klient; inaczej reguła działa tylko u tych klientów.
+    client_ids: tuple[int, ...] = ()
+
+    def covers(self, client_id: Optional[int]) -> bool:
+        return not self.client_ids or client_id in self.client_ids
+
+
+@dataclass(frozen=True)
+class DlHoursRule:
+    """Delivery Lead z innymi godzinami premii niż ``monthly_hours`` (umowa)."""
+
+    user_id: int
+    hours: int
+
+
+@dataclass(frozen=True)
+class IndividualRecruiterRule:
+    """Rekruter z własnym systemem: procent marży miesięcznej zamiast progów.
+
+    Od 3. startu w miesiącu procent rośnie o ``step_percent`` na każdy start od 3.
+    i o ``expert_percent``, dla wszystkich premii tego miesiąca. W kodzie nie ma
+    osoby: lista jest w ustawieniach.
+    """
+
+    user_id: int
+    base_percent: Decimal
+    step_percent: Decimal
+    expert_percent: Decimal
 
 
 @dataclass(frozen=True)
@@ -89,6 +118,8 @@ class BonusRules:
     eligible_business_days: int = MD_PER_MONTH
     currency: str = "PLN"
     extra_dl: tuple[ExtraDlRule, ...] = ()
+    dl_hours: tuple[DlHoursRule, ...] = ()
+    individual_recruiters: tuple[IndividualRecruiterRule, ...] = ()
     automation_since: Optional[date] = None
     league_types: tuple[str, ...] = DEFAULT_LEAGUE_TYPES
     lookback_days: int = field(default=DEFAULT_LOOKBACK_DAYS)
@@ -128,11 +159,56 @@ def recruiter_bonus(
     return rules.recruiter_tier_amounts[tier - 1]
 
 
-def dl_bonus(margin_per_hour: Decimal, rules: BonusRules = DEFAULT_RULES) -> Decimal:
-    """10% marży miesięcznej (marża/h × 168 h), w groszach."""
+def dl_hours_for(dl_user_id: Optional[int], rules: BonusRules) -> int:
+    """Godziny premii DL: wyjątek z ustawień, inaczej ``monthly_hours``."""
 
-    monthly_margin = margin_per_hour * Decimal(rules.monthly_hours)
+    for rule in rules.dl_hours:
+        if rule.user_id == dl_user_id:
+            return rule.hours
+    return rules.monthly_hours
+
+
+def dl_bonus(
+    margin_per_hour: Decimal,
+    rules: BonusRules = DEFAULT_RULES,
+    *,
+    dl_user_id: Optional[int] = None,
+) -> Decimal:
+    """10% marży miesięcznej (marża/h × godziny DL), w groszach."""
+
+    monthly_margin = margin_per_hour * Decimal(dl_hours_for(dl_user_id, rules))
     return money(monthly_margin * rules.dl_percent / Decimal(100))
+
+
+def individual_rule_for(
+    user_id: Optional[int], rules: BonusRules
+) -> Optional[IndividualRecruiterRule]:
+    for rule in rules.individual_recruiters:
+        if rule.user_id == user_id:
+            return rule
+    return None
+
+
+def individual_percent(rule: IndividualRecruiterRule, starts_in_month: int) -> Decimal:
+    """Procent przy ``starts_in_month`` startach: 2 → baza, 3 → baza + krok + ekspert."""
+
+    if starts_in_month < 3:
+        return rule.base_percent
+    steps = Decimal(starts_in_month - 2)
+    return rule.base_percent + steps * rule.step_percent + rule.expert_percent
+
+
+def individual_recruiter_bonus(
+    margin_per_hour: Decimal,
+    rule: IndividualRecruiterRule,
+    starts_in_month: int,
+    rules: BonusRules = DEFAULT_RULES,
+) -> Optional[Decimal]:
+    if margin_per_hour < 0:
+        return None
+    monthly_margin = margin_per_hour * Decimal(rules.monthly_hours)
+    percent = individual_percent(rule, starts_in_month)
+    return money(monthly_margin * percent / Decimal(100))
 
 
 def eligible_date(start: date, rules: BonusRules, *, calendar: WorkCalendar) -> date:
@@ -151,6 +227,20 @@ def eligible_date(start: date, rules: BonusRules, *, calendar: WorkCalendar) -> 
         if calendar.is_working_day(day):
             added += 1
     return day
+
+
+def payout_period(start: date, eligible_on: date) -> tuple[int, int]:
+    """Miesiąc wypłaty: następny po starcie, nigdy przed terminem premii.
+
+    Decyzja Artura z 30.10.2026 za arkuszem Delivery: na potwierdzenie godzin
+    trzeba czekać, więc start we wrześniu to rozliczenie październikowe.
+    Termin wypada zwykle w tym samym miesiącu; później tylko przy świętach.
+    """
+
+    after_start = (
+        (start.year + 1, 1) if start.month == 12 else (start.year, start.month + 1)
+    )
+    return max(after_start, (eligible_on.year, eligible_on.month))
 
 
 def business_days_elapsed(start: date, today: date, *, calendar: WorkCalendar) -> int:
@@ -199,7 +289,7 @@ def automation_since_change_error(
         return None
     if new is None:
         return (
-            "Data startu automatu jest potrzebna, dopóki w płacach są premie "
+            "Data startu automatu jest potrzebna, dopóki w rozliczeniach są premie "
             "z Compassa — bez niej automat zaproponuje drugi raz premie "
             "za placementy sprzed przełączenia."
         )
@@ -211,11 +301,50 @@ def automation_since_change_error(
     return None
 
 
-def extra_dl_recipient(dl_user_id: int, rules: BonusRules) -> Optional[int]:
+def extra_dl_recipient(
+    dl_user_id: int, rules: BonusRules, *, client_id: Optional[int] = None
+) -> Optional[int]:
+    """Odbiorca dodatkowej premii; reguła z listą klientów działa tylko u nich."""
+
     for rule in rules.extra_dl:
-        if rule.dl_user_id == dl_user_id:
+        if rule.dl_user_id == dl_user_id and rule.covers(client_id):
             return rule.recipient_user_id
     return None
+
+
+def rule_amount(snapshot: Mapping[str, Any], role: str) -> Optional[Decimal]:
+    """Kwota z reguły według migawki kontraktu; ``None`` = migawka bez marży.
+
+    Liczy z wartości zapisanych w migawce, więc porównanie z kwotą z arkusza nie
+    zmienia się po późniejszej zmianie progów w ustawieniach.
+    """
+
+    raw = snapshot.get("margin_per_hour")
+    if raw is None:
+        return None
+    try:
+        margin = Decimal(str(raw))
+        hours = Decimal(str(snapshot.get("monthly_hours") or HOURS_PER_MONTH))
+        if role != "recruiter":
+            percent = Decimal(
+                str(snapshot.get("dl_percent") or DEFAULT_RULES.dl_percent)
+            )
+            dl_hours = Decimal(str(snapshot.get("dl_hours") or hours))
+            return money(margin * dl_hours * percent / Decimal(100))
+        if margin < 0:
+            return None
+        if snapshot.get("individual_percent") is not None:
+            percent = Decimal(str(snapshot["individual_percent"]))
+            return money(margin * hours * percent / Decimal(100))
+        bounds = snapshot.get("recruiter_tier_bounds")
+        amounts = snapshot.get("recruiter_tier_amounts")
+        if not bounds or not amounts:
+            return recruiter_bonus(margin)
+        low, high = Decimal(str(bounds[0])), Decimal(str(bounds[1]))
+        index = 0 if margin <= low else 1 if margin < high else 2
+        return money(Decimal(str(amounts[index])))
+    except (InvalidOperation, ValueError, IndexError, TypeError):
+        return None
 
 
 # ── Ustawienia ────────────────────────────────────────────────────────────────
@@ -311,7 +440,56 @@ def parse_rules(raw: object) -> BonusRules:
                 "Dodatkowa premia DL: jeden Delivery Lead może mieć jedną regułę."
             )
         seen.add(dl_id)
-        extra.append(ExtraDlRule(dl_user_id=dl_id, recipient_user_id=recipient))
+        raw_clients = item.get("client_ids") or ()
+        if not isinstance(raw_clients, (list, tuple)):
+            raise BonusRulesError("Dodatkowa premia DL: niepoprawna lista klientów.")
+        clients = tuple(
+            dict.fromkeys(
+                _int(value, "Klient", low=1, high=2**31 - 1) for value in raw_clients
+            )
+        )
+        extra.append(
+            ExtraDlRule(
+                dl_user_id=dl_id, recipient_user_id=recipient, client_ids=clients
+            )
+        )
+
+    dl_hours: list[DlHoursRule] = []
+    seen_hours: set[int] = set()
+    for item in source.get("dl_hours") or ():
+        if not isinstance(item, Mapping):
+            raise BonusRulesError("Godziny DL: niepoprawny wpis.")
+        user_id = _int(item.get("user_id"), "Delivery Lead", low=1, high=2**31 - 1)
+        if user_id in seen_hours:
+            raise BonusRulesError("Godziny DL: jedna osoba może mieć jeden wpis.")
+        seen_hours.add(user_id)
+        dl_hours.append(
+            DlHoursRule(
+                user_id=user_id,
+                hours=_int(item.get("hours"), "Godziny DL", low=1, high=744),
+            )
+        )
+
+    individual: list[IndividualRecruiterRule] = []
+    seen_individual: set[int] = set()
+    for item in source.get("individual_recruiters") or ():
+        if not isinstance(item, Mapping):
+            raise BonusRulesError("System indywidualny: niepoprawny wpis.")
+        user_id = _int(item.get("user_id"), "Rekruter", low=1, high=2**31 - 1)
+        if user_id in seen_individual:
+            raise BonusRulesError("System indywidualny: jedna osoba, jeden wpis.")
+        seen_individual.add(user_id)
+        values = {
+            key: _decimal(item.get(key), label)
+            for key, label in (
+                ("base_percent", "Procent bazowy"),
+                ("step_percent", "Procent na start od 3."),
+                ("expert_percent", "Procent eksperta"),
+            )
+        }
+        if any(not Decimal(0) <= value <= Decimal(100) for value in values.values()):
+            raise BonusRulesError("System indywidualny: procenty od 0 do 100.")
+        individual.append(IndividualRecruiterRule(user_id=user_id, **values))
 
     since: Optional[date] = None
     if source.get("automation_since"):
@@ -337,6 +515,8 @@ def parse_rules(raw: object) -> BonusRules:
         eligible_business_days=days,
         currency=defaults.currency,
         extra_dl=tuple(extra),
+        dl_hours=tuple(dl_hours),
+        individual_recruiters=tuple(individual),
         automation_since=since,
         league_types=league_types,
         lookback_days=defaults.lookback_days,
@@ -354,8 +534,22 @@ def rules_payload(rules: BonusRules) -> dict[str, Any]:
         "eligible_business_days": rules.eligible_business_days,
         "currency": rules.currency,
         "extra_dl": [
-            {"dl_user_id": r.dl_user_id, "recipient_user_id": r.recipient_user_id}
+            {
+                "dl_user_id": r.dl_user_id,
+                "recipient_user_id": r.recipient_user_id,
+                "client_ids": list(r.client_ids),
+            }
             for r in rules.extra_dl
+        ],
+        "dl_hours": [{"user_id": r.user_id, "hours": r.hours} for r in rules.dl_hours],
+        "individual_recruiters": [
+            {
+                "user_id": r.user_id,
+                "base_percent": str(r.base_percent),
+                "step_percent": str(r.step_percent),
+                "expert_percent": str(r.expert_percent),
+            }
+            for r in rules.individual_recruiters
         ],
         "automation_since": rules.automation_since.isoformat()
         if rules.automation_since
@@ -413,20 +607,28 @@ __all__ = [
     "BonusRules",
     "AUTOMATION_STOPPED",
     "BonusRulesError",
+    "DlHoursRule",
     "ExtraDlRule",
+    "IndividualRecruiterRule",
     "automation_floor_for",
     "automation_since_change_error",
     "business_days_elapsed",
     "calendar_reach",
     "dl_bonus",
+    "dl_hours_for",
+    "individual_percent",
+    "individual_recruiter_bonus",
+    "individual_rule_for",
     "eligible_date",
     "extra_dl_recipient",
     "load_bonus_calendar",
     "load_rules",
     "money",
     "parse_rules",
+    "payout_period",
     "recruiter_bonus",
     "recruiter_tier",
+    "rule_amount",
     "rules_payload",
     "save_rules",
 ]

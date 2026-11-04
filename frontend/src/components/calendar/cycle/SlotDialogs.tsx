@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -69,18 +69,29 @@ function useInvalidateCycle() {
   };
 }
 
+/** Id otwartego wniosku z 409 `SLOTS_ALREADY_OPEN` — do „Zastąp otwarte terminy”. */
+function openRequestIdFrom(err: unknown): number | null {
+  const detail = (err as { response?: { data?: { detail?: { code?: string; open_request_id?: number | null } } } })
+    ?.response?.data?.detail;
+  return detail?.code === "SLOTS_ALREADY_OPEN" ? (detail.open_request_id ?? null) : null;
+}
+
 /**
  * DL wpisuje terminy od klienta. Z karty pary kandydat i rekrutacja są znane;
- * z przycisku „Dodaj terminy od klienta” wybiera się je tutaj.
+ * z przycisku „Dodaj terminy od klienta” wybiera się je tutaj. Z `request`
+ * („Zmień terminy”) okno wczytuje otwarty wniosek, a zapis go zastępuje —
+ * miniony termin odpada, bo serwer i tak by go nie przyjął.
  */
 export function SlotRequestDialog({
   open,
   onOpenChange,
   pair,
+  request = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pair: PairInfo | null;
+  request?: SlotRequest | null;
 }) {
   const toast = useToast();
   const invalidate = useInvalidateCycle();
@@ -91,24 +102,41 @@ export function SlotRequestDialog({
   const [respondBy, setRespondBy] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Otwarty wniosek z odpowiedzi 409 — DL decyduje, czy go zastąpić.
+  const [openRequestId, setOpenRequestId] = useState<number | null>(null);
+  // Na 1280 × 720 błąd stoi pod zgięciem okna — po „Wyślij” wyglądało, że nic się nie stało.
+  const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
 
   useEffect(() => {
     if (!open) return;
     setCandidate(null);
     setJobId(null);
-    setSlots([{ value: nextWorkdayAt(10, 1) }, { value: nextWorkdayAt(14, 2) }]);
-    setDuration(60);
-    setRespondBy("");
-    setNote("");
+    if (request) {
+      const ahead = request.slots.filter((s) => new Date(s.start).getTime() >= Date.now());
+      setSlots(
+        ahead.length > 0
+          ? ahead.map((s) => ({ value: isoToLocalInput(s.start), windowEnd: s.window_end ?? undefined }))
+          : [{ value: "" }],
+      );
+    } else {
+      setSlots([{ value: nextWorkdayAt(10, 1) }, { value: nextWorkdayAt(14, 2) }]);
+    }
+    setDuration(request?.duration_minutes ?? 60);
+    setRespondBy(request?.respond_by ? isoToLocalInput(request.respond_by) : "");
+    setNote(request?.note ?? "");
     setError(null);
-  }, [open, pair]);
+    setOpenRequestId(null);
+  }, [open, pair, request]);
 
   const filledSlots = slots.filter((s) => s.value);
   const candidateId = pair?.candidate_id ?? candidate?.id ?? null;
   const targetJobId = pair?.job_id ?? jobId;
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (replacesRequestId: number | null) =>
       interviewCycleApi.createSlots({
         candidate_id: candidateId as number,
         job_id: targetJobId as number,
@@ -122,17 +150,22 @@ export function SlotRequestDialog({
         duration_minutes: duration,
         respond_by: respondBy ? localToIso(respondBy) : null,
         note: note.trim() || null,
+        ...(replacesRequestId != null ? { replaces_request_id: replacesRequestId } : {}),
       }),
     onSuccess: (res) => {
       invalidate();
-      toast.showSuccess(slotsCreatedMessage(res));
+      toast.showSuccess(request ? "Rekruter dostał zmienione terminy." : slotsCreatedMessage(res));
       onOpenChange(false);
     },
-    onError: (err) => setError(apiErrorMessage(err, "Nie udało się zapisać terminów.")),
+    onError: (err) => {
+      setOpenRequestId(openRequestIdFrom(err));
+      setError(apiErrorMessage(err, "Nie udało się zapisać terminów."));
+    },
   });
 
-  const submit = () => {
+  const submit = (replacesRequestId: number | null = request?.id ?? null) => {
     setError(null);
+    setOpenRequestId(null);
     if (candidateId == null || targetJobId == null) {
       setError("Wybierz kandydata i rekrutację.");
       return;
@@ -145,7 +178,7 @@ export function SlotRequestDialog({
       setError("Termin rozmowy nie może być w przeszłości.");
       return;
     }
-    mutation.mutate();
+    mutation.mutate(replacesRequestId);
   };
 
   const applyMail = (result: SlotsFromMail) => {
@@ -164,8 +197,12 @@ export function SlotRequestDialog({
     <AppModal
       open={open}
       onOpenChange={onOpenChange}
-      title="Terminy rozmowy od klienta"
-      description="Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
+      title={request ? "Zmień terminy od klienta" : "Terminy rozmowy od klienta"}
+      description={
+        request
+          ? "Rekruter dostanie nowe terminy i wybierze od początku — dotychczasowy wybór przestaje obowiązywać."
+          : "Rekruter dostanie je w NEXUSIE, ustali jeden z kandydatem i odeśle Ci wybór."
+      }
       footer={
         <>
           <button type="button" onClick={() => onOpenChange(false)} className="h-9 px-4 text-sm text-muted-foreground hover:text-foreground">
@@ -173,11 +210,11 @@ export function SlotRequestDialog({
           </button>
           <button
             type="button"
-            onClick={submit}
+            onClick={() => submit()}
             disabled={mutation.isPending}
             className="h-9 rounded-md bg-primary px-4 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
-            Wyślij rekruterowi
+            {request ? "Zapisz i wyślij rekruterowi" : "Wyślij rekruterowi"}
           </button>
         </>
       }
@@ -313,9 +350,19 @@ export function SlotRequestDialog({
           />
         </div>
         {error ? (
-          <p role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </p>
+          <div ref={errorRef} role="alert" className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p>{error}</p>
+            {openRequestId != null ? (
+              <button
+                type="button"
+                onClick={() => submit(openRequestId)}
+                disabled={mutation.isPending}
+                className="mt-2 h-8 rounded-md border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Zastąp otwarte terminy
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </AppModal>

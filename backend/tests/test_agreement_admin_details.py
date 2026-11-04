@@ -20,7 +20,7 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 
 from app.models.b2b_generated_contract import B2BGeneratedContract
-from app.models.contract import Contract
+from app.models.contract import Contract, ContractStatus
 from app.schemas.b2b_contract_generator import (
     B2BMandateRenderRequest,
     B2BRenderRequest,
@@ -390,6 +390,101 @@ async def test_replacement_options_put_people_who_left_first(
         headers=app_auth_headers,
     )
     assert too_short.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("status", "end_date", "terminated_at", "expected"),
+    [
+        # Przedłużony: `terminated_at` niesie pierwsze, nieaktualne zakończenie.
+        (
+            ContractStatus.ended,
+            date(2026, 10, 7),
+            date(2026, 9, 30),
+            date(2026, 10, 7),
+        ),
+        (
+            ContractStatus.active,
+            date(2026, 12, 31),
+            date(2026, 8, 31),
+            date(2026, 12, 31),
+        ),
+        # Zakończony bez daty końca: zostaje data zakończenia.
+        (ContractStatus.ended, None, date(2026, 9, 30), date(2026, 9, 30)),
+        # Przywrócony, znów bezterminowy: zakończenie już nie obowiązuje.
+        (ContractStatus.active, None, date(2026, 8, 31), None),
+    ],
+)
+def test_replacement_tile_reads_contract_end_first(
+    status, end_date, terminated_at, expected
+) -> None:
+    contract = Contract(status=status, end_date=end_date, terminated_at=terminated_at)
+    assert admin_details._contract_end(contract) == expected
+
+
+async def test_replacement_options_order_by_the_end_they_show(
+    app_client: AsyncClient, app_auth_headers: dict, people: dict
+):
+    """Zakończeni po dacie końca, nie po pierwszym zakończeniu; przywrócony
+    bezterminowy nie udaje daty końca wśród aktywnych."""
+    from app.core.database import AsyncSessionLocal
+    from app.models.candidate import Candidate
+    from app.models.contract import ContractType
+
+    world = await _seed_world(verifier_id=people["recruiter_id"], dl_id=people["dl_id"])
+    unique = world["unique"]
+
+    async def _contract(label: str, **fields) -> int:
+        async with AsyncSessionLocal() as db:
+            person = Candidate(
+                name="Osoba",
+                lastname=f"{label}{unique}",
+                email=f"{label}-{unique}@example.com",
+            )
+            db.add(person)
+            await db.flush()
+            contract = Contract(
+                candidate_id=person.id,
+                client_id=world["client_id"],
+                contract_type=ContractType.b2b,
+                start_date=date(2025, 1, 1),
+                **fields,
+            )
+            db.add(contract)
+            await db.commit()
+            return contract.id
+
+    # 31.08 z `_seed_world` leży między oboma datami tego kontraktu.
+    extended = await _contract(
+        "przedluzony",
+        status=ContractStatus.ended,
+        end_date=date(2026, 10, 7),
+        terminated_at=date(2026, 8, 1),
+    )
+    dated = await _contract(
+        "dataAktywny", status=ContractStatus.active, end_date=date(2026, 12, 31)
+    )
+    restored = await _contract(
+        "przywrocony", status=ContractStatus.active, terminated_at=date(2027, 3, 31)
+    )
+
+    resp = await app_client.get(
+        "/api/b2b-generator/replacement-options",
+        params={
+            "client_id": world["client_id"],
+            "exclude_candidate_id": world["candidate_id"],
+        },
+        headers=app_auth_headers,
+    )
+    assert resp.status_code == 200, resp.text
+    rows = resp.json()
+    assert [row["contract_id"] for row in rows[:3]] == [
+        extended,
+        world["ended_id"],
+        dated,
+    ]
+    by_id = {row["contract_id"]: row for row in rows}
+    assert by_id[extended]["end_date"] == "2026-10-07"
+    assert by_id[restored]["end_date"] is None
 
 
 async def test_linked_render_without_admin_details_is_refused(

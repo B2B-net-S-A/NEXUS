@@ -294,9 +294,15 @@ async def test_get_read_endpoints_open_to_all_authenticated(
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi."""
+    """Lista kandydatów/ofert/kontraktów/klientów — każdy zalogowany user widzi.
+
+    Poza wycofywanym Viewerem: od 0637 nie ma żadnej sekcji.
+    """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
+    if role is UserRole.user:
+        assert resp.status_code == 403
+        return
     # 200 lub 404/422 (np. brak parametru) — ale NIE 403 i NIE 5xx.
     assert resp.status_code != 403, (
         f"[{role.value}] GET {path} unexpectedly forbidden (status={resp.status_code})"
@@ -858,19 +864,19 @@ async def test_secondary_admin_role_passes_admin_guards(rbac_client: AsyncClient
     "path",
     ["/api/admin/clients-overview", "/api/admin/clients-overview/by-dl"],
 )
-async def test_clients_overview_requires_view_finance(
+async def test_clients_overview_requires_company_results(
     rbac_client: AsyncClient,
     role_headers: tuple[UserRole, dict[str, str]],
     path: str,
 ):
-    """P0.1: globalny revenue/marża per klient i DL → Finance/Admin.
+    """P0.1: globalny revenue/marża per klient i DL → „Wyniki firmy” (admin).
 
-    HoR traci dostęp (dotąd HeadOfRecruitmentPlus — HoR widział lifetime revenue
-    mimo braku VIEW_FINANCE).
+    HoR stracił dostęp w P0.1, a Finanse 02.11.2026 (praca na pojedynczych
+    rekordach).
     """
     role, headers = role_headers
     resp = await rbac_client.get(path, headers=headers)
-    if role in {UserRole.admin, UserRole.finance}:
+    if role == UserRole.admin:
         assert resp.status_code != 403, f"[{role.value}] {path} got 403 but should pass"
         assert resp.status_code < 500
     else:

@@ -54,7 +54,7 @@ const STATES = [
   { key: "inbox", label: "Zatwierdzający", href: "?state=inbox&tab=consents" },
   {
     key: "supervisor",
-    label: "Przełożona",
+    label: "Koordynatorka",
     href: "?state=supervisor&tab=consents",
   },
   { key: "mine", label: "Moje zgody" },
@@ -63,7 +63,7 @@ const STATES = [
 
 const NOTES: Record<State, string> = {
   inbox: "Dane fikcyjne, bez zapytań. Ogląda zatwierdzający (admin).",
-  supervisor: "Dane fikcyjne, bez zapytań. Ogląda przełożona — próg delegacji 1 500 zł.",
+  supervisor: "Dane fikcyjne, bez zapytań. Ogląda koordynatorka — próg delegacji 1 500 zł.",
   mine: "Dane fikcyjne, bez zapytań. Ogląda autorka zgód.",
   form: "Dane fikcyjne, bez zapytań. „Kto zdecyduje” liczy serwer — tu bez sieci. Premia: Julia na B2B, Kamil na UoP.",
 };
@@ -320,7 +320,7 @@ function supervisorRows(): ApprovalRequestRow[] {
       kind: "trip",
       kind_label: "Delegacja",
       status: "pending_supervisor",
-      status_label: "U przełożonego",
+      status_label: "U koordynatora",
       title: "Gdańsk — warsztat u klienta",
       purpose: "Warsztat z hiring managerem, dwie rekrutacje. Hotel 1 noc, pociąg, diety.",
       amount: "2180.00",
@@ -339,7 +339,7 @@ function supervisorRows(): ApprovalRequestRow[] {
       kind: "gift",
       kind_label: "Prezent",
       status: "pending_supervisor",
-      status_label: "U przełożonego",
+      status_label: "U koordynatora",
       title: "Kwiaty dla kandydatki — powitanie",
       purpose: "Pierwszy dzień u klienta, mały gest od zespołu.",
       amount: "150.00",
@@ -395,7 +395,7 @@ function mineRows(): ApprovalRequestRow[] {
       kind: "other",
       kind_label: "Inny wydatek",
       status: "pending_supervisor",
-      status_label: "U przełożonego",
+      status_label: "U koordynatora",
       title: "Monitor do pracy zdalnej",
       purpose: "Drugi ekran do pracy z kilkoma rekrutacjami naraz.",
       amount: "890.00",
@@ -660,7 +660,7 @@ export default function HrConsentsPreviewPage() {
     >
       <div className="space-y-4">
         <PageHeader
-          title={mine ? "Moje zgody" : "Akceptacje"}
+          title={mine ? "Moje zgody" : "Do potwierdzenia"}
           description={
             mine
               ? "Wydatki i wynagrodzenie dodatkowe, o które prosisz — i kto o nich decyduje."

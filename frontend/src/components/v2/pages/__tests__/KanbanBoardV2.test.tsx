@@ -442,6 +442,90 @@ beforeEach(() => {
   sessionStorage.clear();
 });
 
+function newColumnWithQueue() {
+  const card = (id: number, extra: object) => ({
+    id,
+    candidate_id: id,
+    name: `Osoba${id}`,
+    lastname: "Test",
+    stage: "new",
+    days_in_stage: 1,
+    ...extra,
+  });
+  const system = (id: number, score: number) =>
+    card(id, {
+      entry_source: "system",
+      entry_autofill: {
+        score,
+        matched_must: [],
+        missing_must: [],
+        rate_known: true,
+        availability_known: true,
+        decided: false,
+        waiting_days: 1,
+        decision_due: false,
+        cautions: [],
+      },
+    });
+  return [
+    {
+      stage: "new",
+      name: "Nowi",
+      category: "new",
+      stage_def_id: null,
+      count: 8,
+      items: [
+        card(1, { entry_source: "added_manual" }),
+        system(2, 70),
+        system(3, 71),
+        system(4, 72),
+        system(5, 73),
+        system(6, 74),
+        system(7, 75),
+        system(8, 76),
+      ],
+    },
+  ] as never;
+}
+
+describe("KanbanBoardV2 — kolejka w „Nowych” (02.11.2026)", () => {
+  it("zespół na górze, potem system od najwyższego wyniku, pięć pierwszych z numerem", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+
+    const { container } = renderBoard(newColumnWithQueue());
+
+    await screen.findByTestId("new-column-section-call_first");
+    const order = [...container.querySelectorAll("[data-candidate-id]")].map((el) =>
+      el.getAttribute("data-candidate-id"),
+    );
+    expect(order).toEqual(["1", "8", "7", "6", "5", "4", "3", "2"]);
+    expect(screen.getByTestId("new-column-section-team").textContent).toContain("Dodani przez zespół");
+    expect(screen.getByTestId("new-column-section-call_first").textContent).toContain("Zadzwoń najpierw · 5 z 7");
+    expect(screen.getByTestId("new-column-section-rest").textContent).toContain("Dalej w kolejce · 2");
+    expect(screen.getAllByTestId("card-call-first-rank").map((el) => el.textContent)).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+    ]);
+  });
+
+  it("kolumna bez kart od systemu nie ma nagłówków kolejki", async () => {
+    useAuthStore.setState({
+      user: { role: "recruiter", roles: ["recruiter"] } as never,
+    });
+
+    renderBoard(pendingColumns());
+
+    await screen.findByText(/Anna/);
+    expect(screen.queryByTestId("new-column-section-team")).toBeNull();
+    expect(screen.queryByTestId("card-call-first-rank")).toBeNull();
+  });
+});
+
 describe("KanbanBoardV2 — karta: odznaki zamiast bramek (17.09.2026)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -4155,6 +4239,24 @@ describe("KanbanBoardV2 — filtr „Kto dodał” i kolejka w kolumnie (D1–D5
     fireEvent.click(within(end).getByRole("button", { name: "Od pierwszej" }));
     await waitFor(() => expect(within(panel).getByText("1 z 2")).toBeInTheDocument());
     expect(within(panel).getAllByText("Beata Lis").length).toBeGreaterThan(0);
+  });
+
+  it("od „Zweryfikowanego” „Ty” pokazuje karty, które zweryfikowałeś, choć dodał je ktoś inny (29.10.2026)", async () => {
+    const verifiedBy = (p: ReturnType<typeof person>, by: number) => ({
+      ...p,
+      verified_by_id: by,
+      verified_by_name: ADDERS[by],
+    });
+    const columns = boardColumns([BEATA], [FILIP]) as unknown as Array<{ items: unknown[]; count: number }>;
+    const verified = [verifiedBy(person(47, "verified", "Gabriela", "Pająk", 8), 7)];
+    columns[2] = { ...columns[2], items: verified, count: verified.length };
+    renderFiltered({ kind: "user", userId: 7 }, columns as never);
+    expect(
+      await screen.findByRole("group", { name: "Zweryfikowany, liczba kandydatów: 1" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Gabriela Pająk" })).toBeInTheDocument();
+    // Ta sama osoba przed weryfikacją (Screening) liczy się u dodającej.
+    expect(screen.queryByRole("link", { name: "Filip Kos" })).toBeNull();
   });
 
   it("bez filtra kolejka to cała kolumna „Nowi” (5), a nie cała Tablica (6)", async () => {

@@ -190,4 +190,40 @@ describe("JobPriorityMenu — P0 (27.10.2026)", () => {
     expect(within(dialog).getByLabelText(/Po co P0/)).toBeInTheDocument();
     expect(within(dialog).getByRole("radio", { name: "24 h" })).toHaveAttribute("aria-checked", "true");
   });
+
+  function renderDl(pending: boolean) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <JobPriorityMenu
+          jobId={42}
+          level="p1"
+          canSet
+          p0={null}
+          canSetP0={false}
+          canRequestP0
+          p0RequestPending={pending}
+          jobTitle="Konsultant GCP"
+        />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("Delivery Lead tej rekrutacji: „Poproś o P0…” otwiera okno prośby (28.10.2026)", async () => {
+    renderDl(false);
+    await userEvent.click(chip());
+    expect(screen.queryByTestId("job-priority-option-p0")).toBeNull();
+    await userEvent.click(await screen.findByTestId("job-priority-option-p0-request"));
+    const dialog = await screen.findByTestId("set-p0-dialog");
+    expect(within(dialog).getByRole("heading")).toHaveTextContent("Poproś o P0");
+    expect(within(dialog).getByRole("button", { name: "Wyślij prośbę" })).toBeInTheDocument();
+  });
+
+  it("oczekująca prośba: menu mówi, że czeka na Head of Recruitment", async () => {
+    renderDl(true);
+    await userEvent.click(chip());
+    const option = await screen.findByTestId("job-priority-option-p0-request");
+    expect(option).toHaveTextContent("Zmień prośbę o P0");
+    expect(option).toHaveTextContent("Twoja prośba czeka na Head of Recruitment.");
+  });
 });

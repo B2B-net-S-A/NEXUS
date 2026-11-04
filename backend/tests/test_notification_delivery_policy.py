@@ -506,3 +506,135 @@ def test_settings_payload_accepts_every_routine_kind_at_once():
         types=[{"id": item["id"], "email_enabled": True} for item in CATALOG],
     )
     assert len(payload.types) == len(CATALOG)
+
+
+# ── Rodzaj maila nie startuje po cichu wyłączony (29.10.2026) ───────────────
+# Pierwsza nowa osoba na produkcji (29.10, 12:30): 4 dzwonki, 0 maili, bo
+# `new_person` był zwykłym rodzajem, a zwykły rodzaj startuje wyłączony dla
+# firmy. Tak samo od 22.10 „Prep: odmowa albo zmiana terminu” (36 dzwonków).
+
+# Polityka z produkcji z 29.10 (skrót): firma włączona, rodzaje wyłączone.
+PROD_POLICY_2910 = {
+    "enabled": True,
+    "send_not_before": "2026-10-07T11:21:04.639263+00:00",
+    "types": {
+        kind: {"email_enabled": False, "send_not_before": None}
+        for kind in ("new_person", "prep_change", "pre_contract", "team_task")
+    },
+}
+
+
+@pytest.mark.parametrize(
+    "kind", ["new_person", "prep_change", "pre_contract", "team_task"]
+)
+def test_waiting_bell_mails_turn_on_by_themselves_at_startup(kind):
+    assert kind in delivery.REQUIRED_KINDS and kind in delivery.IMMEDIATE_KINDS
+    start = datetime(2026, 10, 29, 17, tzinfo=timezone.utc)  # wdrożenie po 18:00
+    policy = delivery.DeliveryPolicy.from_value(
+        delivery.with_required_kinds(PROD_POLICY_2910, start)
+    )
+    assert policy.allows(kind, start)
+    # Zaległości (dzwonek o nowej osobie z 12:30) nie wychodzą.
+    assert not policy.allows(kind, datetime(2026, 10, 29, 11, 30, tzinfo=timezone.utc))
+
+
+def test_every_mail_kind_has_a_decision_who_turns_it_on():
+    """Strażnik: nowy rodzaj maila jest obowiązkowy (włącza się sam) albo ma
+    zapisany powód, dla którego włącza go admin. Bez tego startuje wyłączony
+    i nikt się nie dowie, że mail nie wychodzi."""
+    decided = delivery.REQUIRED_KINDS | set(delivery.ADMIN_DECIDES)
+    assert delivery.ROUTINE_KINDS - decided == set()
+    assert not delivery.REQUIRED_KINDS & set(delivery.ADMIN_DECIDES)
+    assert set(delivery.ADMIN_DECIDES) <= delivery.ROUTINE_KINDS
+    assert all(reason.strip() for reason in delivery.ADMIN_DECIDES.values())
+
+
+def test_kept_off_is_remembered_until_the_kind_is_turned_on():
+    policy = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            delivery.DeliveryPolicy.from_value(PROD_POLICY_2910),
+            enabled=True,
+            toggles={},
+            keep_off={"pipeline_stage"},
+            now=NOW,
+        )
+    )
+    assert policy.kept_off("pipeline_stage")
+    assert not policy.kept_off("job_deadline")
+    later = NOW + timedelta(hours=1)
+    # Inny zapis i start aplikacji nie gubią decyzji.
+    kept = delivery.DeliveryPolicy.from_value(
+        delivery.with_required_kinds(
+            delivery.updated_value(policy, enabled=True, toggles={}, now=later), later
+        )
+    )
+    assert kept.kept_off("pipeline_stage")
+    # Włączenie ją zdejmuje; ponowne wyłączenie znów pokaże rodzaj na banerze.
+    on = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            kept, enabled=True, toggles={"pipeline_stage": True}, now=later
+        )
+    )
+    off = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            on, enabled=True, toggles={"pipeline_stage": False}, now=later
+        )
+    )
+    assert not on.kept_off("pipeline_stage") and not off.kept_off("pipeline_stage")
+
+
+def test_required_kind_cannot_be_kept_off_only_paused_with_reason():
+    with pytest.raises(ValueError):
+        delivery.updated_value(
+            _required_on(), enabled=True, toggles={}, keep_off={"new_person"}, now=NOW
+        )
+
+
+def test_silenced_kinds_list_only_disabled_kinds_nobody_decided_about():
+    policy = delivery.DeliveryPolicy.from_value(
+        delivery.updated_value(
+            delivery.DeliveryPolicy.from_value(
+                delivery.with_required_kinds(PROD_POLICY_2910, NOW)
+            ),
+            enabled=True,
+            toggles={"mentions": True},
+            keep_off={"pipeline_stage"},
+            now=NOW,
+        )
+    )
+    counts = {
+        "job_deadline": (71, 30),
+        "pipeline_stage": (1357, 324),  # admin zostawił wyłączone
+        "mentions": (5, 1),  # włączony
+        "new_person": (4, 4),  # obowiązkowy, włączył się sam
+        "rate_change": (0, 0),  # brak dzwonków
+    }
+    rows = delivery.silenced_kinds(policy, counts)
+    assert [(r["id"], r["bells"], r["unread"]) for r in rows] == [
+        ("job_deadline", 71, 30)
+    ]
+    assert rows[0]["label"] == "Terminy rekrutacji"
+    # Globalnie wyłączona wysyłka to decyzja admina widoczna u góry ekranu.
+    off = delivery.DeliveryPolicy.from_value({**PROD_POLICY_2910, "enabled": False})
+    assert delivery.silenced_kinds(off, counts) == []
+
+
+def test_bell_types_reverse_the_mail_kind_of_every_bell():
+    for kind, types in delivery.bell_types_by_kind().items():
+        for ntype in types:
+            assert delivery.notification_kind(ntype) == kind
+    assert "new_person_signed_in" in delivery.bell_types_by_kind()["new_person"]
+    assert "stage_rule" in delivery.bell_types_by_kind()["pipeline_stage"]
+
+
+def test_keep_off_request_accepts_only_kinds_the_admin_decides():
+    from app.api.settings import NotificationDeliveryUpdate
+
+    NotificationDeliveryUpdate.model_validate(
+        {"enabled": True, "keep_off": ["pipeline_stage"]}
+    )
+    for bad in (["new_person"], ["password_reset"], ["nope"]):
+        with pytest.raises(ValidationError):
+            NotificationDeliveryUpdate.model_validate(
+                {"enabled": True, "keep_off": bad}
+            )

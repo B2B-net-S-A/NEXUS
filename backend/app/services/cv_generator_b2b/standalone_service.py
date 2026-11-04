@@ -49,6 +49,7 @@ from app.services import note_kinds
 from app.services import recommendation_cards
 from app.services.money_text import strip_rates_and_availability
 from app.services.cv_role_order import sort_experience
+from app.services.cv_source_dates import restore_experience_dates
 from app.services.recommendation_card_parser import CV_HIDDEN_FIELDS, redact_card_text
 from app.services.cv_generator_b2b.provider import (
     CVGeneratorAIError,
@@ -1808,6 +1809,7 @@ def _run_generation_pipeline(
         ) from err
 
     candidate_data = _normalize_candidate_data(raw_data, fallback_name)
+    restore_experience_dates(candidate_data, cv_text)
     # Stanowiska od najnowszego ustawia kod, nie model — jak w legacy_v7 (16.10.2026).
     if sort_experience(candidate_data):
         logger.info("[cv_b2b][%s] experience reordered newest first", request_id)
@@ -2621,6 +2623,8 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
         raise StandaloneGenerationError(
             code="candidate_not_found", message="Konsultant nie istnieje."
         )
+    from app.services.cv_source import current_cv_ordering
+
     rows = (
         await db.scalars(
             select(CandidateDocument)
@@ -2628,11 +2632,7 @@ async def list_candidate_cv_sources(db: AsyncSession, candidate_id: int) -> list
                 CandidateDocument.candidate_id == candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(
-                CandidateDocument.is_primary.desc(),
-                CandidateDocument.uploaded_at.desc(),
-                CandidateDocument.id.desc(),
-            )
+            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
         )
     ).all()
     return [
@@ -2832,11 +2832,6 @@ async def load_candidate_generation_source(
 
     position = (position or "").strip()
     job_title = (job.title or "").strip() if job is not None else ""
-    # Pole „Stanowisko” jest w UI podpowiadane tytułem rekrutacji — ten sam
-    # tekst to nie decyzja rekrutera, więc nagłówek dalej dopasowuje model.
-    position_override = (
-        position if position and position.casefold() != job_title.casefold() else ""
-    )
     # D2 (13.10.2026): do nagłówka CV idzie nazwa roli od klienta bez jego
     # nazwy, numerów zapytania, kodów i lokalizacji — bez tłumaczenia.
     header_title = ""
@@ -2844,6 +2839,21 @@ async def load_candidate_generation_source(
         from app.services.job_working_title import cv_role_title_for_job
 
         header_title = await cv_role_title_for_job(db, job)
+    # Pole „Stanowisko” jest w UI podpowiadane nazwą roli (wcześniej tytułem
+    # rekrutacji) — ten sam tekst to nie decyzja rekrutera. Wpisany numer
+    # zapytania schodzi: nazwa pliku ma go już ze wzoru klienta.
+    position_override = position
+    if job is not None:
+        from app.services.job_working_title import typed_cv_position
+
+        position_override = typed_cv_position(
+            position, getattr(job, "client_reference", None)
+        )
+    if (
+        position.casefold() == job_title.casefold()
+        or position_override.casefold() == header_title.casefold()
+    ):
+        position_override = ""
     return CandidateGenerationSource(
         cv_bytes=bytes(cv_bytes),
         cv_filename=cv_doc.filename or "cv.pdf",

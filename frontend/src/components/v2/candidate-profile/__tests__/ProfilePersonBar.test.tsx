@@ -16,7 +16,7 @@ vi.mock("@/lib/api", () => ({
 const toast = vi.hoisted(() => ({ showSuccess: vi.fn(), showError: vi.fn() }));
 vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 
-import { ProfilePersonBar, type ProfilePersonBarActions } from "../ProfileHeader";
+import { ProfilePersonBar, ProfileTopBar, type ProfilePersonBarActions } from "../ProfileHeader";
 import { linkedinHref } from "../profile-helpers";
 
 const noop = () => {};
@@ -213,5 +213,62 @@ describe("ProfilePersonBar — „Najnowsze CV” (22.10.2026, jak w Traffit)", 
   it("bez pliku CV przycisku nie ma", () => {
     renderBar({}, true, { latestCv: null, onOpenLatestCv: noop });
     expect(screen.queryByRole("button", { name: "Najnowsze CV" })).toBeNull();
+  });
+});
+
+// Zgłoszenie 28.10.2026: powrót z profilu do wyników wyszukiwania i „Wybieram”.
+describe("ProfileTopBar — powrót do wyszukiwania", () => {
+  const base = {
+    embedded: false,
+    nav: null,
+    backJobId: null,
+    backJobTitle: null,
+    backToTalentRadar: false,
+    candidateId: 42,
+  };
+
+  it("prowadzi do okna rekrutacji i mówi, do której", () => {
+    render(
+      <ProfileTopBar
+        {...base}
+        backSearch={{ href: "/jobs/789171?win=add&wintab=manual", context: "Expert IAM (43116)" }}
+      />,
+    );
+    const link = screen.getByRole("link", { name: /Wróć do wyników wyszukiwania/ });
+    expect(link.getAttribute("href")).toBe("/jobs/789171?win=add&wintab=manual");
+    expect(link.textContent).toContain("Expert IAM (43116)");
+    expect(screen.queryByText("Wróć do kandydatów")).toBeNull();
+  });
+
+  it("bez kontekstu wyszukiwania zostaje dotychczasowy powrót", () => {
+    render(<ProfileTopBar {...base} />);
+    expect(screen.getByRole("link", { name: /Wróć do kandydatów/ }).getAttribute("href")).toBe(
+      "/candidates",
+    );
+    expect(screen.queryByRole("button", { name: /Wybieram/ })).toBeNull();
+  });
+
+  it("„Wybieram” pokazuje stan i liczbę wybranych, klik przełącza", () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(
+      <ProfileTopBar
+        {...base}
+        backSearch={{ href: "/jobs/1?win=add&wintab=manual", context: null }}
+        pick={{ picked: false, count: 2, onToggle }}
+      />,
+    );
+    const button = screen.getByRole("button", { name: /Wybieram/ });
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(button.textContent).toContain("2");
+    fireEvent.click(button);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    rerender(
+      <ProfileTopBar
+        {...base}
+        backSearch={{ href: "/jobs/1?win=add&wintab=manual", context: null }}
+        pick={{ picked: true, count: 3, onToggle }}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /Wybieram/ }).getAttribute("aria-pressed")).toBe("true");
   });
 });

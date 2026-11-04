@@ -212,7 +212,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
               count={teamData ? teamData.people.filter((p) => matchesPerson(p, query)).length : undefined}
               onClick={() => pickScope("team")}
             >
-              Mój zespół
+              Moje osoby
             </FilterChip>
           ) : null}
           <FilterChip
@@ -318,7 +318,7 @@ export function TeamCalendar({ config }: { config: HrConfig }) {
           state={state}
           description={
             state === "forbidden"
-              ? "Kalendarz widzą osoby z kartoteką w NEXUSIE i Kadry."
+              ? "Kalendarz widzą osoby z kartoteką w NEXUSIE i Administracja współpracy."
               : state === "not_found"
                 ? "Moduł urlopów nie jest jeszcze włączony."
                 : undefined
@@ -730,7 +730,7 @@ function SelectedAbsence({ selected }: { selected: Selected }) {
       </p>
       {!person.type_visible ? (
         <p className="mt-1 text-xs text-muted-foreground">
-          Rodzaj nieobecności widzą tylko ta osoba, jej przełożony albo koordynator i Kadry.
+          Rodzaj nieobecności widzą tylko ta osoba, jej koordynator i Administracja współpracy.
         </p>
       ) : null}
     </div>

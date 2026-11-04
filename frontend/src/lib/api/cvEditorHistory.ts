@@ -47,6 +47,11 @@ export interface CvImportPreview {
   content_html: string;
   /** Nazwa wgranego pliku, do pokazania w panelu. */
   filename: string;
+  /**
+   * Plik ma układ szablonu B2B („Dlaczego nasz kandydat?”, „Nazwa firmy:”).
+   * `false` = wygląda na CV kandydata (29.10.2026); brak w starszych odpowiedziach.
+   */
+  b2b_template?: boolean;
 }
 
 export interface CvEditorHistoryApi {

@@ -200,6 +200,53 @@ def test_hand_made_file_keeps_every_paragraph_in_order():
     assert positions == sorted(positions)
 
 
+def test_firm_layout_is_recognised_as_b2b_template():
+    imported = docx_to_editor_html(_firm_docx())
+    # „Dlaczego nasz kandydat?” + „Nazwa firmy:”/„Stanowisko:” dwóch stanowisk.
+    assert imported.stats["template_markers"] >= 3
+    assert imported.b2b_template is True
+
+
+def test_candidate_cv_with_summary_and_experience_is_not_a_b2b_template():
+    """Zgłoszenie 29.10.2026: CV kandydatki („Professional Summary”, „Core
+    Expertise”, „Experience”) weszło jako CV do klienta 1:1. Te same nazwy
+    sekcji ma szablon, ale nie ma go bez „Dlaczego nasz kandydat?” i etykiet
+    bloku stanowiska — tak plik wygląda na CV kandydata."""
+    doc = Document()
+    doc.add_paragraph("Kandydatka Fikcyjna")
+    for title, body in (
+        ("SUMMARY", "Business analyst with eight years in payments and card schemes."),
+        ("CORE EXPERTISE", "Requirements, BPMN, SQL, stakeholder workshops, UAT."),
+        ("EXPERIENCE", "Senior Business Analyst, Example Bank, 2019 - 2026"),
+        ("EDUCATION", "Example University, Economics"),
+        ("SKILLS", "SQL, Jira, Confluence, Enterprise Architect"),
+    ):
+        doc.add_heading(title, level=1)
+        doc.add_paragraph(body)
+    buffer = BytesIO()
+    doc.save(buffer)
+
+    imported = docx_to_editor_html(buffer.getvalue())
+
+    assert imported.stats["template_markers"] == 0
+    assert imported.b2b_template is False
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["WHY OUR CANDIDATE?", "Nazwa firmy: Example Bank", "Company: Example Bank"],
+)
+def test_one_template_label_is_enough_to_skip_the_question(line):
+    doc = Document()
+    doc.add_paragraph("Kandydat Fikcyjny")
+    doc.add_paragraph(line)
+    doc.add_paragraph("Experience in payments, card schemes and SQL reporting " * 4)
+    buffer = BytesIO()
+    doc.save(buffer)
+
+    assert docx_to_editor_html(buffer.getvalue()).b2b_template is True
+
+
 def test_hand_made_file_keeps_structure_without_guessing_roles():
     imported = docx_to_editor_html(_hand_made_docx())
     html = imported.html
@@ -479,6 +526,8 @@ async def test_import_preview_returns_editor_html_and_writes_nothing(monkeypatch
     assert result.model_dump() == {
         "content_html": docx_to_editor_html(data).html,
         "filename": "CV_od_klienta.docx",
+        # Zwykłe CV kandydata — okno „Użyj gotowego CV” zapyta o generację.
+        "b2b_template": False,
     }
     assert "<b>cloud</b>" not in result.content_html
     # Zakres jak przy wgraniu pliku: zespół rekrutacji tego etapu.
@@ -629,6 +678,7 @@ async def test_import_preview_over_http_takes_a_form_file_and_keeps_its_limit(
     assert accepted.json() == {
         "content_html": docx_to_editor_html(data).html,
         "filename": "CV po poprawkach.docx",
+        "b2b_template": docx_to_editor_html(data).b2b_template,
     }
     assert without_file.status_code == 422
     # Konto tylko do odczytu odpada na bramce, zanim plik zostanie przeczytany.

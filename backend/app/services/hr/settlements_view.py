@@ -570,7 +570,7 @@ def person_steps(
             ),
             _step(
                 "check",
-                "Różnica uznana przez Płace"
+                "Różnica uznana przez Rozliczenia"
                 if overridden
                 else ("Rozbieżność" if status == "mismatch" else "Kwota zgodna"),
                 "done" if compared else ("warn" if status == "mismatch" else "todo"),

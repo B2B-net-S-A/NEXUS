@@ -6,7 +6,8 @@ na każdą osobę z zespołu — w jednym przejściu po `candidate_stages`.
 
 Atrybucja jest **identyczna** jak w panelu per-user (verifier-anchored — zasługę
 za kamienie milowe pary kandydat×rekrutacja dostaje weryfikator), bo oba serwisy
-dzielą to samo CTE `VERIFIER_ANCHORED_CTE`. Dzięki temu suma kolumny w widoku
+dzielą to samo CTE `VERIFIER_ANCHORED_CTE` (od 27.10.2026 przez minutową
+migawkę `credited_snapshot`). Dzięki temu suma kolumny w widoku
 zespołowym zgadza się z liczbami, które każdy widzi u siebie.
 
 Filtry osoba/rola robi front (na zwróconej liście) — backend bierze tylko okno
@@ -35,8 +36,8 @@ from app.services.kpi_panel import (
     _PRECISION_WINDOW_DAYS,
     PRECISION_COHORT_CTE,
     PRECISION_R30_SQL,
-    VERIFIER_ANCHORED_CTE,
 )
+from app.services.credited_snapshot import CREDITED_FROM_SNAPSHOT_CTE, credited_bind
 from app.services.kpi_targets import resolve_org_target
 
 # Cel precision (rekomendacje ÷ weryfikacje) widoku zespołu to cel
@@ -55,8 +56,9 @@ from app.services.kpi_targets import resolve_org_target
 # `r30_cnt` to kohorta precyzji (`PRECISION_COHORT_CTE`): pary zweryfikowane
 # w 30 dniach i te z nich, które doszły do „CV wysłane" — ta sama definicja co
 # panel per osoba, więc precyzja nigdy nie przekracza 100%.
+# `credited` z minutowej migawki całej firmy (`credited_snapshot`), 27.10.2026.
 _TEAM_FUNNEL_SQL = text(
-    VERIFIER_ANCHORED_CTE
+    CREDITED_FROM_SNAPSHOT_CTE
     + PRECISION_COHORT_CTE
     + """
     SELECT f.credit_user AS uid, f.stage, f.period_cnt,
@@ -200,6 +202,7 @@ async def compute_team_panel(
                     "period_start": period_start,
                     "period_end": period_end,
                     "rolling30": rolling30,
+                    **await credited_bind(db),
                 },
             )
         )

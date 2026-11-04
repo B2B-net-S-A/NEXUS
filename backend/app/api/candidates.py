@@ -81,7 +81,6 @@ from app.models.user_activity import UserActivity, UserActionType
 from app.models.note import SYSTEM_NOTE_SOURCE, Note
 from app.services import candidate_recruitment_filter as recruitment_filter
 from app.services import candidate_stage_column as stage_column_filter
-from app.services import client_off_limits
 from app.services import note_kinds
 from app.services.keyword_terms import KeywordTooShort
 from app.models.notification import Notification, NotificationType
@@ -107,8 +106,6 @@ from app.schemas.candidate import (
     AvailabilityFromNotes,
     CandidateFromCVDuplicate,
     CandidateFromCVResponse,
-    CandidateFromLinkedInCreate,
-    CandidateFromLinkedInResponse,
     CandidateLinkedinSyncResponse,
     CandidateList,
     CandidateLocationDistance,
@@ -135,7 +132,6 @@ from app.schemas.candidate import (
     MatchStats,
     TalentPoolBrief,
 )
-from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import STAGE_CATEGORY, PipelineStage, StageCategory
 from app.schemas.pipeline import ClientRateUpdate, STAGE_LABELS
 from app.services.match_score_cache import bulk_get_or_compute
@@ -171,7 +167,6 @@ from app.services.dedup_service import (
 from app.schemas.pipeline import HiringManagerVetoBrief
 from app.services.hiring_manager_verdicts import (
     load_all_vetoes_for_candidate,
-    load_manager_rejections,
 )
 from app.services.experience_end import sql_current_end_literals
 from app.services.polish_ilike import contains_pattern
@@ -198,6 +193,7 @@ from app.api.candidate_access import (
     CandidateSearchAccess,
     CandidateWriteAccess,
     CANDIDATE_DOCUMENT_ROLES,
+    CandidateBulkCvAccess,
     CANDIDATE_WRITE_ROLES,
     NOT_READ_ONLY,
     client_rate_write_allowed,
@@ -219,7 +215,12 @@ from app.api.recruitment_access import (
     job_read_scope_clause,
 )
 from app.api.section_access import SOURCING_SECTION_DEPENDENCIES
-from app.services import candidate_audit, candidate_hard_delete, client_rate_correction
+from app.services import (
+    candidate_audit,
+    candidate_hard_delete,
+    client_rate_correction,
+    cv_download_policy,
+)
 from app.services.candidate_rate_from import declared_rate_from, rate_summary
 from app.services.stage_client_rate import latest_client_rates
 from app.services.candidate_monthly_rate_retirement import (
@@ -4299,11 +4300,32 @@ async def create_candidate(
     data: CandidateCreate,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
+    ),
 ):
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
     _reject_name_markers({"name": data.name, "lastname": data.lastname})
+    # Adres z żywym właścicielem to zwykły duplikat (409 niżej), nie powrót.
+    erased_email = not await find_candidate_by_email(
+        db, data.email
+    ) and await email_was_erased(db, data.email)
+    if erased_email and not confirm_erased:
+        raise erased_email_conflict()
     candidate = await apply_candidate_create(
         db, data, author=WriteAuthor.person(current_user)
     )
+    if erased_email:
+        record_recreated_after_erasure(
+            db, candidate.id, user_id=current_user.id, via=VIA_SCREEN
+        )
 
     # Reload with eager-loaded contracts/conflicts so _derive_employment has data.
     reloaded = await db.execute(
@@ -4315,7 +4337,7 @@ async def create_candidate(
     return _candidate_to_response(full)
 
 
-# ── Chrome extension: POST /api/candidates/from-linkedin ────────────────────
+# ── LinkedIn profile helpers ─────────────────────────────────────────────
 
 
 _LINKEDIN_STALE_DAYS = 7
@@ -4410,15 +4432,15 @@ async def _assign_candidate_to_job(
     # zapisujące `CandidateStage` (`/api/pipeline/move`, rekomendacje, bulk).
     # Blokuje twardo globalną czarną listę; konflikty z klientem (czarna lista
     # klienta / NDA / konkurent) są od 17.09.2026 ostrzeżeniem i tu nie
-    # blokują — dokładnie jak w kanbanie. `enforce_manager_verdict=False`, bo
-    # weto hiring managera rozstrzyga wywołujący (degraduje je do
-    # `assignment_skipped_reason` zamiast 409).
+    # blokują — dokładnie jak w kanbanie. Weto hiring managera sprawdza ta
+    # wspólna bramka; wtyczka zamienia odmowę 409 na powód pominięcia
+    # rekrutacji zamiast otwierać proces z pominięciem weta.
     await assert_candidate_move_eligible(
         db,
         candidate_id=candidate_id,
         job=job,
         now=datetime.now(timezone.utc),
-        enforce_manager_verdict=False,
+        enforce_manager_verdict=True,
     )
 
     stage_row = await open_process(
@@ -4461,233 +4483,6 @@ def _is_sync_stale(
     if synced_at.tzinfo is None:
         synced_at = synced_at.replace(tzinfo=timezone.utc)
     return synced_at < threshold
-
-
-@router.post(
-    "/from-linkedin",
-    response_model=CandidateFromLinkedInResponse,
-    status_code=status.HTTP_201_CREATED,
-    responses={200: {"model": CandidateFromLinkedInResponse}},
-)
-async def create_candidate_from_linkedin(
-    data: CandidateFromLinkedInCreate,
-    current_user: RecruiterPlus,
-    background_tasks: BackgroundTasks,
-    response: Response,
-    db: AsyncSession = Depends(get_db),
-):
-    """One-click "Dodaj z LinkedIn" from the NEXUS Chrome extension.
-
-    Flow:
-    1. Normalize LinkedIn URL (reject company/jobs/invalid).
-    2. Dedup against existing candidates via slug match.
-       - If found → return ``action="existing"``; opcjonalnie przypisz do job;
-         odpal resync gdy stary >7d.
-    3. Otherwise create a stub (``name``/``lastname`` from preview or fallback),
-       opcjonalnie przypisz do job (atomicznie), queue Proxycurl enrichment.
-    """
-    from app.services.proxycurl import normalize_linkedin_url
-
-    normalized = normalize_linkedin_url(data.linkedin_url)
-    if not normalized:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Invalid LinkedIn profile URL. Expected a "
-                "'linkedin.com/in/<slug>' profile link."
-            ),
-        )
-
-    target_stage = data.stage or PipelineStage.new
-    # Wtyczka dodaje osobę WYŁĄCZNIE do kolumny „Nowi” albo „Screening” — ta
-    # sama reguła co bulk-add (`board_stage_badges.is_entry_column`). Dalsze
-    # etapy mają bramki (QC CV, stawka DL, debrief), które sprawdza tylko
-    # `/api/pipeline/move`; etap zamknięcia („rejected”) kończył się 500 na
-    # więzie bazy (audyt 25.09.2026, runda 3). Przed jakimkolwiek zapisem.
-    from app.services.board_stage_badges import is_entry_column
-
-    if not is_entry_column(None, target_stage.value):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Z LinkedIna dodaje się kandydata do kolumny „Nowi” albo "
-                "„Screening”. Dalsze etapy przesuwa się na Tablicy rekrutacji, "
-                "bo mają własne wymagania (QC CV, stawka, debrief)."
-            ),
-        )
-
-    # ── Dedup fast-path ────────────────────────────────────────────────────
-    duplicates = await find_candidate_duplicates(db, linkedin=normalized)
-    if duplicates:
-        match = duplicates[0]
-        existing_id: int = match["candidate_id"]
-        existing = await db.scalar(select(Candidate).where(Candidate.id == existing_id))
-        assert existing is not None  # find_candidate_duplicates just returned it
-
-        assigned_job: Optional[int] = None
-        assignment_skipped: Optional[str] = None
-        if data.job_id is not None:
-            already = await db.scalar(
-                select(CandidateStage).where(
-                    CandidateStage.candidate_id == existing_id,
-                    CandidateStage.job_id == data.job_id,
-                )
-            )
-            if already is None:
-                # Dedup landed on someone we already have — so they may already
-                # carry a rejection from this job's hiring manager. Skip the
-                # assignment rather than 409 the whole request: the candidate
-                # data is still worth saving, and the extension has no sensible
-                # way to recover from a hard failure here.
-                job_row = await db.scalar(select(Job).where(Job.id == data.job_id))
-                verdict = None
-                if job_row is not None:
-                    verdicts = await load_manager_rejections(
-                        db, job=job_row, candidate_ids=[existing_id]
-                    )
-                    verdict = verdicts.get(existing_id)
-                if verdict is not None:
-                    assignment_skipped = verdict.as_polish_detail()
-                else:
-                    try:
-                        await _assign_candidate_to_job(
-                            db=db,
-                            candidate_id=existing_id,
-                            job_id=data.job_id,
-                            stage=target_stage,
-                            user_id=current_user.id,
-                        )
-                    except HTTPException as exc:
-                        # 409 z bramki dopuszczalności (globalna czarna lista)
-                        # degradujemy tak samo jak weto managera:
-                        # dane kandydata zapisujemy, przypisania nie robimy,
-                        # a wtyczka pokazuje polski powód. Twarde 409 wywaliłoby
-                        # cały zapis, a wtyczka nie ma jak się z tego podnieść.
-                        if exc.status_code != status.HTTP_409_CONFLICT:
-                            raise
-                        assignment_skipped = str(exc.detail)
-                    except client_off_limits.OffLimitsConfirmationRequired as exc:
-                        # Off-limits (21.10.2026): wtyczka nie ma okna
-                        # potwierdzenia — osoba zostaje w bazie, a dodanie
-                        # do rekrutacji (z pytaniem) robi się w NEXUSIE.
-                        assignment_skipped = client_off_limits.extension_skip_reason(
-                            exc
-                        )
-            if assignment_skipped is None:
-                assigned_job = data.job_id
-
-        resync = _is_sync_stale(existing.linkedin_synced_at)
-        if resync:
-            background_tasks.add_task(_enrich_linkedin_background, existing_id)
-
-        await db.commit()
-
-        response.status_code = status.HTTP_200_OK
-        return CandidateFromLinkedInResponse(
-            action="existing",
-            candidate_id=existing_id,
-            name=f"{existing.name} {existing.lastname}".strip(),
-            linkedin_url=existing.linkedin or normalized,
-            linkedin_sync_status=existing.linkedin_sync_status
-            or LinkedinSyncStatus.disabled,
-            assigned_to_job_id=assigned_job,
-            assignment_skipped_reason=assignment_skipped,
-            profile_url_path=f"/candidates/{existing_id}",
-            resync_scheduled=resync,
-        )
-
-    # ── Create stub ────────────────────────────────────────────────────────
-    name, lastname = _derive_names_from_preview(data.preview, normalized)
-    preview_location: Optional[str] = (
-        data.preview.location if data.preview is not None else None
-    )
-    canonical_location = normalize_candidate_location(raw_location=preview_location)
-
-    candidate = Candidate(
-        name=name,
-        lastname=lastname,
-        linkedin=normalized,
-        city=canonical_location.city,
-        country=canonical_location.country,
-        location=canonical_location.projection,
-        source="linkedin_extension",
-        created_by=current_user.id,
-        tags=data.tags or None,
-        ai_summary=data.notes,
-    )
-    db.add(candidate)
-    await db.flush()
-
-    db.add(
-        Activity(
-            entity_type="candidate",
-            entity_id=candidate.id,
-            action="created",
-            user_id=current_user.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-                "linkedin_url": normalized,
-            },
-        )
-    )
-    db.add(
-        UserActivity(
-            user_id=current_user.id,
-            action_type=UserActionType.candidate_added,
-            entity_type="candidate",
-            entity_id=candidate.id,
-            details={
-                "name": f"{candidate.name} {candidate.lastname}",
-                "source": "linkedin_extension",
-            },
-        )
-    )
-
-    assigned_job_id: Optional[int] = None
-    assignment_skipped_reason: Optional[str] = None
-    if data.job_id is not None:
-        try:
-            await _assign_candidate_to_job(
-                db=db,
-                candidate_id=candidate.id,
-                job_id=data.job_id,
-                stage=target_stage,
-                user_id=current_user.id,
-            )
-            assigned_job_id = data.job_id
-        except client_off_limits.OffLimitsConfirmationRequired as exc:
-            # Jak w ścieżce istniejącej osoby: zapis zostaje, bez przypisania.
-            assignment_skipped_reason = client_off_limits.extension_skip_reason(exc)
-
-    await db.commit()
-    await db.refresh(candidate)
-
-    # Same gap as the manual create above: a candidate imported from LinkedIn
-    # was never indexed, so the extension could add someone the recruiter then
-    # could not find through matching.
-    try:
-        from app.services.index_outbox_service import schedule_or_embed_candidate
-
-        await schedule_or_embed_candidate(candidate.id, db)
-    except Exception as exc:  # noqa: BLE001 — indexing is best-effort
-        logger.warning("Indexing LinkedIn candidate %s failed: %s", candidate.id, exc)
-
-    # Background enrichment — runs AFTER the response is returned to the client.
-    background_tasks.add_task(_enrich_linkedin_background, candidate.id)
-
-    return CandidateFromLinkedInResponse(
-        action="created",
-        candidate_id=candidate.id,
-        name=f"{candidate.name} {candidate.lastname}".strip(),
-        linkedin_url=normalized,
-        linkedin_sync_status=candidate.linkedin_sync_status
-        or LinkedinSyncStatus.disabled,
-        assigned_to_job_id=assigned_job_id,
-        profile_url_path=f"/candidates/{candidate.id}",
-        resync_scheduled=False,
-        assignment_skipped_reason=assignment_skipped_reason,
-    )
 
 
 async def _resolve_invite_source(
@@ -4757,7 +4552,13 @@ async def _resolve_invite_source(
         select(CandidateSourceEvent.utm_source)
         .where(
             CandidateSourceEvent.candidate_id == candidate_id,
-            CandidateSourceEvent.channel == SourceChannel.posting,
+            CandidateSourceEvent.channel.in_(
+                (
+                    SourceChannel.posting,
+                    SourceChannel.career_link_general,
+                    SourceChannel.career_link_job,
+                )
+            ),
             CandidateSourceEvent.captured_at
             <= activity.created_at + timedelta(minutes=5),
         )
@@ -6626,6 +6427,7 @@ async def reparse_primary_cv(
         document.id,
         document.content_sha256,
         actor_user_id=current_user.id,
+        force_read=True,
     )
     return {"status": "queued", "document_id": document.id}
 
@@ -6666,6 +6468,13 @@ async def download_candidate_document(
 
     filename = doc.filename or f"document-{doc.id}"
     media_type = doc.content_type or "application/octet-stream"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
+    # Do dziennika to, o co prosił klient: nagłówek pliku Word zawsze jest
+    # `attachment`, a jego podgląd nie może liczyć się jako zapis na dysk.
+    requested_disposition = disposition
     disposition = _safe_document_disposition(media_type, disposition)
 
     candidate_audit.record_candidate_audit(
@@ -6673,7 +6482,7 @@ async def download_candidate_document(
         action=candidate_audit.DOCUMENT_DOWNLOADED,
         user_id=current_user.id,
         entity_id=candidate_id,
-        details={"doc_id": doc_id, "disposition": disposition},
+        details={"doc_id": doc_id, "disposition": requested_disposition},
     )
     await db.commit()
 
@@ -6695,8 +6504,8 @@ async def download_candidate_document(
             # CV/document streams from Hetzner Object Storage. Matches the
             # pattern in cv_source.py and asyncio.to_thread usage below.
             content = await asyncio.to_thread(download_cv, doc.storage_key)
-            return StreamingResponse(
-                io.BytesIO(content),
+            return Response(
+                content,
                 media_type=media_type,
                 headers={
                     "Content-Disposition": content_disposition(filename, disposition),
@@ -6712,8 +6521,8 @@ async def download_candidate_document(
     if not doc.file_content:
         raise HTTPException(status_code=404, detail="Document content not available")
 
-    return StreamingResponse(
-        io.BytesIO(doc.file_content),
+    return Response(
+        doc.file_content,
         media_type=media_type,
         headers={
             "Content-Disposition": content_disposition(filename, disposition),
@@ -6761,6 +6570,10 @@ async def get_candidate_document_url(
         raise HTTPException(status_code=404, detail="Document not found")
 
     filename = doc.filename or f"document-{doc.id}"
+    if disposition == "attachment":
+        await cv_download_policy.ensure_can_save_file(
+            db, current_user, filename=filename, content_type=doc.content_type
+        )
     # Presigned URL renderuje się na originie bucketu — ta sama allowlista.
     disposition = _safe_document_disposition(doc.content_type, disposition)
 
@@ -7222,6 +7035,7 @@ from app.services.candidate_language_writer import (  # noqa: E402
 )
 from app.services.candidate_identity_quarantine import (  # noqa: E402
     ReplacedPrimaryCv,
+    get_identity_review,
     record_detected_identity,
 )
 
@@ -7459,13 +7273,21 @@ async def _enrich_candidate_from_document_task(
     trigger: str = "cv_upload",
     actor_user_id: Optional[int] = None,
     replaced_primary: Optional[ReplacedPrimaryCv] = None,
+    force_read: bool = False,
 ) -> None:
-    """Extract and enrich from the still-current primary CV version."""
+    """Extract and enrich from the still-current primary CV version.
+
+    Plik, którego odczyt profil już ma, nie idzie do modelu drugi raz (03.11.2026):
+    ten sam plik wgrany ponownie brał 793 z 7853 płatnych odczytów w 30 dni, a na
+    profilu nie zmieniał nic. `force_read` = człowiek albo narzędzie prosi o nowy
+    odczyt mimo to (`/cv/reparse`, naprawa dokumentów M365).
+    """
 
     from app.core.database import AsyncSessionLocal
     from app.services import cv_text_extractor
     from app.services.cv_ingest_service import finish_cv_ingest
     from app.services.cv_parser import parse_cv
+    from app.services.cv_upload_dedup import profile_holds_read_of_file
 
     async with AsyncSessionLocal() as db:
         temp_path: Optional[str] = None
@@ -7490,6 +7312,27 @@ async def _enrich_candidate_from_document_task(
                 and document.content_sha256 != expected_hash
             ):
                 return
+            if not force_read and profile_holds_read_of_file(
+                candidate.cv_extracted_data,
+                raw_cv_text=candidate.raw_cv_text,
+                content_sha256=document.content_sha256,
+            ):
+                # Plik z kwarantanny musi wrócić przez bramkę tożsamości: to ona
+                # oddaje główne CV poprzedniemu plikowi.
+                review = await get_identity_review(
+                    db,
+                    candidate_id=candidate_id,
+                    source_kind="document",
+                    source_id=document.id,
+                )
+                if review is not None and not review.is_quarantined:
+                    logger.info(
+                        "[cv_enrich] plik już odczytany, bez modelu "
+                        "candidate=%s document=%s",
+                        candidate_id,
+                        document_id,
+                    )
+                    return
 
             content = await _candidate_document_bytes(db, document)
             if not content:
@@ -7788,6 +7631,7 @@ async def _extract_uploaded_cv_text(
     """
     import asyncio
 
+    from app.core.log_safety import safe_filename as log_safe_filename
     from app.services import cv_text_extractor
 
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -7818,6 +7662,14 @@ async def _extract_uploaded_cv_text(
             pass
 
     if not raw_text or not raw_text.strip():
+        # Bez tego 5 zgłoszeń z portalu (10.2026) nie dało się zdiagnozować: scraper
+        # kasuje pliki, a w logu nie było ani formatu, ani rozmiaru.
+        logger.warning(
+            "[from-cv] brak tekstu: %s, format %s, %d B",
+            log_safe_filename(safe_name),
+            cv_text_extractor.sniff_extension_bytes(content),
+            len(content),
+        )
         raise HTTPException(
             status_code=400,
             detail="Nie udało się odczytać tekstu z pliku CV.",
@@ -8075,6 +7927,7 @@ async def preview_candidate_cv(
     },
 )
 async def create_candidate_from_cv(
+    request: Request,
     current_user: RecruiterPlus,
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
@@ -8082,6 +7935,10 @@ async def create_candidate_from_cv(
         default=False,
         description="True pomija sito identycznego pliku i adresu z nagłówka. "
         "Adres e-mail zajęty przez innego kandydata odmawia mimo to.",
+    ),
+    confirm_erased: bool = Query(
+        default=False,
+        description="Rekruter wie, że adres należał do profilu trwale usuniętego.",
     ),
     name: Optional[str] = Form(default=None),
     lastname: Optional[str] = Form(default=None),
@@ -8194,6 +8051,23 @@ async def create_candidate_from_cv(
         if same_person_rows:
             _raise_from_cv_duplicate_conflict(same_person_rows)
 
+    # 3c — adres z nagrobka (decyzja Artura, 03.11.2026): człowiek dostaje
+    # pytanie niezależnie od `force`, bo `force` dotyczy duplikatów. Scraper
+    # portalu nie pyta: osoba zgłosiła się sama, więc zostaje tylko ślad.
+    from app.services import candidate_claim
+    from app.services.candidate_erasure_leftovers import (
+        VIA_SCREEN,
+        VIA_SELF_APPLICATION,
+        email_was_erased,
+        erased_email_conflict,
+        record_recreated_after_erasure,
+    )
+
+    from_integration = candidate_claim.is_integration_request(request)
+    erased_email = await email_was_erased(db, parsed.get("email"))
+    if erased_email and not (from_integration or confirm_erased):
+        raise erased_email_conflict()
+
     # 4 — insert and enrich
     first_name = (parsed.get("first_name") or "").strip() or _CV_PLACEHOLDER_NAME
     last_name = (parsed.get("last_name") or "").strip() or _CV_PLACEHOLDER_NAME
@@ -8229,6 +8103,13 @@ async def create_candidate_from_cv(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_TAKEN_EMAIL_MESSAGE
         ) from exc
+    if erased_email:
+        record_recreated_after_erasure(
+            db,
+            candidate.id,
+            user_id=current_user.id,
+            via=VIA_SELF_APPLICATION if from_integration else VIA_SCREEN,
+        )
 
     # Permanent, candidate-scoped copy written from the bytes we already hold
     # (legacy `/cv-download` path); no rename of a shared scratch file.
@@ -8787,6 +8668,9 @@ async def download_cv(
     file_path = _candidate_cv_disk_path(candidate_id, candidate.cv_filename)
     if file_path is None or not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="CV file not found on disk")
+    await cv_download_policy.ensure_can_save_file(
+        db, current_user, filename=candidate.cv_filename, content_type=None
+    )
     candidate_audit.record_candidate_audit(
         db,
         action=candidate_audit.CV_DOWNLOADED,
@@ -8823,7 +8707,7 @@ def _bulk_cv_archive_name() -> str:
 @router.post("/bulk-cv-download", dependencies=NOT_READ_ONLY)
 async def bulk_cv_download(
     payload: BulkCvDownloadRequest,
-    current_user: CandidateDocumentAccess,
+    current_user: CandidateBulkCvAccess,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Download multiple candidate CVs as a single ZIP archive.
@@ -8959,6 +8843,10 @@ async def bulk_import_candidates(
 
     from pydantic import ValidationError
 
+    from app.services.candidate_erasure_leftovers import (
+        ERASED_EMAIL_CODE,
+        email_was_erased,
+    )
     from app.services.candidate_name_rules import has_blacklist_marker
 
     created: list[int] = []
@@ -9029,6 +8917,17 @@ async def bulk_import_candidates(
                         }
                         for error in exc.errors()
                     ],
+                }
+            )
+            continue
+
+        if await email_was_erased(db, item.email):
+            item_results.append(
+                {
+                    "index": index,
+                    "status": "skipped",
+                    "field_errors": field_errors,
+                    "reason": ERASED_EMAIL_CODE,
                 }
             )
             continue

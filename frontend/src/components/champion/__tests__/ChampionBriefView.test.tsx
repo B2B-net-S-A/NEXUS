@@ -133,6 +133,30 @@ describe("ChampionBriefView", () => {
     expect(screen.getByText("— krytyczna").closest("li")).toHaveTextContent("Angular");
   });
 
+  it("wiersz z zamiennikami pokazuje wszystkie, krytyczna dalej rozpoznana po etykiecie", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: {
+          ...PROFILE,
+          stack: { must: [{ name: "Agile" }], nice: [{ name: "Scrum" }], notes: "" },
+        },
+        requirement_full_labels: { Agile: "Agile lub Prince2", Scrum: "Scrum lub Kanban" },
+        critical_resolution: {
+          stored: ["Agile"],
+          decided: true,
+          effective: ["Agile"],
+          source: "dl",
+          suggested: [],
+        },
+      },
+    });
+    renderBrief();
+    const chip = (await screen.findByText("Agile lub Prince2")).closest("li");
+    expect(chip).toHaveAttribute("data-critical", "true");
+    expect(screen.getByText("Scrum lub Kanban")).toBeInTheDocument();
+  });
+
   it("krytyczne: „Brak krytycznych” bez gwiazdek", async () => {
     getMock.mockResolvedValue({
       data: {

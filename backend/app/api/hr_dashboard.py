@@ -24,7 +24,7 @@ router = APIRouter()
 
 #: Zastępstwa wynikają z urlopów — kafelek żyje razem z modułem urlopów.
 MODULE = HrModule.leave
-STAFF_DETAIL = "Zastępstwa widzą pracownicy firmy."
+STAFF_DETAIL = "Zastępstwa widzą osoby z kartoteką."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak „Nieobecni dziś”).
 _NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}
 

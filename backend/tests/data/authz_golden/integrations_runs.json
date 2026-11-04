@@ -25,14 +25,15 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/insights/integrations/summary": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

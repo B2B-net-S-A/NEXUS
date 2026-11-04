@@ -32,15 +32,15 @@ COLUMNS: tuple[str, ...] = (
     "Osoba",
     "Forma",
     "Waluta",
-    "Godziny zaakceptowane",
-    "W tym nadgodziny",
+    "Godziny potwierdzone",
+    "W tym ponad 8 h",
     "Stawka za godzinę",
     "Za godziny",
     "Premie",
     "Razem",
-    "Dni nieobecności z puli urlopowej",
+    "Dni nieobecności z puli przerw",
     "Dni nieobecności pozostałe",
-    "Timesheet",
+    "Raport godzin",
 )
 
 
@@ -119,7 +119,7 @@ def build_xlsx(rows: list[list[Any]], summary: list[list[Any]]) -> bytes:
     from openpyxl import Workbook
 
     workbook = Workbook(write_only=True)
-    sheet = workbook.create_sheet(title="Płace")
+    sheet = workbook.create_sheet(title="Rozliczenia")
     sheet.append(list(COLUMNS))
     for row in rows:
         sheet.append(row)

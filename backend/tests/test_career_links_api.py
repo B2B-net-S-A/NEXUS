@@ -19,6 +19,7 @@ import io
 import json
 import re
 import uuid
+from datetime import timedelta
 
 import pytest
 import pytest_asyncio
@@ -27,12 +28,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.database import AsyncSessionLocal
+from app.core.scheduling import business_today
 from app.core.security import hash_password
 from app.models.application_submission import ApplicationSubmission
 from app.models.candidate import Candidate
 from app.models.candidate_consent import CandidateConsent
-from app.models.candidate_source_event import CandidateSourceEvent
-from app.models.invite_link import CandidateInviteLink
+from app.models.candidate_source_event import CandidateSourceEvent, SourceChannel
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.job import Job, JobStatus, RecruitmentType, RemotePolicy
 from app.models.my_people import MyPeopleOverride
 from app.models.notification import Notification, NotificationType
@@ -556,12 +558,12 @@ async def test_theme_change_keeps_the_approved_page(api):
     assert before["theme"] is None
     assert before["theme_default"] == "terminal"
 
-    resp = await api.put(url, json={"theme": "radar"}, headers=headers)
+    resp = await api.put(url, json={"theme": "jasny"}, headers=headers)
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "approved"
-    assert resp.json()["theme"] == "radar"
+    assert resp.json()["theme"] == "jasny"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
-    assert page.json()["theme"] == "radar"
+    assert page.json()["theme"] == "jasny"
 
     reset = await api.put(url, json={"theme": None}, headers=headers)
     assert reset.json()["theme"] is None and reset.json()["status"] == "approved"
@@ -570,6 +572,9 @@ async def test_theme_change_keeps_the_approved_page(api):
 
     bad = await api.put(url, json={"theme": "nie-ma-takiego"}, headers=headers)
     assert bad.status_code == 422
+    # Sceny ról wycofane 28.10.2026 — nowego wyboru sceny nie da się zapisać.
+    legacy = await api.put(url, json={"theme": "radar"}, headers=headers)
+    assert legacy.status_code == 422
 
 
 async def test_default_theme_follows_the_role_in_the_title(api):
@@ -581,9 +586,9 @@ async def test_default_theme_follows_the_role_in_the_title(api):
     profile = (
         await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
     ).json()
-    assert profile["theme_default"] == "sekwencja"
+    assert profile["theme_default"] == "jasny"
     page = await api.get(f"/api/public/career/r/{link['slug']}")
-    assert page.json()["theme"] == "sekwencja"
+    assert page.json()["theme"] == "jasny"
 
 
 async def test_poster_needs_a_live_page_and_returns_a_pdf(api):
@@ -642,6 +647,246 @@ async def test_link_results_count_applications_and_the_funnel(api):
     assert [r for r in everything["links"] if r["slug"] == link["slug"]][0][
         "applications"
     ] == 2
+
+
+async def test_link_people_list_who_applied_and_where_they_are(api):
+    """Makieta A: lista osób z obu rodzajów linków, ze stanem i „Moimi ludźmi”."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    slug = f"osoby-{uuid.uuid4().hex[:8]}"
+    assert (
+        await api.put("/api/me/career-link", headers=headers, json={"slug": slug})
+    ).status_code == 200
+
+    job_email = f"lista-job-{uuid.uuid4().hex[:8]}@example.com"
+    general_email = f"lista-og-{uuid.uuid4().hex[:8]}@example.com"
+    for form in (_form(link["slug"], job_email), _form(slug, general_email)):
+        resp = await api.post("/api/public/career/apply", data=form, files=_cv())
+        assert resp.status_code == 201, resp.text
+
+    body = (await api.get("/api/me/career-link/people", headers=headers)).json()
+    assert body["days"] is None and body["total"] == 2 and not body["truncated"]
+    by_kind = {row["kind"]: row for row in body["people"]}
+
+    job_row = by_kind["job"]
+    assert job_row["job_id"] == job_id and job_row["slug"] == link["slug"]
+    assert job_row["current_stage"] == "new" and job_row["current_job_id"] == job_id
+    # Link do rekrutacji nie przypina: lista „Z procesów” dopiero po CV wysłanym.
+    assert job_row["in_my_people"] is False
+
+    general_row = by_kind["recruiter"]
+    assert general_row["job_id"] is None and general_row["current_stage"] is None
+    assert general_row["in_my_people"] is True
+
+    # Lejek i lista czytają to samo źródło.
+    results = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert results["totals"]["applications"] == body["total"]
+
+    # Ślad na liście „Moi ludzie”: osoba z linku ogólnego ma plakietkę.
+    listed = (await api.get("/api/my-people", headers=headers)).json()["rows"]
+    row = next(r for r in listed if r["candidate_id"] == general_row["candidate_id"])
+    assert row["from_link"] is True
+
+
+async def test_link_people_show_only_own_links(api):
+    """Odmowa wglądu: cudze zgłoszenia nie wracają w tej liście."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"cudzy-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+
+    _, other_email, other_password = await _seed_user("career-inny")
+    other_headers = await _login(api, other_email, other_password)
+    body = (await api.get("/api/me/career-link/people", headers=other_headers)).json()
+    assert body["total"] == 0 and body["people"] == []
+
+
+async def _headers_with_role(api: AsyncClient, role: UserRole) -> dict[str, str]:
+    uid, email, password = await _seed_user(f"rola-{role.value}")
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, uid)
+        user.role = role
+        await db.commit()
+    return await _login(api, email, password)
+
+
+async def test_job_team_links_refuse_recruiter_and_open_for_managers(api):
+    """Makieta C: HoR i admin widzą linki zespołu, rekruter dostaje odmowę."""
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"zespol-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+
+    denied = await api.get(f"/api/jobs/{job_id}/link-results", headers=headers)
+    assert denied.status_code == 403
+
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        allowed = await api.get(
+            f"/api/jobs/{job_id}/link-results",
+            headers=await _headers_with_role(api, role),
+        )
+        assert allowed.status_code == 200, allowed.text
+        rows = allowed.json()
+        assert [r["owner_id"] for r in rows] == [uid]
+        assert rows[0]["applications"] == 1 and rows[0]["state"] == "active"
+        # Sekret linku nie wychodzi w odpowiedzi.
+        assert "token" not in rows[0]
+
+
+async def test_job_team_links_open_for_delivery_lead_across_clients(api):
+    """Rekrutacje są dla Delivery Leada org-wide (uprawnienia, 25.09.2026)."""
+    _, _, job_id = await _owner_with_job(api)
+    resp = await api.get(
+        f"/api/jobs/{job_id}/link-results",
+        headers=await _headers_with_role(api, UserRole.delivery_lead),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+async def test_visits_count_per_day_and_show_in_the_period(api):
+    """0640: wejście zapisuje się w dniu i w liczniku; okres czyta dzienne."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+
+    for _ in range(2):
+        page = await api.get(f"/api/public/career/r/{link['slug']}")
+        assert page.status_code == 200, page.text
+    # Grafika OG nie jest wejściem kandydata.
+    await api.get(
+        f"/api/public/career/r/{link['slug']}", headers={"x-nexus-count-visit": "0"}
+    )
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.scalars(
+                select(CandidateInviteLinkVisitDay)
+                .join(
+                    CandidateInviteLink,
+                    CandidateInviteLink.token == CandidateInviteLinkVisitDay.link_token,
+                )
+                .where(CandidateInviteLink.slug == link["slug"])
+            )
+        ).all()
+    assert [(row.day, row.visits) for row in rows] == [(business_today(), 2)]
+
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits"] == 2 and row["visits_in_period"] == 2
+    assert period["totals"]["visits_in_period"] == 2
+    assert period["visits_tracked_from"] is not None
+
+    # Od początku liczy licznik linku, bo dzienne nie sięgają wstecz.
+    everything = (
+        await api.get(
+            "/api/me/career-link/results", headers=headers, params={"days": 0}
+        )
+    ).json()
+    assert everything["totals"]["visits_in_period"] is None
+    assert everything["totals"]["visits"] == 2
+
+
+async def test_old_visits_stay_outside_the_period(api):
+    """Odmowa: wejście sprzed okresu nie wpada do liczby okresu."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    async with AsyncSessionLocal() as db:
+        token = await db.scalar(
+            select(CandidateInviteLink.token).where(
+                CandidateInviteLink.slug == link["slug"]
+            )
+        )
+        db.add(
+            CandidateInviteLinkVisitDay(
+                link_token=token,
+                day=business_today() - timedelta(days=40),
+                visits=5,
+            )
+        )
+        await db.commit()
+    period = (await api.get("/api/me/career-link/results", headers=headers)).json()
+    row = next(r for r in period["links"] if r["slug"] == link["slug"])
+    assert row["visits_in_period"] == 0
+
+
+async def test_link_applications_get_their_own_source_channels(api):
+    """0641: link ogólny i link do rekrutacji nie lądują w kanale portali."""
+    _, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    slug = f"kanal-{uuid.uuid4().hex[:8]}"
+    assert (
+        await api.put("/api/me/career-link", headers=headers, json={"slug": slug})
+    ).status_code == 200
+    job_email = f"kanal-job-{uuid.uuid4().hex[:8]}@example.com"
+    general_email = f"kanal-og-{uuid.uuid4().hex[:8]}@example.com"
+    for form in (_form(link["slug"], job_email), _form(slug, general_email)):
+        resp = await api.post("/api/public/career/apply", data=form, files=_cv())
+        assert resp.status_code == 201, resp.text
+
+    async with AsyncSessionLocal() as db:
+        channels = dict(
+            (
+                await db.execute(
+                    select(Candidate.email, CandidateSourceEvent.channel)
+                    .join(
+                        CandidateSourceEvent,
+                        CandidateSourceEvent.candidate_id == Candidate.id,
+                    )
+                    .where(Candidate.email.in_([job_email, general_email]))
+                )
+            ).all()
+        )
+    assert channels[job_email] is SourceChannel.career_link_job
+    assert channels[general_email] is SourceChannel.career_link_general
+
+
+async def test_link_people_report_counts_per_person_for_managers_only(api):
+    """Makieta D: tabela na osobę z podziałem na rodzaj linku; rekruter dostaje 403."""
+    uid, headers, job_id = await _owner_with_job(api)
+    link = await _create_job_link(api, headers, job_id)
+    assert (await _approve(api, headers, job_id)).status_code == 200
+    resp = await api.post(
+        "/api/public/career/apply",
+        data=_form(link["slug"], f"raport-{uuid.uuid4().hex[:8]}@example.com"),
+        files=_cv(),
+    )
+    assert resp.status_code == 201, resp.text
+    assert (await api.get(f"/api/public/career/r/{link['slug']}")).status_code == 200
+
+    denied = await api.get("/api/insights/recruitment/link-people", headers=headers)
+    assert denied.status_code == 403
+
+    body = (
+        await api.get(
+            "/api/insights/recruitment/link-people",
+            headers=await _headers_with_role(api, UserRole.head_of_recruitment),
+        )
+    ).json()
+    row = next(r for r in body["rows"] if r["user_id"] == uid)
+    assert row["applications_job"] == 1 and row["applications_general"] == 0
+    assert row["new_candidates"] == 1 and row["in_process"] == 1
+    assert row["job_links"] == 1 and row["general_link"] is False
+    assert row["visits"] == 1 and row["visits_total"] == 1
+    assert body["visits_tracked_from"] is not None
+    assert body["totals"]["applications"] >= 1
 
 
 async def test_link_results_hide_dead_links_without_applications(api):

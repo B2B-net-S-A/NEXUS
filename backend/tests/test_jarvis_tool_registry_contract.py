@@ -133,6 +133,7 @@ def test_build_matches_the_declared_route():
         "month": 9,
         "contract_id": 77,
         "framework_contract_id": 78,
+        "amendment_id": 79,
         "from_chunk": 4,
         "event_id": 88,
         "key": "jobs.board",

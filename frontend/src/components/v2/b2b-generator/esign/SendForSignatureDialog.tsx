@@ -50,11 +50,14 @@ export function SendForSignatureDialog({
   const [checked, setChecked] = useState(false);
   const [result, setResult] = useState<EsignSendResult | null>(null);
   const [copied, setCopied] = useState(false);
+  // DW (27.10.2026): mail z Twojej skrzynki, prowadzący rekrutację zaznaczony.
+  const [cc, setCc] = useState<number[]>([]);
 
   useEffect(() => {
     if (!defaults.data) return;
     setEmail(defaults.data.contractor_email ?? "");
     setSignerId(defaults.data.company_signers[0]?.id ?? null);
+    setCc((defaults.data.cc_candidates ?? []).filter((p) => p.suggested).map((p) => p.id));
   }, [defaults.data]);
 
   const send = useMutation({
@@ -63,6 +66,7 @@ export function SendForSignatureDialog({
         contractor_email: email.trim(),
         company_signer_id: signerId ?? 0,
         days,
+        cc_user_ids: cc,
       }),
     onSuccess: (data) => {
       setResult(data);
@@ -222,6 +226,36 @@ export function SendForSignatureDialog({
                         </select>
                       </div>
                     </div>
+                    {(defaults.data.cc_candidates ?? []).length > 0 ? (
+                      <fieldset className="space-y-1.5" aria-describedby={`esign-cc-help-${row.id}`}>
+                        <legend className="text-sm font-medium">3. Do wiadomości (DW)</legend>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {(defaults.data.cc_candidates ?? []).map((person) => (
+                            <label key={person.id} className="flex items-center gap-2 text-sm">
+                              <Checkbox
+                                checked={cc.includes(person.id)}
+                                onCheckedChange={(value) =>
+                                  setCc((prev) =>
+                                    value === true
+                                      ? [...prev, person.id]
+                                      : prev.filter((id) => id !== person.id),
+                                  )
+                                }
+                              />
+                              {person.name}
+                              {person.suggested ? (
+                                <span className="text-xs text-muted-foreground">(prowadzi rekrutację)</span>
+                              ) : null}
+                            </label>
+                          ))}
+                        </div>
+                        <p id={`esign-cc-help-${row.id}`} className="text-xs text-muted-foreground">
+                          Mail wychodzi z Twojej skrzynki. Osoby w DW dostają link, kopię podpisanej
+                          umowy i dzwonki, a odpowiedź kontraktora trafi też do nich. Na liście są
+                          tylko osoby z zespołu rekrutacji, które widzą tę umowę ze stawkami.
+                        </p>
+                      </fieldset>
+                    ) : null}
                     {!defaults.data.mailbox_connected ? (
                       <Alert
                         variant="info"

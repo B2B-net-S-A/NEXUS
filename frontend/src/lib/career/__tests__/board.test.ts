@@ -87,9 +87,9 @@ describe("openCountLabel", () => {
 
 describe("boardTagLine", () => {
   it("zdalnie bez miasta, hybryda z miastem, brak trybu = samo miasto", () => {
-    expect(boardTagLine({ city: "Warszawa", remote_policy: "remote" })).toBe("zdalnie");
-    expect(boardTagLine({ city: "Kraków", remote_policy: "hybrid" })).toBe("kraków · hybryda");
-    expect(boardTagLine({ city: "Gdańsk", remote_policy: null })).toBe("gdańsk");
+    expect(boardTagLine({ city: "Warszawa", remote_policy: "remote" })).toBe("Zdalnie");
+    expect(boardTagLine({ city: "Kraków", remote_policy: "hybrid" })).toBe("Kraków · Hybryda");
+    expect(boardTagLine({ city: "Gdańsk", remote_policy: null })).toBe("Gdańsk");
     expect(boardTagLine({ city: null, remote_policy: null })).toBe("");
   });
 });

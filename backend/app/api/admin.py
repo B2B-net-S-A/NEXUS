@@ -4,7 +4,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr, Field
@@ -78,12 +78,17 @@ class AdminUserResponse(BaseModel):
     is_active: bool
     # Imienne uprawnienie do usuwania klientów (0307).
     can_delete_clients: bool = False
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: bool = False
     # Uprawnienia z ekranu nadane tej osobie ponad to, co dają jej role
     # (plakietka „+N uprawnienie” na liście kont).
     extra_permissions: list[str] = []
     activity_count: int
     last_activity: Optional[datetime] = None
     created_at: datetime
+    # 0612: konto po pierwszym logowaniu czeka na decyzję, kim jest
+    # (filtr „Do decyzji” i plakietka „Nowa · zdecyduj”).
+    setup_pending_since: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -112,6 +117,8 @@ class AdminUserUpdate(BaseModel):
     # Imienne uprawnienie do usuwania klientów z profilu (0307). Nie wynika
     # z żadnej roli — nadaje się je konkretnej osobie.
     can_delete_clients: Optional[bool] = None
+    # Imienne prawo do maila „Podsumowanie Rady” (0631).
+    receives_board_report: Optional[bool] = None
     # Odpina konto od tożsamości Microsoft (`azure_oid`). SSO odmawia logowania,
     # gdy ten sam adres przychodzi z INNYM `oid` (audyt 24.09.2026) — np. konto
     # odtworzone w Entra; admin świadomie pozwala przypiąć nową tożsamość.
@@ -216,6 +223,8 @@ async def list_users(
             roles=known_roles(u.roles),
             is_active=u.is_active,
             can_delete_clients=bool(u.can_delete_clients),
+            receives_board_report=bool(u.receives_board_report),
+            setup_pending_since=u.setup_pending_since,
             extra_permissions=list(
                 granted_beyond_roles(
                     u,
@@ -333,6 +342,7 @@ async def update_user(
     original_name = user.name
     original_allowed_sections = list(user.allowed_sections or [])
     original_can_delete_clients = bool(user.can_delete_clients)
+    original_receives_board_report = bool(user.receives_board_report)
 
     if data.name is not None:
         user.name = data.name
@@ -401,6 +411,8 @@ async def update_user(
         user.is_active = data.is_active
     if data.can_delete_clients is not None:
         user.can_delete_clients = data.can_delete_clients
+    if data.receives_board_report is not None:
+        user.receives_board_report = data.receives_board_report
     if data.clear_microsoft_identity and user.azure_oid:
         previous_oid = user.azure_oid
         user.azure_oid = None
@@ -428,6 +440,14 @@ async def update_user(
     if authorization_changed:
         user.authorization_version += 1
         user.tokens_valid_after = datetime.now(timezone.utc)
+    if (
+        user.role != original_role
+        or list(user.roles or []) != original_roles
+        or not user.is_active
+    ):
+        # 0612: zmiana roli albo wyłączenie konta to decyzja o nowej osobie —
+        # znika z „Nowych osób do ustawienia”.
+        user.setup_pending_since = None
     await trainee_program.sync_program_for_roles(
         db,
         user.id,
@@ -498,6 +518,13 @@ async def update_user(
                 },
             )
         )
+    if original_active and data.is_active is False:
+        # Odejście z firmy: kandydaci osoby → Delivery Leadzi jej rekrutacji
+        # (``departure_care``, decyzja Artura 28.10.2026).
+        from app.services.departure_care import hand_over_safely
+
+        await db.flush()
+        await hand_over_safely(db, user, actor_id=_admin.id)
     if data.name is not None and data.name != original_name:
         db.add(
             Activity(
@@ -536,10 +563,49 @@ async def update_user(
                 "to": data.can_delete_clients,
             },
         )
+    if (
+        data.receives_board_report is not None
+        and data.receives_board_report != original_receives_board_report
+    ):
+        # Kto dostaje przychód i marżę firmy mailem, jest częścią Historii zdarzeń.
+        await record_executed(
+            db,
+            actor=_admin,
+            event_type="user.board_report_permission",
+            entity_type="user",
+            entity_id=user.id,
+            entity_label=f"{user.name} ({user.email})",
+            reason_code="granted" if data.receives_board_report else "revoked",
+            reason=(
+                "Nadano mail „Podsumowanie Rady”."
+                if data.receives_board_report
+                else "Odebrano mail „Podsumowanie Rady”."
+            ),
+            details={
+                "from": original_receives_board_report,
+                "to": data.receives_board_report,
+            },
+        )
 
     await db.flush()
     await db.refresh(user)
     return user
+
+
+@router.get("/users/{user_id}/departure-preview")
+async def departure_preview(
+    user_id: int,
+    _admin: AdminUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Co zostaje po koncie i który Delivery Lead to przejmie — okno
+    „Wyłącz konto” (``services/departure_care.py``, 28.10.2026)."""
+    from app.services.departure_care import preview
+
+    user = await db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return await preview(db, user)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

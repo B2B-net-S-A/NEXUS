@@ -42,10 +42,15 @@ import {
  AutofillFeedbackField,
  parseRateInput,
 } from "@/components/v2/modals/AutofillFeedbackField";
-import type {
- AutofillFeedbackChoice,
- AutofillLearnedFrom,
- AutofillReason,
+import {
+ CLIENT_WIDE_REASONS,
+ NOT_LOOKING_DEFAULT_MONTHS,
+ autofillReasonLabel,
+ notLookingUntil,
+ templateReasonFor,
+ type AutofillFeedbackChoice,
+ type AutofillLearnedFrom,
+ type AutofillReason,
 } from "@/lib/autofill-feedback";
 import {
  HM_ALREADY_INTERVIEWED_REASON,
@@ -251,6 +256,13 @@ export function RejectionV2({
  const [autofillLearnedFrom, setAutofillLearnedFrom] = useState<AutofillLearnedFrom | null>(null);
  const [autofillReason, setAutofillReason] = useState<AutofillReason | null>(null);
  const [autofillRate, setAutofillRate] = useState("");
+ // 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” —
+ // domyślnie na cały klient.
+ const [autofillWholeClient, setAutofillWholeClient] = useState(true);
+ // 28.10.2026: „Nie szuka pracy” — domyślnie 3 miesiące.
+ const [notLookingUntilValue, setNotLookingUntilValue] = useState(() =>
+ notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS),
+ );
 
  // Reset defaults when modal re-opens (e.g. user bails, opens again).
  useEffect(() => {
@@ -270,6 +282,8 @@ export function RejectionV2({
  setAutofillLearnedFrom(null);
  setAutofillReason(null);
  setAutofillRate("");
+ setAutofillWholeClient(true);
+ setNotLookingUntilValue(notLookingUntil(NOT_LOOKING_DEFAULT_MONTHS));
  }
  }, [open, initialEndedBy]);
  const endedByValue: EndedBy = terminalType === "withdrawn" ? "candidate" : endedBy;
@@ -279,16 +293,27 @@ export function RejectionV2({
 
  const filtered = reasons.filter((r) => r.applies_to.includes(terminalType));
  const hasReasons = filtered.length > 0;
- const chosenReason = filtered.find((r) => r.id === reasonId);
+ const autofillAsked = terminalType === "rejected" && autofill != null;
+ // Osoba od systemu (27.10.2026): okno pyta o powód raz — powód z szablonu
+ // do raportu lejka wynika z powodu dla systemu.
+ const effectiveReasonId = autofillAsked
+ ? templateReasonFor(autofillReason, filtered)?.id ?? ""
+ : reasonId;
+ const chosenReason = filtered.find((r) => r.id === effectiveReasonId);
  const workModeReason = chosenReason?.name === WORK_MODE_MISMATCH_REASON;
  const rateReason = isRateTooHighReason(chosenReason);
  // 20.10.2026: „Inne” i „Już po rozmowie u tego hiring managera” bez opisu
  // zostawiały w historii samo słowo — notatka jest wtedy opisem powodu.
- const autofillAsked = terminalType === "rejected" && autofill != null;
  // „Inne” dla systemu też potrzebuje opisu (serwer: 422 bez `notes`).
- const descriptionRequired =
- (hasReasons && reasonNeedsDescription(chosenReason)) ||
- (autofillAsked && autofillReason === "other");
+ const descriptionRequired = autofillAsked
+ ? autofillReason === "other"
+ : hasReasons && reasonNeedsDescription(chosenReason);
+ // Powód bez odpowiednika w szablonie idzie jako „Inne” z nazwą powodu
+ // w opisie — inaczej w historii zostaje samo słowo.
+ const reasonNotes =
+ autofillAsked && autofillReason && autofillReason !== "other" && reasonNeedsDescription(chosenReason)
+ ? [autofillReasonLabel(autofillReason), notes.trim()].filter(Boolean).join(". ")
+ : notes;
  const several = (emailPreview?.people.length ?? 1) > 1;
  const parsedNewRate = parseRateInput(newRate);
  const rateChoice: RejectionRateChoice | null =
@@ -306,6 +331,10 @@ export function RejectionV2({
  autofillReason === "too_expensive" && !autofill?.several && !rateReason
  ? parseRateInput(autofillRate)
  : null,
+ ...(CLIENT_WIDE_REASONS.has(autofillReason) && !autofill?.several
+ ? { wholeClient: autofillWholeClient }
+ : {}),
+ ...(autofillReason === "not_looking" ? { notLookingUntil: notLookingUntilValue } : {}),
  }
  : null;
  const hmInterviewed = chosenReason?.name === HM_ALREADY_INTERVIEWED_REASON;
@@ -320,8 +349,8 @@ export function RejectionV2({
  offerResponseRequired && offerResponse ? offerResponse : null;
  if (hasReasons) {
  onConfirm(
- reasonId,
- notes,
+ effectiveReasonId,
+ reasonNotes,
  emailFlag,
  offerResponseValue,
  undefined,
@@ -340,7 +369,8 @@ export function RejectionV2({
  // `notes` (zapisywane + widoczne w timeline), a dodatkowo przekazujemy go
  // jako `freeReason` -> backend przyjmuje to jako `rejection_reason`, co
  // spełnia walidację ruchu na etap terminalny. reasonId zostaje pusty.
- const reasonText = freeReason.trim();
+ const reasonText =
+ autofillAsked && autofillReason ? autofillReasonLabel(autofillReason) : freeReason.trim();
  const combinedNotes = notes.trim()
  ? `${reasonText}\n\n${notes.trim()}`
  : reasonText;
@@ -360,7 +390,11 @@ export function RejectionV2({
 
  const submitDisabled =
  pending ||
- (hasReasons ? !reasonId : !freeReason.trim()) ||
+ (autofillAsked
+ ? hasReasons && !effectiveReasonId
+ : hasReasons
+ ? !reasonId
+ : !freeReason.trim()) ||
  (descriptionRequired && !notes.trim()) ||
  (offerResponseRequired && !offerResponse) ||
  (autofillAsked && autofillChoice == null) ||
@@ -419,6 +453,44 @@ export function RejectionV2({
  </RadioGroup>
  </FormField>
  )}
+ {autofillAsked && autofill ? (
+ <AutofillFeedbackField
+ learnedFrom={autofillLearnedFrom}
+ onLearnedFromChange={setAutofillLearnedFrom}
+ reason={autofillReason}
+ onReasonChange={setAutofillReason}
+ rate={autofillRate}
+ onRateChange={setAutofillRate}
+ rateKnown={autofill.rateKnown}
+ several={autofill.several}
+ askRate={!rateReason}
+ wholeClient={autofillWholeClient}
+ onWholeClientChange={setAutofillWholeClient}
+ notLookingUntil={notLookingUntilValue}
+ onNotLookingUntilChange={setNotLookingUntilValue}
+ >
+ {workModeReason ? (
+ <RejectionWorkModeField
+ job={workModeJob}
+ profile={several ? undefined : profileWorkMode}
+ several={several}
+ days={officeDays}
+ onDaysChange={setOfficeDays}
+ saveToProfile={saveWorkMode}
+ onSaveToProfileChange={setSaveWorkMode}
+ />
+ ) : null}
+ {rateReason && !several ? (
+ <RejectionRateField
+ profile={profileRate}
+ rate={newRate}
+ onRateChange={setNewRate}
+ isMinimum={newRateIsMinimum}
+ onIsMinimumChange={setNewRateIsMinimum}
+ />
+ ) : null}
+ </AutofillFeedbackField>
+ ) : (
  <FormField
  label="Powód"
  required
@@ -468,19 +540,7 @@ export function RejectionV2({
  />
  )}
  </FormField>
- {autofillAsked && autofill ? (
- <AutofillFeedbackField
- learnedFrom={autofillLearnedFrom}
- onLearnedFromChange={setAutofillLearnedFrom}
- reason={autofillReason}
- onReasonChange={setAutofillReason}
- rate={autofillRate}
- onRateChange={setAutofillRate}
- rateKnown={autofill.rateKnown}
- several={autofill.several}
- askRate={!rateReason}
- />
- ) : null}
+ )}
  {offerResponseRequired && (
  <FormField
  label="Reakcja kandydata na ofertę"

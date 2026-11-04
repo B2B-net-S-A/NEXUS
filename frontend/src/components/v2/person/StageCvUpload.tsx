@@ -25,6 +25,7 @@ import { Upload } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { FileDropZone } from "@/components/ds/FileDropZone";
+import { Button } from "@/components/ui/button";
 import { useConfirmV2 } from "@/components/v2/modals/ConfirmV2";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
@@ -39,6 +40,7 @@ import {
   cvToClientRowsQueryKey,
   stageBrandedQueryKey,
 } from "@/lib/cv-to-client";
+import { newCvUploadFrom, newCvUploadKey } from "@/lib/new-cv-upload";
 import { cn } from "@/lib/utils";
 
 export const STAGE_CV_ACCEPT = ".pdf,.doc,.docx";
@@ -77,6 +79,11 @@ export interface PreviewCvUpload {
 
 export interface StageCvUpload {
   upload: (file: File) => void;
+  /**
+   * Plik zawsze jako CV kandydata (oryginał etapu), także nazwany „B2B_…” —
+   * „Wygeneruj z tego pliku” w oknie „Użyj gotowego CV” (29.10.2026).
+   */
+  uploadAsOriginal: (file: File) => void;
   /** Wgrywanie albo otwarte pytanie „Zastąpić CV do klienta?” — drugi plik czeka. */
   isPending: boolean;
   /** Plik w drodze — kafelek pokazuje jego nazwę. */
@@ -208,7 +215,17 @@ export function useStageCvUpload({
         const targetId = variables.undo.clientCvStageId;
         invalidate([stageBrandedQueryKey(targetId), ...clientCvKeys(targetId)]);
       }
-      setUploadedAt(Date.now());
+      const at = Date.now();
+      setUploadedAt(at);
+      // Blok „Nowe CV” w karcie i panelu (29.10.2026): co z CV do klienta.
+      const entry = variables.undo ? null : newCvUploadFrom(data, variables.file.name, at);
+      queryClient.setQueryData(newCvUploadKey(candidateId, jobId), entry);
+      if (entry?.companyStageId != null && entry.companyStageId !== stageId) {
+        invalidate([stageBrandedQueryKey(entry.companyStageId)]);
+      }
+      if (entry?.plan === "regenerating") {
+        invalidate([stageBrandedQueryKey(stageId), cvToClientRowsQueryKey(candidateId, jobId)]);
+      }
       showSuccess(
         variables.undo
           ? "Cofnięte. Plik jest CV kandydata: główne w profilu i oryginał w tej rekrutacji."
@@ -241,6 +258,10 @@ export function useStageCvUpload({
     upload: (file) => {
       if (isPending) return;
       mutation.mutate({ file });
+    },
+    uploadAsOriginal: (file) => {
+      if (isPending) return;
+      mutation.mutate({ file, mode: "original" });
     },
     isPending,
     pendingFile: mutation.isPending ? (mutation.variables?.file ?? null) : confirming,
@@ -278,6 +299,50 @@ export function StageCvUploadTile({
       disabled={upload.isPending}
       className={className}
     />
+  );
+}
+
+/**
+ * „Wgraj nowe CV” w nagłówku zwiniętej sekcji „CV” panelu osoby (29.10.2026,
+ * D2): kafelek stoi na dole rozwiniętej sekcji, poniżej ekranu 1280 × 720.
+ */
+export function StageCvUploadButton({ upload, label = "Wgraj nowe CV" }: { upload: StageCvUpload; label?: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  const { showError } = useToast();
+  return (
+    <>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        className="h-7 shrink-0 px-2 text-xs"
+        loading={upload.isPending}
+        disabled={upload.isPending}
+        onClick={() => input.current?.click()}
+        data-tour="person.cv.upload-new"
+      >
+        <Upload className="h-3.5 w-3.5" aria-hidden /> {upload.isPending ? "Wgrywanie…" : label}
+      </Button>
+      <input
+        ref={input}
+        type="file"
+        accept={STAGE_CV_ACCEPT}
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          const problem = cvFileProblem(file);
+          if (problem) {
+            showError(problem);
+            return;
+          }
+          upload.upload(file);
+        }}
+      />
+    </>
   );
 }
 

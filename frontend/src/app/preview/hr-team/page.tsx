@@ -55,8 +55,8 @@ import {
 const AS = ["manager", "hr"] as const;
 
 const STATES = [
-  { key: "manager", label: "Przełożona (Marta)" },
-  { key: "hr", label: "Kadry (zespół Marty)" },
+  { key: "manager", label: "Koordynatorka (Marta)" },
+  { key: "hr", label: "Administracja współpracy (zespół Marty)" },
 ] as const;
 
 const { marta, ola, ewa, tomasz, julia, kamil, adam, paulina } = HR_CAST;
@@ -266,7 +266,7 @@ export default function HrTeamPreviewPage() {
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Mój zespół"
+      title="Ludzie → Koordynacja"
       note="Dane i kwoty fikcyjne, bez zapytań. Premie bez stawek (D2); rodzaj nieobecności widzi krąg D6."
       states={STATES}
       current={as}
@@ -274,7 +274,7 @@ export default function HrTeamPreviewPage() {
     >
       <div className="space-y-4">
         <PageHeader
-          title="Mój zespół"
+          title="Koordynacja"
           description="Kto jest dziś, co czeka na Twoją decyzję i jak idzie miesiąc."
           density="compact"
         />

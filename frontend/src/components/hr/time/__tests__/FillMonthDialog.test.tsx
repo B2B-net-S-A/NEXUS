@@ -1,5 +1,5 @@
 import type React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { FillResult, TimesheetTemplate } from "@/lib/api/hr-time";
@@ -150,6 +150,14 @@ describe("FillMonthDialog", () => {
     expect(alert.textContent).not.toMatch(/nadgodzin/);
   });
 
+  it("bez opisu roli: B2B i zlecenie „Realizacja usług zgodnie z umową”, UoP „Praca standardowa” (28.10.2026)", () => {
+    renderDialog({ form: "b2b", roleDefault: null });
+    expect(screen.getByText("„Realizacja usług zgodnie z umową”")).toBeInTheDocument();
+    cleanup();
+    renderDialog({ form: "uop", roleDefault: null });
+    expect(screen.getByText("„Praca standardowa”")).toBeInTheDocument();
+  });
+
   it("szablon z listy i 6,5 h", async () => {
     const { onFill } = renderDialog();
     fireEvent.click(screen.getByRole("radio", { name: "Mój szablon" }));
@@ -189,11 +197,11 @@ describe("FillMonthDialog", () => {
 
   it("błąd serwera zostaje w oknie", async () => {
     const onFill = vi.fn(async () => {
-      throw { response: { status: 409, data: { detail: "Miesiąc zamknięty w płacach." } } };
+      throw { response: { status: 409, data: { detail: "Miesiąc zamknięty w rozliczeniach." } } };
     });
     const { onDone } = renderDialog({ onFill });
     fireEvent.click(screen.getByRole("button", { name: "Wypełnij" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Miesiąc zamknięty w płacach.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Miesiąc zamknięty w rozliczeniach.");
     expect(onDone).not.toHaveBeenCalled();
   });
 });

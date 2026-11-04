@@ -4,7 +4,8 @@ Reguły (Compass, faza 27a/45 + audyt 22.09) i naprawy:
 
 * limit dnia 8 h liczony na SUMĘ wpisów dnia; ponad 8 h (do 16 h) to
   nadgodziny — tylko z prawem (``can_log_overtime`` z kartoteki albo
-  Kadry/admin) i z uzasadnieniem ≥ 5 znaków,
+  Kadry/admin) i z uzasadnieniem ≥ 5 znaków; ``no_hours_limit`` z kartoteki
+  osoby zdejmuje sufit 16 h i obowiązek opisu (jeden wpis nadal ≤ 24 h),
 * nadgodziną jest wpis, który przekracza 8 h SUMY dnia (w Compassie flagę
   liczono z godzin jednego wpisu, więc 5 h + 5 h przechodziło bez
   uzasadnienia),
@@ -38,6 +39,7 @@ from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_range
 from app.services.hr.time_hash import HashEntry, compute_timesheet_hash
 from app.services.hr_time_schema import (
+    ENTRY_MAX_HOURS,
     OVERTIME_MAX_HOURS,
     OVERTIME_REASON_MIN_LENGTH,
     STANDARD_DAY_HOURS,
@@ -45,18 +47,29 @@ from app.services.hr_time_schema import (
 
 STANDARD = Decimal(STANDARD_DAY_HOURS)
 OVERTIME_MAX = Decimal(OVERTIME_MAX_HOURS)
-#: Opis auto-wpisu płatnego urlopu — na karcie pracy wygląda jak dzień pracy
-#: (decyzja Compassa z 03.06.2026; to samo co domyślny opis „Wypełnij miesiąc”).
-STANDARD_DESCRIPTION = "Praca standardowa"
+ENTRY_MAX = Decimal(ENTRY_MAX_HOURS)
+#: Wpis ponad 8 h osoby bez limitu, gdy nic nie dopisała (CHECK wymaga tekstu).
+NO_LIMIT_REASON = "Bez limitu godzin (ustawienie w kartotece)"
 MAX_DESCRIPTION = 2000
 MAX_PROJECT = 200
 MAX_OVERTIME_REASON = 1000
 
 LOCKED_DETAIL = (
-    "Ten miesiąc jest zamknięty w płacach — zmiany wymagają ponownego otwarcia "
-    "miesiąca przez Płace."
+    "Ten miesiąc jest zamknięty w rozliczeniach — zmiany wymagają ponownego otwarcia "
+    "miesiąca przez Rozliczenia."
 )
-CHANGED_DETAIL = "Timesheet zmienił się w międzyczasie. Odśwież widok."
+CHANGED_DETAIL = "Raport godzin zmienił się w międzyczasie. Odśwież widok."
+
+
+def standard_description(employment_type: Optional[str]) -> str:
+    """Opis auto-wpisu płatnej puli i domyślny opis „Wypełnij miesiąc”.
+
+    Na karcie dzień puli wygląda jak dzień pracy (decyzja Compassa z
+    03.06.2026). Słowo z formy: B2B i zlecenie „Realizacja usług zgodnie
+    z umową”, UoP „Praca standardowa” (decyzja Artura 28.10.2026).
+    """
+
+    return terms(employment_type)["standard_description"]
 
 
 class TimeError(Exception):
@@ -153,7 +166,7 @@ async def lock_timesheet(db: AsyncSession, timesheet_id: int) -> Timesheet:
         .execution_options(populate_existing=True)
     )
     if timesheet is None:
-        raise TimeNotFound("Nie ma takiego timesheetu.")
+        raise TimeNotFound("Nie ma takiego raportu godzin.")
     return timesheet
 
 
@@ -229,6 +242,12 @@ class DayLeave:
     def paid_hours(self) -> Decimal:
         return STANDARD * self.leave.fraction if self.paid_work else Decimal("0")
 
+    @property
+    def manual_cap(self) -> Decimal:
+        """Najwięcej zwykłych ręcznych godzin dnia (pół dnia urlopu → 4 h)."""
+
+        return max(STANDARD - self.occupied_hours - self.paid_hours, Decimal("0"))
+
 
 def employed_on(subject: EmployeeProfile, day: date) -> bool:
     """Dzień mieści się w zatrudnieniu z kartoteki (brak daty = bez granicy)."""
@@ -274,8 +293,8 @@ def clean_hours(raw: Any) -> Decimal:
         raise TimeError("Godziny muszą być liczbą.") from None
     if not hours.is_finite() or hours <= 0:
         raise TimeError("Godziny muszą być większe od zera.")
-    if hours > OVERTIME_MAX:
-        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
+    if hours > ENTRY_MAX:
+        raise TimeError(f"Jeden wpis to najwyżej {ENTRY_MAX_HOURS} h.")
     if hours != hours.quantize(Decimal("0.01")):
         raise TimeError("Godziny podaje się z dokładnością do 0,01 h.")
     return hours.quantize(Decimal("0.01"))
@@ -300,7 +319,7 @@ def clean_project(raw: Optional[str]) -> Optional[str]:
 def _assert_in_month(timesheet: Timesheet, work_date: date) -> None:
     if (work_date.year, work_date.month) != (timesheet.year, timesheet.month):
         raise TimeError(
-            f"Data {work_date.isoformat()} nie należy do miesiąca tego timesheetu "
+            f"Data {work_date.isoformat()} nie należy do miesiąca tego raportu godzin "
             f"({timesheet.year}-{timesheet.month:02d})."
         )
 
@@ -354,11 +373,19 @@ def _decide_overtime(
     reason: Optional[str],
     work_date: date,
     form: Optional[str],
+    no_limit: bool = False,
 ) -> OvertimeDecision:
     total = other_hours + hours + occupied
     words = terms(form)
     if total <= STANDARD:
         return OvertimeDecision(False, None)
+    if no_limit:
+        text = (reason or "").strip()
+        if len(text) < OVERTIME_REASON_MIN_LENGTH:
+            text = NO_LIMIT_REASON
+        return OvertimeDecision(True, text)
+    if hours > OVERTIME_MAX:
+        raise TimeError(f"Maksymalnie {OVERTIME_MAX_HOURS} h na dzień.")
     if not actor.overtime_allowed:
         if occupied > 0:
             raise TimeError(
@@ -368,7 +395,7 @@ def _decide_overtime(
         raise TimeForbidden(
             f"Suma godzin {work_date.isoformat()} przekroczyłaby {STANDARD_DAY_HOURS} h "
             f"(już wpisane: {_fmt(other_hours)} h). {capitalize(words['overtime'])} "
-            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Kadry."
+            f"wpisuje osoba z uprawnieniem do {words['overtime_genitive']} albo Administracja współpracy."
         )
     if total > OVERTIME_MAX:
         raise TimeError(
@@ -421,10 +448,10 @@ def assert_editable(timesheet: Timesheet, *, as_approver: bool) -> None:
         return
     if timesheet.status == "approved":
         raise TimeConflict(
-            "Timesheet jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
+            "Raport godzin jest zaakceptowany — poprawka wymaga cofnięcia akceptacji."
         )
     raise TimeConflict(
-        "Timesheet czeka na akceptację — poprawki wprowadza akceptujący albo "
+        "Raport godzin czeka na akceptację — poprawki wprowadza akceptujący albo "
         "zwraca go do Ciebie."
     )
 
@@ -458,6 +485,7 @@ async def add_entry(
         reason=data.overtime_reason,
         work_date=data.work_date,
         form=subject.employment_type,
+        no_limit=subject.no_hours_limit,
     )
     entry = TimesheetEntry(
         timesheet_id=timesheet.id,
@@ -487,7 +515,7 @@ async def update_entry(
 ) -> TimesheetEntry:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     old_date = entry.work_date
     work_date = changes.get("work_date", entry.work_date)
@@ -520,6 +548,7 @@ async def update_entry(
             reason=changes.get("overtime_reason", entry.overtime_reason),
             work_date=work_date,
             form=subject.employment_type,
+            no_limit=subject.no_hours_limit,
         )
     entry.work_date = work_date
     entry.hours = hours
@@ -555,7 +584,7 @@ async def delete_entry(
 ) -> None:
     if entry.source == "leave_paid":
         raise TimeConflict(
-            "Ten wpis powstał z płatnego urlopu — zmień albo anuluj wniosek urlopowy."
+            "Ten wpis powstał z płatnego dnia przerwy — zmień albo anuluj zgłoszenie przerwy."
         )
     # Przyjęte potwierdzenie godzin zlecenia po terminie wypłaty zostaje 3 lata
     # (art. 8c) — trasy i tak edytują tylko szkic, to pilnuje każdej ścieżki.
@@ -670,7 +699,7 @@ async def sync_leave_paid(
                 work_date=day,
                 hours=hours,
                 project=None,
-                description=STANDARD_DESCRIPTION,
+                description=standard_description(employment_type),
                 source="leave_paid",
             )
         )
@@ -709,6 +738,72 @@ async def remove_hours_on_full_leave_days(
         )
         timesheet.updated_at = func.now()  # jak ``delete_entry``
     return rows
+
+
+def plan_half_day_trim(
+    entries: Iterable[TimesheetEntry], caps: dict[date, Decimal]
+) -> dict[int, Decimal]:
+    """Wpis → nowe godziny (0 = usunąć), żeby zwykłe ręczne godziny dnia
+    zmieściły się w limicie ``caps`` (pół dnia urlopu → 4 h).
+
+    Skracamy od najpóźniej dodanego wpisu. Auto-wpis ``leave_paid`` liczy się
+    w limicie sam, a nadgodzina (wpis ponad 8 h sumy dnia z uzasadnieniem)
+    zostaje — limit dnia dotyczy zwykłych godzin.
+    """
+
+    by_day: dict[date, list[TimesheetEntry]] = defaultdict(list)
+    for entry in entries:
+        if (
+            entry.work_date in caps
+            and entry.source != "leave_paid"
+            and not entry.is_overtime
+        ):
+            by_day[entry.work_date].append(entry)
+    plan: dict[int, Decimal] = {}
+    for day, rows in by_day.items():
+        excess = sum((Decimal(row.hours) for row in rows), Decimal("0")) - caps[day]
+        for row in sorted(rows, key=lambda item: item.id, reverse=True):
+            if excess <= 0:
+                break
+            cut = min(excess, Decimal(row.hours))
+            plan[row.id] = Decimal(row.hours) - cut
+            excess -= cut
+    return plan
+
+
+async def trim_hours_on_half_leave_days(
+    db: AsyncSession, *, timesheet: Timesheet, caps: dict[date, Decimal]
+) -> list[tuple[TimesheetEntry, Decimal, Decimal]]:
+    """Skraca ręczne godziny dni z połową urlopu (zatwierdzenie wniosku).
+
+    Zwraca (wpis, godziny przed, godziny po); wpis skrócony do zera znika.
+    """
+
+    if not caps:
+        return []
+    rows = list(
+        await db.scalars(
+            select(TimesheetEntry).where(
+                TimesheetEntry.timesheet_id == timesheet.id,
+                TimesheetEntry.work_date.in_(sorted(caps)),
+            )
+        )
+    )
+    plan = plan_half_day_trim(rows, caps)
+    changed: list[tuple[TimesheetEntry, Decimal, Decimal]] = []
+    for row in rows:
+        if row.id not in plan:
+            continue
+        before, after = Decimal(row.hours), plan[row.id]
+        if after > 0:
+            row.hours = after
+        else:
+            await db.delete(row)
+        changed.append((row, before, after))
+    if changed:
+        timesheet.updated_at = func.now()  # jak ``delete_entry``
+        await db.flush()
+    return changed
 
 
 def entry_payload(entry: TimesheetEntry) -> dict[str, Any]:

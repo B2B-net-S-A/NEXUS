@@ -1,4 +1,4 @@
-"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + cztery „Ludzie”).
+"""Katalog uprawnień z ekranu Ustawienia → Osoby i role (dziewięć + pięć „Ludzie” + dwa „Sprzedaż”).
 
 Jedyne miejsce, w którym stoi: jak uprawnienie się nazywa, do której grupy
 należy, co za sobą pociąga i która rola ma je domyślnie. Moduł jest czysty —
@@ -37,6 +37,19 @@ PEOPLE_ADMIN = "people_admin"
 PAYROLL = "payroll"
 EQUIPMENT = "equipment"
 CASES = "cases"
+# Sprzedaż (Atlas → NEXUS, 26.10.2026): kartoteka firm sprzedaży, szanse,
+# kontakty i leady. Bez domyślnych posiadaczy — admin nadaje je handlowcom.
+SALES_VIEW = "sales_view"
+SALES_EDIT = "sales_edit"
+# Raporty godzin (decyzja Artura 28.10.2026): akceptacja timesheetów całej
+# firmy bez reszty „Kadr” — dla back office, który rozlicza godziny i premie.
+# Grupa „Ludzie”, ale na KOŃCU katalogu (siatka przy starcie, jak wyżej).
+TIMESHEETS = "timesheets"
+# Zbiorcze wyniki firmy (decyzja Artura 02.11.2026): suma przychodu i marży,
+# rankingi, prognoza. Bez domyślnych posiadaczy poza adminem — Rada czyta je
+# z tytułu roli, a „Moduł Finanse” ich nie otwiera. Grupa „Pieniądze”, ale na
+# KOŃCU katalogu (siatka przy starcie, jak wyżej).
+COMPANY_RESULTS = "company_results"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -188,12 +201,12 @@ PERMISSIONS: tuple[Permission, ...] = (
     ),
     Permission(
         PEOPLE_ADMIN,
-        "Kadry: kartoteka, urlopy za innych, wejście i odejście",
+        "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
         "people",
     ),
     Permission(
         PAYROLL,
-        "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+        "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
         "people",
         # Decyzja Artura 16.10.2026 (D2): parytet z Compassem — Finanse
         # prowadzą stawki i rozliczenie; przełożony widzi godziny i premie
@@ -211,6 +224,27 @@ PERMISSIONS: tuple[Permission, ...] = (
         "people",
         holders=(Holder("talent_community_manager"),),
     ),
+    Permission(
+        SALES_VIEW,
+        "Sprzedaż: podgląd firm, szans i kontaktów",
+        "sales",
+    ),
+    Permission(
+        SALES_EDIT,
+        "Sprzedaż: prowadzenie szans i kartoteki firm",
+        "sales",
+        requires=(SALES_VIEW,),
+    ),
+    Permission(
+        TIMESHEETS,
+        "Raporty godzin: akceptacja całej firmy",
+        "people",
+    ),
+    Permission(
+        COMPANY_RESULTS,
+        "Wyniki firmy: podsumowania przychodu i marży",
+        "money",
+    ),
 )
 
 GROUPS: tuple[Group, ...] = tuple(
@@ -224,6 +258,7 @@ GROUPS: tuple[Group, ...] = tuple(
         ("recruitment", "Rekrutacje"),
         ("money", "Pieniądze"),
         ("people", "Ludzie"),
+        ("sales", "Sprzedaż"),
     )
 )
 

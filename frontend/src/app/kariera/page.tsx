@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
 
 import { CareerBoardView } from "@/components/career/CareerBoardView";
-import { CareerFooter } from "@/components/career/CareerFooter";
-import { careerHref } from "@/lib/career/host";
 import { fetchCareerBoard } from "@/lib/career/server";
 
 import { careerRequestContext } from "./_context";
@@ -19,11 +17,5 @@ export const dynamic = "force-dynamic";
  */
 export default async function CareerHome() {
   const [{ base, host }, result] = await Promise.all([careerRequestContext(), fetchCareerBoard()]);
-  return (
-    <CareerBoardView
-      data={result.ok ? result.data : null}
-      base={base}
-      footer={<CareerFooter rodoHref={careerHref(base, { to: "rodo" })} hostLabel={host} />}
-    />
-  );
+  return <CareerBoardView data={result.ok ? result.data : null} base={base} host={host} />;
 }

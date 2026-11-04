@@ -190,6 +190,12 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     roles: SYSTEM_ADMIN_ROLES,
     section: "system_admin",
   },
+  // Połączenia wtyczki LinkedIn — backend `AdminUser` (`/api/extension/connections`).
+  {
+    prefix: "/settings/linkedin-extension",
+    roles: SYSTEM_ADMIN_ROLES,
+    section: "system_admin",
+  },
   {
     prefix: "/settings/diagnostics",
     roles: SYSTEM_ADMIN_ROLES,
@@ -222,6 +228,22 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     enforceRoles: true,
   },
   {
+    // Zasady bliźniaków (29.10.2026): odczyt DL, HoR, admin; zapis — backend.
+    prefix: "/settings/twin-rules",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
+    // Dziennik CPro (02.11.2026): odczyt DL, HoR, admin; wyłączniki — backend.
+    prefix: "/settings/cpro",
+    roles: ["admin", "delivery_lead", "head_of_recruitment"],
+    section: "pipeline",
+    required: "read",
+    enforceRoles: true,
+  },
+  {
     // Odczyt: admin, Delivery Lead, Head of Recruitment; szkic i publikację
     // wag (admin, HoR + zapis Insights) bramkuje strona i backend.
     prefix: "/settings/scoring",
@@ -230,6 +252,10 @@ const ROLE_ROUTES: RouteAccessRule[] = [
     required: "read",
     enforceRoles: true,
   },
+  // Nowości — kto już umie (28.10.2026): imienna lista bez danych domenowych,
+  // lustro `HeadOfRecruitmentPlus`.
+  { prefix: "/settings/nowosci", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
+  { prefix: "/settings/jakosc-generatora", roles: ["admin", "head_of_recruitment"], enforceRoles: true },
   {
     prefix: "/settings/kpi-targets",
     roles: ["admin", "head_of_recruitment"],
@@ -435,12 +461,17 @@ const PUBLIC_PATHS = [
   "/apply/",
   "/sign/",
   "/cv/",
+  // Panel klienta pod linkiem z CV: token w adresie, klient nie ma konta.
+  "/k/",
   "/engagement/",
   // Publiczny podpis protokołu sprzętu: token w adresie, bez logowania.
   "/protocol/",
+  // Strefa konsultanta: konsultant nie ma konta, API ma własny wyłącznik i sesję.
+  "/konsultant/",
   // Wypis konsultanta z komunikatów informacyjnych: token w adresie, konsultant
   // nie ma konta (etap 3, O12).
   "/wypis/",
+  "/preview/client-panel",
   "/preview/candidates",
   "/preview/candidate-profile",
   "/preview/contact-queue",
@@ -583,6 +614,8 @@ const PUBLIC_PATHS = [
   // Katalog z listą rozjazdów kartoteka ↔ konto (19.10.2026).
   "/preview/hr-people",
   "/preview/client-invoicing",
+  // Sprzedaż → Szanse (Atlas → NEXUS, 27.10.2026), fikcyjne dane.
+  "/preview/sales",
   // Strona kariery (kandydaci z LinkedIna) — publiczna z definicji. Na własnym
   // hoście (`kariera.dynaminds.pl`) obsługuje ją `careerHostResponse` niżej;
   // tu jest wejście pod `/kariera/*` na hoście aplikacji (dev, podgląd, grafiki
@@ -592,7 +625,7 @@ const PUBLIC_PATHS = [
 ];
 
 // Ścieżki publiczne dopasowywane DOKŁADNIE (bez `startsWith`).
-const PUBLIC_EXACT_PATHS = ["/kariera"];
+const PUBLIC_EXACT_PATHS = ["/kariera", "/konsultant", "/wtyczka/prywatnosc"];
 
 /**
  * Runda 10 (R10-N10-1): harnessy `/preview/*` są publiczne wyłącznie poza

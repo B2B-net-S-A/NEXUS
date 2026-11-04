@@ -1707,6 +1707,7 @@ function RecruitmentCard({
           fallbackHtml={branded?.content_html ?? null}
           language={branded?.language === "en" ? "en" : "pl"}
           textAlign={normalizeCvAlign(branded?.text_align)}
+          originalStageId={cvStageId}
         />
       ) : null}
       {!readOnly && openBranded && stageId != null ? (

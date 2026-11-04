@@ -137,3 +137,8 @@ export function formatDateTime(iso: string | null | undefined): string {
 export function formatDate(iso: string | null | undefined): string {
   return iso ? DATE.format(new Date(iso)) : "—";
 }
+
+export const KNOWN_POINTS_INTRO =
+  "Układa kolejkę kart od systemu w „Nowych”. Działa od razu po zapisaniu. Procent dopasowania się nie zmienia.";
+export const KNOWN_POINTS_MEASURE =
+  "Pomiar z 02.11.2026 dla +6, +8 i +2, na 146 osobach wysłanych do klienta od 23.10: w top 20 z 32% do 38%, w top 40 z 49% do 62%, rekrutacje z trafieniem w top 20 z 45% do 62%.";

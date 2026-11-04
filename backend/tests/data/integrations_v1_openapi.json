@@ -15304,7 +15304,7 @@
     },
     "/api/integrations/v1/applications/{application_id}/resolve": {
       "post": {
-        "description": "Jak „Zgłoszenia” na ekranie: link (CV do profilu), merge (CV i puste\npola kontaktu), create (nowy kandydat), reject (z powodem). Rekrutacja\nzgłoszenia dostaje osobę w „Nowi”, chyba że już tam jest; czarna lista\ni weto hiring managera → 409 ``blocked``. Zgłoszenie rozpatrzone wcześniej\n→ 409 ``already_resolved``; inny e-mail niż w zgłoszeniu → 409\n``not_same_person``; create przy istniejącym e-mailu → 409\n``duplicate_candidate``; adres osoby usuniętej (RODO) → 409\n``candidate_erased``.",
+        "description": "Jak „Zgłoszenia” na ekranie: link (CV do profilu), merge (CV i puste\npola kontaktu), create (nowy kandydat), reject (z powodem). Rekrutacja\nzgłoszenia dostaje osobę w „Nowi”, chyba że już tam jest; czarna lista\ni weto hiring managera → 409 ``blocked``. Zgłoszenie rozpatrzone wcześniej\n→ 409 ``already_resolved``; inny e-mail niż w zgłoszeniu → 409\n``not_same_person``; create przy istniejącym e-mailu → 409\n``duplicate_candidate``; adres trwale usuniętego profilu → 409\n``candidate_erased``.",
         "operationId": "resolve_application_api_integrations_v1_applications__application_id__resolve_post",
         "parameters": [
           {
@@ -15536,7 +15536,7 @@
         ]
       },
       "post": {
-        "description": "Jak „Dodaj kandydata” na ekranie: profil, wpis w historii, dzwonek dla\nadminów i Head of Recruitment, indeks wyszukiwania. Autor = konto\nserwisowe. Kandydat z tym samym e-mailem (bez rozróżniania wielkości\nliter) już jest → 409 ``duplicate_candidate`` z ``candidate_id``. Adres\nosoby usuniętej na jej żądanie (RODO) → 409 ``candidate_erased``.\nDopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → 422 przy polu.",
+        "description": "Jak „Dodaj kandydata” na ekranie: profil, wpis w historii, dzwonek dla\nadminów i Head of Recruitment, indeks wyszukiwania. Autor = konto\nserwisowe. Kandydat z tym samym e-mailem (bez rozróżniania wielkości\nliter) już jest → 409 ``duplicate_candidate`` z ``candidate_id``. Adres\ntrwale usuniętego profilu → 409 ``candidate_erased``.\nDopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → 422 przy polu.",
         "operationId": "create_candidate_api_integrations_v1_candidates_post",
         "parameters": [
           {

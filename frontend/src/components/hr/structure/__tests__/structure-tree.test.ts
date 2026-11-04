@@ -86,7 +86,7 @@ describe("drzewo Struktury", () => {
     expect(groups[0].count).toBe(5);
   });
 
-  it("w pionie drzewo po przełożonym, head na górze, podwładni po nazwisku", () => {
+  it("w pionie drzewo po koordynatorem, head na górze, osoby w zespole po nazwisku", () => {
     const rows = flatten(groups[0].roots).map(({ node, depth }) => [node.person.name, depth]);
     expect(rows).toEqual([
       ["Paweł Przykładowy", 0],
@@ -96,11 +96,11 @@ describe("drzewo Struktury", () => {
     ]);
   });
 
-  it("przełożony z innego pionu robi z osoby korzeń jej pionu", () => {
+  it("koordynator z innego pionu robi z osoby korzeń jej pionu", () => {
     expect(groups[1].roots.map((node) => node.person.name)).toEqual(["Celina Opiekuńcza"]);
   });
 
-  it("bez przełożonego i bez podwładnych — osobna lista, head się do niej nie liczy", () => {
+  it("bez koordynatora i bez osób w zespole — osobna lista, head się do niej nie liczy", () => {
     expect(groups[0].orphans.map((p) => p.name)).toEqual(["Filip Bezpionowy"]);
     expect(groups[2].orphans.map((p) => p.name)).toEqual(["Dawid Demo"]);
     expect(groups[2].roots).toEqual([]);
@@ -127,8 +127,8 @@ describe("drzewo Struktury", () => {
   });
 });
 
-describe("przełożony czy koordynator", () => {
-  it("B2B i zlecenie — koordynator, UoP — przełożony, mieszane — oba", () => {
+describe("koordynator czy koordynator", () => {
+  it("B2B i zlecenie — koordynator, UoP — koordynator, mieszane — oba", () => {
     expect(managerWords(["b2b", "zlecenie"]).one).toBe("koordynator");
     expect(managerWords(["uop"]).ofOne).toBe("przełożonego");
     expect(managerWords(["uop", "b2b"]).one).toBe("koordynator");
@@ -150,7 +150,7 @@ describe("schemat — przeciąganie karty (makieta 19.10.2026)", () => {
     expect(canDropOn(data, 2, 2)).toBe(false);
   });
 
-  it("upuszczenie na obecnego przełożonego to nie zmiana", () => {
+  it("upuszczenie na obecnego koordynatora to nie zmiana", () => {
     expect(canDropOn(data, 3, 2)).toBe(false);
   });
 
@@ -162,7 +162,7 @@ describe("schemat — przeciąganie karty (makieta 19.10.2026)", () => {
 });
 
 describe("„Do uporządkowania”", () => {
-  it("zbiera odejście przełożonego, M365, podpowiedzi, brak przełożonego i pionu", () => {
+  it("zbiera odejście koordynatora, M365, podpowiedzi, brak koordynatora i pionu", () => {
     const head = person(1, "Kamil Testowy", { division: "front_office", reports: 2 });
     const leaving = person(2, "Marta Fikcyjna", {
       division: "front_office",
@@ -204,13 +204,13 @@ describe("„Do uporządkowania”", () => {
     ]);
   });
 
-  it("head pionu bez przełożonego to nie brak", () => {
+  it("head pionu bez koordynatora to nie brak", () => {
     const head = person(1, "Kamil Testowy", { division: "front_office" });
     expect(todoItems(structure([head], { front_office: 1 }))).toEqual([]);
   });
 });
 
-describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
+describe("schemat — kolumna osób w zespole (prod 20.10.2026)", () => {
   // Jak na produkcji: szef → dwie osoby → po kilkadziesiąt osób bez ludzi.
   const boss = person(1, "Szef Przykładowy", { reports: 2 });
   const leadA = person(2, "Adam Prowadzący", { reports: 20, ...under(boss) });
@@ -224,7 +224,7 @@ describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
   const group = noDivision([boss, leadA, leadB, ...many, ...few]);
   const [root] = group.roots;
 
-  it("do czterech podwładnych — zwykły rząd", () => {
+  it("do czterech osób w zespole — zwykły rząd", () => {
     const b = root.children.find((node) => node.person.user_id === 3)!;
     expect(childLayout(b).stack).toEqual([]);
     expect(childLayout(b).branches).toHaveLength(3);
@@ -238,7 +238,7 @@ describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
     expect(layout.stack.map((node) => node.person.name)).toEqual(many.map((p) => p.name));
   });
 
-  it("mieszany zespół: przełożeni zostają w rzędzie, reszta w kolumnie", () => {
+  it("mieszany zespół: koordynatorzy zostają w rzędzie, reszta w kolumnie", () => {
     const top = person(1, "Szef", { reports: 6 });
     const mid = person(2, "Kierownik", { reports: 1, ...under(top) });
     const sub = person(3, "Pod kierownikiem", under(mid));
@@ -249,7 +249,7 @@ describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
     expect(layout.stack.map((node) => node.person.user_id)).toEqual([4, 5, 6, 7, 8]);
   });
 
-  it("jeden liść wśród przełożonych nie robi kolumny", () => {
+  it("jeden liść wśród koordynatorów nie robi kolumny", () => {
     const top = person(1, "Szef", { reports: 5 });
     const mids = [2, 3, 4, 5].map((id) => person(id, `Kierownik ${id}`, { reports: 1, ...under(top) }));
     const subs = mids.map((m, i) => person(10 + i, `Pod ${i}`, under(m)));
@@ -260,7 +260,7 @@ describe("schemat — kolumna podwładnych (prod 20.10.2026)", () => {
     expect(layout.branches).toHaveLength(5);
   });
 
-  it("nikt nie znika: rząd + kolumna = wszyscy podwładni", () => {
+  it("nikt nie znika: rząd + kolumna = wszyscy osoby w zespole", () => {
     for (const { node } of flatten(group.roots)) {
       const { branches, stack } = childLayout(node);
       expect(branches.length + stack.length).toBe(node.children.length);

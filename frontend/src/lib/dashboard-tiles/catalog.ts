@@ -23,7 +23,7 @@ import { hasCapability } from "@/lib/capabilities";
 import { canCustomizeBoardPanel } from "@/lib/dashboard-panels";
 import { hasPermission, permissionLabel } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
-import { getUserRoles, type User, type UserRole } from "@/store/auth";
+import { getUserRoles, hasRole, type User, type UserRole } from "@/store/auth";
 
 export type TileCategory =
   | "my_work"
@@ -59,6 +59,11 @@ export interface TileDefinition {
   minSize: Size;
   /** Widżet ma własną kartę z nagłówkiem — ramka kafelka go nie dubluje. */
   ownChrome: boolean;
+  /**
+   * Kafelek ma wysokość swojej treści i nie przewija się w sobie — przewija się
+   * pulpit. Rozmiar zmienia się tylko w poziomie (decyzja Artura 30.10.2026).
+   */
+  fitContent?: boolean;
   availability: (user: User | null | undefined) => TileAvailability;
 }
 
@@ -251,11 +256,14 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   recruitment_activity: {
     type: "recruitment_activity",
     label: "Aktywność rekrutacyjna",
-    description: "Dzienne i miesięczne liczby: weryfikacje, CV, rozmowy.",
+    description: "Liczby za wybrany okres: weryfikacje, CV, rozmowy.",
     category: "recruitment",
     defaultSize: { w: 12, h: 5 },
     minSize: { w: 6, h: 3 },
     ownChrome: true,
+    // Tabela osób zespołu w okienku 22 rem z przewijaniem w kafelku pokazywała
+    // 6 z 23 osób przy 1280 × 720 (Artur, 30.10.2026).
+    fitContent: true,
     availability: needsSection("pipeline", "Rekrutacje"),
   },
   recruitment_competence: {
@@ -461,7 +469,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   },
   hr_my_time: {
     type: "hr_my_time",
-    label: "Mój czas",
+    label: "Moja współpraca",
     description: "Ile urlopu zostało, najbliższy urlop i godziny wpisane w tym miesiącu.",
     category: "people",
     defaultSize: { w: 6, h: 3 },
@@ -472,7 +480,7 @@ export const TILE_DEFINITIONS: Record<TileType, TileDefinition> = {
   hr_approvals: {
     type: "hr_approvals",
     label: "Do akceptacji",
-    description: "Wnioski urlopowe i timesheety, które czekają na Twoją decyzję.",
+    description: "Zgłoszenia i raporty godzin do potwierdzenia.",
     category: "people",
     defaultSize: { w: 4, h: 3 },
     minSize: { w: 3, h: 2 },
@@ -887,12 +895,12 @@ export function hrTileGate(type: TileType, hr: TileHrContext): TileAvailability 
       if (!open.leave && !open.time) return "hidden";
       return me.has_profile
         ? OK
-        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założą ją Kadry" };
+        : { ok: false, reason: "Dla osób z kartoteką w NEXUSIE — założy ją Administracja współpracy" };
     case "hr_approvals":
       if (!open.leave && !open.time) return "hidden";
-      return me.is_admin || me.people_admin || me.is_manager
+      return me.is_admin || me.people_admin || me.timesheets === true || me.is_manager
         ? OK
-        : { ok: false, reason: "Dla koordynatorów i Kadr" };
+        : { ok: false, reason: "Dla koordynatorów i Administracji współpracy" };
     case "equipment_tasks":
       return open.equipment ? OK : "hidden";
     case "care_mine":
@@ -919,9 +927,16 @@ export function templateAvailability(
   if (gate === "hidden") return { ok: false, reason: "Moduł „Ludzi w NEXUSIE” jest wyłączony" };
   if (!gate.ok) return gate;
   if (template.metricSection === "finance") {
-    // Kafelki kwot idą za uprawnieniem „Stawki i kwoty: podgląd”, nie za rolą.
-    // U KOGO konto widzi kwoty (Delivery Lead: u swoich klientów), liczy serwer
-    // przy każdym zapytaniu metryki.
+    // Całą firmę liczy „Wyniki firmy”. Bez niego kwoty ma tylko Delivery Lead,
+    // u swoich klientów (liczy serwer przy każdym zapytaniu metryki) — lustro
+    // `custom_metrics/engine.source_denial`.
+    if (hasPermission(user, "company_results")) return { ok: true };
+    if (!hasRole(user, "delivery_lead")) {
+      return {
+        ok: false,
+        reason: `Wymaga uprawnienia „${permissionLabel("company_results")}”`,
+      };
+    }
     return hasPermission(user, "amounts_view")
       ? { ok: true }
       : {

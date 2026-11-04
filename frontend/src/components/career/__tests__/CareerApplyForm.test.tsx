@@ -84,6 +84,15 @@ describe("CareerApplyForm — przycisk", () => {
   });
 });
 
+describe("CareerApplyForm — stawka", () => {
+  it("puste pole nie podsuwa kandydatowi żadnej kwoty", () => {
+    const { container } = renderForm();
+    const rate = field(container, "expected_rate_hourly");
+    expect(rate).toHaveValue(null);
+    expect(rate).not.toHaveAttribute("placeholder");
+  });
+});
+
 describe("CareerApplyForm — walidacja", () => {
   it("wymaga imienia, nazwiska, e-maila, CV i zgody — podsumowanie z liczbą pól", () => {
     const { container } = renderForm();
@@ -342,10 +351,11 @@ describe("CareerApplyForm — wysyłka", () => {
         thanks={{
           variant: "job",
           recruiterFirstName: "Marta",
-          jobHandle: "senior-java-developer",
-          chromePath: "~/b2bnetwork/kariera",
+          jobTitle: "Senior Java Developer",
+          homeHref: "/",
+          rodoHref: "/rodo",
+          hostLabel: "kariera.b2bnetwork.pl/r/senior-java-ab12",
           recruiterPageHref: "/marta-n",
-          recruiterPageSlug: "marta-n",
         }}
       >
         <p>treść strony</p>
@@ -356,7 +366,8 @@ describe("CareerApplyForm — wysyłka", () => {
     submit();
     expect(await screen.findByRole("heading", { name: /Dziękujemy, Jan\./ })).toBeInTheDocument();
     expect(screen.getByText(/jan@example\.com/)).toBeInTheDocument();
-    expect(screen.getByText(/trafiła do Marty/)).toBeInTheDocument();
+    expect(screen.getByText(/Senior Java Developer trafiła do Marty/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Zobacz rekrutacje Marty" })).toHaveAttribute("href", "/marta-n");
     expect(screen.queryByText("treść strony")).toBeNull();
   });
 });

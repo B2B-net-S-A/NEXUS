@@ -166,7 +166,9 @@ describe("ContractsListV2 — raport kontraktów bez zamówienia", () => {
     renderList();
 
     fireEvent.click(await screen.findByRole("button", { name: /eksport/i }));
-    expect(screen.getByText(/excel \(\.xlsx\)/i)).toBeInTheDocument();
+    // Plik z całą firmą wymaga „Wyników firmy”; arkusz Placementów zostaje.
+    expect(screen.queryByText(/excel \(\.xlsx\)/i)).toBeNull();
+    expect(screen.getByText(/placementy/i)).toBeInTheDocument();
     expect(screen.queryByText(/kontrakty bez zamówienia/i)).toBeNull();
   });
 

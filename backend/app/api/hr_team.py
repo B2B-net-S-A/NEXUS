@@ -27,8 +27,8 @@ from app.services.hr import team as service
 
 router = APIRouter()
 
-TEAM_DETAIL = "„Mój zespół” widzą przełożeni i Kadry."
-OTHER_TEAM_DETAIL = "Zespół innego koordynatora widzą tylko Kadry."
+TEAM_DETAIL = "„Koordynację” widzą koordynatorzy i Administracja współpracy."
+OTHER_TEAM_DETAIL = "Zespół innego koordynatora widzi tylko Administracja współpracy."
 
 
 def require_hr_team_reader():

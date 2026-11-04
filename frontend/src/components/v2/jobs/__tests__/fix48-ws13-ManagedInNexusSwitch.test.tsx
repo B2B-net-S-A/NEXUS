@@ -53,7 +53,9 @@ describe("ManagedInNexusChip po wyłączeniu Traffita", () => {
     expect(chip).toHaveTextContent("Prowadzona w NEXUSIE od");
     expect(chip).not.toHaveAttribute("role", "button");
     expect(chip).not.toHaveAttribute("tabindex");
-    expect(chip).not.toHaveAttribute("title");
+    // Dymek to tylko pełny tekst plakietki (skraca się w wąskim nagłówku,
+    // 28.10.2026) — bez podpowiedzi powrotu do Traffita.
+    expect(chip.getAttribute("title")).toBe(chip.textContent);
 
     fireEvent.click(chip);
     fireEvent.keyDown(chip, { key: "Enter" });

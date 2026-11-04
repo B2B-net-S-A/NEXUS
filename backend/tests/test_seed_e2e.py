@@ -15,6 +15,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.models.app_setting import AppSetting
 from app.models.user import User, UserRole
 from scripts import seed_e2e
 
@@ -111,3 +112,36 @@ async def test_seed_refuses_database_with_foreign_accounts(
 async def test_main_requires_confirm_token(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("E2E_SEED_CONFIRM", raising=False)
     assert await seed_e2e._main() == 2
+
+
+async def test_seeded_stack_does_not_send_accounts_to_start(
+    app_client: AsyncClient,
+    unique_accounts: tuple[seed_e2e.E2EAccount, ...],
+) -> None:
+    """Blokada „Start w NEXUSIE” na stacku E2E jest wyłączona — scenariusze
+    testują przepływ, nie Start (jak z bramką onboardingu)."""
+    from app.api.novelties import START_GATE_KEY
+
+    assert seed_e2e.START_GATE_KEY == START_GATE_KEY
+    password = "E2e-Password-" + uuid.uuid4().hex[:8]
+    try:
+        async with AsyncSessionLocal() as db:
+            await seed_e2e.seed_accounts(db, password)
+        login = await app_client.post(
+            "/api/auth/login",
+            json={"email": unique_accounts[1].email, "password": password},
+        )
+        token = login.json()["access_token"]
+        start = await app_client.get(
+            "/api/novelties/start", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert start.status_code == 200, start.text
+        assert start.json()["enforced"] is False
+        assert start.json()["gate_on"] is False
+    finally:
+        # Wspólna baza testów: przełącznik nie może przeciec do testów Startu.
+        async with AsyncSessionLocal() as db:
+            row = await db.get(AppSetting, START_GATE_KEY)
+            if row is not None:
+                await db.delete(row)
+                await db.commit()

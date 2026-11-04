@@ -394,6 +394,26 @@ describe("CvQcDialog — QC CV", () => {
     expect(await screen.findByTestId("cv-editor")).toBeInTheDocument();
   });
 
+  it("szkic wczytany z pliku Word ma ten sam znacznik co karta „CV do klienta” (29.10.2026)", async () => {
+    serve(result({ cv: { ...result().cv!, from_word_file: true, filename: "CV_kandydatki.docx" } }));
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+
+    const note = await within(dialog).findByTestId("qc-cv-word-file");
+    expect(note).toHaveTextContent("z pliku Word");
+    expect(note).toHaveTextContent("Treść przeniesiona bez AI — sprawdź układ przed wysyłką.");
+    expect(within(dialog).getByText(/CV_kandydatki\.docx/)).toBeInTheDocument();
+  });
+
+  it("CV z generatora nie ma znacznika „z pliku Word”", async () => {
+    serve(result());
+    renderDialog();
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByText(/Szkic CV firmowego/);
+
+    expect(within(dialog).queryByTestId("qc-cv-word-file")).toBeNull();
+  });
+
   it("CV z pliku (bez edycji) — zamiast edytora link do panelu osoby", async () => {
     serve(result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }));
     renderDialog();
@@ -679,6 +699,59 @@ describe("CvQcDialog — QC CV", () => {
     expect(within(dialog).getByRole("button", { name: /Przesuń dalej/ })).toBeEnabled();
   });
 
+  describe("W oryginale pod inną nazwą", () => {
+    const similarResult = (): QcResult => {
+      const base = result();
+      const check: QcCheck = {
+        key: "no_unsupported",
+        label: "CV nie twierdzi niczego spoza oryginału",
+        severity: "blocking",
+        status: "fail",
+        summary: "1 do wyjaśnienia",
+        items: [
+          {
+            key: "no_unsupported|analiza systemowa|cv",
+            requirement: "Analiza systemowa",
+            term: "Analiza systemowa",
+            detail: "Dosłownie tego nie ma, ale oryginał ma „System analysis” — sprawdź, czy to ta sama rzecz.",
+            fix: "ask_candidate",
+            similar: { term: "System analysis", quote: "System analyst System analysis covering requirements" },
+          },
+        ],
+      };
+      return {
+        ...base,
+        passed: false,
+        blocking_failed: 1,
+        can_override: true,
+        original_cv: { ...base.original_cv, filename: "cv_kandydata.pdf", snapshot_at: "2026-10-15T10:00:00Z" },
+        checks: [check, ...base.checks.filter((c) => c.key !== "no_unsupported")],
+      };
+    };
+
+    it("zamiast „nie ma” pokazuje cytat, plik oryginału i jedno kliknięcie", async () => {
+      serve(similarResult());
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      expect(await within(dialog).findByText(/Analiza systemowa — w oryginale pod inną nazwą\?/)).toBeTruthy();
+      expect(within(dialog).queryByText(/nie ma tego w oryginale/)).toBeNull();
+      expect(within(dialog).getByTestId("qc-similar-quote")).toHaveTextContent("System analysis covering");
+      expect(within(dialog).getByTestId("qc-original-file")).toHaveTextContent("cv_kandydata.pdf");
+      await userEvent.click(within(dialog).getByRole("button", { name: "To ta sama rzecz" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(
+          `${QC_URL}/dismiss`,
+          expect.objectContaining({
+            key: "no_unsupported|analiza systemowa|cv",
+            reason: "other_name",
+            quote: "System analyst System analysis covering requirements",
+          }),
+        ),
+      );
+    });
+  });
+
   describe("tryb doradczy — QC doradza, nie blokuje", () => {
     const advisory = (over: Partial<QcResult> = {}): QcResult =>
       result({ advisory: true, can_override: true, ...over });
@@ -951,7 +1024,8 @@ describe("CvQcDialog — QC CV", () => {
 
   describe("„Potwierdzone z kandydatem” — treść spoza oryginału", () => {
     const DOCKER = "Docker — jest w CV, a nie ma tego w oryginale";
-    const FIELD = "Co powiedział kandydat? (opcjonalnie)";
+    const FIELD = "Co dokładnie powiedział kandydat? (wymagane)";
+    const SAID = "Używał Dockera w projekcie migracji";
 
     it("zapisuje to, co powiedział kandydat, i podmienia wynik QC", async () => {
       post.mockResolvedValue({ data: passed() });
@@ -984,8 +1058,13 @@ describe("CvQcDialog — QC CV", () => {
       expect(keys()).toEqual(expect.arrayContaining(['["kanban","31"]', '["kanban",31]', '["board-tasks"]']));
     });
 
-    it("opis jest opcjonalny, a przycisk działa też przy CV, którego nie da się edytować", async () => {
-      serve(result({ cv: { ...result().cv!, source: "document", editable: false, stage_id: null } }));
+    it("bez słów kandydata nie da się zapisać; przycisk działa też przy CV, którego nie da się edytować", async () => {
+      serve(
+        result({
+          cv: { ...result().cv!, source: "document", editable: false, stage_id: null },
+          confirm_roles: ["Firma Testowa", "Inna Firma"],
+        }),
+      );
       post.mockResolvedValue({ data: passed() });
       renderDialog();
       const { card } = await taskCard(DOCKER);
@@ -993,8 +1072,21 @@ describe("CvQcDialog — QC CV", () => {
       const open = within(card).getByRole("button", { name: "Potwierdzone z kandydatem" });
       expect(open).toBeEnabled();
       await userEvent.click(open);
-      await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
-      await waitFor(() => expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, { term: "Docker" }));
+      const save = within(card).getByRole("button", { name: "Zapisz potwierdzenie" });
+      expect(save).toBeDisabled();
+      await userEvent.type(within(card).getByLabelText(FIELD), "krótko");
+      expect(save).toBeDisabled();
+      await userEvent.type(within(card).getByLabelText(FIELD), " o tym, co robił z Dockerem");
+      expect(save).toBeEnabled();
+      await userEvent.selectOptions(within(card).getByLabelText("W której roli?"), "Inna Firma");
+      await userEvent.click(save);
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/confirm`, {
+          term: "Docker",
+          text: "krótko o tym, co robił z Dockerem",
+          role: "Inna Firma",
+        }),
+      );
     });
 
     it("odmowa serwera (422) pokazuje jego komunikat i zostawia formularz z treścią", async () => {
@@ -1007,11 +1099,11 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const { card } = await taskCard(DOCKER);
       await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
-      await userEvent.type(within(card).getByLabelText(FIELD), "Zna z kursu");
+      await userEvent.type(within(card).getByLabelText(FIELD), SAID);
       await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
       await waitFor(() => expect(showError).toHaveBeenCalledWith("QC nie zgłasza już tej pozycji — odśwież okno."));
       expect(showSuccess).not.toHaveBeenCalled();
-      expect(within(card).getByLabelText(FIELD)).toHaveValue("Zna z kursu");
+      expect(within(card).getByLabelText(FIELD)).toHaveValue(SAID);
     });
 
     it("awaria bez komunikatu serwera → zdanie zastępcze", async () => {
@@ -1019,6 +1111,7 @@ describe("CvQcDialog — QC CV", () => {
       renderDialog();
       const { card } = await taskCard(DOCKER);
       await userEvent.click(within(card).getByRole("button", { name: "Potwierdzone z kandydatem" }));
+      await userEvent.type(within(card).getByLabelText(FIELD), SAID);
       await userEvent.click(within(card).getByRole("button", { name: "Zapisz potwierdzenie" }));
       await waitFor(() =>
         expect(showError).toHaveBeenCalledWith("Nie udało się zapisać potwierdzenia. Spróbuj ponownie."),
@@ -1449,6 +1542,40 @@ describe("CvQcDialog — QC CV", () => {
     });
   });
 
+  // 02.11.2026: okres stanowiska inny niż w oryginale, poprawka jednego stanowiska.
+  describe("„Daty stanowisk jak w oryginale”", () => {
+    const DATE_ITEM = {
+      key: "role_dates|w cv: „08.2022 - obecnie”. w oryginale: „08.2022 - 05.2026”.|lead · hays",
+      role: "Lead · Hays",
+      detail: "W CV: „08.2022 - obecnie”. W oryginale: „08.2022 - 05.2026”.",
+      fix: "restore_dates" as const,
+      role_index: 1,
+    };
+    it("„Przywróć daty z oryginału” wysyła numer stanowiska", async () => {
+      const base = result();
+      const check: QcCheck = {
+        key: "role_dates",
+        label: "Daty stanowisk jak w oryginale",
+        severity: "warning",
+        status: "fail",
+        summary: "1 do sprawdzenia",
+        items: [DATE_ITEM],
+      };
+      serve({ ...base, checks: [...base.checks, check] });
+      post.mockResolvedValue({ data: passed() });
+      renderDialog();
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Daty stanowisk jak w oryginale/ }));
+      expect(within(notes).getByText(DATE_ITEM.detail)).toBeTruthy();
+      expect(within(notes).getByRole("button", { name: "To nieprawda" })).toBeTruthy();
+      await userEvent.click(within(notes).getByRole("button", { name: "Przywróć daty z oryginału" }));
+      await waitFor(() =>
+        expect(post).toHaveBeenCalledWith(`${QC_URL}/apply`, { action: "restore_dates", role_index: 1 }),
+      );
+    });
+  });
+
   // 16.10.2026, decyzje Artura D1–D7: uwaga z jednym przyciskiem, a zamiast
   // „To nieprawda” jedno kliknięcie „Zostaw tę kolejność”.
   describe("„Stanowiska od najnowszego”", () => {
@@ -1506,6 +1633,67 @@ describe("CvQcDialog — QC CV", () => {
       );
       expect(within(notes).queryByRole("form")).toBeNull();
       await waitFor(() => expect(showSuccess).toHaveBeenCalledWith("Kolejność zostaje — QC przeliczone."));
+    });
+  });
+
+  // F37 (27.10.2026): Delivery Lead ogląda zrzut, którego AI nie potwierdziło,
+  // bez pobierania CV.
+  describe("„Zrzut zgody RODO pasuje do kandydata i rekrutacji”", () => {
+    const SHOT_URL = `${QC_URL}/consent-screenshot`;
+    const DETAIL = "AI: Nadawca to nie kandydat. Rekruter zapisał go mimo to — powód: „Kandydat pisał z prywatnej skrzynki”.";
+    const mismatched = (): QcResult => {
+      const base = result();
+      const check: QcCheck = {
+        key: "consent_matches",
+        label: "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
+        severity: "warning",
+        status: "fail",
+        summary: "Zrzut nie pasuje — obejrzyj go",
+        items: [{ key: "consent_matches||cv", detail: DETAIL, fix: "replace_consent" }],
+      };
+      return { ...base, checks: [...base.checks, check] };
+    };
+    const serveShot = (shot: () => Promise<unknown>) => {
+      const data = mismatched();
+      get.mockImplementation((url: string) =>
+        url === QC_URL ? Promise.resolve({ data }) : url === SHOT_URL ? shot() : Promise.reject(new Error(url)),
+      );
+    };
+
+    beforeEach(() => {
+      URL.createObjectURL = vi.fn(() => "blob:zrzut-zgody");
+      URL.revokeObjectURL = vi.fn();
+    });
+
+    async function openConsent() {
+      const dialog = await screen.findByRole("dialog");
+      const notes = await within(dialog).findByRole("region", { name: "Warto poprawić — nie blokuje" });
+      await userEvent.click(within(notes).getByRole("button", { name: /Zrzut zgody RODO pasuje/ }));
+      return notes;
+    }
+
+    it("miniatura zrzutu stoi przy powodzie rekrutera, a klik ją powiększa", async () => {
+      serveShot(() => Promise.resolve({ data: new Blob(["png"], { type: "image/png" }) }));
+      renderDialog();
+      const notes = await openConsent();
+      expect(within(notes).getByText(DETAIL)).toBeTruthy();
+      const thumb = await within(notes).findByRole("button", { name: "Pokaż zrzut zgody" });
+      expect(get).toHaveBeenCalledWith(SHOT_URL, { responseType: "blob" });
+      expect(thumb.querySelector("img")?.getAttribute("src")).toBe("blob:zrzut-zgody");
+      await userEvent.click(thumb);
+      const large = await screen.findByRole("dialog", { name: "Zrzut zgody RODO" });
+      expect(within(large).getByRole("img", { name: "Zrzut zgody RODO kandydata" })).toHaveAttribute(
+        "src",
+        "blob:zrzut-zgody",
+      );
+    });
+
+    it("awaria pobrania zrzutu mówi to wprost, zamiast pustej miniatury", async () => {
+      serveShot(() => Promise.reject(new Error("503")));
+      renderDialog();
+      const notes = await openConsent();
+      expect(await within(notes).findByText(/Nie udało się wczytać zrzutu/)).toBeTruthy();
+      expect(within(notes).queryByRole("button", { name: "Pokaż zrzut zgody" })).toBeNull();
     });
   });
 });

@@ -5,7 +5,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { jobsApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
-import { activeCardsWarningFrom, type ActiveCardsWarning } from "@/lib/job-close";
+import {
+  activeCardsWarningFrom,
+  closeAnywayLabel,
+  type ActiveCardsWarning,
+} from "@/lib/job-close";
 import { useToast } from "@/components/Toast";
 import {
   CloseReasonFields,
@@ -89,7 +93,7 @@ export function CloseJobAsLostModal({ jobId, jobTitle, clientId, onClose }: Prop
           disabled={mutation.isPending || !closeReasonReady(value)}
           className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
         >
-          {mutation.isPending ? "Zamykam..." : activeCards ? "Zamknij mimo to" : "Zamknij rekrutację"}
+          {mutation.isPending ? "Zamykam..." : activeCards ? closeAnywayLabel(activeCards) : "Zamknij rekrutację"}
         </button>
       </div>
     </ModalShell>

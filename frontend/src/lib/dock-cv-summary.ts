@@ -27,7 +27,8 @@ export interface DockSnapshotInput {
    * `manual_upload` = wgrane z rekrutacji, `manual_refresh` = podmienione z profilu,
    * `quarantine_restore` = wróciło CV osoby, bo wgrane było CV kogoś innego,
    * `client_cv_repair` = jednorazowa naprawa 15.10.2026: kopia trzymała CV do
-   * klienta („B2B_…”), wróciła do CV kandydata z profilu.
+   * klienta („B2B_…”), wróciła do CV kandydata z profilu,
+   * `contract_repair` = jednorazowa naprawa 30.10.2026: to samo dla kopii umowy.
    */
   original_snapshot_source?: string | null;
 }
@@ -101,8 +102,9 @@ export function originalCvSentence(state: DockOriginalCv): string {
       if (state.source === "manual_refresh") {
         return `Oryginał CV: z profilu${state.filename ? ` · ${state.filename}` : ""} · podmienione${state.date ? ` ${formatDate(state.date)}` : ""}`;
       }
-      if (state.source === "client_cv_repair") {
-        // Naprawa 15.10.2026: kopia trzymała CV do klienta, wróciła do CV kandydata.
+      if (state.source === "client_cv_repair" || state.source === "contract_repair") {
+        // Naprawy 15.10 i 30.10.2026: kopia trzymała CV do klienta albo umowę,
+        // wróciła do CV kandydata.
         return `Oryginał CV: z profilu${state.filename ? ` · ${state.filename}` : ""}${when}`;
       }
       if (state.source === "quarantine_restore") {

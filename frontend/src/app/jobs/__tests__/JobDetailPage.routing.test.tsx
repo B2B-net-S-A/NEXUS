@@ -5,9 +5,11 @@
  * z powiadomień lądują tam, gdzie trzeba, są przepisywane `router.replace`
  * (bez wpisu w historii), a `?candidate=` otwiera osobę raz i znika.
  */
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { hydrateRoot, type Root } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const nav = vi.hoisted(() => ({
@@ -178,9 +180,11 @@ const JOB = {
 };
 const KANBAN = { columns: [], off_template: null };
 
-function renderPage(search = "") {
+function renderPage(search = "", { refetchOnWindowFocus = true } = {}) {
   nav.search = search;
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, refetchOnWindowFocus } },
+  });
   const tree = () => (
     <QueryClientProvider client={client}>
       <JobDetailPage />
@@ -794,5 +798,62 @@ describe("strona rekrutacji — filtr „Kto dodał” (14.10.2026, D2–D3)", (
     renderPage();
     expect(await screen.findByTestId("added-by-trigger")).toHaveTextContent("Kto dodał:wszyscy");
     expect(seen.kanban?.addedBy).toEqual({ kind: "all" });
+  });
+});
+
+// 27.10.2026: odświeżanie przy powrocie do karty jest globalnie wyłączone
+// (`QueryProvider`), ale nie tu — własny ruch z drugiej karty nie przychodzi
+// gniazdem (serwer pomija autora `pipeline_changed`).
+describe("JobDetailPage — Tablica i rekrutacja wracają świeże po powrocie do karty", () => {
+  it("powrót do karty pobiera Tablicę i rekrutację jeszcze raz", async () => {
+    // Domyślne opcje jak w `QueryProvider`.
+    renderPage("", { refetchOnWindowFocus: false });
+    await waitFor(() => expect(apiMock.get).toHaveBeenCalledWith("/api/pipeline/kanban/42"));
+    const count = (url: string) => apiMock.get.mock.calls.filter(([u]) => u === url).length;
+    const before = { kanban: count("/api/pipeline/kanban/42"), job: count("/api/jobs/42") };
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(count("/api/pipeline/kanban/42")).toBe(before.kanban + 1));
+    await waitFor(() => expect(count("/api/jobs/42")).toBe(before.job + 1));
+    focusManager.setFocused(undefined);
+  });
+});
+
+// 29.10.2026: okruszek w powłoce (`BreadcrumbV2`) czyta rekrutację pod tym
+// samym kluczem `["job", id]` i hydratuje się wcześniej niż strona. Gdy jego
+// odpowiedź przyszła, zanim React doszedł do strony, pierwszy render klienta
+// miał już dane (widok rekrutacji), a serwer wysłał „Ładowanie...” — React
+// zgłaszał „Hydration failed”.
+describe("JobDetailPage — hydratacja z rekrutacją już w cache'u", () => {
+  it("pierwszy render klienta jest taki sam jak HTML z serwera", async () => {
+    nav.search = "tab=chat";
+    const tree = (client: QueryClient) => (
+      <QueryClientProvider client={client}>
+        <JobDetailPage />
+      </QueryClientProvider>
+    );
+    const serverClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div");
+    container.innerHTML = renderToString(tree(serverClient));
+    document.body.appendChild(container);
+    expect(container.textContent).toContain("Ładowanie...");
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["job", "42"], JOB);
+    const recoverable: unknown[] = [];
+    let root: Root | undefined;
+    await act(async () => {
+      root = hydrateRoot(container, tree(client), {
+        onRecoverableError: (error) => recoverable.push(error),
+      });
+    });
+
+    expect(recoverable).toEqual([]);
+    // Po hydratacji widok rekrutacji pokazuje się od razu z danych w cache'u.
+    expect(await within(container).findByTestId("kanban")).toBeInTheDocument();
+    act(() => root?.unmount());
+    container.remove();
   });
 });

@@ -32,6 +32,7 @@ export interface RecruitmentActivityPerson {
 export interface RecruitmentActivityMetricCounts {
   metric: RecruitmentActivityMetric
   day: number | null
+  /** Liczba okresu `period_start`–`period_end`: miesiąc albo wybrane od–do. */
   month: number
 }
 
@@ -56,6 +57,9 @@ export interface RecruitmentActivitySummaryResponse {
   generated_at: string
   day: string
   month: string
+  /** Dni liczone w `metrics[].month` (włącznie); brak = serwer sprzed 29.10.2026. */
+  period_start?: string | null
+  period_end?: string | null
   scope: "person" | "team"
   can_view_team_details: boolean
   subject: RecruitmentActivityPerson | null
@@ -135,11 +139,22 @@ function activityParams(filters: RecruitmentActivityFilters) {
 }
 
 export async function getRecruitmentActivitySummary(
-  filters: RecruitmentActivityFilters,
+  filters: RecruitmentActivityFilters & {
+    /** Okres od–do (włącznie) zamiast miesiąca w liczbach kafli. */
+    dateFrom?: string | null
+    dateTo?: string | null
+  },
 ): Promise<RecruitmentActivitySummaryResponse> {
   const response = await api.get<RecruitmentActivitySummaryResponse>(
     "/api/dashboard/v2/recruitment-activity",
-    { params: activityParams(filters) },
+    {
+      params: {
+        ...activityParams(filters),
+        ...(filters.dateFrom && filters.dateTo
+          ? { date_from: filters.dateFrom, date_to: filters.dateTo }
+          : {}),
+      },
+    },
   )
   return response.data
 }
@@ -175,6 +190,32 @@ export async function getRecruitmentActivityDetails(
         page: filters.page ?? 1,
         page_size: filters.pageSize ?? 25,
       },
+    },
+  )
+  return response.data
+}
+
+export interface RecruitmentActivityTeamTotalsResponse {
+  generated_at: string
+  period_start: string
+  period_end: string
+  /** Liczba zespołu na etap — ta sama co `period_total` listy z `scope: "team"`. */
+  totals: Partial<Record<RecruitmentActivityMetric, number>>
+  /** Ile z liczby to wpisy DynaReportera (bez osób na liście). */
+  history: Partial<Record<RecruitmentActivityMetric, number>>
+}
+
+/** Liczby zespołu za dni od–do (włącznie) dla kilku etapów jednym zapytaniem. */
+export async function getRecruitmentActivityTeamTotals(filters: {
+  dateFrom: string
+  dateTo: string
+  metrics: readonly RecruitmentActivityMetric[]
+}): Promise<RecruitmentActivityTeamTotalsResponse> {
+  const response = await api.get<RecruitmentActivityTeamTotalsResponse>(
+    "/api/dashboard/v2/recruitment-activity/team-totals",
+    {
+      params: { date_from: filters.dateFrom, date_to: filters.dateTo, metric: [...filters.metrics] },
+      paramsSerializer: { indexes: null },
     },
   )
   return response.data

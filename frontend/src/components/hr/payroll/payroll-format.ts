@@ -16,7 +16,7 @@ import type {
   TimesheetStatus,
 } from "@/lib/api/hr-payroll";
 import { TIMESHEET_STATUS_LABELS } from "@/lib/api/hr-time";
-import { formatDayMonthPl } from "@/lib/date-pl";
+import { formatDayMonthPl, formatIsoDatePl } from "@/lib/date-pl";
 import { employmentTerms } from "@/lib/hr-employment-terms";
 import { formatMoney } from "@/lib/money";
 import { warsawToday } from "@/lib/warsaw-date";
@@ -123,10 +123,13 @@ export function bonusStateLabel(bonus: Pick<BonusRow, "status" | "eligible" | "e
 export function cancelReasonLabel(
   reason: string | null | undefined,
   requiredDays = 21,
+  endedOn?: string | null,
 ): string | null {
   switch (reason) {
     case "contract_ended":
-      return `kontrakt zakończony przed ${requiredDays}. dniem roboczym`;
+      return endedOn
+        ? `kontrakt zakończony ${formatIsoDatePl(endedOn)}, przed ${requiredDays}. dniem roboczym`
+        : `kontrakt zakończony przed ${requiredDays}. dniem roboczym`;
     case "contract_void":
       return "kontrakt unieważniony";
     case "contract_deleted":
@@ -134,7 +137,7 @@ export function cancelReasonLabel(
     case "rule_no_longer_applies":
       return "zmieniły się warunki premii";
     case "manual":
-      return "anulowana przez Płace albo koordynatora";
+      return "anulowana przez Rozliczenia albo koordynatora";
     default:
       return null;
   }
@@ -174,7 +177,7 @@ export function monthStats(detail: PayrollMonthDetail): InlineStat[] {
     { id: "people", label: "osób", value: detail.stats.people },
     {
       id: "approved",
-      label: "timesheetów zaakceptowanych",
+      label: "raportów godzin zaakceptowanych",
       value: detail.stats.timesheets_approved,
     },
     { id: "submitted", label: "czeka na akceptację", value: detail.stats.timesheets_submitted },
@@ -225,7 +228,7 @@ export function assignedBonusActions(
 
 /** Komunikat po dodaniu premii ręcznej: od przełożonego czeka na Płace. */
 export function bonusCreatedToast(created: Pick<BonusRow, "status">): string {
-  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Płac" : "Premia przyznana";
+  return created.status === "proposed" ? "Premia czeka na zatwierdzenie Rozliczeń" : "Premia przyznana";
 }
 
 /** Premie podzielone na sekcje ekranu. */
@@ -420,7 +423,6 @@ export function payoutBreakdown(people: readonly PayrollPerson[]): {
 export function batchSelectable(row: BonusRow, meId: number | undefined): boolean {
   return (
     row.status === "proposed" &&
-    row.eligible !== false &&
     row.can_approve !== false &&
     row.recipient_user_id !== meId
   );

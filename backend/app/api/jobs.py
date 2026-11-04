@@ -2412,6 +2412,12 @@ async def get_job(
 
     payload["p0_set_by_name"] = await job_p0.set_by_name(db, job)
     payload["can_set_p0"] = pipeline_writer and job_p0.can_set_p0(current_user)
+    # 0609: Delivery Lead tej rekrutacji prosi o P0 (HoR i admin ustawiają od razu).
+    payload["can_request_p0"] = (
+        pipeline_writer
+        and not payload["can_set_p0"]
+        and job_p0.can_request_p0(current_user, job)
+    )
     # 0341: status requestu — ta sama reguła co wiersz listy.
     from app.services.job_similarity import request_statuses  # noqa: PLC0415
 
@@ -2518,11 +2524,12 @@ async def update_job(
             # Lustro `close_job` (13.10.2026): okno edycji zamyka rekrutację
             # tak samo jak okno z powodem, więc tak samo ostrzega o osobach
             # w toku. Przed pierwszą zmianą — odmowa niczego nie zapisuje.
-            from app.services.job_active_cards import load_active_cards
+            # Ostrzeżenie niesie listę rekruterów, którzy dostaną wiadomość.
+            from app.services.job_closed_notices import active_cards_warning
 
-            active = await load_active_cards(db, job.id)
-            if active.total:
-                raise HTTPException(status_code=409, detail=active.warning_detail())
+            warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+            if warning is not None:
+                raise HTTPException(status_code=409, detail=warning)
     # Ochrona rekrutacji w pracy: zapis odmawia tylko przy NOWYM braku bramki
     # przekazania (porównanie po kodach, przed i po zapisie).
     regression_baseline = job_lifecycle.regression_baseline(job)
@@ -2871,6 +2878,11 @@ async def update_job(
             from app.services.job_proposals import expire_open_for_job
 
             await expire_open_for_job(db, job_id=job_id)
+            # Lustro `close_job` (28.10.2026): rekruterzy osób od „CV wysłane”
+            # w górę dostają dzwonek i mail.
+            from app.services.job_closed_notices import notify_closed
+
+            await notify_closed(db, job, actor_id=current_user.id)
         elif prev_status == JobStatus.closed:
             job.closed_at = None
             job_lifecycle.clear_close_choice(job)
@@ -3229,12 +3241,13 @@ async def close_job(
     )
     if not data.acknowledge_active_cards:
         # Zamknięcie nie rusza kart: osoby w toku zostają w zamkniętej
-        # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada.
-        from app.services.job_active_cards import load_active_cards
+        # rekrutacji. Ostrzeżenie do potwierdzenia, nie blokada — z listą
+        # rekruterów, którzy dostaną wiadomość (28.10.2026).
+        from app.services.job_closed_notices import active_cards_warning
 
-        active = await load_active_cards(db, job.id)
-        if active.total:
-            raise HTTPException(status_code=409, detail=active.warning_detail())
+        warning = await active_cards_warning(db, job.id, actor_id=current_user.id)
+        if warning is not None:
+            raise HTTPException(status_code=409, detail=warning)
 
     effects = job_lifecycle.PostCommit()
     await job_lifecycle.close_job_core(
@@ -3246,6 +3259,10 @@ async def close_job(
         effects=effects,
     )
     job.duplicate_of_job_id = choice.duplicate_of_job_id
+    # Rekruterzy osób od „CV wysłane” w górę dostają dzwonek i mail (28.10.2026).
+    from app.services.job_closed_notices import notify_closed
+
+    await notify_closed(db, job, actor_id=current_user.id)
     await db.commit()
     await db.refresh(job)
     await job_lifecycle.run_post_commit(effects)
@@ -3769,6 +3786,51 @@ async def get_requirement_proposal(
     }
 
 
+@router.get("/{job_id}/requirement-sent-gaps")
+async def get_requirement_sent_gaps(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Wiersze „musi mieć”, których nie ma nikt z wysłanych (na żywo, tylko odczyt)."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    await _ensure_delivery_lead_job_visible(job, current_user, db)
+    try:
+        gaps = await requirement_sent_gaps.compute(db, job)
+    except requirement_sent_gaps.EvidenceUnavailable:
+        # Brak dowodu to brak ostrzeżenia, a nie „nie ma nikt”.
+        logger.warning("requirement sent gaps: brak dowodu dla rekrutacji %s", job_id)
+        gaps = requirement_sent_gaps.SentGaps(sent=0, rows=())
+    return {
+        **gaps.as_dict(),
+        "can_ask_hints": requirement_cleanup.can_decide(current_user, job),
+    }
+
+
+@router.post("/{job_id}/requirement-sent-gaps/word-hints")
+async def post_requirement_word_hints(
+    job_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Słowa z CV wysłanych do wierszy z zerem (F41). Nic nie zapisuje."""
+    from app.services import requirement_cleanup, requirement_sent_gaps
+
+    job = await db.scalar(select(Job).where(Job.id == job_id))
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if not requirement_cleanup.can_decide(current_user, job):
+        raise HTTPException(
+            403,
+            "Słowa podpowiadamy Delivery Leadowi tej rekrutacji albo Head of Recruitment.",
+        )
+    return await requirement_sent_gaps.word_hints(db, job, user_id=current_user.id)
+
+
 async def _locked_proposal(
     db: AsyncSession,
     job_id: int,
@@ -3776,7 +3838,7 @@ async def _locked_proposal(
     profile_hash: str,
     proposal_digest: Optional[str] = None,
 ):
-    from app.services import requirement_cleanup
+    from app.services import requirement_cleanup, requirement_sent_gaps
 
     job = await db.scalar(select(Job).where(Job.id == job_id).with_for_update())
     if not job:
@@ -3788,6 +3850,7 @@ async def _locked_proposal(
             "Recruitment.",
         )
     await requirement_cleanup.prepare_counts(db, [job])
+    await requirement_sent_gaps.prepare(db, [job])
     proposal = requirement_cleanup.build_proposal(job)
     if proposal is None:
         raise HTTPException(409, "Wymagania tej rekrutacji nie wymagają już poprawek.")

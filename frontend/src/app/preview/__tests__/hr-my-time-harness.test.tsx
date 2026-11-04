@@ -94,14 +94,16 @@ describe("/preview/hr-my-time", () => {
 
     const table = await screen.findByRole("table");
     expect(within(table).getByText("Ewa Makietowa")).toBeInTheDocument();
-    expect(within(table).getByText("przekierowanie poczty")).toBeInTheDocument();
+    expect(within(table).getByText("kopia poczty do zastępcy")).toBeInTheDocument();
     expect(within(table).getAllByText("Zgłoszone").length).toBeGreaterThan(0);
     expect(within(table).getByText(/kolizja · Marta Fikcyjna/)).toBeInTheDocument();
     expect(within(table).queryByText("Urlop wypoczynkowy")).toBeNull();
     expect(screen.getByRole("button", { name: "Zgłoś przerwę" })).toBeInTheDocument();
 
     await user.click(screen.getByRole("tab", { name: "Wynagrodzenie dodatkowe i stawka" }));
-    expect(await screen.findByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
+    // Lista idzie po miesiącach; „Wszystkie” pokazuje pozycje z każdego z nich.
+    await user.click(await screen.findByRole("button", { name: "Wszystkie" }));
+    expect(screen.getByText("Liga Mistrzów — 2. miejsce w kwartale")).toBeInTheDocument();
     expect(screen.getByText("kontrakt zakończony przed 21. dniem roboczym")).toBeInTheDocument();
     expect(screen.getByRole("generic", { name: "Moje rozliczenie" })).toBeInTheDocument();
     // Bez zakładki „Kartoteka” — koordynator i link do kartoteki są w „Ja w firmie” na „Przeglądzie”.
@@ -164,7 +166,7 @@ describe("/preview/hr-my-time", () => {
     expect(screen.queryByRole("button", { name: "Wyślij do potwierdzenia" })).toBeNull();
 
     // Archiwum timesheetów rozwija się z zasiewu, bez zapytania.
-    await user.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    await user.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     expect(
       await screen.findByRole("button", {
         name: `Pobierz PDF ${monthTitlePl(shiftMonth(current, -2)).toLowerCase()}`,

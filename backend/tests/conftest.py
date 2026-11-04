@@ -232,6 +232,32 @@ def _dashboard_metric_credit_snapshot_uncached(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _credited_snapshot_uncached(monkeypatch):
+    """Migawka `credited` całej firmy żyje 60 s w procesie (27.10.2026).
+
+    Testy na wspólnej bazie dosiewają etapy i liczą KPI ponownie — z cache'em
+    dostawałyby wiersze poprzedniego testu. Zachowanie cache'u sprawdza
+    `test_credited_snapshot.py`.
+    """
+    from app.services import credited_snapshot
+
+    monkeypatch.setattr(credited_snapshot, "_SNAPSHOT_TTL_SECONDS", -1)
+
+
+@pytest.fixture
+def empty_credited_snapshot(monkeypatch):
+    """Pusta migawka `credited` dla testów z atrapą `db` z kolejką odpowiedzi
+    — odczyt migawki (`credited_snapshot`, 27.10.2026) nie może zjadać z niej
+    wyników przygotowanych dla zapytania konsumenta."""
+    from app.services import credited_snapshot
+
+    async def _rows(_db):
+        return ()
+
+    monkeypatch.setattr(credited_snapshot, "credited_rows", _rows)
+
+
+@pytest.fixture(autouse=True)
 def _open_the_order_mail_recheck_window(monkeypatch):
     """Automatyczny recheck ma w testach chodzić niezależnie od pory dnia.
 
@@ -280,6 +306,19 @@ def _no_background_cv_generation_after_moves(monkeypatch):
     """
 
     monkeypatch.setattr(settings, "CV_AUTO_GENERATE_ON_VERIFIED", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_background_sales_company_dates(monkeypatch):
+    """Szansa w Sprzedaży odpala w tle uzupełnianie dat osób z firmy (D3).
+
+    Zadanie ma własną sesję bazy i przeżyłoby test, który je odpalił. Testy
+    biegu (`test_sales_company_dates.py`) wołają `run_company_dates` wprost.
+    """
+
+    from app.services.sales import company_dates
+
+    monkeypatch.setattr(company_dates, "schedule_company_dates", lambda _id: False)
 
 
 # ── QC CV — bramka przed „CV wysłane”/Cpro (Rekrutacja v5, 0361) ────────────

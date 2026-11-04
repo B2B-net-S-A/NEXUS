@@ -42,7 +42,8 @@ from app.core.config import settings
 from sqlalchemy.ext.asyncio import AsyncSession  # noqa: TC002 — adnotacja parse_cv
 from app.services.llm_prompts import CV_ENRICHMENT, PromptTemplate
 from app.models.ai_feature import AIFeatureKey
-from app.services.ai_models import model_for
+from app.services.ai_models import model_chain_for, model_for
+from app.services.cv_technology_grounding import drop_untraced_technologies
 
 logger = logging.getLogger(__name__)
 
@@ -662,6 +663,21 @@ def _cv_input_for(template: PromptTemplate, cv_text: str) -> str:
     return cv_text[:8000]
 
 
+def _user_content(template: PromptTemplate, cv_input: str) -> list[dict[str, Any]]:
+    """Stałe instrukcje jako blok z cache'em, a CV w osobnym bloku za nim.
+
+    Instrukcje mają ok. 1950 tokenów, a 95% wywołań dzieli mniej niż 5 minut.
+    Znacznik stoi przed CV, bo znacznik za CV płaci za zapis, którego nikt nie
+    odczyta. Dostawcy spoza Anthropic sklejają bloki w ten sam tekst.
+    """
+    slot = "\x00cv\x00"
+    head, tail = template.render(cv_text=slot).split(slot)
+    return [
+        {"type": "text", "text": head, "cache_control": {"type": "ephemeral"}},
+        {"type": "text", "text": cv_input + tail},
+    ]
+
+
 def _max_tokens_for(template: PromptTemplate) -> int:
     """Sufit odpowiedzi; dla v7 podniesiony z 6000 do 8000 (18.09.2026).
 
@@ -803,7 +819,7 @@ async def _parse_with_claude(
     if not api_key_configured(chosen_model) or not settings.CV_ENRICHMENT_ENABLED:
         return None
     try:
-        user_prompt = template.render(cv_text=_cv_input_for(template, cv_text))
+        user_content = _user_content(template, _cv_input_for(template, cv_text))
         # `call_claude` jest synchroniczne (sam robi timeout+retry) — offload,
         # żeby wielosekundowy round-trip nie blokował jednowątkowego event loopu.
         message = await run_in_threadpool(
@@ -813,7 +829,7 @@ async def _parse_with_claude(
             # przeciążeniu dostawcy schodzi na model parsera CV, a nie od razu
             # do Ollamy/regexu.
             fallback_models=[
-                m for m in (model_for(AIFeatureKey.cv_parser),) if m != chosen_model
+                m for m in model_chain_for(AIFeatureKey.cv_parser) if m != chosen_model
             ],
             # v6 dokłada listę stanowisk z datami — 2000 tokenów obcinało JSON
             # dłuższych CV, a obcięta odpowiedź spada do regexu. v7 (technologie
@@ -826,7 +842,7 @@ async def _parse_with_claude(
             # — the pin only matters when a Claude 5 model is configured.
             thinking={"type": "disabled"},
             system=template.system_prompt or "",
-            messages=[{"role": "user", "content": user_prompt}],
+            messages=[{"role": "user", "content": user_content}],
             api_key=settings.ANTHROPIC_API_KEY or None,
         )
         # Claude 5 models can lead with a non-text block (e.g. a thinking
@@ -853,6 +869,7 @@ async def _parse_with_claude(
             )
         if not isinstance(data, dict):
             return None
+        drop_untraced_technologies(data, cv_text)
         data["_source"] = f"claude:{template.name}:v{template.version}"
         # `message.usage` szło dotąd do kosza — a bez niego każdy kosztorys
         # biegu masowego jest zgadywanką. Zapis do payloadu (ląduje w

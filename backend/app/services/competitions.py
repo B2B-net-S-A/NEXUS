@@ -20,6 +20,7 @@ snapshot z `frozen_snapshot` JSONB, żeby historia była stabilna.
 
 import json
 import logging
+import math
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -505,7 +506,10 @@ async def _rank_recruiters_by_stage(
     (`competition_history`) — dlatego próg i kolejność liczymy po scaleniu,
     w Pythonie, a nie w `HAVING`/`LIMIT`.
     """
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     per_user: dict[int, dict] = {}
     live = competition_history.live_window(start, end)
@@ -513,7 +517,7 @@ async def _rank_recruiters_by_stage(
         rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role, count(*) AS cnt
                     FROM credited c
@@ -529,7 +533,14 @@ async def _rank_recruiters_by_stage(
                     GROUP BY u.id, u.name, u.role
                     """
                 ),
-                {"stage": stage.value, "start": live[0], "end": live[1]},
+                {
+                    "stage": stage.value,
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(
+                        db, stage=stage.value, since=live[0], until=live[1]
+                    ),
+                },
             )
         ).all()
         for r in rows:
@@ -609,7 +620,10 @@ async def _rank_recruiters_by_points(
     Zwraca RankedUser z metric_value=points i extras={placements, interviews,
     recommendations, verifications, role, qualified, required_placements,
     disqualification_reasons}."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     rows = []
     live = competition_history.live_window(start, end)
@@ -617,7 +631,7 @@ async def _rank_recruiters_by_points(
         rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role, c.stage,
                            count(*) AS cnt
@@ -633,7 +647,11 @@ async def _rank_recruiters_by_points(
                     GROUP BY u.id, u.name, u.role, c.stage
                     """
                 ),
-                {"start": live[0], "end": live[1]},
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
             )
         ).all()
 
@@ -1034,10 +1052,10 @@ async def monthly_most_recommendations(
     start, end = month_bounds(year, month)
     thresholds = await monthly_race_thresholds(db, period)
     min_precision_pct = thresholds.precision_pct
-    required_verifications = (
-        thresholds.verifications_per_day * business_days_elapsed_in_month(year, month)
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
     )
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
     # Surowe liczniki per osoba; warunki nagrody, wybór listy i kolejność
     # liczymy niżej, PO dołożeniu dni sprzed 12.10.2026 z DynaReportera
@@ -1051,7 +1069,7 @@ async def monthly_most_recommendations(
         live_rows = (
             await db.execute(
                 text(
-                    VERIFIER_ANCHORED_CTE
+                    CREDITED_FROM_SNAPSHOT_CTE
                     + """
                     SELECT u.id, u.name, u.role::text AS role,
                            count(*) FILTER (
@@ -1073,7 +1091,11 @@ async def monthly_most_recommendations(
                     GROUP BY u.id, u.name, u.role
                     """
                 ),
-                {"start": live[0], "end": live[1]},
+                {
+                    "start": live[0],
+                    "end": live[1],
+                    **await credited_bind(db, since=live[0], until=live[1]),
+                },
             )
         ).all()
         for r in live_rows:
@@ -1098,6 +1120,20 @@ async def monthly_most_recommendations(
         bucket["verifications"] += person.counts.verifications
         bucket["recommendations"] += person.counts.recommendations
 
+    # Próg „N weryfikacji × dni” liczy się z dni pracy osoby — nieobecność
+    # nie podnosi wymagania (decyzja Artura 28.10.2026).
+    from app.services.person_workdays import nexus_absences_known
+
+    threshold_basis = "workdays" if await nexus_absences_known(db) else "calendar"
+    required = await required_verifications_by_user(
+        db,
+        list(totals),
+        year=year,
+        month=month,
+        per_day=thresholds.verifications_per_day,
+        today=business_today(),
+    )
+
     # Podwójna numeracja, bo limit dotyczy listy wyświetlanej: bierzemy TOP N
     # do pokazania **oraz** TOP N zakwalifikowanych, żeby ktoś z nagrodą nie
     # wypadł z wyniku wypchnięty przez głośniejszą, niekwalifikującą się osobę.
@@ -1111,7 +1147,7 @@ async def monthly_most_recommendations(
                 verifications=data["verifications"],
                 recommendations=data["recommendations"],
                 qualified=(
-                    data["verifications"] >= required_verifications
+                    data["verifications"] >= required[user_id]
                     and 100 * data["recommendations"]
                     >= min_precision_pct * data["verifications"]
                 ),
@@ -1133,6 +1169,7 @@ async def monthly_most_recommendations(
 
     ranked: list[RankedUser] = []
     for row in rows:
+        required_verifications = required[row.id]
         verified = int(row.verifications)
         recommendations = int(row.recommendations)
         precision_pct = (
@@ -1156,12 +1193,48 @@ async def monthly_most_recommendations(
                     "recommendations": recommendations,
                     "precision_pct": precision_pct,
                     "required_verifications": required_verifications,
+                    # Z czego liczono próg — zamraża się z wynikiem, więc
+                    # zamknięty miesiąc dalej podpisuje próg zgodnie z liczbą.
+                    "threshold_basis": threshold_basis,
                     "qualified": bool(row.qualified) and not reasons,
                     "disqualification_reasons": reasons,
                 },
             )
         )
     return ranked
+
+
+async def required_verifications_by_user(
+    db: AsyncSession,
+    user_ids: list[int],
+    *,
+    year: int,
+    month: int,
+    per_day: int,
+    today: date,
+) -> dict[int, int]:
+    """Próg Wyścigu Rekomendacji per osoba: ``per_day`` × jej dni pracy.
+
+    Przy urlopach NEXUSA mianownik jest ten sam co plakietki „X/dzień”
+    (``person_workdays``), więc „33 / 60 wymaganych” i „2.2/dzień” liczą się
+    z tych samych dni; w górę do pełnej weryfikacji (pół dnia nieobecności).
+    Przy innym źródle próg jak dotąd: dni robocze kalendarza dla wszystkich.
+    """
+    if not user_ids:
+        return {}
+    from app.services.person_workdays import nexus_absences_known, workdays_by_user
+
+    if not await nexus_absences_known(db):
+        common = per_day * business_days_elapsed_in_month(year, month)
+        return {uid: common for uid in user_ids}
+
+    next_first = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+    last = min(today, next_first - timedelta(days=1))
+    first = date(year, month, 1)
+    if last < first:
+        return {uid: 0 for uid in user_ids}
+    days = await workdays_by_user(db, user_ids, first, last)
+    return {uid: math.ceil(round(per_day * days[int(uid)], 6)) for uid in user_ids}
 
 
 def business_days_elapsed_in_month(
@@ -2120,6 +2193,25 @@ async def freeze_competition(
     period: str,
     *,
     reason: str = "manual",
+) -> FrozenPodium:
+    """Zamrożenie okresu (`_freeze_competition`) na świeżo policzonej zasłudze.
+
+    Ekrany czytają `credited` z minutowej migawki (`credited_snapshot`); podium
+    z nagrodą liczy ją od nowa, już pod blokadą okresu — poprawka etapu tuż
+    przed zamrożeniem musi się w nim znaleźć.
+    """
+    from app.services.credited_snapshot import fresh_credited_snapshot
+
+    async with fresh_credited_snapshot():
+        return await _freeze_competition(db, type_, period, reason=reason)
+
+
+async def _freeze_competition(
+    db: AsyncSession,
+    type_: CompetitionType,
+    period: str,
+    *,
+    reason: str,
 ) -> FrozenPodium:
     """Write a podium once; a frozen historical period is immutable.
 

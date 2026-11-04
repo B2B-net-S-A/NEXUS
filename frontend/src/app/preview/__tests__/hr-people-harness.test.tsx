@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-people", () => {
-  it("Kadry: „Porządki” ze strukturą i kontami, potwierdzenie bez zapytań", async () => {
+  it("Administracja współpracy: „Porządki” ze strukturą i kontami, potwierdzenie bez zapytań", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-people");
     render(<HrPeoplePreviewPage />);
@@ -70,7 +70,7 @@ describe("/preview/hr-people", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry: „Schemat” z adresu, bez zapytań", async () => {
+  it("Administracja współpracy: „Schemat” z adresu, bez zapytań", async () => {
     window.history.replaceState({}, "", "/preview/hr-people?view=schemat");
     render(<HrPeoplePreviewPage />);
     expect(await screen.findByRole("button", { name: "Schemat" })).toHaveAttribute(

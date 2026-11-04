@@ -5,9 +5,11 @@ import { useEffect, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUrlWriter } from "@/lib/url-selection";
 import {
+  Activity,
   FileText,
   Landmark,
   Lock,
+  Target,
   Trophy,
   UserRound,
   Users,
@@ -29,8 +31,19 @@ import { MojMiesiacView } from "@/components/insights/views/MojMiesiacView";
 import { RaportyView } from "@/components/insights/views/RaportyView";
 import { RywalizacjaView } from "@/components/insights/views/RywalizacjaView";
 import { ZespolView } from "@/components/insights/views/ZespolView";
+import { RytmDniaView } from "@/components/insights/views/RytmDniaView";
+import { ZrodlaView } from "@/components/insights/views/ZrodlaView";
+import { holdsCapabilityGrant } from "@/lib/capabilities";
+import { hasSectionAccess } from "@/lib/section-access";
 
-export type TabId = "rywalizacja" | "moj-miesiac" | "zespol" | "firma" | "raporty";
+export type TabId =
+  | "zrodla"
+  | "rywalizacja"
+  | "moj-miesiac"
+  | "zespol"
+  | "rytm"
+  | "firma"
+  | "raporty";
 
 type TabDef = {
   id: TabId;
@@ -45,20 +58,19 @@ type TabDef = {
 
 /**
  * Uprawnienie, które otwiera widok Firma (pieniądze firmy: przychód, marża,
- * ranking klientów z kwotami): „Moduł Finanse”.
+ * ranking klientów z kwotami): „Wyniki firmy”.
  *
- * Domyślnie mają je administrator i Finanse. Decyzja Artura z 24.09.2026:
- * Head of Recruitment zajmuje się rekrutacją i NIE widzi pieniędzy — rola
- * sama z siebie tego uprawnienia nie daje, ale administrator może je nadać
+ * Domyślnie ma je tylko administrator (decyzja Artura z 02.11.2026: Finanse
+ * pracują na pojedynczych rekordach). Administrator może je nadać osobie
  * w panelu „Osoby i role”. Lustro po stronie API to `BoardReader`
  * (`backend/app/api/deps.py`) na `/api/insights/board` i `/clients/ranking`,
  * który pyta o to samo uprawnienie; bez tej zgodności front chowałby widok,
  * którego API i tak by nie odmówiło (split-brain z #1215).
  */
-export const FIRMA_PERMISSION: Permission = "finance_module";
+export const FIRMA_PERMISSION: Permission = "company_results";
 
 /**
- * Role, które widzą widok Firma bez „Modułu Finanse”: Rada nadzorcza (0490,
+ * Role, które widzą widok Firma bez tego uprawnienia: Rada nadzorcza (0490,
  * decyzja Artura 21.10.2026) — kwoty kokpitu tak, faktury i zgody modułu
  * Finanse nie. Lustro `_require_board_reader` w `backend/app/api/deps.py`.
  */
@@ -73,6 +85,9 @@ export const PERSONAL_ROLES: UserRole[] = [
   "delivery_lead",
 ];
 
+/** Kto widzi „Rytm dnia” — lustro `VIEWER_ROLES` z `services/work_rhythm.py`. */
+export const RHYTHM_ROLES: UserRole[] = ["head_of_recruitment", "admin"];
+
 // Pięć widoków zamiast dwóch zakładek z rozdziałami (24.09.2026). Kolejność =
 // kolejność pytań: kto wygrywa → jak mi idzie → jak idzie zespołowi → ile
 // zarabia firma → reszta. Rywalizacja jest pierwsza dla każdego (Artur:
@@ -81,6 +96,10 @@ const TABS: TabDef[] = [
   { id: "rywalizacja", label: "Rywalizacja", icon: Trophy, roles: null },
   { id: "moj-miesiac", label: "Mój miesiąc", icon: UserRound, roles: PERSONAL_ROLES },
   { id: "zespol", label: "Zespół", icon: Users, roles: null },
+  // „Rytm dnia” (decyzje Artura 28–29.10.2026): kiedy i jak intensywnie pracują
+  // rekruterzy. Na razie tylko Head of Recruitment i admin — lustro
+  // `VIEWER_ROLES` w `backend/app/services/work_rhythm.py`.
+  { id: "rytm", label: "Aktywność w NEXUSIE", icon: Activity, roles: RHYTHM_ROLES },
   {
     id: "firma",
     label: "Firma",
@@ -89,6 +108,9 @@ const TABS: TabDef[] = [
     permission: FIRMA_PERMISSION,
     alsoRoles: FIRMA_ROLES,
   },
+  // „Źródła” (decyzja Artura 03.11.2026): widok z dostępem do kandydatów, lustro
+  // `CandidatePIIAccess` — `seesSources` niżej.
+  { id: "zrodla", label: "Źródła", icon: Target, roles: null },
   { id: "raporty", label: "Raporty", icon: FileText, roles: null },
 ];
 
@@ -140,7 +162,7 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
   praca: { tab: "raporty", report: "placementy" },
   placementy: { tab: "raporty", report: "placementy" },
   doplyw: { tab: "raporty", report: "doplyw" },
-  zrodla: { tab: "raporty", report: "doplyw" },
+  zrodla: { tab: "zrodla" },
   integracje: { tab: "raporty", report: "doplyw" },
   "podsumowanie-klientow": { tab: "raporty", report: "portfele-dl" },
   portfele: { tab: "raporty", report: "portfele-dl" },
@@ -154,6 +176,10 @@ export const LEGACY_ANCHORS: Record<string, Target> = {
 type AuthUser = ReturnType<typeof useAuthStore.getState>["user"];
 
 export const DEFAULT_INSIGHTS_TAB: TabId = "rywalizacja";
+
+const seesSources = (user: NonNullable<AuthUser>): boolean =>
+  holdsCapabilityGrant(user, "nav.candidates") &&
+  (hasSectionAccess(user, "sourcing") || hasSectionAccess(user, "pipeline"));
 
 export function getDefaultTabForUser(user: AuthUser): TabId {
   // Rada nadzorcza startuje na Firmie (jak `BOARD_HOME`) — 22.10.2026.
@@ -170,6 +196,7 @@ export function getDefaultTabForUser(user: AuthUser): TabId {
 export function getVisibleInsightTabIds(user: AuthUser): TabId[] {
   const ids = TABS.filter((tab) => {
     if (!user) return true;
+    if (tab.id === "zrodla") return seesSources(user);
     if (tab.permission) {
       return (
         hasPermission(user, tab.permission) ||
@@ -351,6 +378,7 @@ export function InsightsView() {
                       : "border-transparent text-muted-foreground hover:border-border hover:text-foreground",
                   )}
                   aria-current={active ? "page" : undefined}
+                  data-tour={tab.id === "rytm" ? "insights.tabs.rhythm" : tab.id === "zrodla" ? "insights.tabs.sources" : undefined}
                 >
                   <Icon className="h-4 w-4" />
                   {tab.label}
@@ -380,9 +408,11 @@ export function InsightsView() {
       </div>
 
       <div>
+        {location.tab === "zrodla" && <ZrodlaView />}
         {location.tab === "rywalizacja" && <RywalizacjaView />}
         {location.tab === "moj-miesiac" && <MojMiesiacView />}
         {location.tab === "zespol" && <ZespolView />}
+        {location.tab === "rytm" && <RytmDniaView />}
         {location.tab === "firma" && <FirmaView />}
         {location.tab === "raporty" && <RaportyView reportId={location.report} />}
       </div>

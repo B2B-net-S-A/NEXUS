@@ -45,6 +45,22 @@ describe("strona podpisu protokołu", () => {
     expect(blocks.map((b) => b.text ?? "tabela")).toEqual(["PROTOKÓŁ", "tabela"]);
   });
 
+  it("pomija też tabelkę podpisów ze wzoru standardowego", () => {
+    const blocks = visibleBlocks([
+      ...protocol.document,
+      {
+        type: "table",
+        rows: [
+          ["Strona przekazująca", "Strona przyjmująca"],
+          ["Zofia Testowa", "Anna Przykładowa"],
+          ["....", "...."],
+          ["(podpis)\n", "(podpis)\n"],
+        ],
+      },
+    ]);
+    expect(blocks.map((b) => b.text ?? b.rows?.[0]?.[0])).toEqual(["PROTOKÓŁ", "Lp."]);
+  });
+
   it("wysyła imię i nazwisko dopiero po zaznaczeniu zgody", async () => {
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({ status: "podpisany" }) });
     render(<ProtocolSignForm token="tok" protocol={protocol} />);

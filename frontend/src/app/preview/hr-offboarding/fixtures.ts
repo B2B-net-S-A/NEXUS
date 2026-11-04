@@ -80,8 +80,8 @@ const WORK: WorkSpec[] = [
   { kind: "my_people", label: "„Moi ludzie”", transferable: true, count: 37, note: "Osoby trafiają na listę przejmującego jako przypięte." },
   { kind: "delivery_lead_jobs", label: "Rekrutacje, w których jest Delivery Leadem", transferable: true, count: 0, note: "Przejmujący zostaje Delivery Leadem tych rekrutacji." },
   { kind: "dl_clients", label: "Klienci Delivery Leada", transferable: true, count: 0, note: "Przejmujący dostaje klientów do portfela (główny opiekun zostaje główny)." },
-  { kind: "reports", label: "Podwładni", transferable: true, count: 0, note: "Przejmujący zostaje ich przełożonym w kartotece — wnioski i timesheety w toku idą do niego." },
-  { kind: "substitutions", label: "Zastępstwa w urlopach po ostatnim dniu", transferable: false, count: 1, note: "Zastępcę zmienia osoba na urlopie albo Kadry we wniosku." },
+  { kind: "reports", label: "Osoby w zespole", transferable: true, count: 0, note: "Przejmujący zostaje ich koordynatorem w kartotece — wnioski i raporty godzin w toku idą do niego." },
+  { kind: "substitutions", label: "Zastępstwa w urlopach po ostatnim dniu", transferable: false, count: 1, note: "Zastępcę zmienia osoba na urlopie albo Administracja współpracy we wniosku." },
 ];
 
 function workRows(receivers: Partial<Record<TransferKind, HarnessPerson>>): WorkRow[] {
@@ -137,9 +137,9 @@ function tasks(scene: OffboardingScene, started: boolean): LifecycleTask[] {
   const { lastDay, today } = scene;
   const doneAt = `${today}T09:15:00Z`;
   const specs: TaskSpec[] = [
-    { title: "Rozmowa wyjściowa z przełożoną", category: "meeting", assignee: "manager", who: marta, due: addWorkDays(lastDay, -10), done: started ? { by: marta, at: doneAt } : undefined },
+    { title: "Rozmowa wyjściowa z koordynatorką", category: "meeting", assignee: "manager", who: marta, due: addWorkDays(lastDay, -10), done: started ? { by: marta, at: doneAt } : undefined },
     { title: "Rozliczenie urlopu", category: "documents", assignee: "people_admin", who: paulina, due: addWorkDays(lastDay, -5), done: started ? { by: paulina, at: doneAt } : undefined },
-    { title: "Ostatni timesheet", category: "documents", assignee: "person", who: tomasz, due: lastDay },
+    { title: "Ostatni raport godzin", category: "documents", assignee: "person", who: tomasz, due: lastDay },
     { title: "Zwrot sprzętu: 4 pozycje z ewidencji", category: "equipment", assignee: "reception", who: zofia, due: lastDay, note: "Protokół zwrotu z listy sprzętu osoby." },
     { title: "Dezaktywacja karty dostępu w budynku", category: "equipment", assignee: "reception", who: zofia, due: lastDay },
     { title: "Wyłączenie skrzynki i licencji M365", category: "accounts", assignee: "it", who: null, due: lastDay },

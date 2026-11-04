@@ -97,7 +97,7 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
   bierze wartość serwera, ruszone — wartość z rozmowy, a odświeżenie w tle przerysowuje pola nieruszone
   (`keepDirtyValues`). Do 14.10.2026 (przegląd przed PR-em) zapis po odświeżeniu w tle odsyłał wartości sprzed
   otwarcia formularza ze świeżym odciskiem i po cichu cofał cudzą zmianę.
-- **Pola wspólne** (dostępność, tryb pracy, lokalizacja, narodowość, angielski, red flags; „Czy pracował u Klienta”
+- **Pola wspólne** (dostępność, lokalizacja, narodowość, angielski, red flags; „Czy pracował u Klienta”
   per klient) i odpowiedź na wspólne pytanie: ruszone w tej rozmowie → do każdej pary; nieruszone → tylko tam,
   gdzie puste; inna zapisana wartość w parze → pod polem „W <rekrutacja>: …”. Stawka: „Ta sama stawka we
   wszystkich” zaznaczone, gdy stawki par na start są równe albo puste; przy zaznaczonym — kwota z pola wspólnego
@@ -105,6 +105,13 @@ Decyzje Artura D3–D4 z 14.10.2026 (makiety https://claude.ai/artifact/RTUD8nEm
   stawki, a nieruszona zostawia parze jej stawkę startową (`ratePrefill` jak pojedynczy formularz); osobne
   stawki — ruszona albo startowa. Porównanie z budżetem każdej rekrutacji pod polem. „Dlaczego ten kandydat”, motywacja, ogólna ocena i pozostałe
   pola karty — osobno, w zakładkach per rekrutacja.
+- **Tryb pracy osobno dla każdej rekrutacji (zgłoszenie rekrutera 29.10.2026):** w jednym projekcie bywa 1 dzień
+  z biura, w drugim 2. Pole stoi w „Warunkach” jako „Tryb pracy · <rekrutacja>” (`PER_JOB_TERMS_KEYS`), pod nim
+  „W rekrutacji: …”, gdy rekrutacja ma tryb podany; zapis idzie tylko do swojej pary. Do tej daty był wspólny.
+- **Zakładki oceny montują panel od nowa per rekrutacja** (`key` = rekrutacja). Do 29.10.2026 przełączenie
+  zakładki zostawiało to samo pole tekstowe pod nową nazwą — RHF nie przepisywał wartości, więc „Dlaczego ten
+  kandydat” i motywacja jednej rekrutacji stały w drugiej, a w formularzu miała je tylko jedna i „Zapisz
+  i przekaż dalej” wołało o brak mimo widocznego tekstu (zgłoszenie rekrutera).
 - **Pytania:** grupy z `GET …/question-groups` (reguła `screening_question_groups.py`) — wspólne zadajesz raz,
   pozostałe w sekcjach „Tylko <rekrutacja>”; deal-breaker zaznaczasz per rekrutacja.
 - **„Zapisz i przekaż dalej w N”:** najpierw braki wszystkich par (pytania bez odpowiedzi, „Dlaczego ten kandydat”

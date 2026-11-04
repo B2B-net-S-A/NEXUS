@@ -21,8 +21,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Iterable, Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.models.candidate import Candidate
@@ -31,7 +32,7 @@ from app.models.job import Job, JobStatus
 from app.models.pipeline_template import PipelineStageDef, PipelineTemplate
 from app.models.recruitment_pipeline import CandidateStage
 from app.models.user import User, UserRole
-from app.services.also_fits import also_fits_for_candidate
+from app.services.also_fits import AlsoFitsJob, also_fits_for_candidate
 from app.services.board_stage_badges import board_column_for, cpro_enabled_for_client
 from app.services.board_tasks import (
     TemplateStages,
@@ -41,6 +42,7 @@ from app.services.board_tasks import (
 from app.services.client_identity import client_display_name_expression
 from app.services.job_similarity import linked_job_ids
 from app.services.job_working_title import display_title
+from app.services.polish_ilike import polish_folded_ilike
 from app.services.request_work_state import IN_WORK_STATES
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,9 @@ MATCH_LIMIT = 5
 MATCH_VIA = "dl_match"
 #: Najwyżej tyle rekrutacji w jednej wysyłce.
 MAX_TARGETS = 10
+#: „+ Dodaj inną rekrutację”: tyle wyników, od tylu znaków.
+SEARCH_LIMIT = 8
+SEARCH_MIN_CHARS = 2
 
 DESTINATION_CV_SENT = "cv_sent"
 DESTINATION_CPRO = "cpro"
@@ -75,6 +80,10 @@ class MatchJob:
     sendable: bool = True
     budget_min_hourly: Optional[Decimal] = None
     budget_max_hourly: Optional[Decimal] = None
+    #: ``False`` — rekrutacja spoza portfela DL-a (tylko z wyszukiwania).
+    in_portfolio: bool = True
+    #: DL tamtej rekrutacji, gdy jest spoza portfela — żeby wysyłający wiedział, czyja.
+    delivery_lead_name: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -305,27 +314,14 @@ async def suggestions(
         if job_id not in jobs_by_id:
             continue
         job, client_name = jobs_by_id[job_id]
-        fit = scored.get(job_id)
-        destination = destination_for(job.client_id)
-        if job.pipeline_template_id not in stages_cache:
-            stages_cache[job.pipeline_template_id] = await template_stages(db, job)
-        stages = stages_cache[job.pipeline_template_id]
         out.append(
-            MatchJob(
-                job_id=job_id,
-                title=display_title(job),
-                client_name=client_name,
-                client_reference=job.client_reference,
-                score=fit.score if fit is not None else None,
-                matching_must=tuple(fit.matching_must) if fit is not None else (),
-                gap_must=tuple(fit.gap_must) if fit is not None else (),
+            await _match_job(
+                db,
+                job,
+                client_name,
+                fit=scored.get(job_id),
                 linked=job_id in linked_ids,
-                destination=destination,
-                sendable=stages is not None
-                and stages.verified_id is not None
-                and target_stage_id(stages, destination) is not None,
-                budget_min_hourly=job.rate_budget_hourly_min,
-                budget_max_hourly=job.rate_budget_hourly,
+                stages_cache=stages_cache,
             )
         )
     already = await _already_in(
@@ -333,4 +329,102 @@ async def suggestions(
     )
     return Suggestions(
         status=fits.status, jobs=tuple(order_jobs(out)), already_in=tuple(already)
+    )
+
+
+async def _match_job(
+    db: AsyncSession,
+    job: Job,
+    client_name: Optional[str],
+    *,
+    fit: Optional[AlsoFitsJob],
+    linked: bool,
+    stages_cache: dict[Optional[int], Optional[TemplateStages]],
+    in_portfolio: bool = True,
+    delivery_lead_name: Optional[str] = None,
+) -> MatchJob:
+    destination = destination_for(job.client_id)
+    if job.pipeline_template_id not in stages_cache:
+        stages_cache[job.pipeline_template_id] = await template_stages(db, job)
+    stages = stages_cache[job.pipeline_template_id]
+    return MatchJob(
+        job_id=int(job.id),
+        title=display_title(job),
+        client_name=client_name,
+        client_reference=job.client_reference,
+        score=fit.score if fit is not None else None,
+        matching_must=tuple(fit.matching_must) if fit is not None else (),
+        gap_must=tuple(fit.gap_must) if fit is not None else (),
+        linked=linked,
+        destination=destination,
+        sendable=stages is not None
+        and stages.verified_id is not None
+        and target_stage_id(stages, destination) is not None,
+        budget_min_hourly=job.rate_budget_hourly_min,
+        budget_max_hourly=job.rate_budget_hourly,
+        in_portfolio=in_portfolio,
+        delivery_lead_name=None if in_portfolio else delivery_lead_name,
+    )
+
+
+async def search_targets(
+    db: AsyncSession, *, user: User, candidate_id: int, from_job_id: int, phrase: str
+) -> tuple[MatchJob, ...]:
+    """„+ Dodaj inną rekrutację” (prośba Igora 27.10.2026): DL sam wskazuje
+    rekrutację, której ocena nie podsunęła. Szuka we wszystkich otwartych
+    rekrutacjach firmy (decyzja Artura 27.10.2026), w których tej osoby nie
+    ma — ta sama pula co wysyłka (:func:`open_target_ids`). Portfel DL-a na
+    górze; przy cudzej rekrutacji jej DL. Po numerze u klienta, nazwie,
+    kliencie i id; bez oceny dopasowania.
+    """
+    phrase = phrase.strip()
+    if len(phrase) < SEARCH_MIN_CHARS:
+        return ()
+    scope = await scope_for(db, user)
+    in_job = (
+        select(CandidateStage.id)
+        .where(
+            CandidateStage.job_id == Job.id,
+            CandidateStage.candidate_id == candidate_id,
+        )
+        .exists()
+    )
+    text = or_(
+        polish_folded_ilike(Job.title, phrase),
+        polish_folded_ilike(func.coalesce(Job.client_reference, ""), phrase),
+        polish_folded_ilike(client_display_name_expression(), phrase),
+    )
+    if phrase.isdigit():
+        text = or_(text, Job.id == int(phrase))
+    lead = aliased(User)
+    in_portfolio = (scope if scope is not None else true()).label("in_portfolio")
+    stmt = (
+        select(Job, client_display_name_expression(), lead.name, in_portfolio)
+        .outerjoin(Client, Client.id == Job.client_id)
+        .outerjoin(lead, lead.id == Job.delivery_lead_id)
+        .where(
+            Job.id != from_job_id,
+            Job.status == JobStatus.published,
+            Job.work_state.in_(IN_WORK_STATES),
+            ~in_job,
+            text,
+        )
+        .order_by(in_portfolio.desc(), Job.id.desc())
+        .limit(SEARCH_LIMIT)
+    )
+    stages_cache: dict[Optional[int], Optional[TemplateStages]] = {}
+    return tuple(
+        [
+            await _match_job(
+                db,
+                job,
+                client_name,
+                fit=None,
+                linked=False,
+                stages_cache=stages_cache,
+                in_portfolio=bool(mine),
+                delivery_lead_name=lead_name,
+            )
+            for job, client_name, lead_name, mine in (await db.execute(stmt)).all()
+        ]
     )

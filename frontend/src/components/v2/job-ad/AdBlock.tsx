@@ -11,6 +11,11 @@
  * Niezapisany tekst (`draft`) trzyma okno, nie blok: zakładki pokazują to samo
  * pole, a nieaktywna zakładka jest odmontowana — stan lokalny gubił poprawkę
  * przy przejściu Pracuj.pl → JustJoin.IT.
+ *
+ * Lista z punktami z rekrutacji i stałego bloku („To oferujemy”) pokazuje je
+ * w edycji nad i pod polem, bo pole niesie tylko własne punkty. Bez nich
+ * „Edytuj” dawało puste pole, a wklejona cała lista przekraczała limit
+ * (zgłoszenie 28.10.2026).
  */
 
 import { Check, Copy, Pencil } from "lucide-react";
@@ -18,7 +23,10 @@ import { Check, Copy, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import type { RenderedKind } from "@/lib/api/jobAd";
+import { countPl } from "@/lib/plural-pl";
 import { cn } from "@/lib/utils";
+
+import { ownOfferLines, sameItem } from "./job-ad-edit";
 
 export type AdBlockTone = "block" | "advise" | null;
 
@@ -50,6 +58,58 @@ export interface AdBlockProps {
   copied?: boolean;
   /** Powód, dla którego kopiowanie jest wyłączone. */
   copyBlockedReason?: string | null;
+  /** Punkty z rekrutacji / stałego bloku ukryte w tym ogłoszeniu (stan z serwera). */
+  hiddenAuto?: string[];
+  hiddenFixed?: string[];
+  /** Niezapisana lista ukrytych punktów; `null` = jak na serwerze. */
+  hiddenDraft?: string[] | null;
+  /** Włącza „Ukryj” / „Przywróć” przy punktach z rekrutacji i stałego bloku. */
+  onHiddenChange?: (hidden: string[]) => void;
+  /** Najwięcej własnych punktów listy, które przyjmie serwer. */
+  ownLimit?: number;
+}
+
+interface LockedRowsProps {
+  label: string;
+  source: string;
+  rows: string[];
+  hidden: string[];
+  onToggle?: (row: string) => void;
+}
+
+/** Punkty, które ogłoszenie dokłada samo — w edycji tylko do odczytu. */
+function LockedRows({ label, source, rows, hidden, onToggle }: LockedRowsProps) {
+  if (rows.length === 0) return null;
+  return (
+    <ul
+      aria-label={label}
+      className="flex flex-col gap-0.5 rounded-md bg-muted px-2.5 py-1.5 text-[13px] leading-[19px]"
+    >
+      {rows.map((row) => {
+        const off = hidden.some((item) => sameItem(item, row));
+        return (
+          <li key={row} className="flex items-start justify-between gap-2">
+            <span className={off ? "text-muted-foreground line-through" : "text-foreground"}>
+              {row}
+            </span>
+            <span className="flex shrink-0 items-center gap-2 text-[11px]">
+              <span className="text-muted-foreground">{source}</span>
+              {onToggle ? (
+                <button
+                  type="button"
+                  className="font-medium text-primary hover:underline"
+                  aria-label={off ? `Przywróć: ${row}` : `Ukryj w tym ogłoszeniu: ${row}`}
+                  onClick={() => onToggle(row)}
+                >
+                  {off ? "Przywróć" : "Ukryj"}
+                </button>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function ItemTag({ children }: { children: string }) {
@@ -76,11 +136,34 @@ export function AdBlock({
   onCopy,
   copied = false,
   copyBlockedReason = null,
+  hiddenAuto = [],
+  hiddenFixed = [],
+  hiddenDraft = null,
+  onHiddenChange,
+  ownLimit,
 }: AdBlockProps) {
   const editable = editValue !== undefined && !!onSave && !!onDraftChange;
   const editing = editable && draft !== null;
   const empty = kind === "text" ? !text.trim() : items.length === 0;
   const name = label ?? "Wstęp";
+
+  const autoRows = [...items.slice(0, autoCount), ...hiddenAuto];
+  const fixedRows = [...items.slice(items.length - fixedCount), ...hiddenFixed];
+  const lockedRows = [...autoRows, ...fixedRows];
+  const hidden = hiddenDraft ?? [...hiddenAuto, ...hiddenFixed];
+  const own = ownOfferLines(draft ?? "", lockedRows);
+  const tooMany = ownLimit !== undefined && own.items.length > ownLimit;
+  const toggleHidden = onHiddenChange
+    ? (row: string) =>
+        onHiddenChange(
+          hidden.some((item) => sameItem(item, row))
+            ? hidden.filter((item) => !sameItem(item, row))
+            : [...hidden, row],
+        )
+    : undefined;
+  // Z punktami z rekrutacji i stałego bloku zapisują się tylko własne —
+  // wklejone kopie tamtych wypadają tu, zanim policzy je limit serwera.
+  const textToSave = lockedRows.length > 0 ? own.items.join("\n") : (draft ?? "");
 
   const ListTag = kind === "ordered" ? "ol" : "ul";
   const body = empty ? (
@@ -187,6 +270,13 @@ export function AdBlock({
 
       {editing ? (
         <div className="flex flex-col gap-2">
+          <LockedRows
+            label="Z rekrutacji — dokłada się samo"
+            source="z rekrutacji"
+            rows={autoRows}
+            hidden={hidden}
+            onToggle={toggleHidden}
+          />
           <Textarea
             aria-label={`Treść: ${name}`}
             value={draft ?? ""}
@@ -195,14 +285,38 @@ export function AdBlock({
             className="text-[13px]"
             autoFocus
           />
+          {ownLimit !== undefined ? (
+            <p className="text-xs text-muted-foreground">
+              Twoje punkty: {own.items.length} / {ownLimit}
+            </p>
+          ) : null}
+          {lockedRows.length > 0 && own.skipped > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Pominięto {countPl(own.skipped, "punkt", "punkty", "punktów")}, które ogłoszenie
+              już ma.
+            </p>
+          ) : null}
+          {tooMany ? (
+            <p role="alert" className="text-xs text-destructive">
+              Najwyżej {ownLimit} własnych punktów, jest {own.items.length}. Usuń albo połącz
+              część z nich.
+            </p>
+          ) : null}
+          <LockedRows
+            label="Stały blok — dokłada się sam"
+            source="stały blok"
+            rows={fixedRows}
+            hidden={hidden}
+            onToggle={toggleHidden}
+          />
           {editHint ? <p className="text-xs text-muted-foreground">{editHint}</p> : null}
           <div className="flex gap-2">
             <Button
               type="button"
               size="sm"
               loading={saving}
-              disabled={locked}
-              onClick={() => void onSave?.(draft ?? "")}
+              disabled={locked || tooMany}
+              onClick={() => void onSave?.(textToSave)}
             >
               Zapisz
             </Button>

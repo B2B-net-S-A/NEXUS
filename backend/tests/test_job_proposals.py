@@ -361,7 +361,7 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
         await proposals.upsert_proposals(
             db,
             job_id,
-            [{"candidate_id": c, "score": 50} for c in world["candidate_ids"]],
+            [{"candidate_id": c, "score": 80} for c in world["candidate_ids"]],
             "full_base",
         )
         # Ta sama osoba z dwóch źródeł liczy się RAZ.
@@ -400,6 +400,41 @@ async def test_open_count_is_team_wide_and_matches_the_visible_list():
         await db.commit()
         rows, _ = await proposals.list_for_job(db, job_id=job_id)
     assert {r.candidate_id: r.is_new for r in rows} == {first: True, second: False}
+
+
+async def test_board_score_never_becomes_the_shown_match_score():
+    """27.10.2026: punktacja scrapera (`job_board`) to inny algorytm — `score`
+    listy niesie tylko kanoniczne dopasowanie, scraper osobno."""
+    world = await _world(people=3)
+    job_id = world["job_id"]
+    both, board_only, base_only = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": both, "score": 78},
+                {"candidate_id": board_only, "score": 77},
+            ],
+            "job_board",
+        )
+        await proposals.upsert_proposals(
+            db,
+            job_id,
+            [
+                {"candidate_id": both, "score": 71},
+                {"candidate_id": base_only, "score": 74},
+            ],
+            "full_base",
+        )
+        await db.commit()
+        rows, _ = await proposals.list_for_job(db, job_id=job_id)
+    by_id = {r.candidate_id: r for r in rows}
+    assert (by_id[both].score, by_id[both].board_score) == (71.0, 78.0)
+    assert (by_id[board_only].score, by_id[board_only].board_score) == (None, 77.0)
+    assert (by_id[base_only].score, by_id[base_only].board_score) == (74.0, None)
+    # Kto trafia na stronę — bez zmian (najwyższy wynik dowolnego źródła).
+    assert [r.candidate_id for r in rows] == [both, board_only, base_only]
 
 
 def test_evidence_keeps_requirement_names_and_drops_free_text():
@@ -1156,11 +1191,11 @@ async def test_split_counts_sum_to_the_list_total_and_follow_the_window():
     # Nowe CV sprzed 6 dni i świeży portal obok starego przeglądu bazy = „z
     # ogłoszeń”; nowe CV sprzed 8 dni i sam przegląd bazy = „z bazy”. Osoba
     # w rekrutacji i osoba pominięta nie liczą się wcale — jak na liście.
-    assert split == {"postings_recent": 2, "base": 2}
+    assert split == {"postings_recent": 2, "base": 2, "below_threshold": 0}
     assert split["postings_recent"] + split["base"] == total == 4
     # Szersze okno przenosi ósmy dzień na stronę ogłoszeń; suma zostaje.
-    assert wide == {"postings_recent": 3, "base": 1}
-    assert empty == {"postings_recent": 0, "base": 0}
+    assert wide == {"postings_recent": 3, "base": 1, "below_threshold": 0}
+    assert empty == {"postings_recent": 0, "base": 0, "below_threshold": 0}
 
     by_id = {row.candidate_id: row for row in rows}
     assert by_id[people["base_only"]].posting_seen_at is None
@@ -1222,13 +1257,21 @@ async def test_inbox_items_and_counts_endpoint_agree_on_postings(
         "days",
         "postings_recent",
         "base",
+        "below_threshold",
+        "threshold",
         "screened_out",
         "not_searchable_must",
         "talk_checks",
     }
     assert (body["job_id"], body["days"]) == (job_id, 7)
     assert (body["postings_recent"], body["base"]) == (2, 2)
-    assert body["postings_recent"] + body["base"] == inbox.json()["total"]
+    # Najlepsze 40: osoby spod progu są w `total` listy, nie w liczbach kafli.
+    assert body["below_threshold"] == 0
+    assert body["threshold"] == inbox.json()["threshold"]
+    assert (
+        body["postings_recent"] + body["base"] + body["below_threshold"]
+        == inbox.json()["total"]
+    )
     assert sum(i["posting_recent"] for i in items.values()) == body["postings_recent"]
     # Ta sama liczba co `total` listy „Odrzuceni przez AI”.
     screened = await app_client.get(f"/api/jobs/{job_id}/screened-out", headers=headers)
@@ -1547,3 +1590,97 @@ def test_statuses_agree_everywhere() -> None:
         encoding="utf-8"
     )
     assert "STATUS_CONSTRAINT_DDL" in migration
+
+
+# ── Nowi w bazie najpierw (03.11.2026) ──────────────────────────────────────
+
+
+async def _new_in_base_world(scores: list[float]) -> dict:
+    """Pierwsza osoba jest w bazie od 2 lat, reszta jest świeża."""
+    world = await _world(people=len(scores))
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, world["candidate_ids"][0])
+        person.created_at = datetime.now(timezone.utc) - timedelta(days=730)
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [
+                {"candidate_id": cid, "score": score, "evidence": {}}
+                for cid, score in zip(world["candidate_ids"], scores)
+            ],
+            "full_base",
+        )
+        await db.commit()
+    return world
+
+
+async def test_inbox_puts_new_in_base_before_a_higher_score(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    old, low, high = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    response = await app_client.get(_inbox(world["job_id"]), headers=headers)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [i["candidate"]["id"] for i in body["items"]] == [high, low, old]
+    assert body["new_in_base_total"] == 2
+    assert body["items"][0]["new_in_base_at"] is not None
+    assert body["items"][2]["new_in_base_at"] is None
+    # Procent zostaje wynikiem osoby: pierwszeństwo zmienia kolejność, nie ocenę.
+    assert body["items"][0]["score"] == 74.0
+
+
+async def test_inbox_new_in_base_total_leaves_out_people_on_the_postings_tab(
+    app_client: AsyncClient,
+):
+    world = await _new_in_base_world([95.0, 72.0, 74.0])
+    _, from_base, from_posting = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db,
+            world["job_id"],
+            [{"candidate_id": from_posting, "score": 74.0, "evidence": {}}],
+            "new_cv",
+        )
+        await db.commit()
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    by_id = {i["candidate"]["id"]: i for i in body["items"]}
+    assert by_id[from_posting]["posting_recent"] is True
+    assert by_id[from_posting]["new_in_base_at"] is not None
+    assert by_id[from_base]["posting_recent"] is False
+    assert body["new_in_base_total"] == 1
+
+
+async def test_inbox_new_in_base_needs_the_threshold(app_client: AsyncClient):
+    world = await _new_in_base_world([80.0, 60.0])
+    old, low = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, low]
+    assert body["new_in_base_total"] == 0
+    assert body["items"][1]["new_in_base_at"] is None
+
+
+async def test_inbox_new_in_base_switch_restores_score_order(
+    app_client: AsyncClient, monkeypatch
+):
+    world = await _new_in_base_world([95.0, 72.0])
+    old, fresh = world["candidate_ids"]
+    _, headers = await _user(UserRole.recruiter)
+    monkeypatch.setattr(
+        "app.services.new_column_autofill.settings.NEW_COLUMN_FRESH_FIRST_ENABLED",
+        False,
+    )
+
+    body = (await app_client.get(_inbox(world["job_id"]), headers=headers)).json()
+
+    assert [i["candidate"]["id"] for i in body["items"]] == [old, fresh]
+    assert body["new_in_base_total"] == 0

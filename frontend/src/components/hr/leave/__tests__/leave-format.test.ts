@@ -5,6 +5,7 @@ import type { CalendarAbsence } from "@/lib/api/hr-leave";
 import {
   absenceBadgeText,
   calendarCells,
+  cproSubstituteMissing,
   daysLabel,
   formatRange,
   leaveInputFrom,
@@ -113,10 +114,10 @@ describe("leaveToast — zmiana urlopu w zamkniętym miesiącu płac", () => {
     const { leaveToast } = await import("../leave-format");
     expect(
       leaveToast("Wniosek zaakceptowany", {
-        payroll_warning: "Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+        payroll_warning: "Miesiąc 2031-03 jest zamknięty w Rozliczeniach — dostały informację.",
       }),
     ).toEqual([
-      "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Płacach — dostały informację.",
+      "Wniosek zaakceptowany. Miesiąc 2031-03 jest zamknięty w Rozliczeniach — dostały informację.",
       "info",
     ]);
   });
@@ -195,7 +196,7 @@ describe("leaveInputFrom — dane wniosku ze stanu okna", () => {
     expect(withoutSubstitute?.note).toBeNull();
   });
 
-  it("wpis za pracownika: notatka bez zgody na przekierowanie i bez OOF", () => {
+  it("wpis za osoby: notatka bez zgody na przekierowanie i bez OOF", () => {
     expect(
       leaveInputFrom(
         values({
@@ -218,5 +219,25 @@ describe("leaveInputFrom — dane wniosku ze stanu okna", () => {
       note: "Zwolnienie od lekarza",
     });
     expect(leaveInputFrom(values(), "on_behalf")?.note).toBeNull();
+  });
+});
+
+describe("cproSubstituteMissing — osoba od Cpro wskazuje zastępcę do Cpro", () => {
+  const form = { start: "2026-11-02", end: "2026-11-03", halfDay: "full", cproSubstitute: "none" };
+
+  it("własny wniosek osoby od Cpro na pełne dni bez wyboru = brak", () => {
+    expect(cproSubstituteMissing(form, true, false)).toBe(true);
+    expect(cproSubstituteMissing({ ...form, cproSubstitute: undefined }, true, false)).toBe(true);
+    expect(cproSubstituteMissing({ ...form, cproSubstitute: "9" }, true, false)).toBe(false);
+  });
+
+  it("pół dnia, wpis za osoby i zwykła osoba nie wymagają wyboru", () => {
+    const half = { ...form, end: form.start, halfDay: "morning" };
+    expect(cproSubstituteMissing(half, true, false)).toBe(false);
+    expect(cproSubstituteMissing(form, true, true)).toBe(false);
+    expect(cproSubstituteMissing(form, false, false)).toBe(false);
+    expect(cproSubstituteMissing(form, undefined, false)).toBe(false);
+    // „Pół dnia” przy kilku dniach się nie liczy — to pełne dni.
+    expect(cproSubstituteMissing({ ...form, halfDay: "morning" }, true, false)).toBe(true);
   });
 });

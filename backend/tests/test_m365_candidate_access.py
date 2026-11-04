@@ -32,11 +32,20 @@ def _user(role: UserRole) -> User:
 def test_all_user_facing_m365_and_mailbox_routes_use_candidate_guard() -> None:
     """A future sibling route must not silently fall back to plain auth."""
 
+    # Skrzynka handlowca (28.10.2026): podłączenie, status i synchronizacja
+    # wpuszczają też „Sprzedaż: podgląd” — poczta takiej skrzynki nie trafia
+    # do kandydatów (``tests/test_sales_outlook_sync.py``).
+    mailbox_handlers = {
+        microsoft365.authorize: microsoft365.MailboxOwner,
+        microsoft365.get_connection: microsoft365.MailboxStatusReader,
+        microsoft365.disconnect: microsoft365.MailboxOwner,
+        microsoft365.trigger_sync: microsoft365.MailboxOwner,
+    }
+    for handler, expected in mailbox_handlers.items():
+        annotation = get_type_hints(handler, include_extras=True)["current_user"]
+        assert annotation == expected, handler.__name__
+
     read_handlers = (
-        microsoft365.authorize,
-        microsoft365.get_connection,
-        microsoft365.disconnect,
-        microsoft365.trigger_sync,
         microsoft365.free_busy,
         email_threads.list_candidate_emails,
         email_threads.list_thread_messages,
@@ -99,6 +108,7 @@ async def test_oauth_callback_rechecks_role_before_token_exchange(
 
     db = AsyncMock()
     db.get.return_value = _user(role)
+    monkeypatch.setattr(microsoft365, "resolve_effective_section_access", AsyncMock())
     exchange_code = AsyncMock()
     monkeypatch.setattr(
         microsoft365.m365_oauth,
@@ -156,6 +166,7 @@ async def test_webhook_sync_rechecks_connection_owner_role(
         yield db
 
     sync_connection = AsyncMock()
+    monkeypatch.setattr(microsoft365, "resolve_effective_section_access", AsyncMock())
     monkeypatch.setattr(microsoft365, "AsyncSessionLocal", _session)
     monkeypatch.setattr(microsoft365, "sync_connection", sync_connection)
 
@@ -186,6 +197,7 @@ async def test_webhook_sync_still_allows_operational_owner(
         yield db
 
     sync_connection = AsyncMock()
+    monkeypatch.setattr(microsoft365, "resolve_effective_section_access", AsyncMock())
     monkeypatch.setattr(microsoft365, "AsyncSessionLocal", _session)
     monkeypatch.setattr(microsoft365, "sync_connection", sync_connection)
 

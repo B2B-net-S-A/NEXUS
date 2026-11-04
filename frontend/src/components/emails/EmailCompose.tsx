@@ -32,7 +32,14 @@ import {
 } from "@/components/ui/select";
 
 type ComposeMode =
-  | { mode: "new"; defaultTo: string; replyTo?: undefined }
+  | {
+      mode: "new";
+      defaultTo: string;
+      replyTo?: undefined;
+      /** Szkic z Jarvisa (27.10.2026): temat i zwykły tekst treści do poprawienia. */
+      defaultSubject?: string;
+      defaultBody?: string;
+    }
   | { mode: "reply"; replyTo: EmailMessage; defaultTo?: undefined };
 
 type EmailComposeProps = ComposeMode & {
@@ -60,7 +67,7 @@ export default function EmailCompose(props: EmailComposeProps) {
       ? props.replyTo.subject?.toLowerCase().startsWith("re: ")
         ? (props.replyTo.subject ?? "")
         : `Re: ${props.replyTo.subject ?? ""}`
-      : `Kontakt — ${candidateName}`,
+      : props.defaultSubject || `Kontakt — ${candidateName}`,
   );
   const [error, setError] = useState<string | null>(null);
   // Jeden identyfikator operacji na otwarcie okna (INT-04/05): ponowienie
@@ -74,7 +81,7 @@ export default function EmailCompose(props: EmailComposeProps) {
   const editor = useEditor({
     immediatelyRender: false,
     extensions: [StarterKit],
-    content: "",
+    content: isReply ? "" : plainTextToHtml(props.defaultBody ?? ""),
     editorProps: {
       attributes: {
         class:
@@ -315,4 +322,16 @@ export default function EmailCompose(props: EmailComposeProps) {
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Zwykły tekst szkicu → akapity edytora; tekst escapowany (treść od modelu). */
+export function plainTextToHtml(text: string): string {
+  const escape = (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  return text
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map((block) => `<p>${escape(block).replace(/\n/g, "<br>")}</p>`)
+    .join("");
 }

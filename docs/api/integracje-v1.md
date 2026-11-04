@@ -370,7 +370,7 @@ odejście czy awans pracownika nie zmienia uprawnień automatyzacji.
   `linkedin_url` (`linkedin.com/in/…`), `city`, `country`, `skills`, `source`.
   - Ta sama osoba = ten sam e-mail: istniejący adres daje
     `409 duplicate_candidate` z `details.candidate_id` (bez danych profilu).
-  - Adres osoby, której dane usunięto na jej żądanie (RODO), daje
+  - Adres trwale usuniętego profilu (także duplikatu) daje
     `409 candidate_erased` — taką osobę dodaje tylko człowiek na ekranie.
   - Dopisek w imieniu („[ACTIVE]”, „(czarna lista)”) → `422` przy polu.
   - `dry_run=true` sprawdza to wszystko bez zapisu.
@@ -540,7 +540,7 @@ założenie z polami, które zatwierdziła automatyzacja albo człowiek.
   - `link` dołącza CV do profilu, `merge` dodatkowo uzupełnia puste pola kontaktu;
     oba tylko do kandydata z **tym samym e-mailem** (inny → `409 not_same_person`);
   - `create` zakłada kandydata; istniejący e-mail → `409 duplicate_candidate`,
-    e-mail osoby usuniętej na jej żądanie → `409 candidate_erased`;
+    e-mail trwale usuniętego profilu → `409 candidate_erased`;
   - `reject` wymaga `reason` (trafia do historii);
   - drugie rozpatrzenie → `409 already_resolved`.
   - `dry_run=true` sprawdza reguły bez zapisu.

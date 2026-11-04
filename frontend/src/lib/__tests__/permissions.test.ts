@@ -64,7 +64,7 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
 const sorted = (values: Iterable<string>) => [...values].sort();
 
 describe("katalog uprawnień", () => {
-  it("ma trzynaście pozycji w czterech grupach, w kolejności ekranu", () => {
+  it("ma siedemnaście pozycji w pięciu grupach, w kolejności ekranu", () => {
     expect(PERMISSIONS.map((permission) => permission.label)).toEqual([
       "Klienci, kontrakty i zamówienia: podgląd",
       "Klienci: dodawanie i edycja",
@@ -75,18 +75,23 @@ describe("katalog uprawnień", () => {
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
       "Moduł Finanse",
-      "Kadry: kartoteka, urlopy za innych, wejście i odejście",
-      "Płace: stawki pracowników, premie, rozliczenie miesiąca",
+      "Administracja współpracy: kartoteka, urlopy za innych, wejście i odejście",
+      "Rozliczenia: stawki osób, premie, rozliczenie miesiąca",
       "Sprzęt: ewidencja, wydania, zwroty i protokoły",
       "Sprawy: skrzynka administracja@",
+      "Sprzedaż: podgląd firm, szans i kontaktów",
+      "Sprzedaż: prowadzenie szans i kartoteki firm",
+      "Raporty godzin: akceptacja całej firmy",
+      "Wyniki firmy: podsumowania przychodu i marży",
     ]);
     expect(
       PERMISSION_GROUPS.map((group) => [group.label, group.permissions.length]),
     ).toEqual([
       ["Klienci i kontrakty", 5],
       ["Rekrutacje", 1],
-      ["Pieniądze", 3],
-      ["Ludzie", 4],
+      ["Pieniądze", 4],
+      ["Ludzie", 5],
+      ["Sprzedaż", 2],
     ]);
     expect(permissionLabel("finance_module")).toBe("Moduł Finanse");
   });

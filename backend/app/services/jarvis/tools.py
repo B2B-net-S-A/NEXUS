@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 from app.core.scheduling import DEFAULT_TZ
 from app.data.screen_guides import SCREEN_KEYS
 from app.services.equipment_schema import CATEGORIES as EQUIPMENT_CATEGORIES
+from app.services.jarvis.gap_schema import GAP_KINDS, NEED_MAX, WHY_MAX
 from app.services.recommendation_card_parser import AI_HIDDEN_FIELDS, redact_card_text
 from app.services.section_permissions import ProductSection
 
@@ -468,6 +469,17 @@ _CONTRACT_READING_KEYS = (
     "pages",
     "total_chunks",
     "amendments_count",
+    "amendments",
+    "note",
+)
+_CONTRACT_AMENDMENT_KEYS = (
+    "id",
+    "name",
+    "effective_date",
+    "has_file",
+    "readable",
+    "pages",
+    "total_chunks",
     "note",
 )
 _CONTRACT_PASSAGE_KEYS = (
@@ -477,6 +489,9 @@ _CONTRACT_PASSAGE_KEYS = (
     "first_chunk",
     "last_chunk",
     "text",
+    "amendment_id",
+    "amendment_name",
+    "amendment_effective_date",
 )
 
 
@@ -545,6 +560,16 @@ def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
             }
         )
     )
+
+
+def _shape_amendment_text(data: Any, _args: dict[str, Any]) -> Any:
+    if not isinstance(data, dict):
+        return trim(data)
+    return {
+        "amendment": pick(data.get("amendment"), _CONTRACT_AMENDMENT_KEYS),
+        **pick(data, ("next_chunk", "note")),
+        "passage": pick(data.get("passage"), _CONTRACT_PASSAGE_KEYS),
+    }
 
 
 def _get(path: str, params: Optional[dict[str, Any]] = None) -> RequestSpec:
@@ -1121,9 +1146,10 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         name="search_framework_contracts",
         label="Szukam w umowach ramowych klienta",
         description=(
-            "Treść umów ramowych klienta (wgrane PDF/DOCX): fragmenty najlepiej pasujące "
-            "do pytania, ze wszystkich umów tego klienta, plus lista umów (status, okres, "
-            "czy treść da się czytać i dlaczego nie). W query podaj, czego szukasz, słowami "
+            "Treść umów ramowych klienta i ich aneksów (wgrane PDF/DOCX): fragmenty najlepiej "
+            "pasujące do pytania, ze wszystkich umów tego klienta, plus lista umów i aneksów "
+            "(status, okres, czy treść da się czytać i dlaczego nie). Fragment aneksu ma "
+            "amendment_id, nazwę i datę. W query podaj, czego szukasz, słowami "
             "pytania — np. „termin akceptacji karty czasu pracy”, „termin płatności faktury”, "
             "„okres wypowiedzenia”. Umowa może nazywać rzecz inaczej niż użytkownik. Gdy "
             "fragmenty nie odpowiadają na pytanie, zapytaj innymi słowami albo doczytaj "
@@ -1170,6 +1196,34 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             _clean({"from_chunk": a.get("from_chunk")}),
         ),
         shape=_shape_contract_text,
+    ),
+    JarvisTool(
+        name="read_contract_amendment",
+        label="Czytam aneks do umowy",
+        description=(
+            "Treść jednego aneksu do umowy ramowej po kolei, od fragmentu from_chunk "
+            "(domyślnie od początku). Identyfikatory aneksu i umowy podaje "
+            "search_framework_contracts. Wynik podaje next_chunk, gdy aneks ma dalszą treść."
+        ),
+        input_schema=_schema(
+            {
+                "client_id": INT,
+                "framework_contract_id": INT,
+                "amendment_id": INT,
+                "from_chunk": {"type": "integer", "minimum": 0},
+            },
+            ("client_id", "framework_contract_id", "amendment_id"),
+        ),
+        tier="read",
+        method="GET",
+        path="/api/clients/{client_id}/framework-contracts/{fc_id}/amendments/{amendment_id}/text",
+        section=ProductSection.delivery,
+        build=lambda a: _get(
+            f"/api/clients/{_int(a, 'client_id')}/framework-contracts/"
+            f"{_int(a, 'framework_contract_id')}/amendments/{_int(a, 'amendment_id')}/text",
+            _clean({"from_chunk": a.get("from_chunk")}),
+        ),
+        shape=_shape_amendment_text,
     ),
     JarvisTool(
         name="list_contracts",
@@ -1876,8 +1930,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
         label="Sprawdzam dopasowanie",
         description=(
             "Dlaczego kandydat pasuje (albo nie) do rekrutacji: wynik, podsumowanie, "
-            "mocne strony i luki. Przy pierwszym pytaniu o parę to PŁATNE wywołanie AI — "
-            "wołaj tylko na wyraźną prośbę użytkownika."
+            "mocne strony i luki. Wołaj od razu, gdy użytkownik pyta o dopasowanie "
+            "konkretnej osoby — nie pytaj o zgodę na koszt."
         ),
         input_schema=_schema(
             {"candidate_id": INT, "job_id": INT}, ("candidate_id", "job_id")
@@ -2299,7 +2353,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         description=(
             "Saldo urlopu pytającego w roku (domyślnie bieżący): pula, przeniesione, "
             "zatwierdzone, oczekujące i pozostałe dni; dla umowy o pracę także "
-            "urlop na żądanie. Wymaga kartoteki pracownika."
+            "urlop na żądanie. Wymaga kartoteki osoby."
         ),
         input_schema=_schema({"year": _YEAR_ARG}),
         tier="read",
@@ -2312,12 +2366,12 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
     ),
     JarvisTool(
         name="my_leave_requests",
-        label="Sprawdzam Twoje wnioski urlopowe",
+        label="Sprawdzam Twoje nieobecności",
         description=(
             "Wnioski o nieobecność pytającego (najnowsze najpierw): okres, liczba "
             "dni, status (pending, approved, rejected, cancelled), kto zdecydował, "
             "zastępca i czy można jeszcze anulować. Bez rodzaju i notatek — "
-            "szczegóły na ekranie „Mój czas”."
+            "szczegóły na ekranie „Moja współpraca”."
         ),
         input_schema=_schema({}),
         tier="read",
@@ -2332,7 +2386,7 @@ HR_TOOLS: tuple[JarvisTool, ...] = (
         name="my_month",
         label="Sprawdzam Twój miesiąc",
         description=(
-            "„Mój miesiąc” pytającego (domyślnie bieżący): status timesheetu "
+            "„Mój miesiąc” pytającego (domyślnie bieżący): status raportu godzin "
             "(draft, submitted, approved; zwrócony do poprawy = draft z "
             "`returned_at` i powodem w `return_note`), termin wysłania, "
             "akceptujący, suma godzin i nadgodzin, dni robocze bez wpisu do dziś."
@@ -3374,7 +3428,7 @@ SCREENS: dict[str, tuple[str, str]] = {
     "insights": ("/insights", "Insights"),
     "settings": ("/settings", "Ustawienia"),
     "help": ("/help", "Pomoc"),
-    "my_time": ("/my-time", "Mój czas (urlopy, „Mój miesiąc”)"),
+    "my_time": ("/my-time", "Moja współpraca (urlopy, „Mój miesiąc”)"),
     "people": ("/people", "Ludzie"),
     "people_approvals": ("/people/approvals", "Ludzie — akceptacje"),
     "equipment": ("/equipment", "Sprzęt"),
@@ -3470,12 +3524,74 @@ SHOW_ON_SCREEN = JarvisTool(
 )
 
 
+REPORT_GAP = JarvisTool(
+    name="report_gap",
+    label="Zapisuję, czego mi brakuje",
+    description=(
+        "Wołaj ZAWSZE, gdy nie możesz zrobić tego, o co prosi użytkownik — zamiast "
+        "zwykłego „nie mogę”. `kind`: `no_access` (narzędzie odpowiedziało „Brak "
+        "uprawnień” albo wynik ma `skipped` — rola nie widzi tej części NEXUSA), "
+        "`not_supported` (nie masz narzędzia do takiej akcji albo takiego pytania), "
+        "`no_data` (NEXUS tego nie przechowuje). `need` — czego chciał użytkownik, "
+        "jego słowami, bez nazwisk i danych osobowych. `why` — jednym zdaniem, "
+        "dlaczego się nie da. `workaround` — co może zrobić teraz sam (ekran, "
+        "przycisk, do kogo się zwrócić). Użytkownik zobaczy kartę z przyciskiem "
+        "„Zgłoś, że tego potrzebuję”."
+    ),
+    input_schema=_schema(
+        {
+            "kind": {"type": "string", "enum": list(GAP_KINDS)},
+            "need": {**STR, "maxLength": NEED_MAX},
+            "why": {**STR, "maxLength": WHY_MAX},
+            "workaround": {**STR, "maxLength": WHY_MAX},
+        },
+        ("kind", "need", "why"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=None,
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
+DRAFT_EMAIL = JarvisTool(
+    name="draft_email",
+    label="Piszę szkic maila",
+    description=(
+        "Szkic maila do kandydata — NIC nie wysyła. Użytkownik dostaje kartę z treścią "
+        "i przyciskiem, który otwiera okno maila NEXUSA (wysyła ze swojej skrzynki, "
+        "mail zapisuje się w historii kandydata). `subject` i `body` pisz po polsku, "
+        "zwykłym tekstem, na „Pan/Pani” albo tak, jak użytkownik prosi; bez danych, "
+        "których nie podał użytkownik ani narzędzia."
+    ),
+    input_schema=_schema(
+        {
+            "candidate_id": INT,
+            "subject": {**STR, "minLength": 1, "maxLength": 150},
+            "body": {**STR, "minLength": 1, "maxLength": 3000},
+        },
+        ("candidate_id", "subject", "body"),
+    ),
+    tier="link",
+    method=None,
+    path=None,
+    section=ProductSection.sourcing,
+    entity_type="candidate",
+    build=lambda a: RequestSpec("GET", ""),  # nieużywane — patrz agent._handle_tool
+    shape=as_is,
+)
+
+
 ALL_TOOLS: tuple[JarvisTool, ...] = (
     *READ_TOOLS,
     *HR_TOOLS,
     *WRITE_TOOLS,
     OPEN_SCREEN,
     SHOW_ON_SCREEN,
+    REPORT_GAP,
+    DRAFT_EMAIL,
 )
 TOOLS_BY_NAME: dict[str, JarvisTool] = {tool.name: tool for tool in ALL_TOOLS}
 

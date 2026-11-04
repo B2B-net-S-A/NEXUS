@@ -18,7 +18,6 @@ import {
   useCareerLink,
   useSlugAvailability,
 } from "@/lib/api/careerLinks";
-import { recruiterLogin } from "@/lib/career/format";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { resolveViewState } from "@/lib/view-state";
 import { useAuthStore } from "@/store/auth";
@@ -350,9 +349,12 @@ export function GeneralLinkTab({ enabled }: { enabled: boolean }) {
             <div className="space-y-1.5">
               <span className="text-sm font-medium text-foreground">Podgląd posta na LinkedInie</span>
               <LinkedInPreviewCard
-                command={`whoami — ${recruiterLogin(firstName)}`}
+                person={{
+                  initial: firstName.charAt(0).toLocaleUpperCase("pl-PL"),
+                  name: `${firstName} · rekrutacje IT w B2B Network`,
+                }}
                 headline="Szukasz kolejnego projektu IT?"
-                tagline="[zostaw CV · odezwę się z konkretem]"
+                foot="Zostaw CV — odezwę się →"
                 cardTitle={`${firstName} — rekrutacje IT`}
                 host={host}
               />

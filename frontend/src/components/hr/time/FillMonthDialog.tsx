@@ -25,8 +25,6 @@ import { employmentTerms } from "@/lib/hr-employment-terms";
 
 import { formatHours, parseHours } from "./time-format";
 
-/** Opis, gdy nie ma ani szablonu, ani domyślnego opisu Kadr (jak serwer). */
-const STANDARD_DESCRIPTION = "Praca standardowa";
 const MAX_FILL_HOURS = 8;
 
 type Source = "default" | "template" | "custom";
@@ -96,7 +94,8 @@ export function FillMonthDialog({
   const [busy, setBusy] = useState(false);
 
   const template = templates.find((item) => item.id === templateId) ?? null;
-  const defaultText = roleDefault?.description ?? STANDARD_DESCRIPTION;
+  // Bez szablonu i domyślnego opisu Kadr — słowo formy (jak serwer).
+  const defaultText = roleDefault?.description ?? employmentTerms(form).standard_description;
   const projectHint =
     source === "template" ? template?.project : source === "default" ? roleDefault?.project : null;
   const monthName = monthTitlePl(period).toLowerCase();

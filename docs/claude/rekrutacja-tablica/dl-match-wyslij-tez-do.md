@@ -1,5 +1,5 @@
 # „Match” — Delivery Lead wysyła osobę od razu do innych swoich rekrutacji (22.10.2026)
-<!-- indeks: „Pasuje też do Twoich rekrutacji” w przeglądzie DL, „Wyślij też do…”, portfel DL, połączone zaznaczone, Nordea → Cpro, „w tym Match” -->
+<!-- indeks: „Pasuje też do Twoich rekrutacji” w przeglądzie DL, „Wyślij też do…”, portfel DL, połączone zaznaczone, „+ Dodaj inną rekrutację” (cała firma), Nordea → Cpro, „w tym Match” -->
 
 Zgłoszenie Artura 22.10.2026 (rozmowa z Marcinem i Olafem): Delivery Leadzi sami
 przepinają polecone osoby do innych requestów swoich klientów, bo rekruterzy tego
@@ -25,10 +25,25 @@ Fundament: `dl-przesuwa-bez-blokad.md` (#2581) i „Sam przekazał” (#2582).
   „Wysyłaj razem = zaznacza w przeglądzie”; nic nie idzie do klienta bez
   kliknięcia DL-a. Reszta czeka niezaznaczona. Awaria Qdranta: `status:
   unavailable`, połączone zostają. Pod listą „już jest: <kolumna>” dla
-  rekrutacji z portfela, w których osoba ma kartę w toku.
+  rekrutacji z portfela, w których osoba ma kartę w toku. Sekcja jest widoczna
+  także przy pustej liście — zawsze ma „+ Dodaj inną rekrutację”.
+- **„+ Dodaj inną rekrutację”** (prośba Igora, decyzja Artura 27.10.2026,
+  makiety https://claude.ai/artifact/KDADjkrPBTT2ztuybznuJ8): DL sam wskazuje
+  rekrutację, której ocena nie podsunęła. `GET /api/dl-match/candidates/{id}/search?from_job_id=&q=`
+  (`services/dl_match.search_targets`): **wszystkie otwarte rekrutacje firmy**
+  (opublikowane, w pracy, bez wiersza tej osoby), nie tylko portfel; portfel
+  na górze, przy cudzej `in_portfolio = false` i imię jej DL-a. Szuka po
+  nazwie, numerze u klienta, kliencie (bez polskich znaków) i id, od 2 znaków,
+  do 8 wyników, **bez oceny dopasowania** (decyzja: DL wie, czemu dodaje).
+  Wiersz wchodzi zaznaczony, z „dodana przez Ciebie” i „× usuń”; reszta jak
+  przy podsuniętych. Lista podpowiedzi zostaje w portfelu. Proces w cudzej
+  rekrutacji zalicza się **wysyłającemu** DL-owi, nie DL-owi tamtej
+  rekrutacji (decyzja Artura 27.10.2026) — ten dostaje dzwonek.
 - **Wysyłka** (`POST /api/dl-match/send`, `api/dl_match.py`): osoba musi być
-  w A po „Zweryfikowany” (inaczej 422). Każda rekrutacja B osobno, wynik per
-  rekrutacja (`sent` / `verified_only` / `failed`):
+  w A po „Zweryfikowany” (inaczej 422). Rekrutacja B musi być otwarta i bez
+  tej osoby — od 27.10.2026 **bez warunku portfela** (rekrutacje są dla DL-a
+  org-wide, `uprawnienia/rekrutacje-i-kandydatow-widza-wszyscy-stawki-do.md`).
+  Każda rekrutacja B osobno, wynik per rekrutacja (`sent` / `verified_only` / `failed`):
   1. dodanie jako przepięcie z A — `add_candidates_to_job(...,
      reassign_from_job_id=A)`: kopia CV etapu (`stage_cv_copy`), `entry_source
      = reassign`, ślad `entry_meta = {"via": "dl_match", "from_job_id": A}`,
@@ -52,8 +67,9 @@ Fundament: `dl-przesuwa-bez-blokad.md` (#2581) i „Sam przekazał” (#2582).
   rekrutacja bez stawki wstrzymuje przycisk. Komunikat podsumowuje wysłane,
   kolejkę Cpro, przepuszczone QC i każdą odmowę słowami serwera.
 - **Dzwonki** (typ `stage_changed`, encja = wiersz etapu, żeby dobowy dedup nie
-  zjadał drugiej rekrutacji): prowadzący B — „<DL> wysłał(a) <osoba> do klienta —
-  Match z <A>”; rekruter z A (pierwszy weryfikujący, bez niego prowadzący A,
+  zjadał drugiej rekrutacji): prowadzący B i DL rekrutacji B (gdy to nie
+  wysyłający — ważne przy cudzej rekrutacji) — „<DL> wysłał(a) <osoba> do
+  klienta — Match z <A>”; rekruter z A (pierwszy weryfikujący, bez niego prowadzący A,
   nigdy sam DL) — „Daj znać: … poszła też do N rekrutacji” z listą. To prośba,
   nie blokada (decyzja: zadanie dla rekrutera z A); osobnej tabeli zadań nie ma.
 - **Statystyki:** „Sam przekazał” bez zmian w liczeniu; w faktach panelu celów

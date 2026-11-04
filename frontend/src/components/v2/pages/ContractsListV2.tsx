@@ -12,6 +12,7 @@ import {
  ChevronsUpDown,
  Download,
  FileText,
+ FileWarning,
  Plus,
  Search,
  TrendingUp,
@@ -49,6 +50,7 @@ import {
 } from"@/components/ui/popover";
 import { ContractsBulkActionsBarV2 } from"@/components/v2/modals/ContractsBulkActionsBar";
 import { PlacementsExportDialog } from "@/components/v2/modals/PlacementsExportDialog";
+import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { placementsExportFilename, type PlacementsRange } from "@/lib/placements-export";
 import {
  Table,
@@ -79,7 +81,7 @@ import {
 import { localTodayIso } from "@/lib/client-order-list";
 import { hasAnyPermission, hasPermission } from "@/lib/permissions";
 import { getAuthenticatedRequestHeaders } from "@/lib/session";
-import { hasAnalyticsCapability, useAuthStore } from "@/store/auth";
+import { hasAnalyticsCapability, hasRole, useAuthStore } from "@/store/auth";
 
 // Panel ładowany leniwie: niesie okna zakończenia, aneksów i dokumentów, których
 // lista bez otwartego panelu nie potrzebuje.
@@ -590,22 +592,36 @@ export function ContractsListV2({
 }: ContractsListV2Props = {}) {
  const user = useAuthStore((state) => state.user);
  const impersonating = useAuthStore((state) => state.realUser !== null);
- // Analityka i raport „Kontrakty bez zamówienia" = uprawnienie „Moduł
- // Finanse" (strona i trasa raportu pytają o to samo).
- const canSeeContractAnalytics = hasPermission(user, "finance_module");
+ // Analityka = zbiorcze kwoty firmy: uprawnienie „Wyniki firmy” (02.11.2026).
+ const canSeeContractAnalytics = hasPermission(user, "company_results");
+ // Raport „Kontrakty bez zamówienia" = uprawnienie „Moduł Finanse" (strona
+ // i trasa raportu pytają o to samo).
+ const canSeeOrderlessReport = hasPermission(user, "finance_module");
  // Eksport = trasa `FinanceReadUser`, czyli capability `view_finance`, którą
  // backend wyprowadza z „Modułu Finanse".
  const canExport =
- canSeeContractAnalytics || hasAnalyticsCapability(user, "view_finance");
+ canSeeOrderlessReport || hasAnalyticsCapability(user, "view_finance");
  // Kolumny stawek widzi też posiadacz „Stawki i kwoty: podgląd" — kwoty
  // klientów spoza jego zakresu serwer i tak redaguje wiersz po wierszu.
  const canSeeFinance = canExport || hasPermission(user, "amounts_view");
+ // Marża przy każdym wierszu i plik z całą firmą to wynik firmy („Wyniki
+ // firmy”, decyzja Artura 02.11.2026). Delivery Lead widzi swój portfel.
+ const canSeeMargin =
+ canSeeFinance && (canSeeContractAnalytics || hasRole(user, "delivery_lead"));
  // Zaznaczanie i pasek akcji zbiorczych: przedłużenie („Kontrakty
  // i zamówienia: tworzenie i edycja") albo „Oznacz zakończone" („Zakończenie
  // współpracy…"). Sam odczyt Delivery nie dostaje martwych pól wyboru.
  const canBulkAct =
  !impersonating &&
  hasAnyPermission(user, "contracts_orders_edit", "contract_status");
+ // Rozwiązanie umowy z wiersza listy — to samo uprawnienie co
+ // „Zakończ współpracę”.
+ const canRecordAgreement = !impersonating && hasPermission(user, "contract_status");
+ const [recordAgreementFor, setRecordAgreementFor] = useState<{
+ id: number;
+ candidateName: string | null;
+ projectEnd: string | null;
+ } | null>(null);
  // Queryless `/contracts` is a fresh module entry (Active by default). Every
  // in-module change is encoded back into the URL, including an explicit
  // `status=all`, so a return from details can never be confused with a new
@@ -629,6 +645,11 @@ export function ContractsListV2({
  // "Pokaż" button. Decoupled from the stored `ending` status (cron-maintained)
  // so it always matches the date-based /api/contracts/expiring banner.
  const [endingSoon, setEndingSoon] = useState(initialListState.state.endingSoon);
+ // „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zakończone i kończące się
+ // projekty B2B bez zapisanego rozwiązania umowy — lista zaległych porozumień.
+ const [agreementNotTerminated, setAgreementNotTerminated] = useState(
+ initialListState.state.agreementNotTerminated,
+ );
  const [dateRange, setDateRange] = useState<ContractsDateRange>(() => ({
  startFrom: initialListState.state.startFrom,
  startTo: initialListState.state.startTo,
@@ -661,13 +682,24 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ agreementNotTerminated,
  ...dateRange,
  sortBy: sort.by,
  sortDir: sort.dir,
  page,
  selected: openContractId ?? undefined,
  }),
- [search, statusFilter, typeFilter, endingSoon, dateRange, sort, page, openContractId],
+ [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ dateRange,
+ sort,
+ page,
+ openContractId,
+ ],
  );
 
  // Keep the current list entry self-contained. `replaceState` deliberately
@@ -698,6 +730,7 @@ export function ContractsListV2({
  setStatusFilter(next.statusFilter);
  setTypeFilter(next.typeFilter);
  setEndingSoon(next.endingSoon);
+ setAgreementNotTerminated(next.agreementNotTerminated);
  setDateRange({
  startFrom: next.startFrom,
  startTo: next.startTo,
@@ -747,7 +780,16 @@ export function ContractsListV2({
  // when nothing is selected.)
  useEffect(() => {
  setSelectedIds((prev) => (prev.size === 0 ? prev : new Set()));
- }, [search, statusFilter, typeFilter, endingSoon, appliedDates, sort, page]);
+ }, [
+ search,
+ statusFilter,
+ typeFilter,
+ endingSoon,
+ agreementNotTerminated,
+ appliedDates,
+ sort,
+ page,
+ ]);
 
  const flashToast = (msg: string) => {
  setToast(msg);
@@ -768,6 +810,7 @@ export function ContractsListV2({
  statusFilter.forEach((s) => params.append("status", s));
  typeFilter.forEach((t) => params.append("contract_type", t));
  if (endingSoon) params.set("expiring_in_days", "30");
+ if (agreementNotTerminated) params.set("agreement_not_terminated", "true");
  if (appliedDates.startFrom) params.set("start_from", appliedDates.startFrom);
  if (appliedDates.startTo) params.set("start_to", appliedDates.startTo);
  if (appliedDates.orderEndFrom) {
@@ -883,6 +926,7 @@ export function ContractsListV2({
  appliedDates,
  sort,
  page,
+ agreementNotTerminated,
  ],
  queryFn: () =>
  api
@@ -892,6 +936,7 @@ export function ContractsListV2({
  status: statusFilter.length ? statusFilter : undefined,
  contract_type: typeFilter.length ? typeFilter : undefined,
  expiring_in_days: endingSoon ? 30 : undefined,
+ agreement_not_terminated: agreementNotTerminated || undefined,
  start_from: appliedDates.startFrom || undefined,
  start_to: appliedDates.startTo || undefined,
  order_end_from: appliedDates.orderEndFrom || undefined,
@@ -1032,6 +1077,7 @@ export function ContractsListV2({
  statusFilter,
  typeFilter,
  endingSoon,
+ agreementNotTerminated,
  appliedDates,
  ]);
  const previousFilters = useRef(filtersSignature);
@@ -1082,6 +1128,8 @@ export function ContractsListV2({
  </Button>
  </PopoverTrigger>
  <PopoverContent align="end" className="w-auto min-w-44 p-1">
+ {canSeeContractAnalytics && (
+ <>
  <button
  onClick={() => doExport("xlsx")}
  className="block w-full text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
@@ -1094,13 +1142,15 @@ export function ContractsListV2({
  >
  CSV
  </button>
+ </>
+ )}
  <button
  onClick={() => setPlacementsOpen(true)}
  className="block w-full whitespace-nowrap text-left px-3 py-1.5 text-sm rounded-md hover:bg-primary/10"
  >
  Placementy (.xlsx)
  </button>
- {canSeeContractAnalytics && (
+ {canSeeOrderlessReport && (
  <>
  <div className="my-1 h-px bg-border" aria-hidden="true" />
  <button
@@ -1113,6 +1163,14 @@ export function ContractsListV2({
  )}
  </PopoverContent>
  </Popover>}
+ {recordAgreementFor && (
+ <ContractAgreementRecordDialog
+ contractId={recordAgreementFor.id}
+ candidateName={recordAgreementFor.candidateName}
+ projectEnd={recordAgreementFor.projectEnd}
+ onClose={() => setRecordAgreementFor(null)}
+ />
+ )}
  {canExport && (
  <PlacementsExportDialog
  open={placementsOpen}
@@ -1224,6 +1282,38 @@ export function ContractsListV2({
  </Button>
  </PopoverContent>
  </Popover>
+ {/* „Umowa nierozwiązana” (decyzja Artura 28.10.2026): zaległe rozwiązania
+ umów B2B po zakończeniu projektu. Filtr idzie na wszystkie statusy
+ (zbiór to Zakończony + Kończący się); wyłączenie wraca do domyślnych. */}
+ <Button
+ size="sm"
+ variant="outline"
+ aria-pressed={agreementNotTerminated}
+ data-tour="contracts.list.agreement-not-terminated"
+ className={cn(
+ "gap-1.5",
+ agreementNotTerminated &&
+ "border-warning/40 bg-warning-muted text-warning-muted-foreground hover:bg-warning-muted",
+ )}
+ title="Kontrakty B2B zakończone albo kończące się, w których nie zapisano rozwiązania umowy"
+ onClick={() => {
+ if (agreementNotTerminated) {
+ setAgreementNotTerminated(false);
+ if (statusFilter.length === 0) {
+ setStatusFilter([...DEFAULT_CONTRACT_STATUS_FILTER]);
+ }
+ } else {
+ setAgreementNotTerminated(true);
+ setStatusFilter([]);
+ setEndingSoon(false);
+ }
+ setPage(1);
+ }}
+ >
+ <FileWarning className="h-4 w-4" aria-hidden="true" />
+ Umowa nierozwiązana
+ {agreementNotTerminated && <X className="h-3.5 w-3.5" aria-hidden="true" />}
+ </Button>
  {dateChip && (
  <Button
  size="sm"
@@ -1397,6 +1487,7 @@ export function ContractsListV2({
  align="right"
  unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ {canSeeMargin && (
  <SortableHead
  label="Marża"
  sortKey="margin"
@@ -1405,6 +1496,7 @@ export function ContractsListV2({
  align="right"
  unit={DEFAULT_RATE_UNIT_LABEL}
  />
+ )}
  </>
  )}
  <SortableHead label="Typ" sortKey="contract_type" sort={sort} onSort={onSort} />
@@ -1414,7 +1506,7 @@ export function ContractsListV2({
  {viewState === "loading" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 text-muted-foreground max-xl:block max-xl:w-full">
  Ładowanie…
  </TableCell>
  </TableRow>
@@ -1422,7 +1514,7 @@ export function ContractsListV2({
  ) : failed ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="p-0 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="p-0 max-xl:block max-xl:w-full">
  <QueryStateNotice
  state={viewState as "forbidden" | "not_found" | "error"}
  className="border-0"
@@ -1439,7 +1531,7 @@ export function ContractsListV2({
  ) : viewState === "empty" ? (
  <TableBody className="max-xl:block max-xl:w-full">
  <TableRow className="max-xl:block max-xl:h-auto max-xl:w-full">
- <TableCell colSpan={canSeeFinance ? 12 : 9} className="text-center py-10 max-xl:block max-xl:w-full">
+ <TableCell colSpan={canSeeFinance ? (canSeeMargin ? 12 : 11) : 9} className="text-center py-10 max-xl:block max-xl:w-full">
  <FileText className="h-10 w-10 mx-auto text-muted-foreground mb-2 opacity-40" />
  <p className="text-sm text-muted-foreground">
  Brak kontraktów spełniających kryteria.
@@ -1490,6 +1582,7 @@ export function ContractsListV2({
  selected={rowSelected}
  {...rowActivationProps(String(m.id), () => openContract(m.id))}
  aria-selected={panelOpen}
+ data-tour="contracts.list.row"
  data-selected={panelOpen || undefined}
  // Spokojna tabela: jedna cienka linia między wierszami, bez
  // zebry. Wyróżnia się tylko wiersz zaznaczony i ten, którego
@@ -1692,6 +1785,7 @@ export function ContractsListV2({
  <span className={CALM_EMPTY}>—</span>
  )}
  </TableCell>
+ {canSeeMargin && (
  <TableCell
  data-label="Marża"
  className="px-2 py-1.5 text-right align-top tabular-nums text-[12px] leading-4 whitespace-nowrap max-xl:block max-xl:border-b max-xl:border-b-border/60 max-xl:text-left"
@@ -1722,6 +1816,7 @@ export function ContractsListV2({
  </span>
  )}
  </TableCell>
+ )}
  </>
  )}
 
@@ -1757,6 +1852,28 @@ export function ContractsListV2({
  </StatusDot>
  ) : (
  <span className={cn("text-xs", CALM_EMPTY)}>—</span>
+ )}
+ {/* Zgłoszenie zespołu 29.10.2026: rozwiązanie umowy podpisane
+ poza NEXUSEM zapisuje się wprost z listy „Umowa nierozwiązana”. */}
+ {canRecordAgreement &&
+ agreementNotTerminated &&
+ m.contract_type === "b2b" &&
+ (m.status === "ended" || m.status === "ending") && (
+ <button
+ type="button"
+ onClick={(e) => {
+ e.stopPropagation();
+ setRecordAgreementFor({
+ id: m.id,
+ candidateName: c.candidate_name ?? null,
+ projectEnd: m.end_date ?? null,
+ });
+ }}
+ className="mt-1 block whitespace-nowrap rounded-md border border-border bg-card px-1.5 py-0.5 text-[11px] font-medium text-primary hover:bg-muted"
+ title="Porozumienie albo wypowiedzenie podpisane poza NEXUSEM"
+ >
+ + Rozwiązanie
+ </button>
  )}
  </TableCell>
  </TableRow>

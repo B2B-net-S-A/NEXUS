@@ -37,6 +37,10 @@ class StageMove(BaseModel):
     # `field:<pole karty>`, `field:overall_fit`, `candidate_rate`, `cv`.
     # Przy innym ruchu albo u Nordei → 422 `FIX_FIELDS_NOT_ALLOWED`.
     fix_fields: Optional[list[str]] = Field(None, max_length=30)
+    # Bliźniaki (0615, 28.10.2026): pominięcie bliźniaka przy wejściu na
+    # „Zweryfikowany” — rekrutacja → kod powodu z `job_twins.SKIP_REASONS`.
+    # Bez wpisu bramka wymaga screeningu pary także w bliźniaku.
+    twin_skips: Optional[dict[int, str]] = Field(None, max_length=3)
     rating: Optional[int] = Field(None, ge=1, le=5)
     rejection_reason_id: Optional[int] = None
     rejection_reason: Optional[str] = None  # legacy free-text — kept for BC
@@ -92,11 +96,24 @@ class StageMove(BaseModel):
             "not_looking",
             "no_answer",
             "in_other_process",
+            "client_employed",
+            "client_refused",
+            "overqualified",
+            "wrong_phone",
+            "client_other_vendor",
             "other",
         ]
     ] = None
     autofill_learned_from: Optional[Literal["profile", "call"]] = None
     autofill_rate_hourly: Optional[Decimal] = Field(None, gt=0, le=10000)
+    # 27.10.2026: „Pracuje u tego klienta” / „Nie chce do tego klienta” na cały
+    # klient — zdejmuje nietknięte karty tej osoby od systemu z innych
+    # rekrutacji klienta, a silnik więcej jej temu klientowi nie podsuwa.
+    autofill_whole_client: bool = False
+    # 28.10.2026: „Nie szuka pracy” — do kiedy. Profil dostaje „Nie szuka”
+    # i „Dostępny od” = ta data, system zdejmuje nietknięte karty osoby od
+    # systemu z innych rekrutacji i nie podsuwa jej do tej daty.
+    autofill_not_looking_until: Optional[date] = None
 
     # ── Stawka kandydata przy ruchu na `verified` (0056, zmiana 17.09.2026) ─
     # OPCJONALNA. Do 17.09.2026 brak stawki dawał 422, a stawka ponad
@@ -220,6 +237,17 @@ class HiringManagerVetoBrief(BaseModel):
     rejection_note: Optional[str] = None
 
 
+class BookedCallSummary(BaseModel):
+    """Otwarty telefon pary na karcie Tablicy."""
+
+    event_id: int
+    start_time: datetime
+    note: Optional[str] = None
+    owner_id: Optional[int] = None
+    owner_name: Optional[str] = None
+    in_outlook: bool = False
+
+
 class CandidateStageResponse(BaseModel):
     id: int
     candidate_id: int
@@ -332,6 +360,12 @@ class CandidateStageResponse(BaseModel):
     owner_assigned_by_name: Optional[str] = None
     owner_assigned_at: Optional[datetime] = None
     owner_previous_name: Optional[str] = None
+    # Odejście z firmy (28.10.2026): osoba, która prowadziła parę, ma wyłączone
+    # konto, a parę domyka Delivery Lead (``departure_care``) — tylko gdy jest.
+    care_user_id: Optional[int] = None
+    care_user_name: Optional[str] = None
+    care_departed_name: Optional[str] = None
+    care_since: Optional[datetime] = None
     # 0348: kto wysyła osobę do Cpro — tylko na wierszu „Wysłać do Cpro".
     # Nazwisko wypełnia tablica.
     task_assignee_id: Optional[int] = None
@@ -434,6 +468,12 @@ class CandidateStageResponse(BaseModel):
     claim_user_id: Optional[int] = None
     claim_user_name: Optional[str] = None
     claim_until: Optional[datetime] = None
+    # Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+    booked_call: Optional[BookedCallSummary] = None
+    # Ostatnia osoba, która kliknęła „Biorę”, także po wygaśnięciu blokady —
+    # do pierwszej weryfikacji (27.10.2026). Karta i filtr „Kto dodał”.
+    taken_by_user_id: Optional[int] = None
+    taken_by_name: Optional[str] = None
     can_take: bool = False
     # Odznaka terminarza rozmowy u klienta (`interview_badges_for_job`):
     # {kind, label, tone, at}.

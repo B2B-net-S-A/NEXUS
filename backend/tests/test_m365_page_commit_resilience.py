@@ -80,7 +80,7 @@ async def test_failed_page_commit_is_contained_counted_and_rolled_back(monkeypat
         },
     ]
 
-    async def _fake_upsert(db, gc, conn, msg, folder):  # noqa: ANN001 - atrapa
+    async def _fake_upsert(db, gc, conn, msg, folder, **_kwargs):  # noqa: ANN001 - atrapa
         return SimpleNamespace(id=msg["id"])
 
     monkeypatch.setattr(sync_mod, "_upsert_message", _fake_upsert)
@@ -122,7 +122,7 @@ async def test_healthy_pages_do_not_roll_back_anything(monkeypatch):
     """Kontrola negatywna — inaczej test wyżej przechodziłby też dla kodu,
     który rollbackuje zawsze."""
 
-    async def _fake_upsert(db, gc, conn, msg, folder):  # noqa: ANN001 - atrapa
+    async def _fake_upsert(db, gc, conn, msg, folder, **_kwargs):  # noqa: ANN001 - atrapa
         return SimpleNamespace(id=msg["id"])
 
     monkeypatch.setattr(sync_mod, "_upsert_message", _fake_upsert)

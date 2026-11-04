@@ -14,8 +14,8 @@ nieobecności (D6), akceptujący pisze uwagi wolnym tekstem, tytuł sprawy
 administracja@ przychodzi z cudzej poczty. Dlatego tytuł i treść przechodzą do
 maila tylko wtedy, gdy nie ma w nich rodzaju nieobecności ani kwot — w innym
 razie mail niesie stałe zdanie typu, a szczegóły są w NEXUSIE pod linkiem.
-Wolnego tekstu (uwagi przy zwrocie timesheetu, tytuł sprawy) mail nie niesie
-nigdy.
+Wolnego tekstu (uwagi przy zwrocie timesheetu, tytuł sprawy, powód cofnięcia
+nieobecności) mail nie niesie nigdy.
 
 Premia (`hr_bonus_assigned`, mail obowiązkowy „Masz nową premię” od 26.10.2026)
 ma własny mail: `bonus_mail` składa go ze stałych słów formy i z wiersza
@@ -39,7 +39,7 @@ from app.services.hr.employment_terms import (
     returned_titles,
     terms,
 )
-from app.services.hr.leave_policy import LEAVE_TYPE_LABELS
+from app.services.hr.leave_policy import CANCEL_REASON_LABEL, LEAVE_TYPE_LABELS
 from app.services.hr.payroll_periods import label as period_label
 
 # Tytuły zwrotu raportu godzin (`time_flow.return_for_fix`, słowa według formy
@@ -55,7 +55,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     ),
     "hr_leave_decided": (
         "Zmiana w Twojej nieobecności",
-        "Szczegóły znajdziesz w „Moim czasie”.",
+        "Szczegóły znajdziesz w „Mojej współpracy”.",
     ),
     "hr_leave_cancelled": (
         "Nieobecność anulowana",
@@ -72,14 +72,14 @@ FALLBACK: dict[str, tuple[str, str]] = {
     # Notatka koordynatora to wolny tekst — do maila nie idzie (D5).
     "hr_leave_conflict": (
         "Kolizja z Twoją nieobecnością",
-        "Koordynator zgłosił kolizję z terminem — notatkę znajdziesz w „Moim czasie”.",
+        "Koordynator zgłosił uwagę do terminu — notatkę znajdziesz w „Mojej współpracy”.",
     ),
     # Tytuł powiadomienia mówi słowami formy (ewidencja / raport / potwierdzenie
     # godzin), treść — kto i za jaki miesiąc; zdanie zastępcze bez nich.
     "hr_timesheet_submitted": (
         "Godziny do akceptacji",
         "Osoba z Twojego zespołu wysłała godziny — akceptujesz je "
-        "w „Ludzie → Akceptacje”.",
+        "w „Ludzie → Do potwierdzenia”.",
     ),
     "hr_timesheet_decided": (
         "Zmiana w raporcie godzin",
@@ -91,7 +91,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     ),
     "hr_lifecycle_task": (
         "Zadania: wejście albo odejście",
-        "Masz zadania w sprawie wejścia albo odejścia pracownika.",
+        "Masz zadania w sprawie wejścia albo odejścia osoby.",
     ),
     "hr_work_handover": (
         "Przejmujesz pracę",
@@ -100,6 +100,22 @@ FALLBACK: dict[str, tuple[str, str]] = {
     "admin_case_assigned": (
         "Przypisano Ci sprawę administracja@",
         "Szczegóły sprawy znajdziesz w NEXUSIE.",
+    ),
+    "back_office_escalated": (
+        "Sprawy do przydzielenia",
+        "Kolejka back office ma sprawy bez osoby po dniu roboczym.",
+    ),
+    "back_office_assigned": (
+        "Przydzielono Ci kartę back office",
+        "Szczegóły karty znajdziesz w NEXUSIE.",
+    ),
+    "portal_low_rating": (
+        "Niska ocena rozmowy z portalu",
+        "Konsultant źle ocenił rozmowę. Zadanie znajdziesz w zakładce „Jakość”.",
+    ),
+    "portal_monthly_review": (
+        "Przegląd rozmów za miesiąc",
+        "Twój miesięczny przegląd rozmów z portalu jest w zakładce „Jakość”.",
     ),
     "equipment_task": (
         "Sprzęt: zadania do zrobienia",
@@ -112,7 +128,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     "equipment_return_reminder": (
         "Zwrot sprzętu do recepcji",
         "Recepcja prosi o zwrot sprzętu firmy — listę rzeczy znajdziesz "
-        "w „Moim czasie” → Kartoteka.",
+        "w „Mojej współpracy” → Kartoteka.",
     ),
     "care_front_office_handoff": (
         "Konsultant dla front office",
@@ -123,12 +139,12 @@ FALLBACK: dict[str, tuple[str, str]] = {
         "Komunikat do konsultantów czeka na Ciebie — szczegóły znajdziesz w NEXUSIE.",
     ),
     "hr_settlement_correction": (
-        "Płace proszą o korektę faktury",
-        "Porównanie z raportem godzin znajdziesz w „Moim czasie” → Rozliczenie.",
+        "Rozliczenia proszą o korektę faktury",
+        "Porównanie z raportem godzin znajdziesz w „Mojej współpracy” → Rozliczenie.",
     ),
     "hr_settlement_review": (
         "Rozliczenie do sprawdzenia",
-        "Rozliczenie w Płacach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
+        "Rozliczenie w Rozliczeniach czeka na Twoją decyzję — szczegóły znajdziesz w NEXUSIE.",
     ),
     "hr_agreement_update": (
         "Zmiana stanu umowy",
@@ -138,7 +154,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     # zdanie zastępcze tylko na wypadek, gdyby tamten go nie złożył.
     "hr_approval_requested": (
         "Zgoda do decyzji",
-        "Prośba o zgodę czeka na Twoją decyzję w „Ludzie → Akceptacje → Zgody”.",
+        "Prośba o zgodę czeka na Twoją decyzję w „Ludzie → Do potwierdzenia → Zgody”.",
     ),
     # Uwaga decydującego to wolny tekst — do maila nie idzie.
     "hr_approval_decided": (
@@ -148,7 +164,7 @@ FALLBACK: dict[str, tuple[str, str]] = {
     "hr_approval_topup_requested": (
         "Prośba o dopłatę do zgody",
         "Faktura wyszła drożej niż zgoda — dopłata czeka na Twoją decyzję "
-        "w „Ludzie → Akceptacje → Zgody”.",
+        "w „Ludzie → Do potwierdzenia → Zgody”.",
     ),
     "hr_subscription_renewal": (
         "Odnowienie subskrypcji",
@@ -160,9 +176,14 @@ _DEFAULT = ("Czas i ludzie", "Szczegóły znajdziesz w NEXUSIE.")
 
 # Treść tych typów to zawsze wolny tekst.
 _FREE_TEXT_TYPES = frozenset(
-    {"admin_case_assigned", "hr_leave_conflict", "hr_approval_decided"}
+    {
+        "admin_case_assigned",
+        "back_office_assigned",
+        "hr_leave_conflict",
+        "hr_approval_decided",
+    }
 )
-_RETURNED_BODY = "Uwagi akceptującego znajdziesz w „Moim miesiącu”."
+_RETURNED_BODY = "Uwagi znajdziesz w „Moim miesiącu”."
 
 
 def _label_stem(label: str) -> str:
@@ -206,6 +227,9 @@ def mail_text(
     title = (title or "").strip()
     message = (message or "").strip()
     out_title = title if title and mail_safe(title) else fallback_title
+    if value == "hr_leave_cancelled":
+        # Powód cofnięcia minionych dni to wolny tekst — zostaje w dymku.
+        message = message.partition(CANCEL_REASON_LABEL)[0].strip()
     if value in _FREE_TEXT_TYPES:
         body = fallback_body
     elif value == "hr_timesheet_decided" and title in RETURNED_TIMESHEET_TITLES:
@@ -245,7 +269,7 @@ def bonus_text(
     """(tytuł, treść) maila o premii: za co i za który miesiąc, bez kwoty."""
 
     words = terms(employment_type)
-    where = f"„Moim czasie” → {capitalize(words['bonuses'])}"
+    where = f"„Mojej współpracy” → {capitalize(words['bonuses'])}"
     tail = (
         f"Szczegóły zobaczysz w NEXUSIE, w {where}."
         if event == "cancelled"

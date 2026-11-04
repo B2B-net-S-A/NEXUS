@@ -63,4 +63,19 @@ describe("RecruitmentSheet — karta obok panelu", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("Esc w rozwiniętym polu czatu zwija pole, a nie zamyka panelu ze szkicem (29.10)", () => {
+    const onOpenChange = vi.fn();
+    render(
+      <RecruitmentSheet open onOpenChange={onOpenChange} title="Historia i czat" description="Czat">
+        <form data-keep-sheet-on-escape="">
+          <textarea aria-label="Wiadomość" />
+        </form>
+      </RecruitmentSheet>,
+    );
+    const field = screen.getByLabelText("Wiadomość");
+    field.focus();
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });

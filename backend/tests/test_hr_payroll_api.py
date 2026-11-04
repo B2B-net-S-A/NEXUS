@@ -381,7 +381,7 @@ async def test_payroll_cannot_set_or_delete_own_rate_but_admin_can(
     )
     assert own.status_code == 403
     assert own.json()["detail"] == (
-        "Własnej stawki nie ustawiasz — zrobi to druga osoba z Płac albo administrator."
+        "Własnej stawki nie ustawiasz — zrobi to druga osoba z Rozliczeń albo administrator."
     )
     by_colleague = await app_client.post(
         f"/api/hr/payroll/people/{finance.id}/rates",
@@ -723,7 +723,7 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
         f"/api/hr/payroll/bonuses/{bonus_id}/approve", headers=_headers(boss)
     )
     assert own.status_code == 403
-    assert "Płace" in own.json()["detail"]
+    assert "Rozliczenia" in own.json()["detail"]
 
     # Propozycję przełożony może jeszcze poprawić.
     corrected = await app_client.patch(
@@ -749,7 +749,7 @@ async def test_manual_bonus_from_manager_waits_for_payroll(
         headers=_headers(boss),
     )
     assert raised.status_code == 403
-    assert "Płace" in raised.json()["detail"]
+    assert "Rozliczenia" in raised.json()["detail"]
     async with AsyncSessionLocal() as db:
         kept = await db.get(HrBonus, bonus_id)
     assert kept is not None and kept.amount == Decimal("300.00")
@@ -814,7 +814,9 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
     async with AsyncSessionLocal() as db:
         first = proposal(worker.id, "1000", eligible_on=today)
         second = proposal(other.id, "529.20", eligible_on=today)
-        early = proposal(other.id, "300", eligible_on=today + timedelta(days=5))
+        early = proposal(other.id, "300", eligible_on=today)
+        early.status = "assigned"
+        early.assigned_at = local_now()
         db.add_all([first, second, early])
         await db.commit()
 
@@ -826,7 +828,7 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
     )
     assert denied.status_code == 403
 
-    # Jedna premia przed terminem — nic nie wchodzi, komunikat mówi przy kim.
+    # Jedna premia już przyznana — nic nie wchodzi, komunikat mówi przy kim.
     refused = await app_client.post(
         "/api/hr/payroll/bonuses/approve-batch",
         json={"ids": [first.id, second.id, early.id]},
@@ -840,7 +842,7 @@ async def test_batch_approve_is_all_or_nothing_and_payroll_only(
             (
                 await db.execute(
                     select(HrBonus.id, HrBonus.status).where(
-                        HrBonus.id.in_([first.id, second.id, early.id])
+                        HrBonus.id.in_([first.id, second.id])
                     )
                 )
             ).all()
@@ -1186,9 +1188,9 @@ async def test_export_has_amounts_per_currency_and_no_absence_types(
     assert response.status_code == 200
     assert response.headers["content-disposition"].endswith(f'place-{y}-{m:02d}.xlsx"')
     book = load_workbook(io.BytesIO(response.content), read_only=True)
-    rows = list(book["Płace"].iter_rows(values_only=True))
+    rows = list(book["Rozliczenia"].iter_rows(values_only=True))
     header = rows[0]
-    assert "Dni nieobecności z puli urlopowej" in header
+    assert "Dni nieobecności z puli przerw" in header
     assert not any("chorob" in str(cell).lower() for row in rows for cell in row)
     mine = [row for row in rows[1:] if row[0] == worker.name]
     assert len(mine) == 1

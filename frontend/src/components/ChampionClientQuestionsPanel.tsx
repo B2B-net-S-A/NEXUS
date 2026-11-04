@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Plus } from "lucide-react";
 
+import { AllClientQuestions } from "@/components/AllClientQuestions";
+import { WorkspaceModeTabs } from "@/components/ds/WorkspaceModeTabs";
 import {
   useClientQuestionArchive,
   useClientQuestionPool,
@@ -144,11 +146,56 @@ function ArchiveSection({ jobId, actions }: { jobId: number; actions: RowActions
   );
 }
 
+type QuestionsTab = "job" | "client";
+
+function JobQuestions({ jobId, actions }: { jobId: number; actions: RowActions }) {
+  const query = useClientQuestionPool("job", jobId);
+  const questions = Array.isArray(query.data) ? query.data : [];
+  if (query.isPending) {
+    return <p className="text-xs text-muted-foreground">Wczytuję pytania klienta…</p>;
+  }
+  if (query.isError) {
+    return (
+      <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+        Nie udało się wczytać pytań klienta — lista może istnieć.
+        <button
+          type="button"
+          onClick={() => query.refetch()}
+          className="font-medium underline"
+        >
+          Ponów
+        </button>
+      </div>
+    );
+  }
+  if (questions.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Jeszcze nic — pytania pojawią się po pierwszym telefonie do kandydata po
+        rozmowie w tej rekrutacji. Pytania z innych rekrutacji tego klienta są
+        w zakładce „Wszystkie pytania klienta”.
+      </p>
+    );
+  }
+  return (
+    <ul className="space-y-2">
+      {questions.map((q) => (
+        <QuestionRow
+          key={q.id}
+          text={q.text}
+          testId={`champion-client-question-${q.id}`}
+          actions={actions}
+        />
+      ))}
+    </ul>
+  );
+}
+
 /**
- * „Pytania klienta z rozmów” — pula pytań, które klient tej rekrutacji zadawał
- * kandydatom (debriefy po rozmowach u klienta, bramka przed „Umową”). Delivery
- * Lead dopisuje je do pytań screeningowych albo do historycznych pytań
- * klienta w profilu Championa.
+ * „Pytania klienta z rozmów”: domyślnie tylko pytania zadane na rozmowach w tej
+ * rekrutacji (zgłoszenie 02.11.2026: przy PM-ie stały pytania z Javy), a pełna
+ * lista klienta i archiwum w drugiej zakładce. Delivery Lead dopisuje je do
+ * pytań screeningowych albo do historycznych pytań klienta w profilu Championa.
  *
  * Panel edytuje WYŁĄCZNIE szkic edytora (`onAddScreening`/`onAddHistorical`) —
  * zapis zostaje zwykłym „Zapisz” profilu. Awaria odczytu jest komunikatem,
@@ -169,8 +216,9 @@ export function ChampionClientQuestionsPanel({
   onAddScreening: (text: string) => void;
   onAddHistorical: (text: string) => void;
 }) {
-  const query = useClientQuestionPool("job", jobId);
-  const questions = Array.isArray(query.data) ? query.data : [];
+  const [tab, setTab] = useState<QuestionsTab>("job");
+  const jobQuery = useClientQuestionPool("job", jobId);
+  const jobCount = Array.isArray(jobQuery.data) ? jobQuery.data.length : 0;
   const actions: RowActions = {
     inScreening: new Set(screeningQuestions.map(normalizeQuestion).filter(Boolean)),
     inHistorical: historicalSet(historicalQuestions),
@@ -187,45 +235,47 @@ export function ChampionClientQuestionsPanel({
     >
       <h4
         id="champion-client-questions-heading"
-        className="text-xs font-semibold text-foreground"
+        className="mb-1 text-xs font-semibold text-foreground"
       >
         Pytania klienta z rozmów
-        {query.isSuccess ? ` (${questions.length})` : ""}
       </h4>
-      <p className="mt-0.5 mb-2 text-[11px] text-muted-foreground">
-        Zebrane w telefonach do kandydatów po rozmowach u tego klienta.
-      </p>
-      {query.isPending ? (
-        <p className="text-xs text-muted-foreground">Wczytuję pytania klienta…</p>
-      ) : query.isError ? (
-        <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
-          Nie udało się wczytać pytań klienta — lista może istnieć.
-          <button
-            type="button"
-            onClick={() => query.refetch()}
-            className="font-medium underline"
-          >
-            Ponów
-          </button>
-        </div>
-      ) : questions.length === 0 ? (
-        <p className="text-xs text-muted-foreground">
-          Jeszcze nic — pytania pojawią się po pierwszym telefonie do kandydata
-          po rozmowie u tego klienta.
-        </p>
+      <div data-tour="jobs.client-questions.scope">
+        <WorkspaceModeTabs<QuestionsTab>
+          label="Zakres pytań klienta"
+          value={tab}
+          onChange={setTab}
+          modes={[
+            { value: "job", label: "Z tej rekrutacji", count: jobCount },
+            { value: "client", label: "Wszystkie pytania klienta" },
+          ]}
+        />
+      </div>
+      {tab === "job" ? (
+        <>
+          <p className="mt-2 mb-2 text-[11px] text-muted-foreground">
+            Zebrane w telefonach do kandydatów po rozmowach w tej rekrutacji.
+          </p>
+          <JobQuestions jobId={jobId} actions={actions} />
+        </>
       ) : (
-        <ul className="space-y-2">
-          {questions.map((q) => (
-            <QuestionRow
-              key={q.id}
-              text={q.text}
-              testId={`champion-client-question-${q.id}`}
-              actions={actions}
-            />
-          ))}
-        </ul>
+        <>
+          <p className="mt-2 mb-2 text-[11px] text-muted-foreground">
+            Pytania z rozmów we wszystkich rekrutacjach tego klienta.
+          </p>
+          <AllClientQuestions
+            jobId={jobId}
+            renderQuestion={(q, group) => (
+              <QuestionRow
+                key={q.id}
+                text={q.text}
+                testId={`champion-all-question-${group.jobId ?? "none"}-${q.id}`}
+                actions={actions}
+              />
+            )}
+          />
+          <ArchiveSection jobId={jobId} actions={actions} />
+        </>
       )}
-      <ArchiveSection jobId={jobId} actions={actions} />
     </section>
   );
 }

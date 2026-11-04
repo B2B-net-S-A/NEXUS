@@ -20,8 +20,34 @@ Harness `/preview/job-ad?state=ready|published`.
   ogłoszenia: podtytuł = wstęp (`lead`, przycięty jak szkic), opis =
   „O projekcie” + akapit „Czym się zajmiesz: …; ….” (EN: „What you will do”).
   Opis tnie się na granicy akapitu (`ABOUT_MAX`), nigdy w pół zdania.
-  Wymagania, miasto, tryb i start strona bierze z rekrutacji (migawka
-  zatwierdzenia) — bez zmian.
+  Miasto, tryb i start strona bierze z rekrutacji (migawka zatwierdzenia).
+- **„Wymagane” i „Mile widziane” = punkty ogłoszenia (29.10.2026, uwaga
+  rekruterki).** Słowa do szukania wycięte ze zdań klienta („bankowości”,
+  „dostawców zewnętrznych”, 789181) nic kandydatowi nie mówiły. „Opublikuj na
+  stronie” zapisuje w migawce (`jpp.APPROVED_POINTS_KEY`, do 15 punktów po 300
+  znaków) „Nasze wymagania” i „Mile widziane” ogłoszenia; kontrola strony
+  czyta słowa i punkty. Punkty pokazuje tylko strona rekrutacji
+  (`public_career`, `points=jpp.approved_points(...)`) — tablica, plakat,
+  portale API i `approved_content_stale` dalej czytają słowa z migawki.
+  Ogłoszenie bez punktów i zatwierdzenie w „Udostępnij” = słowa jak dotąd.
+  Zmiana samych punktów w ogłoszeniu = stan `outdated`; strony opublikowane
+  przed 29.10.2026 mają `outdated`, dopóki ktoś nie kliknie „Zaktualizuj na
+  stronie”.
+- **Zamienniki z wierszy wymagań idą do modelu, nie do etykiet (decyzja Artura
+  30.10.2026, po #2853).** Wiersz „Prince2*, Agile, Prince2” ma etykietę „Agile”,
+  więc ogłoszenie pisane z samych etykiet mówiło kandydatowi tylko o Agile.
+  `AdMaterial.alternatives` („Agile: Prince2”) to osobne pole promptu. Etykiet
+  nie podmieniamy: pomiar na kopii z 22.10 to 156 takich wierszy w 63 otwartych
+  rekrutacjach, a tylko ok. 50 to prawdziwe „X lub Y” (ręczna ocena). Reszta to
+  tłumaczenia, skróty i słowa do szukania („hurtown* danych”, „Application lub
+  User”), które model pomija, a złożenie bez modelu wypisałoby wprost — dlatego
+  złożenie i lista technologii portalu zostają przy etykietach. Pole jest poza
+  `_HASH_FIELDS`: zapisane ogłoszenia zostają bez zmian i bez „Przygotuj
+  ponownie”, działa przy każdym nowym przygotowaniu. Strona kariery dostaje to
+  przez punkty ogłoszenia. Generator CV bez zmian: w 277 CV pod te rekrutacje
+  nie było mapy wymagań ani udostępnienia, żadna reguła klienta przy tych CV nie ma polityki
+  wyróżnień `must`, a z 122 wierszy, które kandydat spełnia tylko zamiennikiem,
+  101 zostało w CV, a 21 wypadło, przeważnie tłumaczenia i skróty.
 - **Tytuł strony zostaje tytułem publicznym rekrutacji.** Ogłoszenie i tak od
   niego zaczyna, a tytuł wchodzi do odcisku materiału
   (`material._HASH_FIELDS`): przepisanie go z ogłoszenia zapalałoby w oknie

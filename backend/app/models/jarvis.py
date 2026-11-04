@@ -195,3 +195,44 @@ class JarvisUiEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class JarvisGap(Base):
+    """Karta „Tego nie zrobię” (0527): czego Jarvisowi zabrakło w rozmowie.
+
+    Zapisuje ją serwer przy narzędziu ``report_gap``; ``reported_at`` ustawia
+    kliknięcie „Zgłoś, że tego potrzebuję”. Kaskada po rozmowie — retencja
+    i usunięcie kandydata zabierają wiersz razem z rozmową.
+    """
+
+    __tablename__ = "jarvis_gaps"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('no_access', 'not_supported', 'no_data')",
+            name="ck_jarvis_gaps_kind",
+        ),
+        Index("ix_jarvis_gaps_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("jarvis_conversations.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    tool_use_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    need: Mapped[str] = mapped_column(String(160), nullable=False)
+    why: Mapped[str] = mapped_column(String(240), nullable=False)
+    workaround: Mapped[str] = mapped_column(
+        String(240), nullable=False, server_default=""
+    )
+    reported_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

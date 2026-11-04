@@ -100,7 +100,12 @@ export function MyPeopleBuddyView({
   animate?: boolean;
 }) {
   return (
-    <div className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2">
+    // `data-floating-corner`: na czas przeklikania nowości postać i dymek
+    // znikają, bo przy 1280×720 zasłaniają stopkę panelu (`NoveltyLayer`).
+    <div
+      data-floating-corner
+      className="fixed bottom-[calc(1.25rem+env(safe-area-inset-bottom))] right-[calc(1.25rem+env(safe-area-inset-right))] z-30 flex items-end gap-2"
+    >
       {showBubble && sentences.length ? (
         <div
           role="status"

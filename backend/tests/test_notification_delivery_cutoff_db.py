@@ -107,3 +107,67 @@ async def test_activation_and_reactivation_exclude_backlog_without_erasing_histo
             await db.execute(delete(AppSetting).where(AppSetting.key == setting_key))
             await db.execute(delete(User).where(User.id == user_id))
             await db.commit()
+
+
+async def test_silenced_banner_counts_recent_bells_of_disabled_kinds():
+    """Baner z 29.10.2026: dzwonki z 7 dni w rodzaju wyłączonym dla firmy.
+
+    Liczba jest globalna, więc test porównuje przyrost, a nie wartość."""
+    now = datetime.now(timezone.utc)
+    policy = delivery.DeliveryPolicy.from_value(
+        {
+            "enabled": True,
+            "send_not_before": now.isoformat(),
+            "types": {"pipeline_stage": {"email_enabled": False}},
+        }
+    )
+    async with AsyncSessionLocal() as db:
+        user = User(
+            email=f"silenced-{uuid.uuid4().hex}@example.invalid",
+            password_hash="test-only",
+            name="Silenced test",
+            role=UserRole.recruiter,
+            roles=["recruiter"],
+            is_active=True,
+        )
+        db.add(user)
+        await db.commit()
+        user_id = user.id
+        try:
+            before = (await delivery._silenced_counts(db, policy, now)).get(
+                "pipeline_stage", (0, 0)
+            )
+            for age, read in ((1, False), (2, False), (3, True), (8, False)):
+                db.add(
+                    Notification(
+                        user_id=user_id,
+                        notification_type=NotificationType.stage_rule,
+                        title="Etap",
+                        message="Zmiana etapu",
+                        created_at=now - timedelta(days=age),
+                        is_read=read,
+                    )
+                )
+            await db.commit()
+            after = (await delivery._silenced_counts(db, policy, now))["pipeline_stage"]
+            # Dzwonek sprzed 8 dni wypada z okna.
+            assert (after[0] - before[0], after[1] - before[1]) == (3, 2)
+            kept = delivery.DeliveryPolicy.from_value(
+                delivery.updated_value(
+                    policy,
+                    enabled=True,
+                    toggles={},
+                    keep_off={"pipeline_stage"},
+                    now=now,
+                )
+            )
+            assert "pipeline_stage" not in await delivery._silenced_counts(
+                db, kept, now
+            )
+        finally:
+            await db.rollback()
+            await db.execute(
+                delete(Notification).where(Notification.user_id == user_id)
+            )
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()

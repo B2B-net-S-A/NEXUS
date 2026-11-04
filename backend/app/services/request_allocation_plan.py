@@ -45,6 +45,12 @@ zapisu to ``services/request_allocation``. Reguły:
   urlopie. Gdy urlopy z Compassa są wyłączone, nie ma na co czekać — automat
   przydziela od razu. Osoba „Poza przydziałem” albo bez kategorii jest
   zwalniana zawsze, bo to nie zależy od Compassa (``eligible_ids``).
+* **Zasady z Ustawień** (``PlanRules``, 29.10.2026): P2, ilu ludzi na P1,
+  limit P1 na osobę, przelew, osoby spoza kategorii, kolejność. Domyślne
+  wartości = reguły opisane wyżej. Zasady zmieniają tylko **nowe**
+  przydziały i propozycje: żadna nie zwalnia osoby, która już pracuje
+  (Artur: „nic nie zmieniaj w tych, co są już przydzielone”). Urlop dalej
+  zwalnia tylko przy P1 — tam, gdzie automat dobierał przed tą zmianą.
 """
 
 from __future__ import annotations
@@ -118,8 +124,20 @@ class RequestInfo:
 
     @property
     def automat_assigns(self) -> bool:
-        """Automat dobiera i proponuje ludzi tylko do P1."""
+        """P0/P1 — tu automat dobiera zawsze, z tego liczy się obłożenie,
+        i tylko tu urlop zwalnia osobę (bo jest następca)."""
         return self.priority_rank == 0 and not self.passive
+
+    def staffed_by(self, rules: "PlanRules") -> bool:
+        """Czy automat dobiera ludzi do tej rekrutacji przy danych zasadach.
+        P0/P1 zawsze, P2 tylko z ``include_p2``, „Przyjmujemy” nigdy."""
+        if self.passive:
+            return False
+        return self.priority_rank == 0 or rules.include_p2
+
+    def wanted(self, rules: "PlanRules") -> int:
+        """Ilu ludzi automat chce mieć przy rekrutacji. P2 — jedna osoba."""
+        return rules.people_per_p1 if self.priority_rank == 0 else 1
 
 
 @dataclass(frozen=True)
@@ -147,6 +165,19 @@ class Change:
     user_id: int
     role: str
     reason: str
+
+
+@dataclass(frozen=True)
+class PlanRules:
+    """Zasady z Ustawień (``request_allocation_rules``). Domyślne = stan
+    sprzed 29.10.2026."""
+
+    include_p2: bool = False
+    people_per_p1: int = 1
+    max_load: Optional[int] = None
+    overflow: int = 1
+    outsiders: bool = True
+    order: str = "sent_first"
 
 
 @dataclass
@@ -177,13 +208,28 @@ class PlanInput:
     staffed: frozenset[int] = frozenset()
     # Ile takich requestów P1 ma każda osoba — dolicza się do obłożenia.
     extra_load: dict[int, int] = field(default_factory=dict)
+    # Osoby bez wiersza przy requeście (job_id → user_id) — liczą się do
+    # obsady przy „ilu ludzi na rekrutację” i nie dostają tego requestu
+    # drugi raz. Brak wpisu przy requeście ze ``staffed`` = jedna osoba.
+    staffed_people: dict[int, frozenset[int]] = field(default_factory=dict)
+    # Ile requestów spoza P1 obsadzonych przez automat ma każda osoba — przy
+    # wyborze osoby do P2 (obłożenie P1 zostaje miarą limitu i P1).
+    other_load: dict[int, int] = field(default_factory=dict)
+    rules: PlanRules = field(default_factory=PlanRules)
 
 
 def _bucket(sent: int) -> int:
     return 0 if sent <= 0 else (1 if sent <= 2 else 2)
 
 
-def request_order(request: RequestInfo) -> tuple:
+def request_order(request: RequestInfo, order: str = "sent_first") -> tuple:
+    if order == "deadline_first":
+        return (
+            request.priority_rank,
+            request.deadline or date.max,
+            _bucket(request.sent),
+            request.job_id,
+        )
     return (
         request.priority_rank,
         _bucket(request.sent),
@@ -227,6 +273,7 @@ def choose_person(
     people: list[PersonInfo],
     load: dict[int, int],
     last: dict[int, float],
+    rules: PlanRules = PlanRules(),
 ) -> Optional[PersonInfo]:
     capable = people
     if not capable:
@@ -240,11 +287,18 @@ def choose_person(
             person.user_id,
         )
 
-    for group in _groups(request, capable):
+    groups = _groups(request, capable)
+    if not rules.outsiders:
+        # Osoba bez kategorii rekrutacji jej nie dostaje — czeka na człowieka.
+        groups = groups[:2]
+        capable = [p for group in groups for p in group]
+        if not capable:
+            return None
+    for group in groups:
         if not group:
             continue
         best = min(group, key=key)
-        if load.get(best.user_id, 0) <= team_min + 1:
+        if load.get(best.user_id, 0) <= team_min + rules.overflow:
             return best
     return min(capable, key=key)
 
@@ -306,8 +360,19 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     pool = {r.job_id: r for r in data.requests}
     # Osoby bez aktywnego wiersza (np. ręczni współpracownicy) też pracują:
     # ich requesty są pokryte, a obłożenie dolicza się do liczby z wierszy.
+    rules = data.rules
     load: dict[int, int] = dict(data.extra_load)
-    covered: set[int] = set(data.staffed)
+    other_load: dict[int, int] = dict(data.other_load)
+    # Kto już jest przy requeście (pracuje albo ma żywą propozycję) — obsada
+    # przy „ilu ludzi na rekrutację” i lista osób, których nie dokładamy drugi raz.
+    at_job: dict[int, set[int]] = {
+        job_id: set(data.staffed_people.get(job_id, frozenset()))
+        for job_id in data.staffed
+    }
+    unseen = {
+        job_id: max(1, len(data.staffed_people.get(job_id, frozenset())))
+        for job_id in data.staffed
+    }
     # Znaczniki czasu jako liczby: świeżo przydzielona osoba dostaje +inf,
     # więc przy remisie następny request idzie do kogoś innego.
     last = {
@@ -320,22 +385,29 @@ def plan_assignments(data: PlanInput) -> list[Change]:
     ]
     # Requesty, nad którymi ktoś pracuje: aktywne przypisanie, które zostaje,
     # albo osoba bez wiersza. Propozycja się tu nie liczy.
-    worked = set(data.staffed) | {
-        row.job_id for row, reason in rows if reason is None and row.state != "proposed"
-    }
+    workers: dict[int, int] = dict(unseen)
+    for row, reason in rows:
+        if reason is None and row.state != "proposed":
+            workers[row.job_id] = workers.get(row.job_id, 0) + 1
+    kept_proposals: dict[int, int] = {}
     for row, reason in rows:
         if reason is None and row.state == "proposed":
             # Propozycja to nie praca. Znika, gdy request tylko przyjmuje
-            # kandydatów, nie jest P1 albo gdy ktoś już przy nim pracuje
-            # (Delivery Lead przypisał rekrutera, rekruter wziął request sam)
-            # — inaczej Head of Recruitment akceptowałby osobę do requestu,
-            # który ma obsadę, a tryb „auto” aktywowałby ją przy P2.
-            if pool[row.job_id].passive:
+            # kandydatów, automat do niego nie dobiera (P2 bez zasady „P2”)
+            # albo gdy obsada jest już pełna (Delivery Lead przypisał
+            # rekrutera, rekruter wziął request sam) — inaczej Head of
+            # Recruitment akceptowałby osobę do requestu, który ma obsadę,
+            # a tryb „auto” aktywowałby ją przy P2.
+            request = pool[row.job_id]
+            filled = workers.get(row.job_id, 0) + kept_proposals.get(row.job_id, 0)
+            if request.passive:
                 reason = "passive"
-            elif not pool[row.job_id].automat_assigns:
+            elif not request.staffed_by(rules):
                 reason = "not_p1"
-            elif row.job_id in worked:
+            elif filled >= request.wanted(rules):
                 reason = "superseded"
+            else:
+                kept_proposals[row.job_id] = kept_proposals.get(row.job_id, 0) + 1
         if reason is not None:
             changes.append(Change("release", row.job_id, row.user_id, row.role, reason))
             continue
@@ -349,28 +421,63 @@ def plan_assignments(data: PlanInput) -> list[Change]:
             and row.user_id in people
         ):
             changes.append(Change("activate", row.job_id, row.user_id, row.role, ""))
-        covered.add(row.job_id)
+        at_job.setdefault(row.job_id, set()).add(row.user_id)
         # Obłożenie = requesty P1, jak na pulpicie (14.10.2026): osoba
         # z requestami spoza P1 nie jest przez nie „zajęta” dla automatu.
         if pool[row.job_id].automat_assigns:
             load[row.user_id] = load.get(row.user_id, 0) + 1
+        else:
+            other_load[row.user_id] = other_load.get(row.user_id, 0) + 1
 
     if data.mode == "auto" and data.leave_blocks_auto:
         return changes
 
+    filled = {
+        r.job_id: workers.get(r.job_id, 0) + kept_proposals.get(r.job_id, 0)
+        for r in data.requests
+    }
     sequence = sorted(
-        (r for r in data.requests if r.job_id not in covered and r.automat_assigns),
-        key=request_order,
+        (
+            r
+            for r in data.requests
+            if r.staffed_by(rules) and filled[r.job_id] < r.wanted(rules)
+        ),
+        key=lambda r: request_order(r, rules.order),
     )
     candidates = list(people.values())
     for request in sequence:
-        allowed = [
-            p for p in candidates if (request.job_id, p.user_id) not in data.blocked
-        ]
-        person = choose_person(request, allowed, load, last)
-        if person is None:
-            continue
-        changes.append(Change("assign", request.job_id, person.user_id, WORK_ROLE, ""))
-        load[person.user_id] = load.get(person.user_id, 0) + 1
-        last[person.user_id] = float("inf")
+        for _ in range(request.wanted(rules) - filled[request.job_id]):
+            taken = at_job.setdefault(request.job_id, set())
+            allowed = [
+                p
+                for p in candidates
+                if (request.job_id, p.user_id) not in data.blocked
+                and p.user_id not in taken
+            ]
+            if request.automat_assigns:
+                # Limit liczy rekrutacje P1, jak „Obłożenie” na pulpicie.
+                if rules.max_load is not None:
+                    allowed = [
+                        p for p in allowed if load.get(p.user_id, 0) < rules.max_load
+                    ]
+                person = choose_person(request, allowed, load, last, rules)
+            else:
+                # P2: obłożenie P1 plus requesty P2 od automatu, żeby kolejne
+                # przebiegi nie dawały wszystkiego jednej osobie.
+                combined = {
+                    p.user_id: load.get(p.user_id, 0) + other_load.get(p.user_id, 0)
+                    for p in allowed
+                }
+                person = choose_person(request, allowed, combined, last, rules)
+            if person is None:
+                break
+            changes.append(
+                Change("assign", request.job_id, person.user_id, WORK_ROLE, "")
+            )
+            taken.add(person.user_id)
+            if request.automat_assigns:
+                load[person.user_id] = load.get(person.user_id, 0) + 1
+            else:
+                other_load[person.user_id] = other_load.get(person.user_id, 0) + 1
+            last[person.user_id] = float("inf")
     return changes

@@ -94,6 +94,23 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     expect(tiles[1]).toContainElement(rowOf(5));
   });
 
+  it("każde zamówienie ma własną kartę z odstępem — bez wspólnej karty, w której się zlewały (29.10.2026)", () => {
+    renderTable([
+      group({ id: 30, order_number: "4500030845", lines: [line()] }),
+      group({ id: 31, order_number: "4500030744", lines: [line({ id: 5, consultant_name: "Robert Drugi" })] }),
+    ]);
+
+    const tiles = Array.from(document.querySelectorAll<HTMLElement>('[data-order-tile="group"]'));
+    tiles.forEach((tile) => expect(tile).toHaveClass("rounded-lg", "border", "bg-card"));
+    // Karty stoją w kolumnie z odstępem, a ich wspólny rodzic nie jest kartą.
+    const stack = tiles[0].parentElement!;
+    expect(stack).toHaveClass("flex-col", "gap-2.5");
+    expect(stack.parentElement).not.toHaveClass("border");
+    // `overflow-hidden` zrobiłoby z karty kontener przewijania i zepsuło
+    // przyklejoną kolumnę osoby przy przewijaniu w bok.
+    tiles.forEach((tile) => expect(tile).not.toHaveClass("overflow-hidden"));
+  });
+
   it("nagłówek MD per osoba pokazuje budżet zamówienia — te same liczby co panel", () => {
     renderTable([
       group({
@@ -143,6 +160,31 @@ describe("OrdersTable — kafelki zamówień MD i kosztowych (ticket 11)", () =>
     const header = document.getElementById("order-group-anchor-15")!;
     expect(header).not.toHaveTextContent(/pozostało/);
     expect(within(header).queryByRole("progressbar")).toBeNull();
+  });
+
+  it("nagłówek MD per osoba liczy ręczną korektę tak samo jak wiersz osoby", () => {
+    renderTable([
+      group({
+        md_positions_total: 96.95,
+        md_used_total: 62.05,
+        md_adjustment_total: -2.4,
+        lines: [line({ id: 1, md_total: 96.95, md_remaining: 32.5, md_manual_adjustment: -2.4 })],
+      }),
+    ]);
+    const header = document.getElementById("order-group-anchor-15")!;
+    expect(header).toHaveTextContent(
+      "Budżet 96,95 MD · wykorzystano 62,05 MD · pozostało 32,5 MD (w tym korekta −2,4 MD)",
+    );
+    expect(rowOf(1)).toHaveTextContent(/32,5\s*\/\s*96,95\s*MD/);
+  });
+
+  it("korekta na plus też trafia do „pozostało” w nagłówku", () => {
+    renderTable([
+      group({ md_positions_total: 100, md_used_total: 120, md_adjustment_total: 30 }),
+    ]);
+    expect(document.getElementById("order-group-anchor-15")).toHaveTextContent(
+      "Budżet 100 MD · wykorzystano 120 MD · pozostało 10 MD (w tym korekta +30 MD)",
+    );
   });
 
   it("nagłówek wspólnej puli MD: budżet · wykorzystano · pozostało, bez schodzenia pod zero", () => {

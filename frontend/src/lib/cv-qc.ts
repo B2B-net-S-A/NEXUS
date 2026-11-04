@@ -460,12 +460,14 @@ export function taskTitle(task: QcTask): string {
     const roles = items.filter((i) => i.role).length;
     if (roles === 1) return `${name} — brak opisu w 1 roli`;
     if (roles > 1) return `${name} — brak opisu w ${roles} rolach`;
+    if (items.some((i) => i.similar)) return `${name} — w oryginale pod inną nazwą?`;
     return items.some((i) => i.fix === "ask_candidate")
       ? `${name} — brak w CV i w oryginale`
       : `${name} — brak w CV`;
   }
   if (check.key === "no_unsupported") {
     const term = (items[0]?.term ?? name).trim() || name;
+    if (items[0]?.similar) return `${term} — w oryginale pod inną nazwą?`;
     return `${term} — jest w CV, a nie ma tego w oryginale`;
   }
   return name;
@@ -573,10 +575,16 @@ export type QcOverrideReason = "client_short_cv" | "confirmed_in_call" | "requir
 export const QC_OVERRIDE_NOTE_MAX = 900;
 
 /** Zdanie błędu formularza obejścia albo `null`, gdy można wysłać. */
+/** Lustro `cv_qc.CONFIRM_TEXT_MIN`: potwierdzenie musi mówić, co powiedział kandydat. */
+export const QC_CONFIRM_TEXT_MIN = 15;
+
 export function qcOverrideError(reason: QcOverrideReason | null, note: string): string | null {
   if (!reason) return "Wybierz powód.";
   const clean = note.trim();
   if (clean.length > QC_OVERRIDE_NOTE_MAX) return `Opis może mieć najwyżej ${QC_OVERRIDE_NOTE_MAX} znaków.`;
+  if (reason === "confirmed_in_call" && clean.length < QC_CONFIRM_TEXT_MIN) {
+    return `Wpisz, co dokładnie powiedział kandydat (co najmniej ${QC_CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead.`;
+  }
   if (reason === "other" && !clean) return "Przy „Inny powód” napisz, dlaczego przepuszczasz.";
   return null;
 }

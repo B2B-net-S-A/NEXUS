@@ -29,6 +29,10 @@ def _user(user_id: int) -> User:
     )
 
 
+# Atrapa `db` z kolejką odpowiedzi — migawka `credited` jej nie czyta.
+pytestmark = pytest.mark.usefixtures("empty_credited_snapshot")
+
+
 @pytest.fixture(autouse=True)
 def _clean_cache():
     cache_module._cache.clear()

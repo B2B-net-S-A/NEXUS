@@ -57,6 +57,9 @@ Runs = list[tuple[str, bool]]
 
 _COMPANY_LABELS = tuple(t["company_name"] for t in TRANSLATIONS.values())
 _POSITION_LABELS = tuple(t["position"] for t in TRANSLATIONS.values())
+# Tylko nagłówek szablonu: „Summary”/„Podsumowanie” edytor też czyta jako
+# „Dlaczego nasz kandydat?”, ale mają je zwykłe CV kandydatów.
+_WHY_TITLES = {_norm_title(t["why"]) for t in TRANSLATIONS.values()}
 _EDUCATION_LABELS = {
     _norm_title(t[key]).replace(" ", "")
     for t in TRANSLATIONS.values()
@@ -93,6 +96,16 @@ class ImportedCv:
     html: str
     language: str
     stats: dict[str, int]
+
+    @property
+    def b2b_template(self) -> bool:
+        """Plik ma układ szablonu B2B, a nie CV kandydata (29.10.2026).
+
+        Zwykłe CV kandydata ma „Experience” i „Skills” jak szablon, ale nie ma
+        „Dlaczego nasz kandydat?” ani bloków „Nazwa firmy:/Stanowisko:”.
+        Okno „Użyj gotowego CV” pyta wtedy, czy nie wygenerować z niego CV.
+        """
+        return self.stats.get("template_markers", 0) > 0
 
 
 @dataclass
@@ -521,8 +534,23 @@ def docx_to_editor_html(data: bytes) -> ImportedCv:
             "source_lines": len(lines),
             "chars": chars,
             "textboxes": len(textboxes),
+            "template_markers": _template_markers(lines),
             **builder.stats,
         },
+    )
+
+
+def _template_markers(lines: list[_Line]) -> int:
+    """Linie, które ma tylko szablon B2B: nagłówek „Dlaczego nasz kandydat?”
+    i etykiety bloku stanowiska („Nazwa firmy:”, „Stanowisko:”)."""
+    return sum(
+        1
+        for line in lines
+        if _norm_title(line.text) in _WHY_TITLES
+        or (
+            line.kind == "p"
+            and _label(line.text, _COMPANY_LABELS + _POSITION_LABELS) is not None
+        )
     )
 
 

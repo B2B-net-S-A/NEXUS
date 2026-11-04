@@ -108,14 +108,14 @@ describe("reguły załącznika", () => {
 });
 
 describe("akceptacje", () => {
-  it("przełożony: „Załącznik ✓” bez nazwy pliku i bez pobrania (D6)", () => {
+  it("koordynator: „Załącznik ✓” bez nazwy pliku i bez pobrania (D6)", () => {
     renderWithToast(<ApproverProofNote row={row({ proof_count: 1, proofs: null })} />);
     expect(screen.getByText("Załącznik ✓")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByText(/akt-urodzenia/)).toBeNull();
   });
 
-  it("Kadry: nazwa pliku pobiera go ścieżką akceptacji", async () => {
+  it("Administracja współpracy: nazwa pliku pobiera go ścieżką akceptacji", async () => {
     const user = userEvent.setup();
     const proof = { ...PROOF, can_remove: false };
     renderWithToast(<ApproverProofNote row={row({ proof_count: 1, proofs: [proof] })} />);

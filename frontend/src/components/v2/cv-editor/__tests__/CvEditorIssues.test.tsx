@@ -24,6 +24,16 @@ vi.mock("@/components/v2/cv-generator/ConsentAttachButton", () => ({
   ),
 }));
 
+// Miniatura zrzutu zgody pobiera obraz sama (`CvQcDialog.test.tsx`); tu liczy się,
+// że stoi w wierszu uwagi i dla którego etapu.
+vi.mock("@/components/v2/cv/ConsentScreenshotThumb", () => ({
+  ConsentScreenshotThumb: (props: { stageId: number }) => (
+    <button type="button" data-stage={props.stageId}>
+      Pokaż zrzut zgody
+    </button>
+  ),
+}));
+
 import { CvEditorIssues, type CvIssueCount } from "../CvEditorIssues";
 
 const STAGE = 901;
@@ -716,7 +726,7 @@ describe("odpowiedzi jednym kliknięciem i „To nieprawda” (D5)", () => {
     const api = memoryApi({ qc: vi.fn(async () => qcResult({ checks: KEYED })) });
     setup({ api });
     fireEvent.click(await screen.findByRole("button", { name: "Kandydat to ma" }));
-    const field = screen.getByLabelText("Co powiedział kandydat? (opcjonalnie)");
+    const field = screen.getByLabelText("Co dokładnie powiedział kandydat? (wymagane)");
     fireEvent.change(field, { target: { value: " AWS w projekcie migracji " } });
     fireEvent.click(screen.getByRole("button", { name: "Zapisz w notatkach" }));
     await waitFor(() => expect(api.confirm).toHaveBeenCalledWith(STAGE, { term: "AWS", text: "AWS w projekcie migracji" }));
@@ -1218,5 +1228,19 @@ describe("zdania AI w wierszu swojej uwagi (D5, 14.10.2026 → wariant A)", () =
     await waitFor(() =>
       expect(counts.at(-1)).toMatchObject({ state: "ready", qc: expect.objectContaining({ blocking_failed: 1, advisory: true }) }),
     );
+  });
+});
+
+describe("zrzut zgody, którego AI nie potwierdziło (F37, 27.10.2026)", () => {
+  it("uwaga ma miniaturę zrzutu i wymianę obok", async () => {
+    const mismatch = check({
+      key: "consent_matches",
+      label: "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
+      items: [{ key: "consent_matches||cv", detail: "AI: Nadawca to nie kandydat.", fix: "replace_consent" }],
+    });
+    setup({ api: memoryApi({ qc: vi.fn(async () => qcResult({ checks: [mismatch] })) }) });
+    const thumb = await screen.findByRole("button", { name: "Pokaż zrzut zgody" });
+    expect(thumb).toHaveAttribute("data-stage", String(qcResult().stage_id));
+    expect(screen.getByRole("button", { name: "Wgraj zrzut maila" })).toBeInTheDocument();
   });
 });

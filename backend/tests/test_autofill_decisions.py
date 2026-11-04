@@ -124,6 +124,8 @@ def test_badge_carries_only_known_fields():
         "decided": False,
         "waiting_days": 2,
         "decision_due": True,
+        # Karta sprzed ostrzeżeń (27.10.2026) — pusta lista.
+        "cautions": [],
     }
     assert (
         autofill_badge({"kind": "auto_match", "score": 70}, waiting_days=None) is None
@@ -253,6 +255,8 @@ async def test_board_shows_the_system_badge_and_claim_records_the_call(
     assert card["entry_autofill"]["score"] == 81
     assert card["entry_autofill"]["matched_must"] == ["Java"]
     assert card["entry_autofill"]["decided"] is False
+    # Świeżo założona osoba od progu ma pierwszeństwo w kolejce (03.11.2026).
+    assert card["entry_autofill"]["fresh_first"] is True
     assert card.get("claim_user_id") is None
 
     claim = await api_client.post(

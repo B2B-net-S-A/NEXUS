@@ -6,7 +6,9 @@ import { Loader2, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/Toast";
+import { ConsentCheckNotice } from "@/components/v2/cv/ConsentCheckNotice";
 import { candidateStageCvApi, cvGeneratorApi } from "@/lib/api";
+import { consentAttachedMessage, needsConsentDecision, type ConsentCheck } from "@/lib/consent-check";
 import { extractErrorDetail } from "@/lib/cv-generator";
 import { stageBrandedQueryKey } from "@/lib/cv-to-client";
 
@@ -32,16 +34,21 @@ export interface ConsentAttachButtonProps {
  * Wgranie podpisuje przypisanie do dokumentu, a dołączenie przerysowuje
  * wszystkie wersje językowe pakietu — bez ponownej generacji i bez AI.
  * Gdy zrzut już jest, ten sam przycisk go wymienia.
+ *
+ * 27.10.2026 (F37): wgranie sprawdza zrzut. Niepasujący wraca bez
+ * pokwitowania — karta pokazuje uwagi, a „zapisz mimo to” wysyła TEN SAM
+ * plik jeszcze raz z powodem rekrutera.
  */
 export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAttached, compact = false }: ConsentAttachButtonProps) {
   const inputId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [mismatch, setMismatch] = useState<{ file: File; check: ConsentCheck } | null>(null);
   const queryClient = useQueryClient();
   const toast = useToast();
 
-  async function attach(file: File | undefined) {
+  async function attach(file: File | undefined, overrideReason?: string) {
     if (!file || busy) return;
     setError(null);
     if (!CONSENT_IMAGE_ACCEPT.split(",").includes(file.type)) {
@@ -54,20 +61,29 @@ export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAtta
     }
     setBusy(true);
     try {
+      const upload = stageCopy
+        ? await cvGeneratorApi.uploadConsentForStage(stageCopy.candidateId, stageCopy.stageId, file, overrideReason)
+        : generatedId != null
+          ? await cvGeneratorApi.uploadConsentForGenerated(generatedId, file, overrideReason)
+          : null;
+      if (!upload) return;
+      const { data } = upload;
+      if (needsConsentDecision(data) && data.check) {
+        setMismatch({ file, check: data.check });
+        return;
+      }
+      if (!data.consent_token) throw new Error("Missing consent binding");
       if (stageCopy) {
-        const { data } = await cvGeneratorApi.uploadConsentForStage(stageCopy.candidateId, stageCopy.stageId, file);
         const attached = await candidateStageCvApi.branded.attachConsent(stageCopy.stageId, data.consent_token);
         queryClient.setQueryData(stageBrandedQueryKey(stageCopy.stageId), attached.data);
       } else if (generatedId != null) {
-        const { data } = await cvGeneratorApi.uploadConsentForGenerated(generatedId, file);
         await cvGeneratorApi.attachConsent(generatedId, data.consent_token);
-      } else {
-        return;
       }
+      setMismatch(null);
       void queryClient.invalidateQueries({ queryKey: ["cv-generated"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-result"] });
       void queryClient.invalidateQueries({ queryKey: ["cv-package"] });
-      toast.showSuccess(hasConsent ? "Wymieniono zrzut zgody — CV przerysowane." : "Dołączono zrzut zgody — CV można pobrać.");
+      toast.showSuccess(consentAttachedMessage(data.check, hasConsent));
       onAttached?.();
     } catch (err) {
       setError((await extractErrorDetail(err)) || "Nie udało się dołączyć zrzutu zgody.");
@@ -80,17 +96,20 @@ export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAtta
   const label = hasConsent ? "Wymień zrzut" : "Wgraj zrzut maila";
   return (
     <div className="relative space-y-1.5">
-      <Button
-        type="button"
-        variant={hasConsent || compact ? "outline" : "primary"}
-        size={compact ? "sm" : "md"}
-        disabled={busy}
-        onClick={() => inputRef.current?.click()}
-        aria-describedby={error ? `${inputId}-error` : undefined}
-      >
-        {busy ? <Loader2 aria-hidden className="mr-2 h-4 w-4 animate-spin" /> : <Upload aria-hidden className="mr-2 h-4 w-4" />}
-        {busy ? "Dołączam zrzut…" : label}
-      </Button>
+      {/* Przy niepasującym zrzucie „Wgraj inny zrzut” stoi w uwagach poniżej. */}
+      {mismatch ? null : (
+        <Button
+          type="button"
+          variant={hasConsent || compact ? "outline" : "primary"}
+          size={compact ? "sm" : "md"}
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          aria-describedby={error ? `${inputId}-error` : undefined}
+        >
+          {busy ? <Loader2 aria-hidden className="mr-2 h-4 w-4 animate-spin" /> : <Upload aria-hidden className="mr-2 h-4 w-4" />}
+          {busy ? "Sprawdzam zrzut…" : label}
+        </Button>
+      )}
       <input
         ref={inputRef}
         id={inputId}
@@ -103,6 +122,14 @@ export function ConsentAttachButton({ generatedId, stageCopy, hasConsent, onAtta
       />
       {error ? (
         <p id={`${inputId}-error`} role="alert" className="text-xs text-destructive">{error}</p>
+      ) : null}
+      {mismatch ? (
+        <ConsentCheckNotice
+          check={mismatch.check}
+          busy={busy}
+          onPickAnother={() => inputRef.current?.click()}
+          onOverride={(reason) => void attach(mismatch.file, reason)}
+        />
       ) : null}
     </div>
   );

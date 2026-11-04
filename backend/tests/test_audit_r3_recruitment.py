@@ -48,39 +48,6 @@ def test_entry_column_rule_is_shared_by_bulk_add_and_linkedin():
     assert not _is_entry_column(stage("Odrzucony", "rejected", "terminal"))
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["cv_sent", "rejected", "hired", "verified"])
-async def test_linkedin_refuses_stages_past_the_entry_columns(stage):
-    from fastapi import BackgroundTasks, HTTPException, Response
-
-    from app.api.candidates import create_candidate_from_linkedin
-    from app.models.recruitment_pipeline import PipelineStage
-    from app.schemas.candidate import CandidateFromLinkedInCreate
-
-    db = AsyncMock()
-    with pytest.raises(HTTPException) as refused:
-        await create_candidate_from_linkedin(
-            data=CandidateFromLinkedInCreate(
-                linkedin_url="https://www.linkedin.com/in/jan-kowalski-r3/",
-                job_id=11,
-                stage=PipelineStage(stage),
-            ),
-            current_user=User(
-                id=7, role=UserRole.recruiter, roles=[UserRole.recruiter.value]
-            ),
-            background_tasks=BackgroundTasks(),
-            response=Response(),
-            db=db,
-        )
-    assert refused.value.status_code == 422
-    assert "„Nowi” albo „Screening”" in refused.value.detail
-    # Odmowa przed jakimkolwiek zapisem: ani kandydata, ani procesu.
-    db.add.assert_not_called()
-    db.commit.assert_not_awaited()
-    db.execute.assert_not_awaited()
-    db.scalar.assert_not_awaited()
-
-
 # ── R3-19: zapis samych notatek Championa nie przelicza dopasowań ─────────
 
 

@@ -61,6 +61,92 @@ def _names(value: Any) -> list[str]:
     return [str(v)[:80] for v in value[:10]] if isinstance(value, list) else []
 
 
+def _int(value: Any) -> Optional[int]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+def _days(n: int) -> str:
+    return "1 dzień" if n == 1 else f"{n} dni"
+
+
+def _zl(value: Any) -> Optional[str]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return (
+        f"{value:.0f}"
+        if float(value).is_integer()
+        else f"{value:.2f}".replace(".", ",")
+    )
+
+
+def _caution(raw: Any) -> Optional[dict]:
+    """Ostrzeżenie z migawki (27.10.2026, km od 29.10.2026) → napis karty i dymek;
+    zły kształt = ``None``."""
+    if not isinstance(raw, dict):
+        return None
+    key = raw.get("key")
+    required = _int(raw.get("required_days"))
+    if key == "budget":
+        pct, rate, budget = (
+            _int(raw.get("over_pct")),
+            _zl(raw.get("rate")),
+            _zl(raw.get("budget")),
+        )
+        if pct is None or rate is None or budget is None:
+            return None
+        return {
+            "key": key,
+            "label": f"+{pct}% budżetu",
+            "title": f"„Stawka od” {rate} zł/h, budżet {budget} zł/h.",
+        }
+    if key == "office_city":
+        city = raw.get("city") if isinstance(raw.get("city"), str) else None
+        office = raw.get("office") if isinstance(raw.get("office"), str) else None
+        km = _int(raw.get("km"))
+        if km is None and not required:
+            return None
+        if km is not None:
+            label = f"{city} · {km} km" if city else f"{km} km od biura"
+            lives = (
+                f"Mieszka: {city or 'inne miasto'}, ok. {km} km od najbliższego biura."
+            )
+        else:
+            label = f"Inne miasto: {city}" if city else "Inne miasto"
+            lives = f"Mieszka: {city or 'inne miasto'}."
+        days = f", {_days(required)} w tygodniu." if required else "."
+        return {
+            "key": key,
+            "label": label,
+            "title": f"{lives} Biuro klienta: {office or 'inne miasto'}{days}",
+        }
+    if not required:
+        return None
+    if key == "office_days":
+        have = _int(raw.get("candidate_days"))
+        if have is None:
+            return None
+        return {
+            "key": key,
+            "label": f"Biuro: {have} z {_days(required)}",
+            "title": (
+                f"Według profilu przyjmie {_days(have)} w biurze w tygodniu, "
+                f"klient chce {_days(required)}."
+            ),
+        }
+    if key == "remote_only":
+        return {
+            "key": key,
+            "label": "Tylko zdalnie",
+            "title": (
+                "Według profilu albo notatek chce pracować wyłącznie zdalnie, "
+                f"klient chce {_days(required)} w biurze w tygodniu."
+            ),
+        }
+    return None
+
+
 def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
     """Plakietka osoby od systemu — tylko znane pola; cokolwiek innego = ``None``."""
     from app.services.autofill_decisions import decided, decision_due
@@ -79,6 +165,13 @@ def autofill_badge(meta: Any, *, waiting_days: Optional[int]) -> Optional[dict]:
         "decided": decided(meta),
         "waiting_days": waiting_days,
         "decision_due": decision_due(waiting_days),
+        "cautions": [
+            c
+            for c in (_caution(raw) for raw in (meta.get("cautions") or []))
+            if c is not None
+        ]
+        if isinstance(meta.get("cautions"), list)
+        else [],
     }
 
 

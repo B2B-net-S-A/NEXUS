@@ -16,7 +16,8 @@ export interface CandidateBulkBarProps {
   count: number;
   onAddToRecruitment: () => void;
   onCompare: () => void;
-  onDownloadCvs: () => void;
+  /** `undefined` = sama rola rekrutera, bez paczki ZIP (`cv-download-access`). */
+  onDownloadCvs?: () => void;
   downloadingCvs: boolean;
   onAddToPool: () => void;
   addingToPool: boolean;
@@ -85,14 +86,16 @@ export function CandidateBulkBar({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-60">
-          <DropdownMenuItem onSelect={onDownloadCvs} disabled={downloadingCvs}>
-            {downloadingCvs ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <FileArchive className="h-4 w-4" />
-            )}
-            Pobierz CV (ZIP)
-          </DropdownMenuItem>
+          {onDownloadCvs && (
+            <DropdownMenuItem onSelect={onDownloadCvs} disabled={downloadingCvs}>
+              {downloadingCvs ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileArchive className="h-4 w-4" />
+              )}
+              Pobierz CV (ZIP)
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={onAddToPool} disabled={addingToPool}>
             <Users className="h-4 w-4" />
             Na listę albo do puli

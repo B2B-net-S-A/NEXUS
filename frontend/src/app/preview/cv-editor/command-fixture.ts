@@ -27,6 +27,24 @@ function plan(body: CvCommandRequest): Draft[] {
   const roles = [...new Set(lines.map((line) => line.role).filter((role): role is number => role != null))];
   const operations: Draft[] = [];
 
+  // „Dopasuj pod rekrutację”: propozycje z cytatem, rekruter wybiera.
+  if (body.preset === "tailor") {
+    const bullet = lines.find((line) => line.kind === "bullet" && line.role != null);
+    if (bullet) {
+      operations.push({
+        type: "replace",
+        lines: [bullet.id],
+        text: `${bullet.text} W projekcie płatności używał **Kafka**.`,
+        why: "Wymaganie w opisie roli",
+        loses: [],
+        new_words: [],
+        quote: "Tak, od 2023 w projekcie płatności.",
+        source: "rozmowa",
+      });
+    }
+    return operations;
+  }
+
   // „dopisz terraform …” — fakt spoza CV: asystent pyta o źródło.
   if (text.includes("terraform")) {
     const first = roles[0];

@@ -14,6 +14,7 @@
  * cyklu nie ma.
  */
 
+import type { BookedCallSummary } from "@/lib/screening-call";
 import type { CardPreContract } from "@/lib/api/preContracts";
 import type { EmploymentMarker } from "@/lib/employment-marker";
 import type { CardAgreement } from "@/lib/b2b-agreement";
@@ -35,6 +36,7 @@ import type {
 import type { InterviewPhase } from "@/lib/pipeline-next-action";
 import type { RateChangeBadge } from "@/lib/rate-change";
 import type { OffLimitsBadge } from "@/lib/off-limits";
+import type { KnownFacts } from "@/lib/new-column-queue";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -76,6 +78,16 @@ export interface KanbanItem {
  owner_assigned_by_name?: string | null;
  owner_assigned_at?: string | null;
  owner_previous_name?: string | null;
+ /** Odejście z firmy (28.10.2026): osoba, która prowadziła parę, ma
+  *  wyłączone konto, a parę domyka Delivery Lead. Pola są tylko przy opiece. */
+ care_user_id?: number | null;
+ care_user_name?: string | null;
+ care_departed_name?: string | null;
+ care_since?: string | null;
+ /** „Biorę” zmienia osobę karty (27.10.2026): ostatnia osoba, która wzięła,
+  *  także po 12 h — do pierwszej weryfikacji. Wygrywa z dodającym. */
+ taken_by_user_id?: number | null;
+ taken_by_name?: string | null;
  /** Komentarz z okna ruchu (przy odrzuceniu — wpisany w oknie powodu). */
  notes?: string | null;
  // Karty w „Odrzuconych” i „Rezygnacjach” (19.10.2026): etykieta powodu
@@ -218,6 +230,17 @@ export interface KanbanItem {
   decided: boolean;
   waiting_days: number | null;
   decision_due: boolean;
+  /**
+   * 27.10.2026: co przemawia przeciw, a system to wiedział (budżet, biuro,
+   * miasto) — napis i dymek liczy serwer (`process_entry_meta._caution`).
+   */
+  cautions?: { key: string; label: string; title: string }[];
+  /** 02.11.2026: „znamy tę osobę” — punkty kolejki (`known_queue_points`). */
+  known?: KnownFacts | null;
+  /** 03.11.2026: nowa w bazie, od progu, bez uwag — na początku kolejki. */
+  fresh_first?: boolean;
+  /** 03.11.2026: bez procesu w innej rekrutacji — co 5. miejsce w kolejce. */
+  fresh?: boolean;
  } | null;
  /**
   * 0399: wynik automatu przy wejściu — plakietka „Auto-match 67/100 · JJIT”
@@ -265,6 +288,8 @@ export interface KanbanItem {
  claim_user_name?: string | null;
  claim_until?: string | null;
  can_take?: boolean;
+ // Umówiony telefon na screening (03.11.2026): plakietka i panel osoby.
+ booked_call?: BookedCallSummary | null;
  // Terminarz rozmowy u klienta — gotowa odznaka z serwera.
  interview_badge?: {
   kind: InterviewBadgeKind;

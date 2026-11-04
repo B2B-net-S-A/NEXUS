@@ -576,8 +576,9 @@ class TestCreateCandidate:
     async def test_email_of_an_erased_person_is_409_without_data(
         self, app_client: AsyncClient, app_auth_headers: dict
     ):
-        """Osoba usunięta na żądanie (RODO) nie wraca z automatu — ekran tego
-        nie sprawdza, bo tam decyduje człowiek."""
+        """Adres trwale usuniętego profilu nie wraca z automatu. Nagrobek stawia
+        każde trwałe usunięcie, także duplikatu, więc odpowiedź nie mówi o prośbie
+        osoby. Na ekranie okno pyta człowieka."""
         from app.models.purged_candidate import PurgedCandidate
         from app.services.candidate_audit import (
             EMAIL_TOMBSTONE_SOURCE,
@@ -604,6 +605,9 @@ class TestCreateCandidate:
             assert resp.status_code == 409, resp.text
             error = resp.json()["error"]
             assert error["code"] == "candidate_erased"
+            assert "trwale usuniętego" in error["message"]
+            assert "RODO" not in error["message"]
+            assert "żądanie" not in error["message"]
             assert "candidate_id" not in (error.get("details") or {})
         async with AsyncSessionLocal() as db:
             assert (

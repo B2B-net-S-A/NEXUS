@@ -841,9 +841,263 @@ def test_saved_rules_ignore_the_retired_sourcer_threshold() -> None:
     from app.services.request_allocation_rules import parse_rules, validate_rules
 
     stored = {"sourcer_threshold": 40, "review_time": "07:45"}
-    assert parse_rules(stored).as_dict() == {"review_time": "07:45"}
-    assert validate_rules(stored).as_dict() == {"review_time": "07:45"}
+    assert parse_rules(stored).review_time == "07:45"
+    assert "sourcer_threshold" not in parse_rules(stored).as_dict()
+    assert validate_rules(stored).review_time == "07:45"
+    assert "sourcer_threshold" not in validate_rules(stored).as_dict()
     # Sam stary klucz = wartości domyślne przy odczycie, błąd przy zapisie.
-    assert parse_rules({"sourcer_threshold": 40}).as_dict() == {"review_time": "08:30"}
+    assert parse_rules({"sourcer_threshold": 40}).review_time == "08:30"
     with pytest.raises(ValueError, match="Godzina przeglądu"):
         validate_rules({"sourcer_threshold": 15, "review_time": "8:30"})
+
+
+# ── Zasady z Ustawień (29.10.2026) ───────────────────────────────────────────
+#
+# Artur: zasady zmieniają tylko nowe przydziały — „nic nie zmieniaj w tych,
+# co są już przydzielone”.
+
+
+def _rules(**kwargs):
+    from app.services.request_allocation_plan import PlanRules
+
+    return PlanRules(**kwargs)
+
+
+def _auto(job_id, user_id, *, state="active", source="auto") -> LiveAssignment:
+    return LiveAssignment(job_id, user_id, "recruiter", source, state)
+
+
+@pytest.mark.unit
+def test_p2_gets_people_only_with_the_p2_rule() -> None:
+    data = dict(requests=[req(10, p1=False)], people=[recruiter(1)], live=[])
+    assert assigned(plan_assignments(PlanInput(**data))) == {}
+    with_p2 = plan_assignments(PlanInput(**data, rules=_rules(include_p2=True)))
+    assert assigned(with_p2) == {10: 1}
+
+
+@pytest.mark.unit
+def test_accepting_never_gets_people_even_with_p2() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False, passive=True)],
+            people=[recruiter(1)],
+            live=[],
+            rules=_rules(include_p2=True),
+        )
+    )
+    assert assigned(changes) == {}
+
+
+@pytest.mark.unit
+def test_p2_spreads_over_runs_by_p1_plus_p2_load() -> None:
+    """Osoba z dwiema P2 od automatu nie dostaje trzeciej przed kimś bez nich,
+    choć obie mają tyle samo P1."""
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False), req(11, p1=False), req(12, p1=False)],
+            people=[recruiter(1), recruiter(2)],
+            live=[_auto(10, 1), _auto(11, 1)],
+            rules=_rules(include_p2=True),
+        )
+    )
+    assert assigned(changes) == {12: 2}
+
+
+@pytest.mark.unit
+def test_two_people_per_p1_adds_a_second_person_and_keeps_the_first() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10)],
+            people=[recruiter(1), recruiter(2)],
+            live=[_auto(10, 1)],
+            rules=_rules(people_per_p1=2),
+        )
+    )
+    assert [c for c in changes if c.kind == "release"] == []
+    assert assigned(changes) == {10: 2}
+
+
+@pytest.mark.unit
+def test_people_per_p1_counts_unseen_workers_and_skips_them() -> None:
+    """Ręcznie dopisany współpracownik (bez wiersza) jest obsadą i nie
+    dostaje tego samego requestu drugi raz."""
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10)],
+            people=[recruiter(1), recruiter(2), recruiter(3)],
+            live=[],
+            staffed=frozenset({10}),
+            staffed_people={10: frozenset({1})},
+            extra_load={1: 1},
+            rules=_rules(people_per_p1=3),
+        )
+    )
+    new = sorted(c.user_id for c in changes if c.kind == "assign")
+    assert new == [2, 3]
+
+
+@pytest.mark.unit
+def test_proposal_stays_while_the_team_is_short() -> None:
+    """Przy 2 osobach na P1 propozycja obok jednej pracującej osoby zostaje
+    (dziś: znika jako „superseded”)."""
+    live = [_auto(10, 1), _auto(10, 2, state="proposed")]
+    default = plan_assignments(
+        PlanInput(requests=[req(10)], people=[recruiter(1), recruiter(2)], live=live)
+    )
+    assert [(c.kind, c.reason) for c in default] == [("release", "superseded")]
+    two = plan_assignments(
+        PlanInput(
+            requests=[req(10)],
+            people=[recruiter(1), recruiter(2)],
+            live=live,
+            rules=_rules(people_per_p1=2),
+        )
+    )
+    assert two == []
+
+
+@pytest.mark.unit
+def test_load_limit_stops_new_p1_and_takes_nothing_away() -> None:
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10), req(11), req(12)],
+            people=[recruiter(1)],
+            live=[_auto(10, 1), _auto(11, 1)],
+            rules=_rules(max_load=2),
+        )
+    )
+    assert changes == []
+
+
+@pytest.mark.unit
+def test_load_limit_counts_p1_only() -> None:
+    """Limit to rekrutacje P1 — P2 nie zajmuje miejsca."""
+    changes = plan_assignments(
+        PlanInput(
+            requests=[req(10, p1=False), req(11)],
+            people=[recruiter(1)],
+            live=[_auto(10, 1)],
+            rules=_rules(max_load=1, include_p2=True),
+        )
+    )
+    assert assigned(changes) == {11: 1}
+
+
+@pytest.mark.unit
+def test_overflow_rule_sets_when_another_category_steps_in() -> None:
+    """QA-owiec ma 2 P1, deweloper 0. Dziś (różnica ponad 1) request QA idzie
+    do dewelopera; przy różnicy ponad 2 zostaje w kategorii."""
+    data = dict(
+        requests=[req(10, QA), req(11, QA), req(20, QA)],
+        people=[recruiter(1, QA), recruiter(2, DEV)],
+        live=[_auto(10, 1), _auto(11, 1)],
+    )
+    assert assigned(plan_assignments(PlanInput(**data))) == {20: 2}
+    assert assigned(plan_assignments(PlanInput(**data, rules=_rules(overflow=2)))) == {
+        20: 1
+    }
+
+
+@pytest.mark.unit
+def test_without_outsiders_a_request_outside_everyones_category_waits() -> None:
+    data = dict(requests=[req(10, PM)], people=[recruiter(1, DEV)], live=[])
+    assert assigned(plan_assignments(PlanInput(**data))) == {10: 1}
+    assert (
+        assigned(plan_assignments(PlanInput(**data, rules=_rules(outsiders=False))))
+        == {}
+    )
+
+
+@pytest.mark.unit
+def test_deadline_first_order() -> None:
+    soon = date(2026, 11, 2)
+    later = date(2026, 12, 1)
+    data = dict(
+        requests=[req(10, sent=3, deadline=soon), req(11, sent=0, deadline=later)],
+        people=[recruiter(1)],
+        live=[],
+    )
+    first_default = [c.job_id for c in plan_assignments(PlanInput(**data))]
+    first_deadline = [
+        c.job_id
+        for c in plan_assignments(
+            PlanInput(**data, rules=_rules(order="deadline_first"))
+        )
+    ]
+    assert first_default[0] == 11
+    assert first_deadline[0] == 10
+
+
+@pytest.mark.unit
+def test_no_rule_releases_people_who_already_work() -> None:
+    """Każda kombinacja zasad: działające przypisania (automat, ręczne,
+    prowadzący) przy P1 i P2 zostają — także po wyłączeniu P2."""
+    import itertools
+
+    live = [
+        _auto(10, 1),
+        _auto(11, 2, source="manual"),
+        _auto(12, 3, source="owner"),
+        _auto(13, 1),  # P2 od automatu z czasu, gdy P2 było włączone
+    ]
+    requests = [req(10, PM), req(11), req(12), req(13, p1=False)]
+    people = [recruiter(1), recruiter(2), recruiter(3)]
+    for p2, per, limit, overflow, outsiders, order in itertools.product(
+        (False, True),
+        (1, 2, 3),
+        (None, 1),
+        (0, 3),
+        (False, True),
+        ("sent_first", "deadline_first"),
+    ):
+        changes = plan_assignments(
+            PlanInput(
+                requests=requests,
+                people=people,
+                live=live,
+                mode="auto",
+                rules=_rules(
+                    include_p2=p2,
+                    people_per_p1=per,
+                    max_load=limit,
+                    overflow=overflow,
+                    outsiders=outsiders,
+                    order=order,
+                ),
+            )
+        )
+        assert [c for c in changes if c.kind == "release"] == []
+
+
+@pytest.mark.unit
+def test_rules_validation_and_lenient_read() -> None:
+    from app.services.request_allocation_rules import (
+        AllocationRules,
+        changed_fields,
+        parse_rules,
+        validate_rules,
+    )
+
+    assert parse_rules(None) == AllocationRules()
+    # Stary front wysyła samą godzinę — reszta zostaje domyślna.
+    assert validate_rules({"review_time": "07:00"}) == AllocationRules(
+        review_time="07:00"
+    )
+    broken = parse_rules({"people_per_p1": 9, "max_load": "6", "order": "x"})
+    assert broken == AllocationRules()
+    for bad, message in (
+        ({"people_per_p1": 4}, "od 1 do 3"),
+        ({"people_per_p1": True}, "od 1 do 3"),
+        ({"max_load": 0}, "Limit na osobę"),
+        ({"overflow": 5}, "Różnica"),
+        ({"order": "random"}, "kolejność"),
+        ({"leave_policy": "maybe"}, "urlopach"),
+        ({"include_p2": "yes"}, "P2"),
+    ):
+        with pytest.raises(ValueError, match=message):
+            validate_rules({"review_time": "08:30", **bad})
+    saved = validate_rules({"review_time": "08:30", "max_load": 6, "include_p2": True})
+    assert changed_fields(AllocationRules(), saved) == {
+        "include_p2": [False, True],
+        "max_load": [None, 6],
+    }

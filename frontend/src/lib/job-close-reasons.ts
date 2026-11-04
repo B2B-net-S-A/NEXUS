@@ -96,11 +96,22 @@ export const CLOSE_REASON_GROUPS: CloseReasonGroupDef[] = [
   },
 ];
 
+/**
+ * Powody, które nadaje tylko NEXUS — nie ma ich w oknie zamykania, ale mają
+ * grupę w hit ratio (28.10.2026: `no_activity` = przegrana, lustro
+ * `HIT_RATIO_LOST_CLOSE_REASONS`).
+ */
+export const SYSTEM_CLOSE_REASON_GROUPS: Partial<Record<JobCloseReason, CloseReasonGroup>> = {
+  no_activity: "lost",
+};
+
 /** Grupa powodu; `null` = „Inny” albo brak powodu (czeka na przegląd). */
 export function closeReasonGroup(
   reason: JobCloseReason | null | undefined,
 ): CloseReasonGroup | null {
   if (!reason) return null;
+  const system = SYSTEM_CLOSE_REASON_GROUPS[reason];
+  if (system) return system;
   return (
     CLOSE_REASON_GROUPS.find((g) => g.reasons.some((r) => r.value === reason))?.key ??
     null
@@ -115,5 +126,6 @@ export function closeReasonLabel(reason: JobCloseReason | null | undefined): str
 export function isSelectableCloseReason(
   reason: JobCloseReason | null | undefined,
 ): reason is JobCloseReason {
+  if (reason && SYSTEM_CLOSE_REASON_GROUPS[reason]) return false;
   return closeReasonGroup(reason) !== null;
 }

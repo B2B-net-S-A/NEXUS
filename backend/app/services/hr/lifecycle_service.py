@@ -128,10 +128,10 @@ async def _validate_manager(
     if manager_user_id is None:
         return
     if subject_id is not None and manager_user_id == subject_id:
-        raise LifecycleError("Osoba nie może być swoim własnym przełożonym.")
+        raise LifecycleError("Osoba nie może być swoim własnym koordynatorem.")
     manager = await db.get(User, manager_user_id)
     if manager is None or not manager.is_active:
-        raise LifecycleError("Wybrany przełożony nie ma aktywnego konta.")
+        raise LifecycleError("Wybrany koordynator nie ma aktywnego konta.")
 
 
 async def _ensure_no_live_case(

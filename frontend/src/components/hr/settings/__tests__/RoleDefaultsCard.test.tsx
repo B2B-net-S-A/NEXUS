@@ -135,13 +135,13 @@ describe("RoleDefaultsCard", () => {
   it("dodaje opis dla roli", async () => {
     renderCard();
     await screen.findByText("Rekruter — standard");
-    fireEvent.change(screen.getByLabelText("Etykieta"), { target: { value: "Pracownik biura" } });
+    fireEvent.change(screen.getByLabelText("Etykieta"), { target: { value: "Osoba biura" } });
     fireEvent.change(screen.getByLabelText("Rola"), { target: { value: "employee" } });
     fireEvent.change(screen.getByLabelText("Opis"), { target: { value: "Obsługa biura" } });
     fireEvent.click(screen.getByRole("button", { name: "Dodaj opis" }));
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/role-defaults", {
-        label: "Pracownik biura",
+        label: "Osoba biura",
         default_description: "Obsługa biura",
         applies_to_role: "employee",
         project: null,

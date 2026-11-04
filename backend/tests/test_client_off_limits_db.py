@@ -17,7 +17,6 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import delete, select
 
-from tests.test_linkedin_assign_eligibility import patch_linkedin_sync  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,37 +265,26 @@ async def test_move_of_a_new_person_needs_the_same_confirmation(
         await _cleanup(world)
 
 
-async def test_linkedin_extension_saves_person_but_skips_assignment_with_reason(
-    app_client: AsyncClient,
-    patch_linkedin_sync: None,  # noqa: F811 — bez sieci (Proxycurl)
-) -> None:
-    """Wtyczka nie ma okna potwierdzenia: 409 wywróciłby zapis osoby, więc
-    przypisanie jest pomijane z polskim powodem (jak weto managera)."""
+async def test_shared_linkedin_assignment_requires_off_limits_confirmation() -> None:
+    """The helper used by the supported extension cannot bypass off-limits."""
+    from app.api.candidates import _assign_candidate_to_job
     from app.core.database import AsyncSessionLocal
-    from app.models.candidate import Candidate
+    from app.models.recruitment_pipeline import PipelineStage
+    from app.services import client_off_limits
 
     world = await _seed()
     person = world["employed"][0]
-    slug = f"off-limits-{uuid.uuid4().hex[:10]}"
-    async with AsyncSessionLocal() as db:
-        candidate = await db.get(Candidate, person)
-        candidate.linkedin = f"https://www.linkedin.com/in/{slug}"
-        await db.commit()
     try:
-        resp = await app_client.post(
-            "/api/candidates/from-linkedin",
-            headers=world["headers"],
-            json={
-                "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
-                "job_id": world["job_id"],
-                "stage": "new",
-            },
-        )
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["candidate_id"] == person
-        assert body["assigned_to_job_id"] is None
-        assert "nie wyciągamy ludzi" in body["assignment_skipped_reason"]
+        async with AsyncSessionLocal() as db:
+            with pytest.raises(client_off_limits.OffLimitsConfirmationRequired):
+                await _assign_candidate_to_job(
+                    db=db,
+                    candidate_id=person,
+                    job_id=world["job_id"],
+                    stage=PipelineStage.new,
+                    user_id=world["user_id"],
+                )
+            await db.rollback()
         assert await _process_meta(world["job_id"], person) is None
     finally:
         await _cleanup(world)

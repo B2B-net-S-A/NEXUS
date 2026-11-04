@@ -12,8 +12,8 @@ Trasy:
 * ``POST /api/interview-cycle/slots/{id}/cancel``
 * ``PUT  /api/interview-cycle/events/{event_id}/debrief`` — debrief po
   telefonie do kandydata (jak poszło, pytania klienta, czy przyjmie ofertę).
-* ``GET  /api/interview-cycle/client-questions`` — pytania, które klient
-  zadawał poprzednim kandydatom (z debriefów).
+* ``GET  /api/interview-cycle/client-questions`` — pytania zadane na rozmowach
+  w tej rekrutacji albo (``scope=client``) wszystkie pytania jej klienta.
 * ``POST /api/interview-cycle/client-interviews`` — termin rozmowy podany
   przy przesunięciu karty na „Rozmowa z klientem” (20.10.2026).
 * ``PUT  /api/interview-cycle/pairs/{candidate_id}/{job_id}/debrief`` — pytania
@@ -26,7 +26,6 @@ wydarzeniu związanym z rekrutacją.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 from datetime import date, datetime, time, timezone
@@ -56,7 +55,9 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.models.calendar_event import CalendarEvent, EventType
-from app.models.client_interview_slot_request import ClientInterviewSlotRequest
+from app.models.client_interview_slot_request import (
+    ClientInterviewSlotRequest,
+)
 from app.models.interview_feedback import FeedbackSource, InterviewFeedback
 from app.models.interview_question import (
     InterviewQuestion,
@@ -66,7 +67,6 @@ from app.models.interview_question import (
 )
 from app.models.job import Job
 from app.models.notification import NotificationType
-from app.models.recruitment_pipeline import PipelineStage
 from app.models.user import User, UserRole
 from app.services import (
     client_interview_entry,
@@ -75,10 +75,18 @@ from app.services import (
     interview_slots,
 )
 from app.services.candidate_claim import is_integration_request
+from app.services.client_questions_asked import (
+    client_questions_with_jobs,
+    question_hash as _question_hash,
+    questions_asked_in_job,
+)
 from app.services.interview_cycle import load_overview
+from app.services.interview_slot_requests import (
+    SlotsAlreadyOpen,
+    after_slot_request_commit,
+    create_slot_request_for_pair,
+)
 from app.services.debrief_gate import interview_not_started_message
-from app.services.pipeline_auto_move import auto_advance, run_after_commit
-from app.services.pipeline_realtime import broadcast_pipeline_changed
 from app.services.workforce_availability import operational_owner_ids
 
 logger = logging.getLogger(__name__)
@@ -255,6 +263,8 @@ class SlotRequestCreate(BaseModel):
     respond_by: Optional[datetime] = None
     note: Optional[str] = Field(None, max_length=1000)
     recruiter_id: Optional[int] = None
+    # „Zmień terminy” (30.10.2026): otwarty wniosek tej pary, który ten zastępuje.
+    replaces_request_id: Optional[int] = None
 
 
 class SlotChoose(BaseModel):
@@ -381,10 +391,17 @@ class InterviewEventOut(BaseModel):
     started: bool
 
 
+class ClientQuestionJobOut(BaseModel):
+    id: int
+    title: str
+
+
 class ClientQuestionOut(BaseModel):
     id: int
     text: str
     created_at: Optional[datetime] = None
+    # Rekrutacje, w których pytanie padło; pusta przy liście jednej rekrutacji.
+    jobs: list[ClientQuestionJobOut] = []
 
 
 class ArchiveQuestionOut(BaseModel):
@@ -480,11 +497,6 @@ async def _ensure_recruiter(
     if _is_owner(user, req.recruiter_id):
         return
     await ensure_job_membership(db, user, req.job_id)
-
-
-def _question_hash(text: str) -> str:
-    norm = _WHITESPACE_RE.sub(" ", text.strip().lower())
-    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
 def _outcome_from_impression(value: Optional[int]) -> Optional[DebriefOutcome]:
@@ -724,96 +736,56 @@ async def create_slot_request(
     )
     if body.recruiter_id is not None:
         await _ensure_slot_recruiter(db, body.recruiter_id, body.job_id)
-    recruiter_id = body.recruiter_id or await interview_slots.default_recruiter_id(
-        db, candidate_id=body.candidate_id, job_id=body.job_id
-    )
-    req = ClientInterviewSlotRequest(
-        candidate_id=body.candidate_id,
-        job_id=body.job_id,
-        client_id=job.client_id,
-        created_by=current_user.id,
-        recruiter_id=recruiter_id,
-        slots=slots,
-        duration_minutes=body.duration_minutes,
-        respond_by=body.respond_by,
-        note=(body.note or "").strip() or None,
-    )
-    db.add(req)
-    try:
-        await db.flush()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji — "
-                "anuluj je albo dokończ wybór."
-            ),
-        ) from exc
-    # Pipeline v4 (23.09.2026): terminy od klienta = kandydat JEST w rozmowie
-    # u klienta. Karta jedzie tam sama — wyłącznie do przodu; proces zamknięty
-    # albo karta już dalej zostają bez zmian.
-    # Ruch jest dodatkiem do wniosku: jego awaria (savepoint) zostawia kartę
-    # na miejscu i nie cofa terminów, które DL właśnie wpisał.
-    # Runda 10 (F09): automat nie przeskakuje „CV wysłane” — para bez
-    # wysłanego CV zostaje na miejscu (bramki QC CV i stawki DL sprawdza tylko
-    # `/pipeline/move`), a terminy i tak się zapisują.
-    actor_id = current_user.id
-    moved = None
-    skip_reasons: list[str] = []
-    try:
-        async with db.begin_nested():
-            moved = await auto_advance(
-                db,
-                candidate_id=body.candidate_id,
-                job_id=body.job_id,
-                target=PipelineStage.client_interview,
-                actor_user_id=actor_id,
-                source="interview_slots",
-                note="Auto: terminy od klienta",
-                skip_reasons=skip_reasons,
-            )
-    except Exception:  # noqa: BLE001 — ruch karty nie może wywrócić wniosku
-        moved = None
-        skip_reasons = []
-        logger.exception(
-            "interview slots: auto move to client_interview failed "
-            "(candidate %s, job %s)",
+    # Zmiana terminów = nowy wniosek zamiast edycji w miejscu: wybór rekrutera
+    # idzie po indeksie, więc okno otwarte na starej liście albo link z maila
+    # wskazałyby inny termin niż ten, który rekruter widział. Anulowany wniosek
+    # odpowie im 409, a wybór od razu wpisuje rozmowę do kalendarza.
+    replaced = None
+    if body.replaces_request_id is not None:
+        replaced = await interview_slots.lock_request(db, body.replaces_request_id)
+        if (replaced.candidate_id, replaced.job_id) != (
             body.candidate_id,
             body.job_id,
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="Te terminy dotyczą innego kandydata albo rekrutacji.",
+            )
+        interview_slots.cancel(replaced)
+        await db.flush()
+    try:
+        created = await create_slot_request_for_pair(
+            db,
+            job=job,
+            candidate_id=body.candidate_id,
+            slots=slots,
+            duration_minutes=body.duration_minutes,
+            respond_by=body.respond_by,
+            note=body.note,
+            recruiter_id=body.recruiter_id,
+            replaced=replaced,
+            actor=current_user,
         )
-    await interview_slots.notify(
-        db,
-        user_id=recruiter_id,
-        ntype=NotificationType.interview_slots_requested,
-        req=req,
-        title="Terminy rozmowy od klienta",
-        message=(
-            f"{len(slots)} terminy rozmowy u klienta do ustalenia z kandydatem "
-            f"({job.title})."
-        ),
-        actor_id=actor_id,
-    )
-    # 0371: terminy od klienta = klient się odezwał → „Klient milczy” wraca
-    # do „Szukamy kandydatów”. Nigdy nie rzuca.
-    from app.services.request_work_state import (  # noqa: PLC0415
-        wake_on_client_response,
-    )
-
-    await wake_on_client_response(
-        db, job_id=body.job_id, stage=None, reason="client_slots"
-    )
+    except SlotsAlreadyOpen as exc:
+        # Id otwartego wniosku: okno proponuje „Zastąp otwarte terminy” bez
+        # przepisywania tego, co DL już wpisał.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "SLOTS_ALREADY_OPEN",
+                "message": (
+                    "Ten kandydat ma już otwarte terminy do wyboru w tej rekrutacji. "
+                    "Możesz je zastąpić tymi z formularza."
+                ),
+                "open_request_id": exc.open_request_id,
+            },
+        ) from exc
     await db.commit()
-    await db.refresh(req)
-    out = _slot_out(req)
-    if moved is not None:
-        # Live kanban: reszta zespołu odświeża tablicę (best-effort).
-        await broadcast_pipeline_changed(db, body.job_id, actor_id)
-        # Runda 7 (N7-4): powiadomienia o etapie i profil ryzyka — jak po
-        # `/move`. Po commicie, nigdy nie rzuca.
-        await run_after_commit(db, stage_id=moved.id, mover=current_user)
-    out.moved_to_client_interview = moved is not None
-    out.move_skipped_reason = skip_reasons[0] if skip_reasons else None
+    await db.refresh(created.request)
+    out = _slot_out(created.request)
+    await after_slot_request_commit(db, created)
+    out.moved_to_client_interview = created.moved is not None
+    out.move_skipped_reason = created.skip_reasons[0] if created.skip_reasons else None
     return out
 
 
@@ -1599,16 +1571,18 @@ async def list_client_questions(
     current_user: RecruitmentReadAccess,
     job_id: Optional[int] = Query(None),
     client_id: Optional[int] = Query(None),
-    limit: int = Query(20, ge=1, le=50),
+    scope: Literal["job", "client"] = Query("job"),
+    limit: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ) -> list[ClientQuestionOut]:
-    """Pytania, które klient zadawał kandydatom (z debriefów).
+    """Pytania, które klient zadawał kandydatom.
 
-    Zwykle po rekrutacji (``job_id``): dostęp do rekrutacji jest tym, co
-    sprawdzamy wszędzie indziej, a klient wynika z niej. ``client_id`` służy
-    ekranowi nowej rekrutacji (jeszcze bez ``job_id``) — wtedy wołający musi
-    móc czytać choć jedną rekrutację tego klienta; admin/HoR/DL/Finanse czytają
-    je organizacyjnie.
+    ``job_id`` — zadane na rozmowach w tej rekrutacji (zgłoszenie 02.11.2026:
+    lista całego klienta wisiała tak samo pod każdą rekrutacją). ``job_id``
+    + ``scope=client`` — wszystkie pytania jej klienta, z rekrutacją przy
+    pytaniu. ``client_id`` służy ekranowi nowej rekrutacji (jeszcze bez
+    ``job_id``) — wtedy wołający musi móc czytać choć jedną rekrutację tego
+    klienta; admin/HoR/DL/Finanse czytają je organizacyjnie.
     """
     if (job_id is None) == (client_id is None):
         raise HTTPException(
@@ -1620,6 +1594,14 @@ async def list_client_questions(
         client_id = await db.scalar(select(Job.client_id).where(Job.id == job_id))
         if client_id is None:
             return []
+        if scope == "job":
+            asked = await questions_asked_in_job(
+                db, job_id=job_id, client_id=client_id, limit=limit
+            )
+            return [
+                ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at)
+                for q in asked
+            ]
     else:
         readable = await db.scalar(
             select(
@@ -1640,19 +1622,20 @@ async def list_client_questions(
                 )
             # Klient bez rekrutacji nie ma debriefów — nie ma czego pokazać.
             return []
-    rows = (
-        await db.execute(
-            select(InterviewQuestion)
-            .where(
-                InterviewQuestion.client_id == client_id,
-                InterviewQuestion.source == InterviewQuestionSource.client_debrief,
-            )
-            .order_by(InterviewQuestion.created_at.desc(), InterviewQuestion.id.desc())
-            .limit(limit)
-        )
-    ).scalars()
+    rows = await client_questions_with_jobs(
+        db,
+        client_id=client_id,
+        job_scope=job_read_scope_clause(current_user, Job.id),
+        limit=limit,
+    )
     return [
-        ClientQuestionOut(id=q.id, text=q.text, created_at=q.created_at) for q in rows
+        ClientQuestionOut(
+            id=row.question.id,
+            text=row.question.text,
+            created_at=row.question.created_at,
+            jobs=[ClientQuestionJobOut(id=j.id, title=j.title) for j in row.jobs],
+        )
+        for row in rows
     ]
 
 

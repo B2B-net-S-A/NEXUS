@@ -8,14 +8,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Optional
+
 from sqlalchemy import (
     BigInteger,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Text,
-    UniqueConstraint,
     func,
+    text as sql_text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,10 +28,21 @@ from app.core.database import Base
 class ClientFrameworkContractChunk(Base):
     __tablename__ = "client_framework_contract_chunks"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "ux_client_framework_contract_chunks_contract",
             "framework_contract_id",
             "chunk_index",
-            name="uq_client_framework_contract_chunks_position",
+            unique=True,
+            postgresql_where=sql_text("amendment_id IS NULL"),
+            sqlite_where=sql_text("amendment_id IS NULL"),
+        ),
+        Index(
+            "ux_client_framework_contract_chunks_amendment",
+            "amendment_id",
+            "chunk_index",
+            unique=True,
+            postgresql_where=sql_text("amendment_id IS NOT NULL"),
+            sqlite_where=sql_text("amendment_id IS NOT NULL"),
         ),
     )
 
@@ -37,6 +51,11 @@ class ClientFrameworkContractChunk(Base):
     framework_contract_id: Mapped[int] = mapped_column(
         ForeignKey("client_framework_contracts.id", ondelete="CASCADE"),
         nullable=False,
+    )
+    # NULL = tekst samej umowy, wartość = fragment jej aneksu (0627).
+    amendment_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("client_contract_amendments.id", ondelete="CASCADE"),
+        nullable=True,
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)

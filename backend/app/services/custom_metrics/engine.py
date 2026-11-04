@@ -35,7 +35,6 @@ from sqlalchemy import (
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.analytics.capabilities import AnalyticsCapability, user_has_capability
 from app.core.cache import cache_get, cache_invalidate, cache_set, cache_single_flight
 from app.models.candidate import Candidate
 from app.models.client import Client
@@ -159,7 +158,10 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
     """Kamienie milowe z kredytem całej firmy od ``since`` — jedno CTE na minutę."""
     # Import lokalny: kpi_panel ciągnie kpi_engine, a silnik metryk nie
     # powinien ładować go przy imporcie modułu.
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     key = f"{_CREDITED_KEY_PREFIX}{since.isoformat()}"
     cached = await cache_get(key)
@@ -170,7 +172,7 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
         if cached is not None:
             return cached
         statement = text(
-            VERIFIER_ANCHORED_CTE
+            CREDITED_FROM_SNAPSHOT_CTE
             + f"""
             SELECT c.credit_user, c.stage, c.job_id,
                    j.client_id, j.competence_category_id,
@@ -183,11 +185,13 @@ async def _credited_snapshot(db: AsyncSession, since: date) -> list[CreditedRow]
             GROUP BY 1, 2, 3, 4, 5, 6
             """
         ).bindparams(bindparam("stages", expanding=True))
+        since_at = datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ))
         result = await db.execute(
             statement,
             {
                 "stages": list(MILESTONE_STAGES),
-                "since": datetime.combine(since, time(0), tzinfo=ZoneInfo(TZ)),
+                "since": since_at,
+                **await credited_bind(db, since=since_at),
             },
         )
         rows: list[CreditedRow] = [
@@ -330,10 +334,17 @@ def source_denial(user: User, source: str) -> Optional[str]:
                 "poproś administratora o zmianę uprawnień."
             )
         return None
-    if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+    if has_permission(user, ProductAction.company_results):
         return None
-    # Kwoty poza modułem Finanse daje uprawnienie „Stawki i kwoty: podgląd”
-    # (o to samo pyta katalog kafelków), nie rola Delivery Leada.
+    # Bez „Wyników firmy” kwoty liczy tylko Delivery Lead, u swoich klientów:
+    # każda inna droga dawałaby sumę całej firmy (decyzja Artura 02.11.2026).
+    if not is_delivery_lead_governed(user):
+        return (
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.company_results.value)}”. "
+            "Poproś administratora o dostęp."
+        )
+    # O to samo pyta katalog kafelków.
     if not has_permission(user, ProductAction.amounts_view):
         return (
             "Brakuje Ci uprawnienia "
@@ -356,15 +367,17 @@ async def _finance_client_boundary(
 ) -> Optional[frozenset[int]]:
     """``None`` = wszyscy klienci; zbiór = portfel Delivery Leada.
 
-    Zakres jak w ``financial_access.can_read_client_finance``: konto z rolą
-    Delivery Leada liczy kwoty wyłącznie swoich klientów, każdy inny posiadacz
-    podglądu kwot — wszystkich.
+    Całą firmę liczy tylko „Wyniki firmy”; konto z rolą Delivery Leada liczy
+    wyłącznie swoich klientów, a nikt inny kwot tu nie liczy.
     """
-    if user_has_capability(user, AnalyticsCapability.VIEW_FINANCE):
+    if has_permission(user, ProductAction.company_results):
         return None
+    if not is_delivery_lead_governed(user):
+        raise MetricAccessDenied(
+            "Brakuje Ci uprawnienia "
+            f"„{permission_catalog.label(ProductAction.company_results.value)}”."
+        )
     portfolio = await resolve_delivery_lead_finance_client_ids(user, db)
-    if portfolio is None and not is_delivery_lead_governed(user):
-        return None
     if not portfolio:
         raise MetricAccessDenied(
             "Nie masz przypisanych klientów, dla których widzisz kwoty."

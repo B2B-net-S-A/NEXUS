@@ -252,11 +252,17 @@ async def default_recruiter_ids(
     from app.services.pair_owner import owner_ids
 
     assigned = await owner_ids(db, wanted)
+    # Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem idzie do
+    # Delivery Leada, który ją domyka (``departure_care``).
+    from app.services.departure_care import caretaker_ids
+
+    caretakers = await caretaker_ids(db, wanted)
     chains = {
         pair: [
             user_id
             for user_id in dict.fromkeys(
                 (
+                    caretakers.get(pair),
                     assigned.get(pair),
                     owners.get(pair),
                     verifiers.get(pair),
@@ -467,6 +473,7 @@ async def confirm(
         superseded_outlook = await _cancel_outlook_copy(db, superseded)
         superseded.status = EventStatus.cancelled
         await db.flush()
+    await _cancel_same_hour_entries(db, req, event)
 
     req.status = SLOT_STATUS_CONFIRMED
     req.confirmed_at = datetime.now(timezone.utc)
@@ -580,6 +587,7 @@ async def change_confirmed_slot(
         old_outlook = await _cancel_outlook_copy(db, old)
         old.status = EventStatus.cancelled
         await db.flush()
+    await _cancel_same_hour_entries(db, req, event)
     req.event_id = event.id
     # Zmiana przyszła od klienta — DL właśnie z nim pisze.
     mark_client_replied(req, user_id=user_id)
@@ -638,6 +646,25 @@ async def replaceable_interviews(
     if for_update:
         stmt = stmt.with_for_update()
     return list((await db.scalars(stmt)).all())
+
+
+async def _cancel_same_hour_entries(
+    db: AsyncSession, req: ClientInterviewSlotRequest, event: CalendarEvent
+) -> None:
+    """Termin, który para ma już w kalendarzu, to ta sama rozmowa, nie druga.
+
+    Rekruter wpisał rozmowę przy ruchu karty, a chwilę później DL dał wniosek
+    o tę samą godzinę: para miała dwa wpisy, podwójne telefony po rozmowie,
+    a prepy „pominięte” (zgłoszenie 03.11.2026). Przełożenia wybiera DL, ale
+    tu nie ma czego wybierać: zostaje wpis z wniosku z blokadą w Outlooku.
+    Spotkań z Outlooka z uczestnikami nie ruszamy (``replaceable_interviews``).
+    """
+    start = _as_aware(event.start_time)
+    for twin in await replaceable_interviews(db, req, for_update=True):
+        if twin.id != event.id and _as_aware(twin.start_time) == start:
+            await _cancel_outlook_copy(db, twin)
+            twin.status = EventStatus.cancelled
+    await db.flush()
 
 
 async def _cancel_outlook_copy(db: AsyncSession, event: CalendarEvent) -> str:

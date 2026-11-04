@@ -47,6 +47,8 @@ import { capitalize } from "@/lib/hr-employment-terms";
 import { useUrlSyncedState, writeUrlParams } from "@/lib/url-selection";
 
 import { BonusDialog } from "./BonusDialog";
+import { BonusDeleteDialog } from "./BonusDeleteDialog";
+import { SettlementImportDialog } from "./SettlementImportDialog";
 import { BonusTable } from "./BonusTable";
 import { CloseStepper, DecisionPanel, PayoutCard, PlacementsStrip } from "./PayrollCloseParts";
 import { PayrollPeopleTable } from "./PayrollPeopleTable";
@@ -87,6 +89,8 @@ export function PayrollMonthScreen({
   const { showToast } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
   const [bonusOpen, setBonusOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [deleting, setDeleting] = useState<BonusRow | null>(null);
   const [editing, setEditing] = useState<BonusRow | null>(null);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [downloading, setDownloading] = useState<"xlsx" | "zip" | null>(null);
@@ -128,7 +132,7 @@ export function PayrollMonthScreen({
   const closeMonth = async () => {
     const ok = await askConfirm({
       title: `Zamknąć ${data?.label ?? "miesiąc"}?`,
-      description: `Kwoty zostaną zamrożone, a timesheety tego miesiąca zablokowane.${
+      description: `Kwoty zostaną zamrożone, a raporty godzin tego miesiąca zablokowane.${
         acknowledged ? " Ostrzeżenia z kroku „Kontrola” są potwierdzone." : ""
       } Ponownie otworzyć miesiąc może tylko administrator.`,
       confirmLabel: "Zamknij miesiąc",
@@ -186,7 +190,7 @@ export function PayrollMonthScreen({
       description: `${row.recipient_name ?? "Osoba"} · ${formatMoney(row.amount, row.currency)}. ${
         proposal
           ? row.source === "manual"
-            ? "Propozycja zniknie z decyzji Płac."
+            ? "Propozycja zniknie z decyzji Rozliczeń."
             : "Automat nie zaproponuje jej ponownie."
           : "Osoba dostanie powiadomienie o anulowaniu (bez kwoty)."
       }`,
@@ -210,15 +214,15 @@ export function PayrollMonthScreen({
   if (state !== "ready" || !data) {
     return (
       <div className="space-y-4">
-        <PageHeader title={`Płace · ${label}`} density="compact" />
+        <PageHeader title={`Rozliczenia · ${label}`} density="compact" />
         <PeopleSectionNav config={config} active="payroll" />
         <QueryStateNotice
           state={state === "forbidden" || state === "not_found" ? state : "error"}
           description={
             state === "forbidden"
-              ? "Miesiąc płac widzą Płace i koordynatorzy (godziny i premie swojego zespołu)."
+              ? "Miesiąc rozliczeń widzą Rozliczenia i koordynatorzy (godziny i premie swojego zespołu)."
               : state === "not_found"
-                ? "Moduł Płac nie jest jeszcze włączony."
+                ? "Moduł Rozliczeń nie jest jeszcze włączony."
                 : undefined
           }
           onRetry={() => detail.refetch()}
@@ -248,7 +252,7 @@ export function PayrollMonthScreen({
   return (
     <div className="space-y-4">
       <PageHeader
-        title={`Płace · ${label}`}
+        title={`Rozliczenia · ${label}`}
         description={
           data.status === "closed"
             ? `Miesiąc zamknięty${data.closed_at ? ` ${formatIsoDatePl(data.closed_at)}` : ""} — kwoty zamrożone.`
@@ -274,12 +278,12 @@ export function PayrollMonthScreen({
                 disabled={downloading !== null || !config.open_modules.time}
                 title={
                   config.open_modules.time
-                    ? "Zaakceptowane timesheety miesiąca w jednym pliku."
+                    ? "Potwierdzone raporty godzin miesiąca w jednym pliku."
                     : "Paczka PDF-ów ruszy po włączeniu modułu czasu pracy."
                 }
               >
                 <FileArchive className="h-4 w-4" aria-hidden />
-                {downloading === "zip" ? "Pobieranie…" : "PDF-y timesheetów (ZIP)"}
+                {downloading === "zip" ? "Pobieranie…" : "PDF-y raportów godzin (ZIP)"}
               </Button>
               {config.open_modules.settlements ? (
                 <SymfoniaExportButton year={year} month={month} closed={data.status === "closed"} />
@@ -362,14 +366,17 @@ export function PayrollMonthScreen({
               <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
                 <PayoutCard people={data.people} />
                 <DecisionPanel
-                  rows={decidable}
+                  rows={data.bonuses.filter((row) => row.status === "proposed")}
+                  later={data.later}
+                  missingRates={data.missing_rates}
                   meId={me?.id}
                   open={open}
                   canCreate={open && people.length > 0}
                   onCreate={() => setBonusOpen(true)}
+                  onImport={open ? () => setImportOpen(true) : undefined}
                   onApprove={approveRow}
                   onEdit={setEditing}
-                  onCancel={(row) => void cancelRow(row)}
+                  onCancel={setDeleting}
                   approving={approve.isPending}
                 />
               </div>
@@ -489,6 +496,15 @@ export function PayrollMonthScreen({
         </>
       )}
 
+      {importOpen ? (
+        <SettlementImportDialog
+          open={importOpen}
+          onOpenChange={setImportOpen}
+          year={year}
+          month={month}
+          label={data.label}
+        />
+      ) : null}
       {bonusOpen ? (
         <BonusDialog
           open={bonusOpen}
@@ -506,8 +522,14 @@ export function PayrollMonthScreen({
           }}
           people={people}
           bonus={editing}
+          fullEdit={payroll}
+          onDelete={(row) => {
+            setEditing(null);
+            setDeleting(row);
+          }}
         />
       ) : null}
+      {deleting ? <BonusDeleteDialog row={deleting} onClose={() => setDeleting(null)} /> : null}
       {reopenOpen ? (
         <ReopenMonthDialog
           open={reopenOpen}

@@ -193,15 +193,76 @@ describe("PersonNotesHistory — zakładka „Notatki i historia”", () => {
     expect(screen.getByText("Prosi o kontakt od października 2025.")).toBeInTheDocument();
   });
 
+  it("rekrutacja bez notatek pokazuje wynik i powód, bez rozwijania", async () => {
+    respond({
+      notes: { items: [HERE_NOTE] },
+      history: {
+        jobs: [
+          {
+            job_id: 11,
+            job_title: "Senior Developer",
+            job_status: "published",
+            client_name: "Bank Przykładowy",
+            latest_stage: "rejected",
+            rejection_reason: "Nie akceptuje trybu pracy",
+            last_seen: "2026-11-02T09:00:00",
+            stages: [{ stage: "screening", stage_name: null, moved_at: "2026-11-01T09:00:00" }],
+          },
+          {
+            job_id: 12,
+            job_title: "Tester",
+            job_status: "published",
+            latest_stage: "rejected",
+            rejection_reason: null,
+            last_seen: "2026-10-02T09:00:00",
+            stages: [],
+          },
+        ],
+      },
+    });
+    wrap(<PersonNotesHistory candidateId={CANDIDATE} jobId={JOB} readOnly={false} />);
+
+    const card = await screen.findByRole("article", { name: "Rekrutacja: Senior Developer" });
+    expect(card).toHaveTextContent("Powód: Nie akceptuje trybu pracy");
+    expect(within(card).getByText("Najdalej: Screening · bez notatek")).toBeInTheDocument();
+    expect(within(card).queryByRole("button")).toBeNull();
+    expect(screen.getByRole("article", { name: "Rekrutacja: Tester" })).toHaveTextContent(
+      "Powód: bez zapisanego powodu",
+    );
+    expect(screen.queryByText("Nie ma wcześniejszych notatek o tej osobie.")).toBeNull();
+  });
+
+  it("czytnik „Historia osoby” też pokazuje rekrutację bez notatek", async () => {
+    respond({
+      notes: { items: [HERE_NOTE] },
+      history: {
+        jobs: [
+          {
+            job_id: 11,
+            job_title: "Senior Developer",
+            job_status: "published",
+            latest_stage: "rejected",
+            rejection_reason: "Nie akceptuje trybu pracy",
+            last_seen: "2026-11-02T09:00:00",
+            stages: [],
+          },
+        ],
+      },
+    });
+    wrap(<PersonNotesHistory candidateId={CANDIDATE} jobId={JOB} readOnly={false} variant="reader" />);
+
+    const card = await screen.findByRole("article", { name: "Rekrutacja: Senior Developer" });
+    expect(card).toHaveTextContent("Powód: Nie akceptuje trybu pracy");
+  });
+
   it("grupa mówi, dokąd osoba doszła i czym rekrutacja się skończyła", async () => {
     respond({ notes: { items: [HERE_NOTE, ...EARLIER_NOTES] }, history: HISTORY });
     const client = wrap(<PersonNotesHistory candidateId={CANDIDATE} jobId={JOB} readOnly={false} />);
 
     const rejected = await screen.findByRole("article", { name: "Rekrutacja: Analityk systemowy" });
     expect(await within(rejected).findByText("Odrzucony")).toBeInTheDocument();
-    expect(
-      within(rejected).getByText("Najdalej: Rozmowa u klienta · powód: Klient — za mało integracji · 3 notatki"),
-    ).toBeInTheDocument();
+    expect(within(rejected).getByText("Najdalej: Rozmowa u klienta · 3 notatki")).toBeInTheDocument();
+    expect(rejected).toHaveTextContent("Powód: Klient — za mało integracji");
     expect(within(rejected).getByText(/Bank Przykładowy/)).toBeInTheDocument();
     expect(within(rejected).getByText(/03–04\.2025/)).toBeInTheDocument();
     expect(within(group("Rekrutacja: Business Analyst")).getByText("Zrezygnował")).toBeInTheDocument();

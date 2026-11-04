@@ -8,21 +8,20 @@
  * etap 6) z pustą tablicą i awarią API, rekrutacja otwarta, formularz
  * z błędami, podziękowanie, rekrutacja zamknięta, stały link rekrutera.
  *
- * `?szablon=<id>` (0478) — rekrutacja otwarta i zamknięta w szablonie
- * graficznym (`components/career/themes.ts`) ze sceną roli w hero
- * (`components/career/scenes/`), gdy szablon już ją ma.
+ * `?szablon=<id>` — rekrutacja otwarta i zamknięta w jednym z trzech
+ * szablonów (`components/career/themes.ts`, układy w `components/career/layouts/`).
  */
 import type { Metadata } from "next";
 import { use } from "react";
 
+import { brandStyles } from "@/components/career/brand/BrandShell";
 import { CareerApplyForm } from "@/components/career/CareerApplyForm";
 import { CareerBoardView } from "@/components/career/CareerBoardView";
-import { CareerFooter } from "@/components/career/CareerFooter";
 import { CareerJobView } from "@/components/career/CareerJobView";
 import { CareerRecruiterView } from "@/components/career/CareerRecruiterView";
 import { CareerTheme } from "@/components/career/CareerTheme";
+import { CareerThemeScope } from "@/components/career/CareerThemeScope";
 import { CAREER_THEME_IDS, CAREER_THEMES, isCareerThemeId } from "@/components/career/themes";
-import { TerminalChrome } from "@/components/career/TerminalChrome";
 import { ThanksLog } from "@/components/career/ThanksLog";
 import type {
   CareerBoardJob,
@@ -94,7 +93,7 @@ const CLOSED_JOB_NO_LINK: CareerJobResponse = {
   ],
 };
 
-// Etap 6 (makieta 6d): „O mnie”, scena i kategoria każdej rekrutacji.
+// Etap 6 (makieta 6d): „O mnie”, szablon i kategoria każdej rekrutacji.
 const RECRUITER: CareerRecruiterResponse = {
   recruiter: {
     first_name: "Marta",
@@ -116,7 +115,7 @@ const RECRUITER: CareerRecruiterResponse = {
       title: "DevOps Engineer Azure",
       city: null,
       remote_policy: "remote",
-      theme: "topologia",
+      theme: "terminal",
       category: "infra",
     },
     {
@@ -124,7 +123,7 @@ const RECRUITER: CareerRecruiterResponse = {
       title: "Analityk biznesowy",
       city: "Kraków",
       remote_policy: "hybrid",
-      theme: "tablica",
+      theme: "jasny",
       category: "management",
     },
   ],
@@ -136,7 +135,7 @@ const RECRUITER_EMPTY: CareerRecruiterResponse = {
   jobs: [],
 };
 
-// Tablica (etap 6): 14 kart, każda scena co najmniej raz, „pokaż kolejne” po 12.
+// Tablica (etap 6): 14 kart, każdy szablon co najmniej raz, „pokaż kolejne” po 12.
 /** Wymagania kart tablicy (podgląd sceny i szukanie, etap 7) — fikcyjne. */
 const BOARD_SKILLS: Record<string, { must: string[]; nice: string[] }> = {
   "senior-java-developer-7kq2": { must: ["Java Spring Boot", "Kafka", "PostgreSQL", "English"], nice: ["Kubernetes"] },
@@ -178,23 +177,22 @@ const BOARD: CareerBoardResponse = {
   cv: { slug: "olga-r", first_name: "Olga" },
   jobs: [
     BOARD_JOB("senior-java-developer-7kq2", "Senior Java Developer", "rozwój platformy płatności w dużym banku", "Warszawa", "hybrid", "development", "terminal", "Marta"),
-    BOARD_JOB("analityk-systemowy-k2p8", "Analityk systemowy", "integracje systemu rozliczeń w sektorze ubezpieczeń", null, "remote", "management", "sekwencja", "Kasia"),
-    BOARD_JOB("tester-automatyzujacy-r4t1", "Tester automatyzujący", "testy end-to-end aplikacji mobilnej", "Kraków", "hybrid", "qa", "glitch", "Tomasz"),
-    BOARD_JOB("data-engineer-m3n6", "Data Engineer", "hurtownia danych i strumienie zdarzeń", null, "remote", "infra", "konstelacja", "Marta"),
-    BOARD_JOB("architekt-rozwiazan-c4x2", "Architekt rozwiązań", "migracja systemów do chmury", "Warszawa", "onsite", "development", "c4", "Kasia"),
-    BOARD_JOB("devops-engineer-azure-p3x9", "DevOps Engineer Azure", "platforma Kubernetes dla zespołów produktowych", "Gdańsk", "hybrid", "infra", "topologia", "Tomasz"),
-    BOARD_JOB("analityk-biznesowy-q8m1", "Analityk biznesowy", "warsztaty z biznesem i backlog produktu", "Kraków", "hybrid", "management", "tablica", "Marta"),
-    BOARD_JOB("project-manager-h5j3", "Project Manager", "wdrożenie nowego CRM w 6 krajach", null, "remote", "management", "plan", "Kasia"),
-    BOARD_JOB("tester-manualny-w9e4", "Tester manualny", "testy regresji systemu bankowości internetowej", "Łódź", "onsite", "qa", "papier", "Tomasz"),
-    BOARD_JOB("security-engineer-s7d2", "Security Engineer", "monitoring i reagowanie na incydenty", "Wrocław", "hybrid", "infra", "radar", "Marta"),
-    BOARD_JOB("frontend-developer-f6g8", "Frontend Developer React", "nowy panel klienta w sektorze energetycznym", null, "remote", "development", "horyzont", "Kasia"),
-    BOARD_JOB("administrator-linux-a1b5", "Administrator Linux", "utrzymanie infrastruktury on-premise", "Poznań", "onsite", "infra", "szafa", "Tomasz"),
+    BOARD_JOB("analityk-systemowy-k2p8", "Analityk systemowy", "integracje systemu rozliczeń w sektorze ubezpieczeń", null, "remote", "management", "jasny", "Kasia"),
+    BOARD_JOB("tester-automatyzujacy-r4t1", "Tester automatyzujący", "testy end-to-end aplikacji mobilnej", "Kraków", "hybrid", "qa", "terminal", "Tomasz"),
+    BOARD_JOB("data-engineer-m3n6", "Data Engineer", "hurtownia danych i strumienie zdarzeń", null, "remote", "infra", "grafit", "Marta"),
+    BOARD_JOB("architekt-rozwiazan-c4x2", "Architekt rozwiązań", "migracja systemów do chmury", "Warszawa", "onsite", "development", "grafit", "Kasia"),
+    BOARD_JOB("devops-engineer-azure-p3x9", "DevOps Engineer Azure", "platforma Kubernetes dla zespołów produktowych", "Gdańsk", "hybrid", "infra", "terminal", "Tomasz"),
+    BOARD_JOB("analityk-biznesowy-q8m1", "Analityk biznesowy", "warsztaty z biznesem i backlog produktu", "Kraków", "hybrid", "management", "jasny", "Marta"),
+    BOARD_JOB("project-manager-h5j3", "Project Manager", "wdrożenie nowego CRM w 6 krajach", null, "remote", "management", "jasny", "Kasia"),
+    BOARD_JOB("tester-manualny-w9e4", "Tester manualny", "testy regresji systemu bankowości internetowej", "Łódź", "onsite", "qa", "terminal", "Tomasz"),
+    BOARD_JOB("security-engineer-s7d2", "Security Engineer", "monitoring i reagowanie na incydenty", "Wrocław", "hybrid", "infra", "grafit", "Marta"),
+    BOARD_JOB("frontend-developer-f6g8", "Frontend Developer React", "nowy panel klienta w sektorze energetycznym", null, "remote", "development", "terminal", "Kasia"),
+    BOARD_JOB("administrator-linux-a1b5", "Administrator Linux", "utrzymanie infrastruktury on-premise", "Poznań", "onsite", "infra", "grafit", "Tomasz"),
     BOARD_JOB("python-developer-y2u7", "Python Developer", null, null, "remote", "development", "terminal", "Marta"),
-    BOARD_JOB("scrum-master-z8c3", "Scrum Master", "dwa zespoły produktowe w e-commerce", "Warszawa", "hybrid", "management", "plan", "Kasia"),
+    BOARD_JOB("scrum-master-z8c3", "Scrum Master", "dwa zespoły produktowe w e-commerce", "Warszawa", "hybrid", "management", "jasny", "Kasia"),
   ],
 };
 
-const BOARD_FOOTER = <CareerFooter rodoHref={`${BASE}/rodo`} hostLabel={HOST} />;
 
 const STATES = [
   { id: "tablica", label: "tablica otwartych rekrutacji" },
@@ -259,8 +257,8 @@ export default function CareerPreviewPage({
           <a
             key={id}
             href={`?szablon=${id}#otwarta`}
-            style={{ color: id === (theme ?? "terminal") ? "#F5F5F5" : "#8B8B8B" }}
-            aria-current={id === (theme ?? "terminal") ? "page" : undefined}
+            style={{ color: id === (theme ?? "grafit") ? "#F5F5F5" : "#8B8B8B" }}
+            aria-current={id === (theme ?? "grafit") ? "page" : undefined}
           >
             {CAREER_THEMES[id].label}
           </a>
@@ -271,7 +269,8 @@ export default function CareerPreviewPage({
         <CareerBoardView
           data={BOARD}
           base={BASE}
-          footer={BOARD_FOOTER}
+          host={HOST}
+          theme={theme}
           formPreview={{ disableSubmit: true }}
         />
       </State>
@@ -280,13 +279,14 @@ export default function CareerPreviewPage({
         <CareerBoardView
           data={{ ...BOARD, jobs: [] }}
           base={BASE}
-          footer={BOARD_FOOTER}
+          host={HOST}
+          theme={theme}
           formPreview={{ disableSubmit: true }}
         />
       </State>
 
       <State id="tablica-awaria" label="tablica — awaria API">
-        <CareerBoardView data={null} base={BASE} footer={BOARD_FOOTER} />
+        <CareerBoardView data={null} base={BASE} host={HOST} theme={theme} />
       </State>
 
       <State id="otwarta" label="rekrutacja otwarta">
@@ -299,18 +299,14 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="bledy" label="formularz z błędami">
-        <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
-        <div style={{ padding: "20px 0", maxWidth: 520 }}>
-          <div className="kr-form-box">
-            <div className="kr-form-bar">
-              <span>
-                <span className="kr-r">$</span> ./aplikuj.sh
-              </span>
-            </div>
+        <CareerThemeScope theme={theme}>
+          <div className={`${brandStyles.root} ${brandStyles.wrap}`} style={{ padding: "32px 20px", maxWidth: 720 }}>
+            <div className={`${brandStyles.apply} ${brandStyles.form}`}>
             <CareerApplyForm
               linkSlug="senior-java-developer-7kq2"
               variant="job"
               rodoHref={`${BASE}/rodo`}
+              tone="plain"
               preview={{
                 disableSubmit: true,
                 values: { first_name: "Jan", last_name: "Kowalski", email: "jan@firma-.pl" },
@@ -322,21 +318,25 @@ export default function CareerPreviewPage({
                 },
               }}
             />
+            </div>
           </div>
-        </div>
+        </CareerThemeScope>
       </State>
 
       <State id="dziekujemy" label="podziękowanie">
-        <ThanksLog
-          variant="job"
-          firstName="Jan"
-          email="jan@example.com"
-          recruiterFirstName="Marta"
-          jobHandle="senior-java-developer"
-          chromePath="~/b2bnetwork/kariera — zsh — senior-java-developer"
-          recruiterPageHref={`${BASE}/p/marta-n`}
-          recruiterPageSlug="marta-n"
-        />
+        <CareerThemeScope theme={theme}>
+          <ThanksLog
+            variant="job"
+            firstName="Jan"
+            email="jan@example.com"
+            recruiterFirstName="Marta"
+            jobTitle="Senior Java Developer"
+            homeHref={BASE}
+            rodoHref={`${BASE}/rodo`}
+            hostLabel={`${HOST}${BASE}/r/senior-java-developer-7kq2`}
+            recruiterPageHref={`${BASE}/p/marta-n`}
+          />
+        </CareerThemeScope>
       </State>
 
       <State id="zamknieta" label="rekrutacja zamknięta">
@@ -348,7 +348,7 @@ export default function CareerPreviewPage({
       </State>
 
       <State id="rekruter" label="stały link rekrutera">
-        <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} formPreview={{ disableSubmit: true }} />
+        <CareerRecruiterView data={RECRUITER} base={BASE} host={HOST} theme={theme} formPreview={{ disableSubmit: true }} />
       </State>
 
       <State id="rekruter-pusty" label="rekruter bez opisu i rekrutacji">

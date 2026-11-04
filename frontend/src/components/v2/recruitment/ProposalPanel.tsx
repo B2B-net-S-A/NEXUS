@@ -104,7 +104,14 @@ function RequirementList({ items }: { items: ProposalRequirement[] }) {
           <li key={`${r.level}-${r.label}-${i}`} className="inline-flex items-center gap-1">
             <span aria-hidden className={`font-semibold ${s.className}`}>{s.mark}</span>
             <span>{r.label}</span>
-            <span className="sr-only"> — {s.label}</span>
+            {r.lastUsedYear != null && (
+              <span className="text-muted-foreground" title={`Ostatnio używane w ${r.lastUsedYear} — ponad 3 lata temu, zapytaj w rozmowie`}>
+                · {r.lastUsedYear}
+              </span>
+            )}
+            <span className="sr-only">
+              {" "}— {r.lastUsedYear != null ? `ostatnio używane w ${r.lastUsedYear}, do potwierdzenia` : s.label}
+            </span>
             {r.verified && <span className="text-[11px] text-muted-foreground">(zweryfikowane)</span>}
           </li>
         );

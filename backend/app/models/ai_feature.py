@@ -180,6 +180,21 @@ class AIFeatureKey(str, enum.Enum):
     # 0522 (26.10.2026): formularz CV klienta (np. ze SWZ Centrum e-Zdrowia)
     # wypełniany z CV, screeningu i notatek — każda wartość z cytatem ze źródła.
     client_form_fill = "client_form_fill"
+    # 0529 (27.10.2026): zrzut zgody RODO pod CV (PKO BP) — model odczytuje
+    # nadawcę, datę, numer ZOB i nazwisko, a kod porównuje je z rekrutacją.
+    consent_screenshot_check = "consent_screenshot_check"
+    requirement_word_hints = "requirement_word_hints"
+    # 0608 (28.10.2026): wtyczka LinkedIn — szkic InMaila, zaproszenia albo
+    # wiadomości pod rekrutację; rekruter poprawia i wysyła sam.
+    linkedin_message_draft = "linkedin_message_draft"
+    # 0620 (28.10.2026): „Oceń z AI” na zaznaczonych osobach w oknie
+    # „Kandydaci do dodania” — Dzwoń / Może / Nie pasuje z cytatem z CV.
+    candidate_ai_assessment = "candidate_ai_assessment"
+    # 0628 (02.11.2026): podsumowanie transkryptu Teams spotkania handlowca.
+    sales_meeting_summary = "sales_meeting_summary"
+    case_triage = "case_triage"
+    # Portal konsultanta (0643): podsumowanie rozmowy do sprawy, dodatek do transkryptu.
+    portal_meeting_summary = "portal_meeting_summary"
 
 
 # Human-readable labels surfaced in the Settings UI (PL — primary language
@@ -221,6 +236,13 @@ FEATURE_LABELS: dict[AIFeatureKey, str] = {
     AIFeatureKey.debrief_from_text: "Po rozmowie u klienta — pytania i oferta z notatki z telefonu",
     AIFeatureKey.autofill_quality_report: "Jakość podpowiedzi systemu — propozycje poprawek w raporcie poniedziałkowym",
     AIFeatureKey.client_form_fill: "Formularz CV klienta — wypełnienie z CV, screeningu i notatek",
+    AIFeatureKey.consent_screenshot_check: "Zrzut zgody RODO pod CV — odczyt nadawcy, daty i numeru ZOB",
+    AIFeatureKey.requirement_word_hints: "Wiersze „musi mieć” — słowa z CV osób wysłanych do klienta",
+    AIFeatureKey.linkedin_message_draft: "Wtyczka LinkedIn — szkic wiadomości do kandydata pod rekrutację",
+    AIFeatureKey.candidate_ai_assessment: "„Oceń z AI” — kolejność dzwonienia do zaznaczonych osób w rekrutacji",
+    AIFeatureKey.sales_meeting_summary: "Sprzedaż — podsumowanie transkryptu spotkania z Teams",
+    AIFeatureKey.case_triage: "Back office — do którego zespołu trafia mail albo zgłoszenie",
+    AIFeatureKey.portal_meeting_summary: "Portal konsultanta — podsumowanie rozmowy do sprawy",
 }
 
 
@@ -393,6 +415,38 @@ FEATURE_DATA_SENT: dict[AIFeatureKey, list[str]] = {
         "Pola formularza CV klienta (etykiety ze wzoru w Plikach rekrutacji)",
         "Tekst CV kandydata, odpowiedzi ze screeningu i notatki tej rekrutacji",
         "(bez stawek, dostępności i danych kontaktowych)",
+    ],
+    AIFeatureKey.consent_screenshot_check: [
+        "Zrzut maila ze zgodą kandydata wgrany przez rekrutera",
+        "Nazwa klienta, której zgoda dotyczy",
+        "(bez danych kandydata z bazy — porównanie z rekrutacją robi kod)",
+    ],
+    AIFeatureKey.requirement_word_hints: [
+        "Tekst CV najwyżej 6 osób wysłanych do klienta w tej rekrutacji",
+        "Tytuł, klient i wymagania rekrutacji",
+        "(bez stawek, notatek i danych kontaktowych z bazy)",
+    ],
+    AIFeatureKey.linkedin_message_draft: [
+        "Imię, nagłówek, stanowiska i umiejętności z otwartego profilu na LinkedInie",
+        "Tytuł, klient, wymagania i tryb pracy rekrutacji",
+        "(bez stawek, kontaktów i danych z bazy NEXUSA)",
+    ],
+    AIFeatureKey.candidate_ai_assessment: [
+        "Tekst CV zaznaczonych osób i ich notatki z rozmów i spotkań (bez maili)",
+        "Tytuł rekrutacji, umiejętności krytyczne, must-have, nice-to-have i opis projektu",
+        "(bez stawek, nazwy klienta i danych kontaktowych z profilu)",
+    ],
+    AIFeatureKey.case_triage: [
+        "Temat i początek treści maila albo zgłoszenia od konsultanta",
+        "(bez stawek i danych z kartoteki)",
+    ],
+    AIFeatureKey.sales_meeting_summary: [
+        "Temat spotkania handlowca i transkrypt z Teams z podpisami mówców",
+        "(bez danych z kartoteki firmy, szans i kandydatów)",
+    ],
+    AIFeatureKey.portal_meeting_summary: [
+        "Transkrypt rozmowy konsultanta z back office z Teams i powód rezerwacji",
+        "(bez stawek, danych kontraktu i notatek wewnętrznych)",
     ],
 }
 

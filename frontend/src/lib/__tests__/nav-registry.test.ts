@@ -104,7 +104,9 @@ describe("rejestr nawigacji — spójność wpisów", () => {
       // widoczne tylko przy włączonym module (flaga z `/api/hr/config`).
       ["Praca", ["dashboard", "jobs", "candidates", "calendar", "my-time"]],
       // Opieka nad konsultantami (moduł `care`) obok Kontraktów.
-      ["Klienci i umowy", ["clients", "contracts", "care", "finance"]],
+      // Sprzedaż (Atlas → NEXUS, 26.10.2026) na czele grupy — od szansy do klienta.
+      // Przy module `back_office` członek zespołu ma „Back office” zamiast „Opieki”.
+      ["Klienci i umowy", ["sales", "clients", "contracts", "care", "back-office", "finance"]],
       ["Firma", ["insights", "people", "equipment"]],
     ]);
   });
@@ -147,7 +149,12 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       ["Firma", ["/insights"]],
     ];
     expect(groupsOf("finance")).toEqual(full);
-    expect(groupsOf("admin")).toEqual(full);
+    // Sprzedaż domyślnie ma tylko admin (uprawnienie „Sprzedaż: podgląd”).
+    expect(groupsOf("admin")).toEqual([
+      full[0],
+      ["Klienci i umowy", ["/sales", "/clients", "/contracts", "/finance"]],
+      full[2],
+    ]);
     for (const role of MENU_ROLES) {
       for (const group of visiblePrimaryGroups(userOf(role), opts)) {
         expect(group.items.length).toBeGreaterThan(0);
@@ -188,6 +195,7 @@ describe("szyna i „Więcej” (rekrutacja v3)", () => {
       "/jobs",
       "/candidates",
       "/calendar",
+      "/sales",
       "/clients",
       "/contracts",
       "/finance",
@@ -404,6 +412,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...DELIVERY,
       ...INSIGHTS,
       "/finance",
+      // Sprzedaż (26.10.2026): sekcja „System” (bez sekcji produktu), uprawnienie admina.
+      "/sales",
       ...SYSTEM,
     ],
     finance: [
@@ -421,15 +431,8 @@ describe("menu (szyna + „Więcej”, sekcjami) — pozycje per rola identyczne
       ...INSIGHTS,
       ...SYSTEM,
     ],
-    // Legacy viewer (0 kont): Kalendarz i Generator CV zdjęte 22.09.2026 —
-    // backend (RecruitmentReadAccess / CandidateWriteAccess) i tak go odcina.
-    user: [
-      "/dashboard",
-      "/contracts/b2b-generator",
-      "/jobs",
-      "/insights",
-      ...SYSTEM,
-    ],
+    // Wycofywany viewer (0 kont): od 0637 bez żadnej sekcji.
+    user: [...SYSTEM],
     // Praktykant (0374): jeden ekran, bez menu — nawet bez Pomocy i Ustawień.
     trainee: [],
   };
@@ -541,9 +544,10 @@ describe("paleta ⌘K ⊆ sidebar", () => {
   });
 
   it("bez `nav.candidates` Talent Radar prowadzi na samodzielną stronę /talent-radar", () => {
-    // Radar jest dla KAŻDEJ roli (19.08), a /candidates tylko dla `nav.candidates`.
+    // Radar jest dla KAŻDEJ roli z sekcją Sourcing (19.08), a /candidates tylko
+    // dla `nav.candidates`. Viewer bez sekcji (0637) nie ma w palecie żadnego.
     expect(hasCapability(userOf("user"), "nav.candidates")).toBe(false);
-    expect(paletteHref("user", "talent-radar")).toBe("/talent-radar");
+    expect(paletteHref("user", "talent-radar")).toBeUndefined();
     expect(paletteHref("user", "candidate-search")).toBeUndefined();
     // Odebrana sekcja Sourcing też odcina /candidates — adres wraca do radaru.
     const noSourcing = {

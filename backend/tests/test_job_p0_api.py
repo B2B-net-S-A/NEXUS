@@ -122,7 +122,7 @@ async def test_head_of_recruitment_sets_p0_and_team_gets_bell(
 
 
 @pytest.mark.asyncio
-async def test_p0_is_visible_to_everyone_and_first_on_the_list(
+async def test_p0_is_visible_to_the_team_and_first_on_the_list(
     app_client: AsyncClient,
 ):
     world = await _world()
@@ -202,3 +202,143 @@ async def test_missing_reason_and_closed_job_are_refused(app_client: AsyncClient
         await db.commit()
     closed = await _set(app_client, world["hor"], world["job"])
     assert closed.status_code == 409
+
+
+# ── 28.10.2026: P0 widzi zespół rekrutacji, DL prosi, HoR zatwierdza ─────────
+
+
+def _listed(payload: dict, job_id: int) -> bool:
+    return any(item["job_id"] == job_id for item in payload["items"])
+
+
+@pytest.mark.asyncio
+async def test_p0_on_dashboard_only_for_team_hor_and_admin(app_client: AsyncClient):
+    world = await _world()
+    _, outsider = await _user(UserRole.recruiter)
+    _, other_dl = await _user(UserRole.delivery_lead)
+    assert (await _set(app_client, world["hor"], world["job"])).status_code == 200
+
+    for who, expected in (
+        (world["recruiter"], True),
+        (world["dl"], True),
+        (world["hor"], True),
+        (outsider, False),
+        (other_dl, False),
+    ):
+        listed = await app_client.get("/api/p0-jobs", headers=who)
+        assert listed.status_code == 200, listed.text
+        assert _listed(listed.json(), world["job"]) is expected
+
+    # Lista rekrutacji bez zmian: osoba spoza zespołu dalej widzi P0 na górze.
+    jobs = await app_client.get(
+        "/api/jobs",
+        params={"status": "published", "sort": "deadline", "page_size": 5},
+        headers=outsider,
+    )
+    assert jobs.status_code == 200, jobs.text
+    assert jobs.json()["items"][0]["is_p0"] is True
+
+
+async def _request(app_client: AsyncClient, headers: dict, job_id: int, **body):
+    return await app_client.post(
+        f"/api/jobs/{job_id}/p0/request",
+        json={"reason": "Klient zamyka listę w piątek", "duration": "48h", **body},
+        headers=headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_only_the_jobs_delivery_lead_requests_p0(app_client: AsyncClient):
+    world = await _world()
+    _, other_dl = await _user(UserRole.delivery_lead)
+    for who in (world["recruiter"], other_dl):
+        denied = await _request(app_client, who, world["job"])
+        assert denied.status_code == 403, denied.text
+
+    detail = await app_client.get(f"/api/jobs/{world['job']}", headers=world["dl"])
+    assert detail.json()["can_request_p0"] is True
+    assert detail.json()["can_set_p0"] is False
+
+
+@pytest.mark.asyncio
+async def test_dl_request_bells_hor_and_hor_approves(app_client: AsyncClient):
+    world = await _world()
+    asked = await _request(app_client, world["dl"], world["job"])
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["p0_requested"] is True
+
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job"])
+        assert job.p0_until is None  # prośba to jeszcze nie P0
+        bells = set(
+            (
+                await db.scalars(
+                    select(Notification.user_id).where(
+                        Notification.notification_type
+                        == NotificationType.job_p0_requested,
+                        Notification.related_entity_id == world["job"],
+                    )
+                )
+            ).all()
+        )
+        assert world["hor_id"] in bells
+        assert world["dl_id"] not in bells
+
+    for who in (world["hor"], world["dl"]):
+        payload = (await app_client.get("/api/p0-jobs", headers=who)).json()
+        mine = [r for r in payload["requests"] if r["job_id"] == world["job"]]
+        assert len(mine) == 1 and mine[0]["duration"] == "48h"
+    recruiter_view = (
+        await app_client.get("/api/p0-jobs", headers=world["recruiter"])
+    ).json()
+    assert all(r["job_id"] != world["job"] for r in recruiter_view["requests"])
+
+    # DL nie zatwierdza sam sobie.
+    self_approve = await app_client.post(
+        f"/api/jobs/{world['job']}/p0/request/approve", headers=world["dl"]
+    )
+    assert self_approve.status_code == 403
+
+    approved = await app_client.post(
+        f"/api/jobs/{world['job']}/p0/request/approve", headers=world["hor"]
+    )
+    assert approved.status_code == 200, approved.text
+    body = approved.json()
+    assert body["is_p0"] is True
+    assert body["p0_reason"] == "Klient zamyka listę w piątek"
+    until = datetime.fromisoformat(body["p0_until"])
+    assert until - datetime.now(timezone.utc) > timedelta(hours=47)
+
+    again = await app_client.post(
+        f"/api/jobs/{world['job']}/p0/request/approve", headers=world["hor"]
+    )
+    assert again.status_code == 409
+    second = await _request(app_client, world["dl"], world["job"])
+    assert second.status_code == 409  # już jest P0
+
+
+@pytest.mark.asyncio
+async def test_hor_rejects_request_and_no_p0_appears(app_client: AsyncClient):
+    world = await _world()
+    assert (await _request(app_client, world["dl"], world["job"])).status_code == 200
+    rejected = await app_client.delete(
+        f"/api/jobs/{world['job']}/p0/request", headers=world["hor"]
+    )
+    assert rejected.status_code == 200, rejected.text
+    assert rejected.json()["p0_requested"] is False
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job"])
+        assert job.p0_until is None and job.p0_requested_at is None
+        actions = (
+            await db.scalars(
+                select(Activity.action).where(
+                    Activity.entity_type == "job", Activity.entity_id == world["job"]
+                )
+            )
+        ).all()
+        assert {"p0_requested", "p0_request_rejected"} <= set(actions)
+
+    outsider_reject = await app_client.delete(
+        f"/api/jobs/{world['job']}/p0/request", headers=world["recruiter"]
+    )
+    assert outsider_reject.status_code == 403

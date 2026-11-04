@@ -95,6 +95,37 @@ describe("JobCloseWithReasonDialog — osoby w toku", () => {
     expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
   });
 
+  it("mówi, którzy rekruterzy dostaną wiadomość, i przycisk to zapowiada (28.10.2026)", async () => {
+    const withRecipients = Object.assign(new Error("HTTP 409"), {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            ...WARNING.response.data.detail,
+            columns: { new: 1, cv_sent: 10 },
+            recipients: [
+              { user_id: 26, name: "Rekruterka A", people: 8, columns: { cv_sent: 8 } },
+              { user_id: 31, name: "Rekruter B", people: 2, columns: { client_interview: 1, cv_sent: 1 } },
+            ],
+          },
+        },
+      },
+    });
+    mocks.close.mockRejectedValueOnce(withRecipients).mockResolvedValueOnce({ data: {} });
+    const { onOpenChange } = renderDialog();
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij rekrutację" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Po zamknięciu damy znać rekruterom");
+    expect(alert).toHaveTextContent("Rekruterka A— CV wysłane 8");
+    // Kolejność kolumn Tablicy w wierszu osoby.
+    expect(alert).toHaveTextContent("Rekruter B— CV wysłane 1 · Rozmowa u klienta 1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Zamknij i powiadom 2 osoby" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(mocks.close).toHaveBeenLastCalledWith(7, "competitor", "", true, null);
+  });
+
   it("bez osób w toku zamyka od razu", async () => {
     mocks.close.mockResolvedValue({ data: {} });
     const { onOpenChange } = renderDialog();

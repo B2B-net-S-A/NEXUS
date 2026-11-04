@@ -4,7 +4,12 @@ import {
   DEFAULT_FILTERS,
   decodeFilters,
   decodeJobBackRef,
+  decodeJobSearchBackRef,
+  decodeNavContext,
   decodeTalentRadarBackRef,
+  encodeNavContext,
+  listBackHref,
+  withJobSearchBackRef,
   encodeFilterCriteria,
   encodeFilters,
   encodeTalentRadarBackRef,
@@ -585,6 +590,37 @@ describe("talent radar back-ref", () => {
   it("wyklucza się z job back-ref w obie strony", () => {
     expect(decodeJobBackRef(encodeTalentRadarBackRef())).toBeNull();
     expect(decodeTalentRadarBackRef(sp("from=job&jobId=5"))).toBe(false);
+  });
+});
+
+// Zgłoszenie 28.10.2026: z profilu otwartego w „Szukaj ręcznie” rekrutacji
+// „Wróć” prowadził na całą bazę zamiast do wyników.
+describe("powrót z profilu do wyszukiwania", () => {
+  const filters: CandidateFilters = { ...DEFAULT_FILTERS, qAny: [["SailPoint", "IdentityIQ"]], page: 2 };
+
+  it("profil z okna rekrutacji niesie rekrutację obok kontekstu listy", () => {
+    const params = withJobSearchBackRef(encodeNavContext(filters, 22), 789171);
+    expect(decodeJobSearchBackRef(params)).toBe(789171);
+    expect(decodeNavContext(params)).toEqual({ filters, position: 22 });
+  });
+
+  it("obcy albo zepsuty `from`/`jobId` → brak powrotu do okna", () => {
+    expect(decodeJobSearchBackRef(sp(""))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job&jobId=5"))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job-search&jobId=abc"))).toBeNull();
+    expect(decodeJobSearchBackRef(sp("from=job-search&jobId=-3"))).toBeNull();
+  });
+
+  it("nie myli się z powrotem do tablicy rekrutacji", () => {
+    expect(decodeJobBackRef(sp("from=job-search&jobId=5"))).toBeNull();
+    expect(decodeTalentRadarBackRef(sp("from=job-search&jobId=5"))).toBe(false);
+  });
+
+  it("powrót na listę oddaje filtry i stronę, a bez filtrów gołą listę", () => {
+    const href = listBackHref(filters);
+    expect(href.startsWith("/candidates?")).toBe(true);
+    expect(decodeFilters(sp(href.split("?")[1]))).toEqual(filters);
+    expect(listBackHref(DEFAULT_FILTERS)).toBe("/candidates");
   });
 });
 

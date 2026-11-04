@@ -82,7 +82,7 @@ const MISSING: Record<Exclude<EntryReason, "not_yet">, string> = {
   no_start: "Kontrakt nie ma daty startu — lista wejścia powstanie, gdy data się pojawi.",
   closed: "Kontrakt jest zakończony albo unieważniony — wejścia nie będzie.",
   no_path:
-    "Nie ma aktywnej ścieżki „Konsultant u klienta” ani pakietu klienta. Ścieżkę włącza head back office w Ustawieniach → Kadry.",
+    "Nie ma aktywnej ścieżki „Konsultant u klienta” ani pakietu klienta. Ścieżkę włącza head back office w Ustawieniach → Administracja współpracy.",
   module_off: "Moduł „Wejście i odejście” nie jest jeszcze włączony.",
 };
 

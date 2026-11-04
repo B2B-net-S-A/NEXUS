@@ -59,6 +59,12 @@ export interface RecruitmentSheetProps {
    * od panelu; na węższym ekranie przykrywa panel i sama musi dać powrót.
    */
   sidePane?: ReactNode;
+  /**
+   * Panel przykrywający prawą część okna (np. „Ocena AI”, 28.10.2026) — nad
+   * treścią i stopką, w tym samym dialogu, więc fokus i Esc działają jak w oknie.
+   * Warstwa `z-40` — nad przyklejonym paskiem zaznaczonych listy (`z-30`).
+   */
+  overlayPane?: ReactNode;
   /** Np. Esc zamyka najpierw kartę z `sidePane`, a nie cały panel. */
   onEscapeKeyDown?: (event: KeyboardEvent) => void;
   children: ReactNode;
@@ -70,13 +76,18 @@ export interface RecruitmentSheetProps {
  * `ChipField`) zamykał całe okno i kasował szkic filtrów. Radix łapie Esc
  * w fazie przechwytywania, więc `stopPropagation` w polu nie wystarcza —
  * okno samo pomija zamknięcie; pole zamyka podpowiedzi albo czyści tekst.
+ * To samo dla rozwiniętego pola czatu (`data-keep-sheet-on-escape`,
+ * 29.10.2026): Esc zwija pole, a nie zamyka panelu ze szkicem wiadomości.
  */
 export function keepSheetOpenOnKeywordEscape(event: {
   target: EventTarget | null;
   preventDefault: () => void;
 }): void {
   const target = event.target;
-  if (target instanceof Element && target.closest("[data-keyword-field]")) {
+  if (
+    target instanceof Element &&
+    target.closest("[data-keyword-field], [data-keep-sheet-on-escape]")
+  ) {
     event.preventDefault();
   }
 }
@@ -92,6 +103,7 @@ export function RecruitmentSheet({
   footer,
   bodyClassName,
   sidePane,
+  overlayPane,
   onEscapeKeyDown,
   children,
   "data-testid": testId,
@@ -126,6 +138,14 @@ export function RecruitmentSheet({
             data-testid="recruitment-sheet-side-pane"
           >
             {sidePane}
+          </div>
+        ) : null}
+        {overlayPane ? (
+          <div
+            className="absolute inset-y-0 right-0 z-40 flex w-full flex-col overflow-hidden border-l border-border bg-card shadow-xl sm:w-[min(640px,100%)]"
+            data-testid="recruitment-sheet-overlay-pane"
+          >
+            {overlayPane}
           </div>
         ) : null}
       </SheetContent>

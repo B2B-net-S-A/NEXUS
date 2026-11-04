@@ -179,9 +179,9 @@ export function profileSyncMessage(sync: ProfileSync | null): string | null {
   if (!sync) return null;
   switch (sync.status) {
     case "updated":
-      return "W kartotece zapisano zwolnienie ze składek do tej daty — Płace dostaną przypomnienie 30 dni wcześniej.";
+      return "W kartotece zapisano zwolnienie ze składek do tej daty — Rozliczenia dostaną przypomnienie 30 dni wcześniej.";
     case "kept_earlier":
-      return "W kartotece zostaje wcześniejsza data końca zwolnienia ze składek (wpisana przez Kadry).";
+      return "W kartotece zostaje wcześniejsza data końca zwolnienia ze składek (wpisana przez Administracja współpracy).";
     case "not_zlecenie":
       return "Zwolnienie ze składek dotyczy tylko umowy zlecenie — kartoteka bez zmian.";
     case "past":
@@ -195,8 +195,8 @@ export function profileSyncMessage(sync: ProfileSync | null): string | null {
 export function audienceLabel(audience: DocumentAudience): string {
   const parts: string[] = [];
   if (audience.person) parts.push("osoba");
-  parts.push("Kadry");
-  if (audience.payroll) parts.push("Płace");
+  parts.push("Administracja współpracy");
+  if (audience.payroll) parts.push("Rozliczenia");
   if (audience.equipment) parts.push("recepcja");
   return parts.join(", ");
 }

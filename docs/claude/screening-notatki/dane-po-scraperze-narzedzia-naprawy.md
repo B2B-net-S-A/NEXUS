@@ -22,6 +22,13 @@ i przy pustym planie), paragon = liczby i ID, kwoty pod `repair_details_…`.
   „szacunek stawki B2B …” (`notes_insights_extractor.strip_scraper_rate_estimate`).
 - **Runy integracji wiszące w `running` > 6 h** zamyka pętla alertów zastoju
   (`integration_runs.close_stuck_runs` → `failed`).
+- **Insights → Integracje, „Niedokończone zgłoszenia”** (03.11.2026) nie jest
+  listą wierszy błędu. Jeden wiersz to para `source` + `external_id`, której
+  najnowsze zdarzenie w oknie to błąd, z liczbą prób od ostatniego sukcesu.
+  Dokończone idą do licznika nad listą. Scraper ponawia zgłoszenia, więc 74 ze
+  114 wierszy błędu dotyczyło zgłoszeń, które później się udały. Przebiegi
+  `test` i `dry_run` nie zamykają błędu, bo nic nie zapisują. Błąd bez
+  `external_id` zostaje osobnym wierszem.
 - **Job JJIT w NEXUSIE (`services/integrations/jjit/`, dziś `dry_run`)** nie ma
   sita `check-duplicates` ani ponowień przy 503, które ma scraper na Macu —
   przed przełączeniem go na zapis trzeba je dołożyć.

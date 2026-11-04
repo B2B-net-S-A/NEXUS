@@ -227,4 +227,14 @@ describe("profil kandydata — każdy fakt w jednym miejscu", () => {
     expect(ALL).not.toContain("Brandowane: brak");
     expect(ALL).not.toContain("Brak draftu. Draft tworzy się");
   });
+
+  it("„Następny/Poprzedni” podmieniają adres, a powrót prowadzi do wyszukiwania (28.10.2026)", () => {
+    // `push` dokładał krok historii na każdy profil — „Wstecz” cofał po jednym.
+    const nav = ROOT.slice(ROOT.indexOf("const navOnNavigate"), ROOT.indexOf("const candidateNav ="));
+    expect(nav).toContain("router.replace(`/candidates/${next.candidateId}");
+    expect(nav).not.toContain("router.push(");
+    expect(nav).toContain("withJobSearchBackRef");
+    expect(ROOT).toContain("`/jobs/${backJobSearchId}?win=add&wintab=manual`");
+    expect(ROOT).toContain("listBackHref(urlNav.filters)");
+  });
 });

@@ -110,6 +110,9 @@ class ChampionBasics(BaseModel):
     # Termin na dostarczenie kandydatów DO TEJ oferty. Osobno od KPI klienta
     # („mamy 5 dni roboczych"), bo tamto opisuje tempo, a to konkretną datę.
     deadline: Optional[str] = Field(default=None, max_length=100)
+    # Godzina tego terminu `GG:MM` (czas Europe/Warsaw, 02.11.2026). Osobno od
+    # daty jak `jobs.deadline_time`: bramki i alerty liczą po samym dniu.
+    deadline_time: Optional[str] = None
     contract_length: Optional[str] = Field(default=None, max_length=255)
 
     @model_validator(mode="after")

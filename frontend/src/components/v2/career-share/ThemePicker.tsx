@@ -6,11 +6,13 @@ import {
   CAREER_THEME_IDS,
   CAREER_THEMES,
   careerTheme,
+  isCareerThemeId,
   type CareerThemeId,
 } from "@/components/career/themes";
 
 /**
- * Wybór szablonu graficznego rekrutacji (0478) w oknie „Udostępnij”.
+ * Wybór szablonu graficznego rekrutacji w oknie „Udostępnij” (od 28.10.2026
+ * trzy szablony B2B Network zamiast 12 scen ról).
  *
  * WYJĄTEK OD ZASADY TOKEN-FIRST: próbki kolorów odwzorowują ZEWNĘTRZNĄ stronę
  * kariery i grafikę OG, więc idą z palet szablonów (`components/career/
@@ -26,7 +28,10 @@ export interface ThemePickerProps {
 }
 
 export function ThemePicker({ value, defaultTheme, onChange, busy = false }: ThemePickerProps) {
-  const effective = value ?? defaultTheme;
+  // Zapisana dawna scena (sprzed 28.10.2026) nie jest już szablonem — strona
+  // pokazuje wtedy domyślny według roli, więc wybór wygląda jak brak wyboru.
+  const chosen = isCareerThemeId(value) ? value : null;
+  const effective = chosen ?? defaultTheme;
   const defaultLabel = careerTheme(defaultTheme).label;
   return (
     <section className="space-y-2" aria-labelledby="job-theme-heading">
@@ -34,7 +39,7 @@ export function ThemePicker({ value, defaultTheme, onChange, busy = false }: The
         <h3 id="job-theme-heading" className="text-sm font-semibold text-foreground">
           Wygląd strony, grafiki i plakatu
         </h3>
-        {value ? (
+        {chosen ? (
           <button
             type="button"
             className="text-xs font-medium text-primary underline-offset-2 hover:underline disabled:opacity-60"
@@ -50,7 +55,7 @@ export function ThemePicker({ value, defaultTheme, onChange, busy = false }: The
         postach — bez ponownego zatwierdzania opisu. Posty już opublikowane zachowują grafikę
         z dnia publikacji.
       </p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="group" aria-label="Szablony">
+      <div className="grid grid-cols-3 gap-2" role="group" aria-label="Szablony">
         {CAREER_THEME_IDS.map((id: CareerThemeId) => {
           const t = CAREER_THEMES[id];
           const selected = id === effective;

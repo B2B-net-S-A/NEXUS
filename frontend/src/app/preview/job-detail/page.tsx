@@ -28,6 +28,7 @@
  * „Zmień powód zamknięcia” (21.10.2026),
  * `?reopen=1` — zamknięta z otwartym oknem „Otwórz ponownie” i fikcyjnymi
  * brakami (04.10.2026),
+ * `?panel=1` — otwarte okno „Panel klienta” z menu „⋯” (02.11.2026),
  * `?files=1` — otwarte okno „Pliki” z menu „⋯” (0428, 09.10.2026),
  * `?close=1` — otwarte okno „Zamknij rekrutację z powodem”; pierwsze
  * zamknięcie dostaje fikcyjne ostrzeżenie o osobach w toku (13.10.2026).
@@ -85,6 +86,8 @@ import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JOB_CLOSE_REASONS, type JobCloseReason } from "@/types/client-profile";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { fictionalAdminTransport } from "@/app/preview/client-panel/fixtures";
+import { ClientPanelSlideOver } from "@/components/v2/recruitment/slideovers/ClientPanelSlideOver";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import type { JobFilesResponse } from "@/lib/api/jobFiles";
 import { CANDIDATE_WINDOW_TABS, type CandidateWindowTab } from "@/components/v2/recruitment/types";
@@ -119,6 +122,7 @@ import {
   type SentPerson,
   type SimilarJobItem,
 } from "@/lib/similar-jobs-api";
+import { jobTwinsKeys } from "@/lib/job-twins-api";
 import {
   ADDED_BY_ALL,
   addedByOptions,
@@ -342,6 +346,15 @@ function autofillCards(): KanbanItem[] {
         decided: false,
         waiting_days: 0,
         decision_due: false,
+        // 27.10.2026: ostrzeżenia — osoba za resztą, karta mówi dlaczego.
+        cautions: [
+          { key: "budget", label: "+12% budżetu", title: "„Stawka od” 106 zł/h, budżet 95 zł/h." },
+          {
+            key: "office_days",
+            label: "Biuro: 1 z 2 dni",
+            title: "Według profilu przyjmie 1 dzień w biurze w tygodniu, klient chce 2 dni.",
+          },
+        ],
       },
     }),
   ];
@@ -1249,6 +1262,42 @@ function seededClient(championMode: HarnessChampionMode = "none"): QueryClient {
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, POSTINGS.map((p) => p.id)), POSTINGS.map(factsOf));
   seedFresh(qc, jobProposalsKeys.facts(JOB_ID, BASE.map((p) => p.id)), BASE.map(factsOf));
 
+  // Bliźniaki (0614): kafel „Otwarte podobne” i chip bliźniaka — dane fikcyjne.
+  const twinBrief = (id: number, title: string, over: Record<string, unknown> = {}) => ({
+    id,
+    title,
+    reference_number: null,
+    client_reference: `REQ-${id}`,
+    client_id: 1,
+    client_name: "Bank Wzorcowy",
+    delivery_lead_id: 3,
+    delivery_lead_name: "Olga Wzorcowa",
+    status: "published",
+    is_open: true,
+    p1: false,
+    budget_min_hourly: null,
+    budget_hourly: 110,
+    remote_policy: "remote",
+    onsite_days_per_week: null,
+    onsite_days_per_month: null,
+    location: null,
+    people_count: 12,
+    ...over,
+  });
+  seedFresh(qc, jobTwinsKeys.twins(JOB_ID), {
+    job_id: JOB_ID,
+    can_manage: false,
+    max_twins: 3,
+    twins: [{ ...twinBrief(1801, "Frontend Developer (Angular)"), question_pairs: [{ own: "q1", other: "q2" }] }],
+  });
+  seedFresh(qc, jobTwinsKeys.openSimilar(JOB_ID), {
+    job_id: JOB_ID,
+    items: [
+      { ...twinBrief(1830, "Angular Developer", { p1: true }), similarity: 79, twin: false, can_twin: false, twin_limit_reached: false },
+      { ...twinBrief(1801, "Frontend Developer (Angular)"), similarity: 77, twin: true, can_twin: false, twin_limit_reached: false },
+    ],
+  });
+
   // Podobne rekrutacje: w każdej najpierw wysłani do klienta, potem pozostali.
   seedFresh(qc, similarJobsKey(JOB_ID), {
     job_id: JOB_ID,
@@ -1602,6 +1651,8 @@ function JobDetailHarness() {
   const closed = reopenOnStart || params.get("closed") === "1";
   const [reopenOpen, setReopenOpen] = useState(reopenOnStart);
   const [filesOpen, setFilesOpen] = useState(params.get("files") === "1");
+  const [clientPanelOpen, setClientPanelOpen] = useState(params.get("panel") === "1");
+  const [clientPanelTransport] = useState(() => fictionalAdminTransport());
   const [closeOpen, setCloseOpen] = useState(params.get("close") === "1");
   const [changeOpen, setChangeOpen] = useState(params.get("change") === "1");
   const reasonParam = params.get("reason");
@@ -2027,6 +2078,7 @@ function JobDetailHarness() {
                         onOpenHistoryChat={noop}
                         onOpenFiles={() => setFilesOpen(true)}
                         filesCount={PREVIEW_FILES.items.length}
+                        onOpenClientPanel={readOnlyRole ? undefined : () => setClientPanelOpen(true)}
                         onAddByName={noop}
                         onAddFromCv={noop}
                         onStartFullReview={() => setSourceTab("base")}
@@ -2092,6 +2144,12 @@ function JobDetailHarness() {
                           isSuccess: true,
                           refetch: noop,
                         }}
+                      />
+                      <ClientPanelSlideOver
+                        open={clientPanelOpen}
+                        onOpenChange={setClientPanelOpen}
+                        jobId={JOB_ID}
+                        transport={clientPanelTransport}
                       />
                       <JobFilesSlideOver
                         open={filesOpen}

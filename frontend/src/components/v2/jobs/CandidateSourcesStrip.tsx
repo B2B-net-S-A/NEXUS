@@ -15,6 +15,7 @@
  * Brak liczby to „—”, nigdy zero — zero znaczyłoby „nie ma nikogo”.
  */
 
+import { Fragment, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, FileUp, Plus, UserPlus } from "lucide-react";
 
@@ -24,6 +25,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { JobTwinChip } from "@/components/v2/jobs/twins/JobTwinChip";
+import { OpenSimilarTile } from "@/components/v2/jobs/twins/OpenSimilarTile";
 import { fetchCandidateListPage } from "@/components/v2/pages/candidate-list-query";
 import type { CandidateSourceTab } from "@/components/v2/recruitment/types";
 import { useJobSearchSeed } from "@/components/v2/recruitment/useJobSearchSeed";
@@ -56,6 +59,11 @@ export interface CandidateSourcesStripViewProps {
   /** „Dodaj po nazwisku” / „z pliku CV” — brak = rola bez prawa dodawania. */
   onAddByName?: () => void;
   onAddFromCv?: () => void;
+  /**
+   * Kafel stojący zaraz po „Podobnych rekrutacjach” — „Otwarte podobne”
+   * (bliźniaki, 0614). Własne zapytanie i okno, więc poza listą źródeł.
+   */
+  afterSimilar?: ReactNode;
 }
 
 /** Pozycja menu otwiera okno — po zamknięciu menu, nie w trakcie (fokus). */
@@ -69,6 +77,7 @@ export function CandidateSourcesStripView({
   onOpen,
   onAddByName,
   onAddFromCv,
+  afterSimilar,
 }: CandidateSourcesStripViewProps) {
   return (
     <section
@@ -78,11 +87,12 @@ export function CandidateSourcesStripView({
       className="flex min-w-0 flex-wrap items-center gap-1.5"
     >
       {tiles.map((tile) => (
+        <Fragment key={tile.tab}>
         <button
-          key={tile.tab}
           type="button"
           onClick={() => onOpen(tile.tab)}
           data-testid={`source-tile-${tile.tab}`}
+          data-tour={tile.tab === "search" ? "jobs.sources.search" : undefined}
           title={tile.description}
           className="inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-primary/25 bg-card px-2.5 text-[13px] font-semibold text-foreground transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:min-h-9"
         >
@@ -105,6 +115,8 @@ export function CandidateSourcesStripView({
           </span>
           <span className="sr-only">— {tile.description}</span>
         </button>
+        {tile.tab === "similar" ? afterSimilar : null}
+        </Fragment>
       ))}
       {onAddByName || onAddFromCv ? (
         <DropdownMenu modal={false}>
@@ -280,6 +292,13 @@ export function CandidateSourcesStrip({
       onOpen={onOpen}
       onAddByName={onAddByName}
       onAddFromCv={onAddFromCv}
+      afterSimilar={
+        <>
+          <OpenSimilarTile jobId={jobId} enabled={canSeeSimilar} />
+          {/* Bliźniak (0614) — w rzędzie tytułu łamał się przy 1280 px. */}
+          {canSeeSimilar ? <JobTwinChip jobId={jobId} /> : null}
+        </>
+      }
     />
   );
 }

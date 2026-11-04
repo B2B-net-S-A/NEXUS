@@ -87,6 +87,30 @@ const ITEMS: OrderMailDocument[] = [
       ],
     },
   }),
+  // 27.10.2026: przedłużenie z nową stawką, które zaczyna się przed końcem
+  // obecnego zamówienia — „było … (#70)” pod stawką i wybór, co zrobić z #70.
+  doc(5, {
+    client_name: "Bank Delta S.A.", client_policy: "Bank Delta", subject: "Zamówienie 10/2031", attachment_name: "10-2031.pdf",
+    gate_reasons: [
+      "„Jan Przedłużony”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h → 138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową stawkę",
+      "„Jan Przedłużony”: Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031 — wybierz, czy skrócić #70, czy zacząć nowe po nim",
+    ],
+    extraction: {
+      title: "10/2031", start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null, currency: "PLN", uncertain: false, uncertain_reasons: [], source: "claude",
+      consultant_rows: [{ consultant_name: "Jan Przedłużony", start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null, uncertain: false, uncertain_reason: null }],
+    },
+    proposal: {
+      client_id: 5, order_number: "10/2031", is_group_client: false, blocking: [],
+      rows: [{
+        row_index: 0, row_name: "Jan Przedłużony", action: "overlap", candidate_id: 13, contract_id: 23, target_order_id: 70, title: "10/2031",
+        start_date: "2031-12-01", end_date: "2032-05-01", rate_client: "138.00", rate_unit: "hour", md_total: null,
+        reasons: ["Nowe zamówienie zaczyna się 01.12.2031, a #70 (9/2031) trwa do 31.12.2031 — wybierz, czy skrócić #70, czy zacząć nowe po nim"],
+        previous_order_id: 70, previous_order_title: "9/2031", previous_rate_client: "120.000", previous_rate_unit: "hour",
+        previous_start_date: "2031-07-01", previous_end_date: "2031-12-31",
+        overlap_options: ["trim_previous", "start_after"], overlap_trim_end: "2031-11-30", overlap_start_after: "2032-01-01",
+      }],
+    },
+  }),
   doc(3, {
     client_name: "Doradztwo Przykładowe", client_policy: null, identification_method: "registry_id", subject: "Work Order WO-0000999 Rev. 1", attachment_name: "Work Order - Fieldglass.pdf",
     gate_reasons: ["Klient nie ma własnej polityki odczytu", "„Wzorcowy, Maciej”: revision — Zamówienie o tym numerze już istnieje (#88, 2031-07-01 – 2031-08-31) — porównaj"],

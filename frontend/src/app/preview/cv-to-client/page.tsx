@@ -34,7 +34,7 @@ import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { CvToClientCard } from "@/components/v2/recruitment/CvToClientCard";
 import { api } from "@/lib/api";
 import type { CvEditorIssuesData } from "@/lib/api/cvEditorIssues";
-import type { QcCheck } from "@/lib/api/cvQc";
+import { qcRoleFactsQueryKey, type QcCheck } from "@/lib/api/cvQc";
 import { cvAiSourcesQueryKey, type CvAiSourceFile, type CvAiSources } from "@/lib/cv-ai-sources";
 import { screeningFormQueryKey } from "@/lib/api/screeningForm";
 import type { RecruitmentOption } from "@/lib/cv-generator";
@@ -65,6 +65,9 @@ async function loadStatic(path: string): Promise<{ blob: Blob; filename: string 
 }
 const loadPreviewFile = () => loadStatic(PREVIEW_FILE);
 const loadPreviewPages = () => loadStatic(PREVIEW_PAGES);
+const ORIGINAL_LOADERS = {
+  loadOriginalBlob: () => loadPreviewPages().then((file) => file.blob),
+};
 const CLIENT_ID = 7;
 const REVISION = 2;
 const FRESH = { updatedAt: Date.now() + 86_400_000 };
@@ -298,6 +301,7 @@ function seed(qc: QueryClient) {
     const rows: StageGeneratedCvRow[] = hasCv ? [readyRow(person, "manual")] : [];
     qc.setQueryData(cvToClientRowsQueryKey(person.candidateId, JOB_ID), rows, FRESH);
     qc.setQueryData(stageBrandedQueryKey(person.stageId), branded(person, hasCv), FRESH);
+    qc.setQueryData(qcRoleFactsQueryKey(person.stageId), { facts: [], roles: [] }, FRESH);
     qc.setQueryData(
       ["cv-original", person.stageId],
       {
@@ -461,6 +465,7 @@ function Harness() {
               lockedAfterSend={person.variant === "sent"}
               loadStageCvFile={loadPreviewFile}
               loadStageCvPdf={loadPreviewPages}
+              originalLoaders={ORIGINAL_LOADERS}
             />
           </section>
         ))}

@@ -9,6 +9,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import and_, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import (
@@ -623,28 +624,27 @@ async def mark_read(
             )
         )
     ).scalar()
-    state = (
-        await db.execute(
-            select(CandidateChatReadState).where(
-                and_(
-                    CandidateChatReadState.candidate_id == candidate_id,
-                    CandidateChatReadState.user_id == current_user.id,
-                )
-            )
-        )
-    ).scalar_one_or_none()
+    # Atomowy upsert (lustro ``job_chat.mark_read``) — równoległe PUT-y nie
+    # wywracają się na uq_candidate_chat_read_state_candidate_user.
     now = datetime.now(timezone.utc)
-    if state is None:
-        state = CandidateChatReadState(
-            candidate_id=candidate_id,
-            user_id=current_user.id,
-            last_read_message_id=last_id,
-            last_read_at=now,
+    stmt = pg_insert(CandidateChatReadState).values(
+        candidate_id=candidate_id,
+        user_id=current_user.id,
+        last_read_message_id=last_id,
+        last_read_at=now,
+    )
+    await db.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_candidate_chat_read_state_candidate_user",
+            set_={
+                "last_read_message_id": func.greatest(
+                    CandidateChatReadState.last_read_message_id,
+                    stmt.excluded.last_read_message_id,
+                ),
+                "last_read_at": stmt.excluded.last_read_at,
+            },
         )
-        db.add(state)
-    else:
-        state.last_read_message_id = last_id
-        state.last_read_at = now
+    )
     # Wejście do czatu gasi jego powiadomienia (lustro ``job_chat.mark_read``).
     cleared = await chat_notifications.mark_read(
         db, current_user.id, kind="candidate", entity_id=candidate_id

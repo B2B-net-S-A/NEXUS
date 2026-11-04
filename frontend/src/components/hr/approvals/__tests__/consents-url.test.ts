@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { consentsRedirectHref, myConsentsHref } from "../consents-url";
 
-describe("adres „Zgód i wydatków” w „Moim czasie” (22.10.2026)", () => {
+describe("adres „Zgód i wydatków” w „Mojej współpracy” (22.10.2026)", () => {
   it("zakładka, zgoda i otwarty formularz", () => {
     expect(myConsentsHref()).toBe("/my-time?tab=consents");
     expect(myConsentsHref({ request: 12 })).toBe("/my-time?tab=consents&request=12");

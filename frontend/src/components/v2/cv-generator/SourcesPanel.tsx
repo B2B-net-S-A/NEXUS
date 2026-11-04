@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FileDropZone } from "@/components/ds/FileDropZone";
 
+import { isClientCvWordFile } from "@/lib/candidate-files";
+
 import { StatusChip } from "./GeneratorParts";
 import type { ChampionOverride, CvSourceFile } from "./useCvGenerator";
 
@@ -180,7 +182,7 @@ export function ProcessSources(props: ProcessSourcesProps) {
           {props.sources.map((source) => (
             <option key={source.id} value={source.id}>
               {[
-                `${source.filename}${source.is_primary ? " — główny" : props.sources.length === 1 ? " — jedyny plik" : ""}`,
+                `${source.filename}${source.is_primary ? " — główny" : props.sources.length === 1 ? " — jedyny plik" : ""}${isClientCvWordFile(source.filename) ? " — CV dla klienta" : ""}`,
                 formatUploaded(source.uploaded_at),
               ].filter(Boolean).join(" · ")}
             </option>

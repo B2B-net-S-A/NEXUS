@@ -55,7 +55,7 @@ type Dialog =
     }
   | { kind: "prep"; pair: PairInfo; second: boolean }
   | { kind: "prep_review"; pair: PairInfo; eventId: number; tab?: PrepReviewTab }
-  | { kind: "slots"; pair: PairInfo | null }
+  | { kind: "slots"; pair: PairInfo | null; request?: SlotRequest | null }
   | {
       kind: "reschedule_prep";
       pair: PairInfo;
@@ -239,7 +239,7 @@ export function CalendarCycleScreen({
         setDialog({ kind: "prep_review", pair: action.pair, eventId: action.eventId, tab: action.tab });
         break;
       case "add_slots":
-        setDialog({ kind: "slots", pair: action.pair });
+        setDialog({ kind: "slots", pair: action.pair, request: action.request });
         break;
       case "reschedule_prep":
         setDialog({
@@ -403,6 +403,7 @@ export function CalendarCycleScreen({
         open={dialog?.kind === "slots"}
         onOpenChange={(o) => !o && setDialog(null)}
         pair={dialog?.kind === "slots" ? dialog.pair : null}
+        request={dialog?.kind === "slots" ? dialog.request : null}
       />
       <SlotDecisionDialog
         open={dialog?.kind === "pick" || dialog?.kind === "confirm" || dialog?.kind === "reply"}

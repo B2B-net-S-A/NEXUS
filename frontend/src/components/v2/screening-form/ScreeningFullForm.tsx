@@ -1061,7 +1061,9 @@ export function ScreeningFullFormView({
           </div>
           {termsKeys.length > 0 ? (
             <div className="@container">
-              <div className="grid gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
+              {/* grid-cols-1 (minmax(0,1fr)), nie niejawna kolumna `auto`: ta rosła
+                  do pełnej długości podpowiedzi „Z notatek” i przesuwała panel w bok. */}
+              <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">{termsKeys.map((key) => cardField(key, false))}</div>
             </div>
           ) : null}
         </section>
@@ -1194,6 +1196,8 @@ export interface ScreeningFullFormProps {
   /** Odznaczone rekrutacje „Screening dla” z wpisami — zapis ich nie obejmie (D2 A). */
   pendingMemory?: readonly PendingMemoryItem[];
   onReselect?: (jobId: number) => void;
+  /** Bliźniaki pominięte w „Screening dla” (0614): rekrutacja → kod powodu. */
+  twinSkips?: Record<string, string>;
 }
 
 export function ScreeningFullForm({
@@ -1217,6 +1221,7 @@ export function ScreeningFullForm({
   memory,
   pendingMemory = [],
   onReselect,
+  twinSkips,
 }: ScreeningFullFormProps) {
   const { showSuccess, showError, showInfo, showActionToast } = useToast();
   const queryClient = useQueryClient();
@@ -1497,6 +1502,7 @@ export function ScreeningFullForm({
               }
             : {}),
           expected_state_version: current.process_state_version,
+          ...(twinSkips ? { twin_skips: twinSkips } : {}),
         },
         {
           candidateName,
@@ -1673,7 +1679,7 @@ export function ScreeningFullForm({
 
   const footer = (
     <div
-      className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
+      className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/95 px-1 py-2.5 [[data-compact]_&]:gap-y-1 [[data-compact]_&]:py-1.5 backdrop-blur supports-[backdrop-filter]:bg-background/80"
       data-testid="screening-form-footer"
     >
       {pendingMemory.length > 0 ? (
@@ -1684,7 +1690,7 @@ export function ScreeningFullForm({
       {minimumRequired ? (
         <p
           className={cn(
-            "basis-full text-[11px]",
+            "basis-full text-[11px] [[data-compact]_&]:truncate",
             minimumGaps.length > 0 ? "text-warning-muted-foreground" : "text-muted-foreground",
           )}
           data-testid="screening-form-minimum"
@@ -1694,7 +1700,14 @@ export function ScreeningFullForm({
             : "Minimum dla Delivery Leada: komplet"}
         </p>
       ) : null}
-      <p className="mr-auto flex items-center gap-1 text-[11px] text-muted-foreground" role="status">
+      <p
+        className={cn(
+          "mr-auto flex items-center gap-1 text-[11px] text-muted-foreground",
+          // Tryb rozmowy: „Wersja N” / „jeszcze niezapisany” ustępuje przyciskom, „Niezapisane zmiany” zostaje.
+          !dirty && "[[data-compact]_&]:hidden",
+        )}
+        role="status"
+      >
         {dirty ? (
           <>
             <Clock className="h-3 w-3" aria-hidden /> Niezapisane zmiany

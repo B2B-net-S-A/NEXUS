@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -31,6 +31,8 @@ class AdContent(BaseModel):
     duration: str = Field(default="", max_length=generate.TERM_MAX)
     # Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia.
     language: str = Field(default="", max_length=generate.TERM_MAX)
+    # Miasto w ogłoszeniu; puste = miasto z rekrutacji (bez adresu).
+    city: str = Field(default="", max_length=generate.TERM_MAX)
     responsibilities: list[Item] = Field(
         default_factory=list, max_length=_LIMITS["responsibilities"]
     )
@@ -40,7 +42,17 @@ class AdContent(BaseModel):
     nice_to_have: list[Item] = Field(
         default_factory=list, max_length=_LIMITS["nice_to_have"]
     )
-    offer: list[Item] = Field(default_factory=list, max_length=_LIMITS["offer"])
+    # Własne punkty „co oferujemy”. Przyjmujemy więcej niż limit, bo wklejona
+    # lista z karty niesie też warunki z rekrutacji (do 5) i stały blok —
+    # serwer je wycina, a dopiero reszta liczy się do `LIST_LIMITS["offer"]`.
+    offer: list[Item] = Field(
+        default_factory=list,
+        max_length=_LIMITS["offer"] + 5 + fixed_blocks.OFFER_MAX_ITEMS,
+    )
+    # Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu.
+    offer_hidden: list[Item] = Field(
+        default_factory=list, max_length=generate.OFFER_HIDDEN_MAX
+    )
 
 
 class AdTechItem(BaseModel):
@@ -123,6 +135,8 @@ class RenderedField(BaseModel):
     items: list[str]
     auto_count: int = 0
     fixed_count: int = 0
+    hidden_auto: list[str] = Field(default_factory=list)
+    hidden_fixed: list[str] = Field(default_factory=list)
 
 
 class RenderedPracuj(BaseModel):
@@ -188,7 +202,8 @@ class AdChannelView(BaseModel):
     """Stan jednego kanału rekrutacji (przypomnienia o ogłoszeniach, 0526)."""
 
     channel: AdChannel
-    state: Literal["live", "missing", "skipped"]
+    # requested = mail do opiekuna Pracuj.pl wyszedł, opiekun ma jeszcze czas.
+    state: Literal["live", "missing", "skipped", "requested"]
     since: Optional[datetime] = None
     # Brak robi ta osoba (rekruter: strona kariery; DL: portale).
     mine: bool = False
@@ -216,6 +231,62 @@ class AdRemindResponse(BaseModel):
     already: list[str] = Field(default_factory=list)
 
 
+class PracujRequestRead(BaseModel):
+    """Ostatni mail do opiekuna Pracuj.pl wysłany z NEXUSA (27.10.2026)."""
+
+    sent_at: datetime
+    sent_by_name: Optional[str] = None
+    to: Optional[str] = None
+    # Opiekun ma jeszcze czas — przypomnienia o Pracuj.pl milczą.
+    waiting: bool = False
+
+
+# Szeroko: granice stawki sprawdza `pracuj_mail.rate_text` i odpowiada
+# komunikatem przy polu (podgląd), nie błędem całego zapytania.
+RateValue = Annotated[int, Field(ge=0, le=99_999)]
+
+
+class PracujMailPreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rate_from: Optional[RateValue] = None
+    rate_to: Optional[RateValue] = None
+
+
+class PracujMailRequest(PracujMailPreviewRequest):
+    # Wersja ogłoszenia z ekranu — mail niesie treść, którą osoba przeczytała.
+    # Obowiązkowa: bez niej wyszłaby treść, której nikt nie widział.
+    expected_updated_at: Optional[datetime]
+    # Ten sam UUID przy ponowieniu = ten sam mail (bez drugiej wysyłki).
+    client_request_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class PracujMailPreview(BaseModel):
+    to_name: str
+    to_email: str
+    # Skrzynka osoby: ready = wyśle · missing = niepodłączona · reconnect =
+    # trzeba połączyć ponownie. Bez „ready” okno daje tylko „Kopiuj treść”.
+    mailbox: Literal["ready", "missing", "reconnect"]
+    from_address: Optional[str] = None
+    subject: str
+    body_text: str
+    # Stawka, której nie wyślemy (pusta, odwrócona) — komunikat do pola.
+    rate_error: Optional[str] = None
+
+
+class AdJjitApi(BaseModel):
+    """Publikacja na JustJoin.IT przez API; brak = portal wyłączony, a na nim nic
+    nie wisi (okno działa jak kopiuj-wklej)."""
+
+    # Portal przyjmuje nowe ogłoszenia (flaga + klucz API albo konto).
+    ready: bool
+    # Ostatnie zlecenie tej rekrutacji; ``None`` = jeszcze go nie było.
+    status: Optional[str] = None
+    pending_action: Optional[str] = None
+    last_error: Optional[str] = None
+    options: Optional[dict[str, Any]] = None
+
+
 class JobAdResponse(BaseModel):
     ad: Optional[AdRead] = None
     career: AdCareerState = Field(default_factory=AdCareerState)
@@ -229,6 +300,9 @@ class JobAdResponse(BaseModel):
     publications: list[AdPublicationRead] = Field(default_factory=list)
     # Trzy kanały i kto je robi (0526); brak = rekrutacja zamknięta.
     reminders: Optional[AdReminders] = None
+    # Ostatni mail do opiekuna Pracuj.pl (27.10.2026).
+    pracuj_request: Optional[PracujRequestRead] = None
+    jjit_api: Optional[AdJjitApi] = None
 
 
 class CareerQueueItem(BaseModel):
@@ -280,9 +354,18 @@ class LangBlocksModel(BaseModel):
     about: str = Field(default="", max_length=fixed_blocks.ABOUT_MAX_CHARS)
 
 
+class PracujCaretakerModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(default="", max_length=fixed_blocks.CARETAKER_NAME_MAX)
+    email: str = Field(max_length=fixed_blocks.CARETAKER_EMAIL_MAX)
+
+
 class FixedBlocksModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     title_suffix: Literal["kmx", "km", "none"]
     pl: LangBlocksModel
     en: LangBlocksModel
+    # Brak w zapisie = zostaje zapisany opiekun (okno sprzed 27.10.2026).
+    pracuj_caretaker: Optional[PracujCaretakerModel] = None

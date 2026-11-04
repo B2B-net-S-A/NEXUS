@@ -593,3 +593,84 @@ async def test_deleted_client_is_not_resolved_by_name_or_nip() -> None:
     async with AsyncSessionLocal() as db:
         assert await integrations_companies._resolve_client(db, names, "") is None
         assert await integrations_companies._resolve_client(db, set(), nip) is None
+
+
+@pytest.mark.asyncio
+async def test_client_alias_resolves_the_client_and_widens_the_cv_match(
+    app_client,
+) -> None:
+    """Alias klienta (stara nazwa, skrót) to ta sama firma dla CRM.
+
+    Dopasowanie po nazwie czytało tylko ``name``/``legal_name``/``display_name``,
+    choć ostrzeżenie o duplikatach klienta używa już ``client_aliases``.
+    Zapytanie starą nazwą ma znaleźć klienta, a zapytanie obecną nazwą —
+    osoby, które w CV mają starą. Zarchiwizowany alias nie liczy się wcale.
+    """
+    from app.models.client_directory import ClientAlias
+
+    tag = uuid.uuid4().hex[:8]
+    company = f"Kormoran Bank {tag}"
+    old_name = f"Stary Kormoran {tag}"
+    archived_name = f"Dawny Kormoran {tag}"
+    async with AsyncSessionLocal() as db:
+        client = Client(name=company)
+        db.add(client)
+        await db.flush()
+        db.add_all(
+            [
+                ClientAlias(
+                    client_id=client.id,
+                    alias=old_name,
+                    normalized_alias=old_name.lower(),
+                ),
+                ClientAlias(
+                    client_id=client.id,
+                    alias=archived_name,
+                    normalized_alias=archived_name.lower(),
+                    archived_at=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+        old_cv = await _candidate(
+            db,
+            f"StaraNazwa{tag}",
+            experience=[
+                {
+                    "company": old_name,
+                    "role": "Analityk",
+                    "start": "2019",
+                    "end": "2021",
+                }
+            ],
+        )
+        archived_cv = await _candidate(
+            db,
+            f"Archiwum{tag}",
+            experience=[
+                {
+                    "company": archived_name,
+                    "role": "Tester",
+                    "start": "2015",
+                    "end": "2016",
+                }
+            ],
+        )
+        await db.commit()
+        client_id, old_cv_id, archived_cv_id = client.id, old_cv.id, archived_cv.id
+
+    by_alias = await app_client.post(
+        URL, json={"names": [old_name]}, headers=_headers()
+    )
+    assert by_alias.status_code == 200, by_alias.text
+    assert by_alias.json()["matched_client"]["id"] == client_id
+
+    by_name = await app_client.post(URL, json={"names": [company]}, headers=_headers())
+    assert by_name.status_code == 200, by_name.text
+    got = _by_id(by_name.json())
+    assert got.get(old_cv_id) == "past"
+    assert archived_cv_id not in got
+
+    by_archived = await app_client.post(
+        URL, json={"names": [archived_name]}, headers=_headers()
+    )
+    assert by_archived.json()["matched_client"] is None

@@ -64,7 +64,7 @@ function renderWith(node: ReactNode) {
   return render(<QueryClientProvider client={client}>{node}</QueryClientProvider>);
 }
 
-describe("Ustawienia → Płace — zakładki (runda 2, 21.10.2026)", () => {
+describe("Ustawienia → Rozliczenia — zakładki (runda 2, 21.10.2026)", () => {
   it("premie i stawki zawsze; wypłaty z Symfonią i KSeF tylko przy rozliczeniach", () => {
     const base = config({ payroll: true });
     expect(availablePayrollTabs(base)).toEqual(["premie", "stawki"]);
@@ -82,19 +82,19 @@ describe("Ustawienia → Płace — zakładki (runda 2, 21.10.2026)", () => {
   });
 });
 
-describe("Ustawienia → Płace", () => {
-  it("osoba z samymi „Płacami” (Finanse) dochodzi do reguł premii", () => {
+describe("Ustawienia → Rozliczenia", () => {
+  it("osoba z samymi „Rozliczeniami” (Finanse) dochodzi do reguł premii", () => {
     expect(canEditPayrollSettings(config({ payroll: true }))).toBe(true);
     renderWith(<PayrollSettings config={config({ payroll: true })} />);
-    expect(screen.getByRole("heading", { name: "Płace" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rozliczenia" })).toBeInTheDocument();
     expect(screen.getByText("karta reguł premii")).toBeInTheDocument();
   });
 
-  it("Kadry bez „Płac” nie zmieniają reguł — zdanie zamiast karty", () => {
+  it("Administracja współpracy bez „Rozliczeń” nie zmieniają reguł — zdanie zamiast karty", () => {
     expect(canEditPayrollSettings(config({ people_admin: true }))).toBe(false);
     renderWith(<PayrollSettings config={config({ people_admin: true })} />);
     expect(
-      screen.getByText("Reguły premii zmienia osoba z uprawnieniem „Płace” albo administrator."),
+      screen.getByText("Reguły premii zmienia osoba z uprawnieniem „Rozliczenia” albo administrator."),
     ).toBeInTheDocument();
     expect(screen.queryByText("karta reguł premii")).toBeNull();
   });
@@ -135,22 +135,22 @@ describe("minimalna stawka na zleceniu (etap 2, D7)", () => {
   });
 });
 
-describe("Ustawienia → Kadry po przeniesieniu reguł premii", () => {
-  it("karty reguł już tu nie ma; Kadry z „Płacami” dostają link do Ustawienia → Płace", () => {
+describe("Ustawienia → Administracja współpracy po przeniesieniu reguł premii", () => {
+  it("karty reguł już tu nie ma; Administracja współpracy z „Rozliczeniami” dostają link do Ustawienia → Rozliczenia", () => {
     renderWith(<HrSettings config={config({ people_admin: true, payroll: true })} />);
     expect(screen.queryByText("karta reguł premii")).toBeNull();
-    expect(screen.getByRole("link", { name: "Ustawienia → Płace" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Ustawienia → Rozliczenia" })).toHaveAttribute(
       "href",
       "/settings/payroll",
     );
   });
 
-  it("Kadry bez „Płac” widzą, gdzie są reguły i kto je zmienia — bez linku", () => {
+  it("Administracja współpracy bez „Rozliczeń” widzą, gdzie są reguły i kto je zmienia — bez linku", () => {
     renderWith(<HrSettings config={config({ people_admin: true })} />);
     expect(
-      screen.getByText("Reguły premii są w Ustawienia → Płace — zmienia je osoba z uprawnieniem „Płace”."),
+      screen.getByText("Reguły premii są w Ustawienia → Rozliczenia — zmienia je osoba z uprawnieniem „Rozliczenia”."),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Ustawienia → Płace" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Ustawienia → Rozliczenia" })).toBeNull();
   });
 
   it("wyłączony moduł płac — bez drogowskazu", () => {

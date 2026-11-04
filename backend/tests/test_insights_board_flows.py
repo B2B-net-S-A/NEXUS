@@ -5,8 +5,13 @@ liczą te same funkcje co API integracyjne i tabele rok do roku
 (`contract_flows`, `departure_day`), kończące się bez kontynuacji — reguła
 pigułki „Kończące się 30d” (`ending_without_successor`).
 
-Baza testowa jest wspólna, więc daty leżą w roku, którego nie używa nikt
-inny, a liczby globalne (otwarte rekrutacje) sprawdzamy tylko co do typu.
+Baza testowa jest wspólna i nieczyszczona, a `compute_board_flows` liczy całą
+firmę. Rok 2058 nie jest zarezerwowany: `test_finance_order_changes.py` losuje
+dni z lat 2058–2061 (`_far_day`) i zakłada tam kontrakty, a o tym, czy oba
+pliki trafią do jednego shardu, decyduje kolejność plików (#2723 wypadł przez
+to z kolejki 27.10.2026). Dlatego test porównuje wynik przed zasiewem i po
+nim — liczą się tylko jego własne wiersze, cudze się odejmują. Shard to jeden
+proces bez xdist, więc między odczytami nikt inny nie pisze.
 """
 
 from __future__ import annotations
@@ -123,31 +128,48 @@ async def _seed() -> dict[str, Any]:
     return {}
 
 
-@pytest.mark.asyncio
-async def test_flows_count_starts_departures_and_contracts_ending_without_continuation():
-    await _seed()
+async def _march_flows() -> dict[str, Any]:
     period = resolve_period("month", anchor=date(_YEAR, 3, 1))
     async with AsyncSessionLocal() as db:
-        result = await compute_board_flows(
+        return await compute_board_flows(
             db,
             period,
             today=date(_YEAR, 3, 31),
             now=datetime(_YEAR, 4, 1, 12, tzinfo=timezone.utc),
         )
-    assert result["consultants"] == {
+
+
+def _added(after: dict[str, int], before: dict[str, int]) -> dict[str, int]:
+    return {key: after[key] - before[key] for key in after}
+
+
+@pytest.mark.asyncio
+async def test_flows_count_starts_departures_and_contracts_ending_without_continuation():
+    before = await _march_flows()
+    await _seed()
+    result = await _march_flows()
+    assert _added(result["consultants"], before["consultants"]) == {
         "starts": 1,
         "ends": 1,
         "resignations": 1,
         "net": 0,
     }
     # Poprzedni odcinek = cały luty (marzec zamknięty).
-    assert result["previous_consultants"]["ends"] == 1
+    assert (
+        result["previous_consultants"]["ends"] - before["previous_consultants"]["ends"]
+        == 1
+    )
     assert result["previous_window"] == {
         "from": f"{_YEAR}-02-01",
         "to": f"{_YEAR}-02-28",
     }
-    assert result["ending_without_continuation"] == {"days": 30, "contracts": 1}
-    assert result["jobs"]["new"] == 1
+    assert result["ending_without_continuation"]["days"] == 30
+    assert (
+        result["ending_without_continuation"]["contracts"]
+        - before["ending_without_continuation"]["contracts"]
+        == 1
+    )
+    assert result["jobs"]["new"] - before["jobs"]["new"] == 1
     assert isinstance(result["jobs"]["open"], int)
 
 

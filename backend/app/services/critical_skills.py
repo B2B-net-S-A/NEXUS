@@ -64,8 +64,11 @@ RECOMPUTE_EVERY = timedelta(days=7)
 _SEED_PATH = (
     Path(__file__).resolve().parents[1] / "data" / "critical_skill_stats_seed.json"
 )
-# Etapy „wysłany do klienta” (widok `analytics_first_milestones`).
-_SENT_STAGES = ("cv_sent", "interview", "client_interview", "acceptance", "hired")
+# Etapy „wysłany do klienta” (widok `analytics_first_milestones`), ten sam zbiór
+# co `api.jobs.SENT_TO_CLIENT_STAGES`. Bez `interview` (decyzja Artura 02.11.2026):
+# to rozmowa wewnętrzna przed wysyłką, a połowę osób, które na niej skończyły,
+# odrzucono, zanim klient je zobaczył.
+_SENT_STAGES = ("cv_sent", "client_interview", "acceptance", "hired")
 _JOB_BATCH = 50
 
 CriticalSource = Literal["dl", "suggested", "none"]
@@ -382,6 +385,47 @@ def critical_gate_options(job) -> dict[str, tuple[str, ...]]:
         # Rdzeń z gwiazdką („bankow*”) jest zawsze dodatkowym słowem: po zdjęciu
         # gwiazdki wyglądałby jak powtórka etykiety, a bramka szukałaby wtedy
         # całego słowa zamiast początku — inaczej niż „Szukaj ręcznie”.
+        extra = tuple(w for w in words if "*" in w or canonical_of(w) not in known)
+        if extra:
+            out[label] = extra
+    return out
+
+
+def must_evidence_options(job) -> dict[str, tuple[str, ...]]:
+    """Słowa, po których CV spełnia wiersz „musi mieć” — do oceny, nie do bramki.
+
+    W wierszu wystarczy jedno słowo, a dotąd warianty liczyły się tylko przy
+    krytycznych: osoba z „płatności” w CV miała brak przy wierszu „płatniczych lub
+    payment* lub płatności” (121 z 707 wierszy, 02.11.2026). Wymaganie, którego
+    słownik nie zna (metodyka, fraza), szuka samego siebie, inaczej zawsze byłoby
+    brakiem („Agile”, „Change management”). Zamrożone żądanie nie ma ``stack.rows``,
+    więc niesie gotowy słownik pod ``must_evidence_options``
+    (``request_matching_context``).
+    """
+    from app.services.must_gate_terms import gate_requirement
+    from app.services.scoring_service import job_skill_requirements
+    from app.services.skill_normalize import canonical_of
+
+    frozen = getattr(job, "must_evidence_options", None)
+    if isinstance(frozen, dict):
+        return {
+            str(label): tuple(str(w) for w in words)
+            for label, words in frozen.items()
+            if isinstance(words, (list, tuple)) and words
+        }
+    out: dict[str, tuple[str, ...]] = {}
+    rows = _row_words_by_label(job)
+    for label in job_skill_requirements(job).get("must") or []:
+        words: list[str] = []
+        for row_name, row_words in rows:
+            if match_must_labels([row_name], [label]):
+                words = row_words
+                break
+        requirement = gate_requirement(label)
+        if requirement is None:
+            out[label] = tuple(words) or (label,)
+            continue
+        known = {canonical_of(option) for option in requirement.options}
         extra = tuple(w for w in words if "*" in w or canonical_of(w) not in known)
         if extra:
             out[label] = extra

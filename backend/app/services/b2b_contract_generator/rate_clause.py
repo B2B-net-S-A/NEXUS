@@ -6,11 +6,15 @@ Buduje tekst dla ``{{ b2b.rate_clause }}`` w szablonach DOCX i HTML (zdanie §5:
 Pojedynczy etap bez dat renderuje się IDENTYCZNIE jak historyczne
 „{{ rate }} {{ currency }} (słownie: {{ words }})”, więc stare zapisy
 ``render_payload`` (ponowne pobranie z „Wygenerowanych umów”) dają treściowo
-ten sam dokument. Kilka etapów („stawka progresywna”) → wyliczenie z okresami:
+ten sam dokument. Kilka etapów („stawka progresywna”) szablony umowy B2B pokazują
+podpunktami z ``build_rate_lines`` (dział umów, 03.11.2026):
 
-    150 PLN (słownie: sto pięćdziesiąt złotych) w okresie od dnia 01.07.2026
-    do dnia 31.12.2026, a 160 PLN (słownie: sto sześćdziesiąt złotych)
-    od dnia 01.01.2027
+    a) 150 PLN (słownie: sto pięćdziesiąt złotych) w okresie od dnia 01.07.2026
+       do dnia 31.12.2026,
+    b) 160 PLN (słownie: sto sześćdziesiąt złotych) od dnia 01.01.2027
+
+``build_rate_clause`` zwraca wtedy to samo w jednym zdaniu („…, a 160 PLN …”) dla
+szablonów kontraktu napisanych ręcznie w Ustawieniach, które znają tylko tę zmienną.
 
 Moduł-liść jak ``formatting``/``number_words`` — importuje wyłącznie z tych
 dwóch, więc nadaje się i do ``render_context`` (standalone) i do
@@ -74,6 +78,14 @@ def _period_phrase(stage: RateStage, lang: str) -> str:
     return ""
 
 
+def _stage_text(
+    stage: RateStage, currency: str, lang: str, words_override: Optional[str]
+) -> str:
+    base = _amount_with_words(stage, currency, lang, words_override)
+    period = _period_phrase(stage, lang)
+    return f"{base} {period}" if period else base
+
+
 def build_rate_clause(
     stages: Sequence[RateStage],
     *,
@@ -91,12 +103,34 @@ def build_rate_clause(
     cur = (currency or "PLN").strip() or "PLN"
     if not stages:
         stages = [RateStage(rate=None)]
-    parts: list[str] = []
-    for stage in stages:
-        base = _amount_with_words(
-            stage, cur, lang, words_override if len(stages) == 1 else None
-        )
-        period = _period_phrase(stage, lang)
-        parts.append(f"{base} {period}" if period else base)
+    parts = [
+        _stage_text(stage, cur, lang, words_override if len(stages) == 1 else None)
+        for stage in stages
+    ]
     joiner = ", a " if lang == "pl" else ", and "
     return joiner.join(parts)
+
+
+def build_rate_lines(
+    stages: Sequence[RateStage],
+    *,
+    language: Optional[str],
+    currency: Optional[str],
+) -> list[str]:
+    """Podpunkty stawki progresywnej do ``{{ b2b.rate_lines }}``: „a) …,”, „b) …”.
+
+    Pusta lista = jedna stawka, szablon zostawia zdanie z ``rate_clause``. Końcówka
+    „netto + VAT.” należy do szablonu, bo w EN brzmi inaczej. Każdy podpunkt to
+    osobny akapit, nie łamanie wiersza: umowa jest wyjustowana, a Word rozciąga
+    wiersz zakończony łamaniem na całą szerokość strony.
+    """
+    if len(stages) < 2:
+        return []
+    lang = _normalize_language(language)
+    cur = (currency or "PLN").strip() or "PLN"
+    last = len(stages) - 1
+    return [
+        f"{chr(ord('a') + i)}) {_stage_text(stage, cur, lang, None)}"
+        + ("," if i < last else "")
+        for i, stage in enumerate(stages)
+    ]

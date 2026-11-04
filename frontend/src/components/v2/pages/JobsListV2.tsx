@@ -70,6 +70,7 @@ import {
 } from "@/components/v2/jobs/JobListCells";
 import { RequestPriorityChip } from "@/components/v2/jobs/RequestPriorityChip";
 import { priorityLevelOf, type PriorityLevel } from "@/lib/request-priority";
+import { TwinSuggestionsButton } from "@/components/v2/jobs/twins/TwinSuggestionsButton";
 import { hasRole, useAuthStore } from "@/store/auth";
 import {
   JOB_SCOPE_VALUES,
@@ -449,6 +450,7 @@ function JobsTable({
                   <Link
                     href={`/jobs/${job.id}`}
                     onClick={(e) => e.stopPropagation()}
+                    data-tour="jobs.list.title"
                     className="font-medium leading-snug text-foreground hover:text-primary hover:underline"
                   >
                     {jobRowTitle(job)}
@@ -1138,6 +1140,8 @@ export function JobsListV2({
               : listSummary}
         </p>
         {similarBanner("inline-flex 2xl:hidden", true)}
+        {/* 0614: pary otwartych rekrutacji różnych DL-i do połączenia jako bliźniaki. */}
+        {hasRole(authUser, "admin", "head_of_recruitment") && <TwinSuggestionsButton />}
         {/* `flex-wrap`: od „Umów przedwstępnych” (#2545) cztery przyciski
             nie mieszczą się w rzędzie przy 360 px i rozpychały stronę w poziomie. */}
         <div className="ml-auto flex flex-wrap items-center justify-end gap-2">

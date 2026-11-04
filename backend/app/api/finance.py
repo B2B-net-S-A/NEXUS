@@ -195,6 +195,10 @@ async def _lock_period(db: AsyncSession, year: int, month: int) -> None:
 _PCT_QUANT = Decimal("0.1")
 
 
+#: Sortowanie po marży to gotowy ranking całej firmy — tylko z „Wynikami firmy”.
+_COMPANY_RESULT_SORTS = frozenset({"margin_pln", "margin_pct"})
+
+
 def _margin_percent(row: FinanceMonthlyResult) -> Optional[Decimal]:
     """Marża % wiersza w PUNKTACH PROCENTOWYCH (21.4 = 21,4%).
 
@@ -364,6 +368,10 @@ async def get_results(
     run = await _current_run(db, year, month)
     if run is None:
         raise HTTPException(404, detail="Brak importu za wskazany miesiąc.")
+    # Bez konta (`_user=None`) woła nas API v1, które ma własne zakresy kwot.
+    sees_totals = _user is None or has_permission(_user, ProductAction.company_results)
+    if not sees_totals and sort in _COMPANY_RESULT_SORTS:
+        sort, direction = "row_number", "asc"
 
     query = select(FinanceMonthlyResult).where(
         FinanceMonthlyResult.import_run_id == run.id
@@ -431,13 +439,17 @@ async def get_results(
         month=month,
         run_id=run.id,
         rows=[_row_to_read(r) for r in rows],
-        totals=FinanceTotals(
-            cost=cost,
-            revenue=revenue,
-            margin=margin,
-            avg_margin_pct=avg_pct,
-            rows_without_margin=len(without_margin),
-            cost_without_margin=cost_without_margin,
+        totals=(
+            FinanceTotals(
+                cost=cost,
+                revenue=revenue,
+                margin=margin,
+                avg_margin_pct=avg_pct,
+                rows_without_margin=len(without_margin),
+                cost_without_margin=cost_without_margin,
+            )
+            if sees_totals
+            else None
         ),
         needs_completion_count=_needs_completion_count(all_rows),
     )

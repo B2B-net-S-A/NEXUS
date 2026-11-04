@@ -45,3 +45,7 @@ dodawaj go z powrotem przy pracy nad szerokością Tablicy.
 
 Spis funkcji: `header.menu-empty-columns` ma `removed_reason`, pozostałe
 wpisy wskazują nowe miejsca (`recruitment-feature-inventory.json`).
+
+## Dziesiąta pozycja: „Panel klienta” (02.11.2026)
+
+Tylko dla osób z prawem zamknięcia rekrutacji (`canCloseJob`), otwiera `?win=client-panel`. Opis: `klienci/panel-klienta-pod-linkiem.md`.

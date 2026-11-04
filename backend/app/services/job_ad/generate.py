@@ -42,6 +42,8 @@ LIST_LIMITS = {
     "nice_to_have": 12,
     "offer": 6,
 }
+# Warunki z rekrutacji (do 5) i stały blok firmy (do `OFFER_MAX_ITEMS`).
+OFFER_HIDDEN_MAX = 20
 # Warunki wpisane w rekrutacji wolnym tekstem; rekruter może je poprawić.
 TERM_FIELDS = ("start", "duration", "language")
 
@@ -70,6 +72,10 @@ CO ZWRÓCIĆ:
 - "requirements": punkty z technologii krytycznych i wymaganych oraz
   z doświadczenia. Krytyczne idą pierwsze. Punkt mówi, jakiego doświadczenia
   oczekujemy — nie jest gołą nazwą technologii.
+- Pole „Zamienniki” to inne słowa z tego samego wiersza wymagań, często tylko
+  inna pisownia albo słowo do wyszukiwania. Gdy zamiennik to inna technologia,
+  narzędzie lub metodyka tego samego rodzaju, napisz w punkcie „X lub Y”.
+  Tłumaczenia, skróty, słowa ogólne i urwane pomiń. Nie rób z nich osobnych punktów.
 - "nice_to_have": punkty z listy „mile widziane"; pusta lista, gdy jej nie ma.
 - "offer": 0–3 punkty WYŁĄCZNIE z pola „Co wolno powiedzieć kandydatowi";
   pusta lista, gdy pole jest puste.
@@ -87,6 +93,7 @@ Wymagania (opis): {requirements}
 Technologie krytyczne: {critical}
 Wymagane technologie: {must}
 Mile widziane: {nice}
+Zamienniki: {alternatives}
 Doświadczenie w dziedzinie: {domains}
 Certyfikaty: {certifications}
 Co wolno powiedzieć kandydatowi: {pitch}
@@ -135,6 +142,7 @@ def prompt_for(material: AdMaterial, lang: str) -> str:
         critical=join(material.critical),
         must=join(material.must),
         nice=join(material.nice),
+        alternatives="; ".join(material.alternatives) or "brak",
         domains=material.domains or "brak",
         certifications=material.certifications or "brak",
         pitch=material.pitch or "brak",
@@ -183,8 +191,21 @@ def clean_content(value: Any, *, title: str) -> dict[str, Any]:
     }
     for key in TERM_FIELDS:
         content[key] = _line(data.get(key), TERM_MAX)
+    # Miasto wpisane w ogłoszeniu zamiast tego z rekrutacji. Klucz tylko
+    # przy wpisanym: odcisk treści (`publications.content_hash`) liczy się
+    # z całego słownika, a pusty klucz zapaliłby „Do aktualizacji” wszędzie.
+    city = _line(data.get("city"), TERM_MAX)
+    if city:
+        content["city"] = city
     for key, limit in LIST_LIMITS.items():
         content[key] = clean_list(data.get(key), limit)
+    # Punkty „co oferujemy” z rekrutacji i stałego bloku ukryte w tym
+    # ogłoszeniu. Klucz tylko przy ukrytych: odcisk treści
+    # (`publications.content_hash`) liczy się z całego słownika, a pusta lista
+    # zapaliłaby „Do aktualizacji” przy każdym oznaczonym ogłoszeniu.
+    hidden = clean_list(data.get("offer_hidden"), OFFER_HIDDEN_MAX)
+    if hidden:
+        content["offer_hidden"] = hidden
     return content
 
 

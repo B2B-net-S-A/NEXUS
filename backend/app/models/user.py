@@ -213,6 +213,12 @@ class User(Base, TimestampMixin):
     can_delete_clients: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    # 0631: imienne prawo do maila „Podsumowanie Rady” (decyzja Artura 02.11.2026).
+    # Rada dostaje go z tytułu roli, a rola admin już nie. Zmiana ląduje
+    # w Historii zdarzeń.
+    receives_board_report: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     # 0371: konto „Poza przydziałem” — automat przydziału requestów pomija
     # tę osobę (np. rola rekrutera na koncie kogoś, kto nie pracuje przy
@@ -220,6 +226,13 @@ class User(Base, TimestampMixin):
     # Kategorie kompetencji; każda zmiana zostawia wpis w `activities`.
     allocation_excluded: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
+    )
+
+    # 0612 (28.10.2026): konto po pierwszym logowaniu przez Microsoft czeka na
+    # decyzję Head of Recruitment albo admina, kim jest ta osoba („Nowe osoby
+    # do ustawienia” w „Czeka na Ciebie”). NULL = nic nie czeka.
+    setup_pending_since: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
     # First-login onboarding gate.

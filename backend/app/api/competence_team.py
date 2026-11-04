@@ -31,7 +31,12 @@ from app.services.auto_cc_collaborators import (
     operator_clause,
     sync_cc_participants,
 )
+from app.models.recruitment_priority import RecruitmentPriorityAuditEvent
+from app.services.priority_work_service import audit_event
+from app.services.recruitment_allocation import effective_allocation_mode
+from app.services.request_allocation import preview_allocation
 from app.services.request_allocation_rules import (
+    changed_fields,
     load_rules,
     save_rules,
     validate_rules,
@@ -62,7 +67,17 @@ class TeamCategory(BaseModel):
 
 
 class TeamRules(BaseModel):
+    """Zasady automatu (``request_allocation_rules``). Pola poza godziną
+    mają wartości domyślne, więc stary front z samym ``review_time`` działa."""
+
     review_time: str
+    include_p2: bool = False
+    people_per_p1: int = 1
+    max_load: Optional[int] = None
+    overflow: int = 1
+    outsiders: bool = True
+    order: str = "sent_first"
+    leave_policy: str = "wait"
 
 
 class CompetenceTeamResponse(BaseModel):
@@ -71,6 +86,8 @@ class CompetenceTeamResponse(BaseModel):
     excluded: list[TeamPerson]
     people: list[TeamPerson]
     rules: TeamRules
+    # Tryb automatu (off / shadow / auto) — zakładka „Automat przydziału”.
+    mode: str = "shadow"
 
 
 class AssignmentPayload(BaseModel):
@@ -180,6 +197,7 @@ async def get_competence_team(
         excluded=[_person(p) for p in people if p.allocation_excluded],
         people=[_person(p) for p in people],
         rules=TeamRules(**rules.as_dict()),
+        mode=await effective_allocation_mode(db),
     )
 
 
@@ -194,14 +212,33 @@ async def put_assignment(
     1. priorytet jest jeden na osobę (częściowy UNIQUE): nadanie go w nowej
     kategorii przenosi dotychczasową główną na 2. priorytet.
     """
-    user = await db.scalar(
-        select(User).where(User.id == payload.user_id).with_for_update()
+    await assign_category(
+        db,
+        user_id=payload.user_id,
+        category_id=payload.competence_category_id,
+        priority=payload.priority,
+        actor=current_user,
     )
+    await db.commit()
+    return {"ok": True}
+
+
+async def assign_category(
+    db: AsyncSession,
+    *,
+    user_id: int,
+    category_id: int,
+    priority: Literal[1, 2],
+    actor: User,
+) -> None:
+    """Nadanie kategorii bez commitu — także z okna „Ustaw nową osobę”
+    (``api/people_setup.py``), w jednej transakcji ze zmianą roli."""
+    user = await db.scalar(select(User).where(User.id == user_id).with_for_update())
     if user is None or not user.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej osoby.")
     if not user.has_any_role(*OPERATOR_ROLES):
         raise HTTPException(422, "Kategorię można nadać tylko rekruterowi.")
-    category = await db.get(CompetenceCategory, payload.competence_category_id)
+    category = await db.get(CompetenceCategory, category_id)
     if category is None or not category.is_active:
         raise HTTPException(404, "Nie ma takiej aktywnej kategorii.")
 
@@ -215,7 +252,7 @@ async def put_assignment(
         ).all()
     )
     existing = next((r for r in rows if r.competence_category_id == category.id), None)
-    if payload.priority == 1:
+    if priority == 1:
         for row in rows:
             if row is not existing and row.priority == 1:
                 row.priority = 2
@@ -226,22 +263,22 @@ async def put_assignment(
             UserCompetenceCategory(
                 user_id=user.id,
                 competence_category_id=category.id,
-                priority=payload.priority,
-                is_primary=payload.priority == 1,
+                priority=priority,
+                is_primary=priority == 1,
             )
         )
     else:
-        existing.priority = payload.priority
-        existing.is_primary = payload.priority == 1
+        existing.priority = priority
+        existing.is_primary = priority == 1
     db.add(
         Activity(
             entity_type="user",
             entity_id=user.id,
             action="competence_category_assigned",
-            user_id=current_user.id,
+            user_id=actor.id,
             details={
                 "competence_category_id": category.id,
-                "priority": payload.priority,
+                "priority": priority,
             },
         )
     )
@@ -249,8 +286,6 @@ async def put_assignment(
     await sync_cc_participants(
         db, category_ids=[row.competence_category_id for row in rows] + [category.id]
     )
-    await db.commit()
-    return {"ok": True}
 
 
 @router.delete("/assignments/{assignment_id}")
@@ -318,6 +353,73 @@ async def put_rules(
         rules = validate_rules(payload.model_dump())
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    before = await load_rules(db)
     await save_rules(db, rules, user_id=current_user.id)
+    changed = changed_fields(before, rules)
+    if changed:
+        # Historia zmian w Ustawieniach — ta sama tabela co zmiana trybu.
+        audit_event(
+            db,
+            "allocation_rules_changed",
+            actor_user_id=current_user.id,
+            payload={"changed": changed},
+        )
     await db.commit()
     return TeamRules(**rules.as_dict())
+
+
+HISTORY_EVENTS = ("allocation_rules_changed", "allocation_mode_changed")
+
+
+@router.get("/rules/history")
+async def rules_history(
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> list[dict]:
+    """Kto, kiedy i co zmienił w zasadach albo trybie automatu (30 ostatnich)."""
+    rows = (
+        await db.execute(
+            select(RecruitmentPriorityAuditEvent, User.name)
+            .outerjoin(User, User.id == RecruitmentPriorityAuditEvent.actor_user_id)
+            .where(RecruitmentPriorityAuditEvent.event_type.in_(HISTORY_EVENTS))
+            .order_by(
+                RecruitmentPriorityAuditEvent.occurred_at.desc(),
+                RecruitmentPriorityAuditEvent.id.desc(),
+            )
+            .limit(30)
+        )
+    ).all()
+    out = []
+    for event, name in rows:
+        payload = event.payload or {}
+        if event.event_type == "allocation_mode_changed":
+            changed = {"mode": [payload.get("previous"), payload.get("mode")]}
+        else:
+            changed = payload.get("changed") or {}
+        out.append(
+            {
+                "at": event.occurred_at,
+                "actor_name": name,
+                "changed": changed,
+            }
+        )
+    return out
+
+
+@router.post("/rules/preview")
+async def rules_preview(
+    payload: TeamRules,
+    current_user: HeadOfRecruitmentPlus,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Co zasady zrobią przy następnym przebiegu — dziś zapisane i szkic.
+
+    Przebieg „na sucho”: nic nie zapisuje, przydziały, które już są, zostają.
+    """
+    try:
+        draft = validate_rules(payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    current = await load_rules(db)
+    today, after = await preview_allocation(db, [current, draft])
+    return {"today": today, "draft": after}

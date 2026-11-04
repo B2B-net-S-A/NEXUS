@@ -508,7 +508,7 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
     try {
       await openGeneral({ "/api/me/career-link": careerLink });
       const preview = await screen.findByTestId("linkedin-preview");
-      expect(preview).toHaveTextContent("whoami — lucja@b2bnetwork");
+      expect(preview).toHaveTextContent("Łucja · rekrutacje IT w B2B Network");
       expect(preview).toHaveTextContent("Łucja — rekrutacje IT");
       expect(preview).not.toHaveTextContent(/dynaminds\b(?!\.pl)/i);
     } finally {
@@ -597,8 +597,10 @@ describe("GenerateInviteLinkV2 — Mój link ogólny", () => {
 describe("GenerateInviteLinkV2 — Wyniki", () => {
   const RESULTS = {
     days: 30,
+    visits_tracked_from: "2026-11-03",
     totals: {
       visits: 212,
+      visits_in_period: 40,
       applications: 18,
       new_candidates: 11,
       existing_candidates: 7,
@@ -643,16 +645,74 @@ describe("GenerateInviteLinkV2 — Wyniki", () => {
     ],
   };
 
-  it("pokazuje lejek wszystkich linków i wiersz na każdy link; okres idzie do API", async () => {
+  const PEOPLE = {
+    days: 30,
+    total: 2,
+    truncated: false,
+    people: [
+      {
+        candidate_id: 7,
+        full_name: "Celina Fikcyjna",
+        applied_at: "2026-10-28T09:12:00Z",
+        was_duplicate: false,
+        kind: "job",
+        slug: "senior-java-7kq2",
+        job_id: 101,
+        job_title: "Senior Java Developer",
+        current_stage: "screening",
+        current_job_id: 101,
+        current_job_title: "Senior Java Developer",
+        screening_status: null,
+        screening_outcome: null,
+        in_my_people: false,
+      },
+      {
+        candidate_id: 8,
+        full_name: "Damian Testowy",
+        applied_at: "2026-10-21T14:40:00Z",
+        was_duplicate: true,
+        kind: "recruiter",
+        slug: "marta-n",
+        job_id: null,
+        job_title: null,
+        current_stage: null,
+        current_job_id: null,
+        current_job_title: null,
+        screening_status: null,
+        screening_outcome: null,
+        in_my_people: true,
+      },
+    ],
+  };
+
+  it("pokazuje kafle, osoby i wiersz na każdy link w dwóch grupach; okres idzie do API", async () => {
     const user = userEvent.setup();
-    routeGet({ ...baseRoutes, "/api/me/career-link/results": RESULTS });
+    routeGet({
+      ...baseRoutes,
+      "/api/me/career-link/results": RESULTS,
+      "/api/me/career-link/people": PEOPLE,
+    });
     renderDialog();
     await user.click(screen.getByRole("tab", { name: "Wyniki" }));
 
-    const funnel = await screen.findByTestId("results-funnel");
-    expect(funnel).toHaveTextContent("Zgłoszenia18");
-    expect(funnel).toHaveTextContent("już byli w bazie7");
+    const tiles = await screen.findByTestId("results-tiles");
+    expect(tiles).toHaveTextContent("Wejścia, 30 dni40");
+    expect(screen.getByTestId("results-visits-note")).toHaveTextContent(/zapisujemy od 03 lis 2026/);
+    expect(tiles).toHaveTextContent("Zgłoszenia18");
+    expect(tiles).toHaveTextContent("Nowi w bazie11");
+    const people = await screen.findByTestId("results-people");
+    expect(within(people).getByRole("link", { name: "Celina Fikcyjna" })).toHaveAttribute(
+      "href",
+      "/candidates/7",
+    );
+    expect(within(people).getByText("Screening")).toBeInTheDocument();
+    expect(within(people).getByText("Poza Moimi ludźmi")).toBeInTheDocument();
+    expect(within(people).getByText("W bazie, bez nowej rekrutacji")).toBeInTheDocument();
+    expect(within(people).getByText("W Moich ludziach")).toBeInTheDocument();
     const table = screen.getByTestId("results-links");
+    expect(within(table).getByText(/Link ogólny: osoba trafia/)).toBeInTheDocument();
+    expect(within(table).getByText(/Linki do rekrutacji: osoba trafia/)).toBeInTheDocument();
+    expect(within(table).getByText("Razem")).toBeInTheDocument();
     expect(within(table).getByText("Senior Java Developer")).toBeInTheDocument();
     expect(within(table).getByText("Mój link ogólny")).toBeInTheDocument();
     expect(within(table).getByText("w tym 4 już w bazie")).toBeInTheDocument();
@@ -666,12 +726,30 @@ describe("GenerateInviteLinkV2 — Wyniki", () => {
         params: { days: 0 },
       }),
     );
+    expect(await screen.findByText("Wejścia od początku")).toBeInTheDocument();
+    expect(screen.queryByTestId("results-visits-note")).not.toBeInTheDocument();
+  });
+
+  it("awaria listy osób nie wygląda jak brak zgłoszeń", async () => {
+    const user = userEvent.setup();
+    routeGet({
+      ...baseRoutes,
+      "/api/me/career-link/results": RESULTS,
+      "/api/me/career-link/people": () =>
+        Object.assign(new Error("boom"), { response: { status: 500, data: {} } }),
+    });
+    renderDialog();
+    await user.click(screen.getByRole("tab", { name: "Wyniki" }));
+    expect(await screen.findByText(/Nie udało się wczytać listy osób/)).toBeInTheDocument();
+    expect(screen.queryByText(/nikt nie zgłosił się/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("results-links")).toBeInTheDocument();
   });
 
   it("awaria wyników nie wygląda jak brak linków", async () => {
     const user = userEvent.setup();
     routeGet({
       ...baseRoutes,
+      "/api/me/career-link/people": PEOPLE,
       "/api/me/career-link/results": () =>
         Object.assign(new Error("boom"), { response: { status: 500, data: {} } }),
     });

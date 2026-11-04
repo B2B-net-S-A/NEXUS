@@ -49,6 +49,8 @@ PROGRAM_API_MODULES = {
     "app.api.client_onboarding",
     "app.api.equipment_intune",
     "app.api.equipment_public",
+    "app.api.consultant_portal",
+    "app.api.consultant_portal_staff",
 }
 PROGRAM_PREFIXES = (
     "/api/hr/",
@@ -58,6 +60,8 @@ PROGRAM_PREFIXES = (
     "/api/client-onboarding",
     "/api/public/consultant-mail",
     "/api/public/equipment-protocols",
+    "/api/public/consultant-portal",
+    "/api/back-office/portal",
     "/api/finance/sales-invoices",
 )
 
@@ -167,9 +171,13 @@ async def test_config_says_program_on_when_enabled(
     assert resp.status_code == 200, resp.text
     assert resp.json()["program"] is True
     # Przy włączonym programie admin dalej ma podgląd modułów (przygotowanie
-    # importu) — poza „Zgodami”, które bez przełącznika są ukryte (21.10.2026).
+    # importu) — poza „Zgodami” (21.10.2026) i kolejką back office (02.11.2026), które bez przełącznika są ukryte.
     opened = resp.json()["open_modules"]
-    assert all(value for key, value in opened.items() if key != "approvals")
+    assert all(
+        value
+        for key, value in opened.items()
+        if key not in ("approvals", "back_office")
+    )
 
 
 @pytest.mark.asyncio

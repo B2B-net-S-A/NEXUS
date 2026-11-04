@@ -34,7 +34,8 @@ from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services.board_stage_badges import CLAIM_COLUMNS as _CLAIM_COLUMNS
 from app.services.board_stage_badges import NEW_COLUMN as _NEW_COLUMN
-from app.services.board_stage_badges import board_column_for
+from app.services import pair_owner
+from app.services.board_stage_badges import SCREENING_COLUMN, board_column_for
 
 CLAIM_HOURS = 12
 NEW_COLUMN = _NEW_COLUMN
@@ -201,6 +202,49 @@ async def stage_column(db: AsyncSession, stage: CandidateStage) -> str:
     return board_column_for(
         name, stage_value, category=category, terminal_type=terminal_type
     )
+
+
+async def take_unowned_on_screening(
+    db: AsyncSession,
+    *,
+    previous: Optional[CandidateStage],
+    moved: CandidateStage,
+    user_id: int,
+) -> bool:
+    """Ruch człowieka z „Nowych” do „Screeningu” bierze kartę bez osoby jak
+    „Biorę” (zgłoszenie rekruterki i decyzja Artura z 28.10.2026, wariant A).
+
+    Karta bez osoby to osoba od systemu („Nowi na 20”) albo karta bez osoby
+    dodającej („Brak danych”) — bez „Prowadzi” i bez nikogo z „Biorę”.
+    Karta dodana przez człowieka zostaje u niego: kto chce ją wziąć, klika
+    „Biorę”. Wołający pilnuje, że ruch robi człowiek, nie integracja.
+    """
+    if previous is None or await stage_column(db, previous) != NEW_COLUMN:
+        return False
+    if await stage_column(db, moved) != SCREENING_COLUMN:
+        return False
+    process = await load_process(
+        db, candidate_id=moved.candidate_id, job_id=moved.job_id
+    )
+    if process is None or process.claimed_by_user_id is not None:
+        return False
+    if process.entry_source != ENTRY_SYSTEM:
+        adder = await db.scalar(
+            select(CandidateStage.moved_by)
+            .where(
+                CandidateStage.candidate_id == moved.candidate_id,
+                CandidateStage.job_id == moved.job_id,
+            )
+            .order_by(CandidateStage.moved_at.asc(), CandidateStage.id.asc())
+            .limit(1)
+        )
+        if adder is not None:
+            return False
+    pair = (moved.candidate_id, moved.job_id)
+    if (await pair_owner.owner_ids(db, [pair])).get(pair) is not None:
+        return False
+    set_claim(process, user_id)
+    return True
 
 
 async def load_process(

@@ -134,6 +134,12 @@ GROUPS: tuple[tuple[str, str, str], ...] = (
         "Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań.",
     ),
     (
+        "sprzedaz",
+        "Sprzedaż (dawny Atlas)",
+        "Uprawnienia Sprzedaży, kartoteka firm sprzedaży, szanse, „Kogo znamy”, daty per firma, "
+        "powiązanie z klientem, leady, import z Atlasa.",
+    ),
+    (
         "ludzie",
         "Ludzie w NEXUSIE",
         "Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.",

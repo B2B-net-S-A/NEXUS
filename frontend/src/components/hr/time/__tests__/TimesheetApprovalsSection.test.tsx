@@ -36,6 +36,7 @@ const modules = {
   equipment: false,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(me: Partial<HrConfig["me"]>): HrConfig {
@@ -161,34 +162,34 @@ describe("TimesheetApprovalsSection", () => {
     });
   });
 
-  it("osoba bez zespołu i bez Płac nie widzi sekcji", () => {
+  it("osoba bez zespołu i bez Rozliczeń nie widzi sekcji", () => {
     const { container } = renderSection({});
     expect(container).toBeEmptyDOMElement();
     expect(mocks.get).not.toHaveBeenCalled();
   });
 
-  it("przełożony widzi zespół, zaślepkę i decyzje tylko przy wysłanym", async () => {
+  it("koordynator widzi zespół, zaślepkę i decyzje tylko przy wysłanym", async () => {
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const submitted = await screen.findByTestId("queue-21");
     expect(within(submitted).getByText("Do akceptacji")).toBeInTheDocument();
-    expect(within(submitted).getByRole("button", { name: "Akceptuj" })).toBeInTheDocument();
+    expect(within(submitted).getByRole("button", { name: "Potwierdź" })).toBeInTheDocument();
     expect(within(submitted).getByText("168 / 176 h")).toBeInTheDocument();
     const missing = screen.getByTestId("queue-22");
     expect(within(missing).getByText("Nie założony")).toBeInTheDocument();
-    expect(within(missing).queryByRole("button", { name: "Akceptuj" })).toBeNull();
+    expect(within(missing).queryByRole("button", { name: "Potwierdź" })).toBeNull();
     const approved = screen.getByTestId("queue-23");
     expect(within(approved).getByRole("button", { name: "Cofnij akceptację" })).toBeInTheDocument();
     // ZIP jest dla Płac i Kadr, nie dla przełożonego.
     expect(screen.queryByRole("button", { name: /Pobierz ZIP/ })).toBeNull();
   });
 
-  it("akceptacja wysyła decyzję dla właściwego timesheetu", async () => {
+  it("akceptacja wysyła decyzję dla właściwego raportu godzin", async () => {
     mocks.post.mockResolvedValue({ data: header(301, "approved") });
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const row = await screen.findByTestId("queue-21");
-    fireEvent.click(within(row).getByRole("button", { name: "Akceptuj" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Potwierdź" }));
     await waitFor(() =>
       expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/timesheets/301/approve", undefined),
     );
@@ -236,7 +237,7 @@ describe("TimesheetApprovalsSection", () => {
     );
   });
 
-  it("Płace bez zespołu dostają paczkę ZIP i CSV całego miesiąca", async () => {
+  it("Rozliczenia bez zespołu dostają paczkę ZIP i CSV całego miesiąca", async () => {
     renderSection({ payroll: true });
     expect(screen.getByRole("button", { name: /Pobierz ZIP/ })).toBeInTheDocument();
     expect(mocks.get).not.toHaveBeenCalled();
@@ -247,7 +248,7 @@ describe("TimesheetApprovalsSection", () => {
     expect(within(dialog).getByText(/Wszystkie wpisy za marzec 2031/)).toBeInTheDocument();
   });
 
-  it("przełożony eksportuje CSV osoby z zespołu, bez całego zespołu", async () => {
+  it("koordynator eksportuje CSV osoby z zespołu, bez całego zespołu", async () => {
     renderSection({ is_manager: true, direct_reports: 3 });
     await screen.findByTestId("queue-21");
     fireEvent.click(screen.getByRole("button", { name: "Eksport CSV" }));
@@ -283,14 +284,14 @@ describe("TimesheetApprovalsSection", () => {
   it("odmowa „Przypomnij” (409) pokazuje komunikat serwera", async () => {
     mocks.post.mockRejectedValue({
       isAxiosError: true,
-      response: { status: 409, data: { detail: "Miesiąc jest zamknięty w płacach." } },
+      response: { status: 409, data: { detail: "Miesiąc jest zamknięty w rozliczeniach." } },
     });
     renderSection({ is_manager: true, direct_reports: 3 });
 
     const missing = await screen.findByTestId("queue-22");
     fireEvent.click(within(missing).getByRole("button", { name: "Przypomnij" }));
     await waitFor(() =>
-      expect(mocks.toast).toHaveBeenCalledWith("Miesiąc jest zamknięty w płacach.", "error"),
+      expect(mocks.toast).toHaveBeenCalledWith("Miesiąc jest zamknięty w rozliczeniach.", "error"),
     );
   });
 
@@ -325,6 +326,155 @@ describe("TimesheetApprovalsSection", () => {
     expect(screen.getByTestId("queue-23")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zwiń" }));
     expect(screen.getAllByTestId(/^queue-/)).toHaveLength(5);
+  });
+
+  it("chip statusu zawęża kolejkę i liczy każdy status", async () => {
+    renderSection({ is_manager: true, direct_reports: 3 });
+    await screen.findByTestId("queue-21");
+    const statuses = screen.getByRole("group", { name: "Status raportu" });
+    expect(within(statuses).getByRole("button", { name: /^Wszystkie/ })).toHaveTextContent("3");
+    expect(within(statuses).getByRole("button", { name: /^Szkic/ })).toHaveTextContent("0");
+
+    fireEvent.click(within(statuses).getByRole("button", { name: /^Do akceptacji/ }));
+    expect(screen.getByTestId("queue-21")).toBeInTheDocument();
+    expect(screen.queryByTestId("queue-22")).toBeNull();
+    expect(screen.queryByTestId("queue-23")).toBeNull();
+
+    fireEvent.click(within(statuses).getByRole("button", { name: /^Szkic/ }));
+    expect(screen.getByText("W tym miesiącu nikt nie ma statusu „Szkic”.")).toBeInTheDocument();
+
+    fireEvent.click(within(statuses).getByRole("button", { name: /^Wszystkie/ }));
+    expect(screen.getByTestId("queue-22")).toBeInTheDocument();
+  });
+
+  it("wybrany status pokazuje wszystkich, bez zwijania do 5", async () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({ ...items[0], user_id: 100 + index }));
+    mocks.get.mockResolvedValue({ data: { year: 2031, month: 3, norm_hours: 176, items: [...many, items[1]] } });
+    renderSection({ is_manager: true, direct_reports: 9 });
+    await screen.findByTestId("queue-100");
+    expect(screen.getAllByTestId(/^queue-/)).toHaveLength(5);
+
+    fireEvent.click(screen.getByRole("button", { name: /^Do akceptacji/ }));
+    expect(screen.getAllByTestId(/^queue-/)).toHaveLength(8);
+    expect(screen.queryByRole("button", { name: /Pokaż wszystkie/ })).toBeNull();
+  });
+
+  describe("cofnięcie nieobecności w podglądzie raportu", () => {
+    const leave = { status: "approved", fraction: 1, full: true, paid_work: false, paid_hours: 0, label: "Nieobecność" };
+    const monthDay = (date: string, withLeave: boolean) => ({
+      date,
+      weekday: 1,
+      is_weekend: false,
+      holiday: null,
+      day_off: null,
+      working_day: true,
+      location: withLeave ? null : "onsite",
+      location_source: null,
+      attendance_status: null,
+      attendance_note: null,
+      leave: withLeave ? leave : null,
+      entries: [],
+      hours: 0,
+      capacity: withLeave ? null : 8,
+      overtime_hours: 0,
+    });
+    const month = {
+      user_id: 21,
+      name: "Ewa Przykładowa",
+      year: 2031,
+      month: 3,
+      employment_type: "zlecenie",
+      timesheet: header(301, "submitted"),
+      days: [monthDay("2031-03-10", false), monthDay("2031-03-11", true), monthDay("2031-03-12", true)],
+      totals: { work_hours: 0, leave_paid_hours: 0, overtime_hours: 0, leave_days: 2, working_days: 3, norm_hours: 24, days_missing: 1 },
+    };
+    const term = {
+      id: "t-1",
+      user_id: 21,
+      user_name: "Ewa Przykładowa",
+      leave_type: "vacation",
+      leave_type_label: "Nieobecność",
+      status: "approved",
+      start_date: "2031-03-11",
+      end_date: "2031-03-12",
+      half_day: null,
+      days_total: "2",
+      employment_type: "zlecenie",
+      is_report: true,
+    };
+
+    async function openPreview(me: Partial<HrConfig["me"]>) {
+      mocks.get.mockImplementation(async (url: string) => {
+        if (url === "/api/hr/time/team/21/2031/3") return { data: month };
+        if (url === "/api/hr/leave/approvals/history") return { data: { items: [term] } };
+        return { data: { year: 2031, month: 3, norm_hours: 176, items } };
+      });
+      renderSection(me);
+      const row = await screen.findByTestId("queue-21");
+      fireEvent.click(within(row).getByRole("button", { name: "Podgląd" }));
+      return screen.findByTestId("day-2031-03-11");
+    }
+    const historyCalls = () =>
+      mocks.get.mock.calls.filter(([url]) => url === "/api/hr/leave/approvals/history");
+
+    it("admin cofa cały termin z powodem; przycisk stoi raz", async () => {
+      mocks.post.mockResolvedValue({ data: { ...term, status: "cancelled" } });
+      const first = await openPreview({ is_admin: true, leave_approver: true });
+      const button = await within(first).findByRole("button", { name: /^Cofnij/ });
+      expect(button).toHaveTextContent("Cofnij 11–12.03.2031");
+      expect(within(screen.getByTestId("day-2031-03-12")).queryByRole("button")).toBeNull();
+
+      fireEvent.click(button);
+      const dialog = await screen.findByRole("dialog", { name: /Cofnąć nieobecność/ });
+      expect(dialog).toHaveTextContent("Czeka na akceptację");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cofnij nieobecność" }));
+      expect(await within(dialog).findByText(/Podaj powód/)).toBeInTheDocument();
+      expect(mocks.post).not.toHaveBeenCalled();
+
+      fireEvent.change(within(dialog).getByLabelText(/Powód/), { target: { value: "Pomyłka, pracowała" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cofnij nieobecność" }));
+      await waitFor(() =>
+        expect(mocks.post).toHaveBeenCalledWith("/api/hr/leave/approvals/t-1/cancel", {
+          reason: "Pomyłka, pracowała",
+        }),
+      );
+    });
+
+    it("koordynator bez Administracji współpracy nie cofa zgłoszenia z B2B i zlecenia (D5)", async () => {
+      const first = await openPreview({ is_manager: true, direct_reports: 3, leave_approver: true });
+      await waitFor(() => expect(historyCalls()).toHaveLength(1));
+      expect(within(first).queryByRole("button")).toBeNull();
+    });
+
+    it("koordynator cofa wniosek z umowy o pracę", async () => {
+      term.is_report = false;
+      try {
+        const first = await openPreview({ is_manager: true, direct_reports: 3, leave_approver: true });
+        expect(await within(first).findByRole("button", { name: /^Cofnij/ })).toBeInTheDocument();
+      } finally {
+        term.is_report = true;
+      }
+    });
+
+    it("same „Raporty godzin” bez kolejki nieobecności nie pytają o historię", async () => {
+      const first = await openPreview({ timesheets: true, leave_approver: false });
+      expect(within(first).queryByRole("button")).toBeNull();
+      expect(historyCalls()).toHaveLength(0);
+    });
+
+    it("osoba poza decyzją patrzącego nie ma przycisku ani zapytania", async () => {
+      const blocked = items.map((item) => (item.user_id === 21 ? { ...item, can_decide: false } : item));
+      mocks.get.mockImplementation(async (url: string) => {
+        if (url === "/api/hr/time/team/21/2031/3") return { data: month };
+        return { data: { year: 2031, month: 3, norm_hours: 176, items: blocked } };
+      });
+      renderSection({ is_admin: true, leave_approver: true });
+      const row = await screen.findByTestId("queue-21");
+      fireEvent.click(within(row).getByRole("button", { name: "Podgląd" }));
+      const first = await screen.findByTestId("day-2031-03-11");
+      expect(within(first).queryByRole("button")).toBeNull();
+      expect(historyCalls()).toHaveLength(0);
+    });
   });
 
   it("krótka lista nie ma „Pokaż wszystkie”", async () => {

@@ -22,6 +22,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useToast } from "@/components/Toast";
 import { useEligibilityWarning } from "@/components/v2/jobs/useEligibilityWarning";
+import { TwinSkipDialog } from "@/components/v2/jobs/twins/TwinSkipDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
   classifyMoveError,
@@ -30,6 +31,7 @@ import {
   type MoveRefusal,
   type PipelineMovePayload,
   type PipelineMoveResult,
+  type TwinScreeningRequired,
 } from "@/lib/pipeline-move-core";
 import { invalidateAfterPipelineMove } from "@/lib/pipeline-move-invalidation";
 import { invalidateAfterPipelineVersionConflict } from "@/lib/pipeline-version-conflict";
@@ -77,6 +79,10 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
   const { showError, showSuccess, showActionToast } = useToast();
   const { intercept: interceptEligibility, dialog: eligibilityDialog } = useEligibilityWarning();
   const [debrief, setDebrief] = useState<DebriefState | null>(null);
+  const [twinRefusal, setTwinRefusal] = useState<{
+    twin: TwinScreeningRequired;
+    resolve: (skips: Record<string, string> | null) => void;
+  } | null>(null);
   const sendRef = useRef<PipelineMoveCore["send"] | null>(null);
 
   // Ta sama lista co Tablica (`lib/pipeline-move-invalidation`): oba klucze
@@ -140,6 +146,24 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
           return { ok: false, refusal };
         }
 
+        if (refusal.kind === "twin_required") {
+          // Bliźniak (0614): screening razem albo pominięcie z powodem.
+          const skips = await new Promise<Record<string, string> | null>((resolve) =>
+            setTwinRefusal({ twin: refusal.twin, resolve }),
+          );
+          setTwinRefusal(null);
+          if (skips) {
+            return (
+              (await sendRef.current?.({ ...payload, twin_skips: { ...payload.twin_skips, ...skips } }, handlers)) ?? {
+                ok: false,
+                refusal,
+              }
+            );
+          }
+          syncBoard(payload.candidate_id);
+          return { ok: false, refusal };
+        }
+
         showError(refusal.message);
         if (refusal.kind === "version_conflict") {
           invalidateAfterPipelineVersionConflict(queryClient, jobId, payload.candidate_id);
@@ -158,6 +182,13 @@ export function usePipelineMoveCore({ jobId }: { jobId: number }): PipelineMoveC
   const dialogs = (
     <>
       {eligibilityDialog}
+      {twinRefusal ? (
+        <TwinSkipDialog
+          refusal={twinRefusal.twin}
+          onSkip={(skips) => twinRefusal.resolve(skips)}
+          onClose={() => twinRefusal.resolve(null)}
+        />
+      ) : null}
       {debrief && (
         <DebriefRequiredDialog
           open

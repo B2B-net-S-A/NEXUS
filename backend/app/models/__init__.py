@@ -22,7 +22,7 @@ from app.models.competence_category import (
     UserCompetenceCategory,
 )
 from app.models.cc_feedback import CcSuggestionOverride, JobSecondaryCc
-from app.models.invite_link import CandidateInviteLink
+from app.models.invite_link import CandidateInviteLink, CandidateInviteLinkVisitDay
 from app.models.application_submission import (  # noqa: F401
     ApplicationSubmission,
     ApplicationSubmissionStatus,
@@ -224,6 +224,7 @@ from app.models.interview_feedback import (
     InterviewFeedback,
     NextStepPreference,
 )
+from app.models.cpro_mail import CproMailEvent  # noqa: F401
 from app.models.m365 import (
     Email,
     EmailAttachment,
@@ -344,6 +345,11 @@ from app.models.service_account import (  # noqa: F401
     ServiceAccountKey,
     ServiceScope,
 )
+from app.models.linkedin_extension import (  # noqa: F401
+    LinkedinExtensionConnection,
+)
+from app.models.candidate_ai_assessment import CandidateAiAssessment  # noqa: F401
+from app.models.cv_generator_feedback import CvGeneratorFeedback  # noqa: F401
 from app.models.candidate_source_event import (
     CandidateSourceEvent,
     SourceChannel,
@@ -377,6 +383,7 @@ __all__ = [
     "CcSuggestionOverride",
     "JobSecondaryCc",
     "CandidateInviteLink",
+    "CandidateInviteLinkVisitDay",
     "ApplicationSubmission",
     "ApplicationSubmissionStatus",
     "Client",
@@ -731,6 +738,7 @@ from app.models.jarvis import (  # noqa: F401
     JarvisAction,
     JarvisConversation,
     JarvisConversationEntity,
+    JarvisGap,
     JarvisMessage,
     JarvisUiEvent,
 )
@@ -743,7 +751,8 @@ from app.models.candidate_job_owner import (  # noqa: F401
     CandidateJobOwner,
     CandidateJobOwnerEvent,
 )
-from app.models.job_similar_link import JobSimilarLink  # noqa: F401
+from app.models.pair_departure_care import PairDepartureCare  # noqa: F401
+from app.models.job_similar_link import JobSimilarLink, JobTwinDismissal  # noqa: F401
 from app.models.my_people import MyPeopleJobMatch, MyPeopleOverride  # noqa: F401
 
 # 0369: Akademia — nabór do programów szkoleniowych.
@@ -819,6 +828,9 @@ from app.models.job_intake_form import JobIntakeForm  # noqa: F401
 from app.models.job_file import JobFile  # noqa: F401
 from app.models.candidate_client_form import CandidateClientForm  # noqa: F401
 
+# 0626: wzór „Karty przed CV” klienta (Credit Agricole).
+from app.models.client_cover_sheet_template import ClientCoverSheetTemplate  # noqa: F401
+
 # 0430: ogłoszenie rekrutacji do wklejenia na portale.
 from app.models.job_ad import JobAd  # noqa: F401
 from app.models.job_ad_publication import JobAdPublication  # noqa: F401
@@ -883,4 +895,18 @@ from app.models import client_sales_invoice as _client_sales_invoice_models  # n
 from app.models import admin_case as _admin_case_models  # noqa: F401,E402
 from app.models import equipment as _equipment_models  # noqa: F401,E402
 from app.models import equipment_intune as _equipment_intune_models  # noqa: F401,E402
+from app.models import consultant_portal as _consultant_portal_models  # noqa: F401,E402
 from app.models import academy_logistics as _academy_logistics_models  # noqa: F401,E402
+
+# 0601: Sprzedaż (Atlas → NEXUS) — lejki, firmy, kontakty, szanse, aktywności.
+from app.models import sales as _sales_models  # noqa: F401,E402
+
+# 0619: „Ogłoszenia” na pulpicie (HoR i admin publikują, przeczytane per osoba).
+from app.models import announcement as _announcement_models  # noqa: F401,E402
+
+# 0625: Nowości do przeklikania — postęp osoby przy nowości.
+from app.models import novelty as _novelty_models  # noqa: F401,E402
+from app.models import access_usage as _access_usage_models  # noqa: F401,E402
+
+# 0639: panel klienta pod linkiem z CV.
+from app.models import client_panel as _client_panel_models  # noqa: F401,E402

@@ -11,7 +11,8 @@ puli (``leave_paid`` należą do wniosku urlopowego, audyt Compassa HF-10)
 i wypełnia miesiąc od nowa. Pół dnia urlopu dostaje najwyżej wolne 4 h.
 
 Opis przy wypełnianiu: podany wprost > szablon osoby > domyślny opis Kadr
-(rola+projekt > rola > projekt > globalny) > „Praca standardowa”.
+(rola+projekt > rola > projekt > globalny) > słowo formy: „Realizacja usług
+zgodnie z umową” (B2B, zlecenie) albo „Praca standardowa” (UoP).
 """
 
 from __future__ import annotations
@@ -39,7 +40,6 @@ from app.services.hr.time_access import Actor
 from app.services.hr.time_calendar import month_calendar, month_range
 from app.services.hr.time_entries import (
     STANDARD,
-    STANDARD_DESCRIPTION,
     TimeConflict,
     TimeError,
     TimeNotFound,
@@ -49,6 +49,7 @@ from app.services.hr.time_entries import (
     employed_on,
     entries_of,
     leave_map,
+    standard_description,
     sync_leave_paid,
 )
 
@@ -357,7 +358,7 @@ async def fill_month(
         if default is not None:
             chosen = default.default_description
             project = project or default.project
-    text = chosen or STANDARD_DESCRIPTION
+    text = chosen or standard_description(subject.employment_type)
 
     removed = 0
     if overwrite:

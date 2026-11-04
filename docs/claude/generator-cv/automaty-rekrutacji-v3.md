@@ -45,6 +45,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   2–3 tys. osób. Przerwany pełny przebieg (`_State.pending`) wraca w następnym
   ticku od miejsca przerwania (także rekrutacja, przy której skończył się
   limit); rekrutacje z ruchem karty idą przed nim.
+- **E. Nowi w bazie wchodzą pierwsi, także ponad 20 (decyzja Artura 03.11.2026).**
+  Do 5 kart ponad `TARGET`, wyłącznie osobami do 14 dni w bazie, od progu i bez uwag:
+  `rekrutacja-tablica/nowi-w-bazie-najpierw.md`.
 - **E. Reguły z odrzuceń (decyzje Artura 25.10.2026).** Analiza pierwszego
   dnia: 34 odrzucenia z powodem na 1 557 osób od systemu, z czego 16 to „za
   droga” przy stawce, którą system znał; 31% osób od systemu miało znaną
@@ -67,6 +70,24 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
     firmę” / „nie chce do Nordei”;
   * nie przywraca osoby usuniętej z rekrutacji (archiwum
     `candidate_stage_removals` tej rekrutacji).
+- **E. Reguły z odrzuceń, runda 2 (decyzje Artura 27.10.2026).** Analiza 133
+  odrzuceń z powodem (12 osób, 27 rekrutacji) i 2 537 osób od systemu: wynik
+  dopasowania nie odróżnia dobrych od złych (65–70 pkt: 45% idzie dalej,
+  70–75: 22%), działają reguły na danych, które system zna. Od tej zmiany:
+  * `BUDGET_HARD_OVER` = **15%** (było 25%): osoby 15–25% nad budżetem szły
+    dalej w 12% (2 z 17), ponad 25% w 15%, a 0–15% w 40% — tyle co w budżecie
+    (41%);
+  * **biuro i miasto = za resztą, nie odpada** (`office_cautions`, te same
+    funkcje co bramka wyszukiwania: `office_days_exceeded`,
+    `remote_only_refuses_office`, `office_city_mismatch`; zgoda na więcej
+    dni w biurze znosi ostrzeżenie o dniach): przy znanym „mniej dni w biurze”
+    dalej szło 18% (7 z 39), przy zgodnych 36%. Poziom w `_by_rules` = poziom
+    budżetu + 1 przy ostrzeżeniu o biurze;
+  * migawka `entry_meta.cautions` (budżet z procentem, `office_days`,
+    `remote_only`, `office_city`) → `autofill_badge.cautions` z napisem
+    i dymkiem (liczy serwer) → plakietki na karcie w „Nowych”/„Screeningu”
+    i lista „Na co uważać” w `DockAutofillReason`. Karty sprzed tej zmiany
+    nie mają ostrzeżeń.
   Jednorazowo `scripts/autofill_withdraw_over_budget.py` (podgląd, `--apply`)
   zdejmuje nietknięte karty od systemu ponad 25% nad budżetem
   (`services/autofill_withdraw.py`: jeden wiersz etapu bez osoby, bez
@@ -75,6 +96,73 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   bez wpisu w `autofill_feedback`; „Praca w tle” `autofill_withdrawn`.
   `void_process(actor_user=None)` = system zdejmuje własną kartę, bez
   sprawdzania priorytetu.
+- **E. Odrzucenie na cały klient (0606, decyzja Artura 27.10.2026).** 13 z 20
+  „Inne” to klient, nie osoba („pracuje w Nordei przez inną kontraktownię”,
+  „nie chce do Nordei”), a ci sami ludzie czekali jeszcze na 45 kartach
+  w innych rekrutacjach tego klienta. Dwa powody w „Sprawie osoby”:
+  `client_employed` („Pracuje u tego klienta (też przez inną firmę)”, kosz
+  `data` — pracy przez pośrednika nie ma w CV ani na LinkedInie) i
+  `client_refused` („Nie chce do tego klienta”, kosz `person`). Przy nich
+  okno pokazuje zaznaczone pole „Dotyczy wszystkich rekrutacji tego klienta”
+  (jedna osoba; przy kilku — bez pola). `autofill_whole_client=true` →
+  wiersz `autofill_feedback.whole_client` (więz powodów ma jedną definicję
+  w `autofill_feedback_schema.WHOLE_CLIENT_DDL`, entrypoint wykonuje ją przy
+  każdym starcie), w tej samej transakcji
+  `autofill_withdraw.withdraw_at_client` zdejmuje NIETKNIĘTE karty tej osoby
+  od systemu z pozostałych rekrutacji klienta (archiwum bez autora,
+  `autofill_withdrawn_client`, „Praca w tle” z `why: "client"`), a
+  `ranked_picks` nie podsuwa jej żadnej rekrutacji tego klienta. Bez
+  zaznaczenia — tylko ta rekrutacja.
+- **E. Runda 3: „Nie szuka do…” i trzy nowe powody (0616, decyzja Artura
+  28.10.2026).** Analiza 44 odrzuceń z 27–28.10: 9 to „Nie szuka pracy”,
+  a żadna z 12 takich osób od 23.10 nie miała tego w profilu i 5 z nich
+  czekało w 9 „Nowych” innych rekrutacji; 6 z 10 „Inne” to overqualified,
+  błędny numer i zgłoszenie do klienta przez inną firmę. Od tej zmiany:
+  * przy „Nie szuka pracy” okno pyta „Do kiedy nie podsuwać?” (3 / 6 / 12
+    miesięcy albo data, domyślnie 3 miesiące) → `autofill_not_looking_until`
+    (od jutra, najwyżej 2 lata, tylko przy tym powodzie — inaczej 422).
+    Serwer w transakcji ruchu ustawia w profilu `availability_status =
+    not_looking` i „Dostępny od” = ta data (audyt
+    `candidate_availability_changed`), a `autofill_withdraw.withdraw_elsewhere`
+    zdejmuje NIETKNIĘTE karty tej osoby od systemu ze wszystkich innych
+    rekrutacji (archiwum `autofill_withdrawn_not_looking`, „Praca w tle”
+    z `why: "not_looking"`);
+  * `ranked_picks` pomija osoby z profilem „Nie szuka” bez daty albo
+    z „Dostępny od” w przyszłości (`not_looking_now`); po dacie osoba wraca;
+  * nowe powody: `overqualified` (kosz `search`), `wrong_phone` i
+    `client_other_vendor` (kosz `data`); `client_other_vendor` jest w
+    `CLIENT_WIDE_REASONS` (pole „cały klient” jak przy „Pracuje u tego
+    klienta”). Więz powodów: `REASON_CHECK_DDL`.
+  Odrzucone na teraz (makiety M3–M4): wygaszanie nietkniętych kart po 5
+  dniach roboczych i próg 65 pkt. Raportu poniedziałkowego Artur nie
+  potrzebuje — pyta o odrzucenia na bieżąco.
+- **E. Dojazd do biura w km (decyzja Artura 29.10.2026, makiety
+  https://claude.ai/artifact/ACs6ajioJwfu4tYrNLSTKo).** Produkcja 23–29.10:
+  w 115 rekrutacjach z biurem w Warszawie 87 kart od systemu to osoby ponad
+  100 km od każdego biura (66 czekało w „Nowych”, 32 weszły już po regule
+  „za resztą” z 27.10); dalej poszło 20% tych, o których zdecydowano, wobec
+  40% osób do 30 km. Od tej zmiany silnik liczy km w linii prostej z miasta
+  w profilu (`location`, `city`) do najbliższego biura rekrutacji
+  (`new_column_autofill.office_km`, `location_utils.nearest_km`, słownik
+  `pl_places`, Trójmiasto = trzy miasta), gdy rekrutacja chce biura
+  (`wants_office`: hybryda, stacjonarnie albo dni w biurze — także bez
+  liczby dni):
+  * ponad `OFFICE_FAR_KM` (100) = nie dodaje;
+  * `OFFICE_NEAR_KM`–100 km (50–100) = za resztą, ostrzeżenie `office_city`
+    z `km` → plakietka „Płock · 95 km”;
+  * do 50 km = bez ostrzeżenia o mieście (wcześniej Pruszków dostawał „Inne
+    miasto”);
+  * osoba, która sama wskazała miasto biura (`office_cities`, notatki
+    `preferences.locations`, relokacja) — `office_km` = `None`, reguła jej
+    nie dotyczy (takie osoby szły dalej w 45%);
+  * miasto nieznane albo spoza słownika (zagranica) — jak dotąd: nieznane
+    przechodzi, nazwa inna niż biuro = „Inne miasto”, za resztą.
+  Wyszukiwanie ręczne, „Propozycje z bazy” i bramka z 27.09 (hybryda 1–3 dni:
+  inne miasto to plakietka) bez zmian — zespół może dodać kogoś z daleka sam.
+  Karty dodane przed regułą: `scripts/autofill_withdraw_far_from_office.py`
+  (podgląd, `--apply`), ta sama droga co karty ponad budżetem
+  (`autofill_withdraw.plan_far`, archiwum `autofill_withdrawn_far_from_office`,
+  „Praca w tle” z `why: "far"`).
 - **E. Na Tablicy i w panelu osoby (PR 3, 23.10.2026).** Karta Tablicy niesie
   `entry_autofill` (`process_entry_meta.autofill_badge`: wynik, wymagania,
   `rate_known`, `availability_known`, `decided`, `waiting_days`,
@@ -112,6 +200,16 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   w `lib/autofill-feedback.ts`; pytają `usePipelineMove` (Tablica, panel
   osoby) i `ScreeningFullForm` (warsztat screeningu). Przy kilku osobach ten
   sam powód idzie do każdej osoby od systemu, bez stawki.
+  **Jedno pytanie o powód (decyzja Artura 27.10.2026, zgłoszenie z zespołu).**
+  Przy osobie od systemu okno nie pokazuje listy „Powód” z szablonu: jedyną
+  listą jest 12 powodów dla systemu, a powód z szablonu (raport lejka,
+  `disqualifies_person`, pytania o stawkę i tryb pracy) liczy
+  `templateReasonFor` z mapy `AUTOFILL_TEMPLATE_REASON`; bez odpowiednika —
+  „Inne” z nazwą powodu na początku notatki. Bo przez pierwsze 5 dni w 70 na
+  132 odrzuceń druga odpowiedź powtarzała pierwszą („Za wysokie oczekiwania”
+  + „Za droga” 44 razy), a szablon nie ma „Języka” ani „Lokalizacji”
+  (41 razy „Inne”, 7 razy „Nie pasuje kulturowo” przy języku). Nie wracaj
+  do dwóch list; nowy powód dla systemu = wpis w mapie.
 - **E. Kolejka decyzji i poranny dzwonek (PR 5, 0517).** „Czeka na Ciebie”
   (`board_flow._autofill_decisions`, pole `flow.autofill_decisions` +
   `autofill_decisions_total`, sekcja `BoardAutofillDecisions`) pokazuje
@@ -170,8 +268,22 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   więc idzie na początek kolejki. Przegląd bez tych kluczy nie liczy się jako
   nieaktualny. Bump `MUST_GATE_POLICY_VERSION` w ciągu dnia i tak zostawia
   takie przeglądy do najbliższej nocy — wdrażaj go przed oknem 01–05.
+- **A. Inny odcisk requestu ma pierwszeństwo jak zdarzenie** (02.11.2026,
+  `auto_full_review._request_changed_ids`): przed wyborem kolejki automat porównuje
+  odcisk każdej należnej rekrutacji z ostatnim przeglądem (także z wpisu „Praca
+  w tle”, gdy retencja skasowała przegląd); 190 rekrutacji to ok. 0,4 s. Bo przy
+  limicie 48 na noc rekrutacja bez pierwszeństwa czeka do 4 nocy, a 8 ze 187 miało
+  inny odcisk bez zdarzenia. Przyczyny potwierdzone zgodnym hashem na kopii
+  z 02.11: pole spoza list zdarzeń (`hiring_manager_contact_id` w 676343),
+  cotygodniowe przeliczenie podpowiedzi krytycznych z 30.10 (`suggested` w 706641,
+  732527, 732529, 789175, 789176) i nowy wpis w słowniku (SailPoint z 28.10 zmienił
+  krytyczne w 789171: pula zgadzała się z pełnym przeglądem w 20% top 20). Słownika
+  i statystyk nie załatwi żadne zdarzenie rekrutacji, dlatego porównanie, nie
+  dopisywanie pól do `_AUTO_REVIEW_EXTRA_FIELDS`. Rekrutacja bez odcisku nie ma
+  pierwszeństwa z tego powodu. Podbicie wersji reguł daje pierwszeństwo wszystkim
+  naraz; wtedy kolejność rozstrzyga jak dotąd „Szukamy” i wiek przeglądu.
 - **A. Limity:** najwyżej jeden przegląd na rekrutację na noc (także nieudany),
-  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (25 od 30.09.2026) łącznie, jeden nowy przegląd na tick,
+  `AUTO_FULL_REVIEW_MAX_PER_NIGHT` (48 od 02.11.2026: przy 187 rekrutacjach w pracy to nie jest „co noc wszystkie”, tylko każda co ok. 4 noce) łącznie, jeden nowy przegląd na tick,
   odcisk requestu równy ostatniemu nie-nieudanemu przeglądowi automatycznemu =
   pominięcie. **Automat ustępuje ludziom**: nie startuje, gdy JAKIKOLWIEK
   przegląd jest w kolejce/w toku, a worker i tak bierze ręczne pierwsze.
@@ -197,6 +309,9 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   przechodzą `is_good_match` → `upsert_proposals(source="full_base")` z wersją
   CV i dowodami przez `sanitize_evidence` (same nazwy wymagań). Znacznik
   `metrics.auto_proposals`; `reconcile_unpublished` domyka przeglądy bez niego.
+  Od 28.10.2026 przy mniej niż `AUTO_FULL_REVIEW_MIN_COUNT` (40) osobach od
+  progu dochodzą najlepsi spod progu do łącznie 40 — liczniki i dzwonek liczą
+  tylko od progu (`rekrutacja-tablica/najlepsze-40-i-ukryci-przez-musi-miec.md`).
 - **A. Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026).** Najnowszy
   przegląd rekrutacji w pracy (ten sam warunek co wygaszanie `expired`) zastępuje
   `job_autofill_pool` rekrutacji: `AUTOFILL_POOL_SIZE` (150) najlepszych
@@ -205,12 +320,15 @@ stan auto-CV czytany NA ŻYWO z wiersza dokumentu).
   (`matched_must`, `missing_must`). Pula przeżywa retencję przeglądu (2 dni) do
   następnego przeglądu tej rekrutacji; przegląd bez wektora jej nie rusza.
   Propozycje bez zmian. Wpis „Praca w tle” niesie `autofill_pool` (liczba).
+  150 to liczba osób PO odrzuceniu innej roli (02.11.2026): wiersze idą paczkami
+  (`_POOL_PAGE`) do `AUTOFILL_POOL_SCAN_LIMIT` (5000) przeglądanych; mniej niż 150
+  = rekrutacja wyczerpała wiersze albo limit.
 - **A. Znani zespołowi wyżej (decyzje Artura 07.10.2026, flaga
   `KNOWN_PEOPLE_BOOST_ENABLED`, domyślnie OFF).** `services/known_people_signal.py`:
   punkty za weryfikację (verified+) przy 25 najbardziej podobnych rekrutacjach
   (2,5 × podobieństwo) i za weryfikację gdziekolwiek w ostatnich 90 dniach (3);
-  osoba odrzucona przez tego samego klienta (`ended_by='client'`, bez kolumny —
-  po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
+  osoba jawnie odrzucona przez tego samego klienta (`ended_by='client'`, od
+  03.11.2026 bez pustej kolumny po wysłaniu CV) punktów nie dostaje. Punkty idą do `evidence.history`
   (same id, etapy, daty; tytuły rozwija `api/job_proposals._history_sources`)
   i zmieniają WYŁĄCZNIE kolejność: `list_for_job` i `compareProposals` sortują
   po wynik + punkty, pokazywany procent bez zmian, bez osobnej sekcji. O tym,

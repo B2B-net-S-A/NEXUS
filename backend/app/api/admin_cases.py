@@ -298,6 +298,32 @@ async def add_comment(
     }
 
 
+class ReplyIn(BaseModel):
+    body: str = Field(min_length=1, max_length=10_000)
+
+
+@router.post("/{case_id}/reply", status_code=status.HTTP_201_CREATED)
+async def reply_to_case(
+    case_id: int,
+    payload: ReplyIn,
+    current_user: CasesHandler,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Odpowiedź ze sprawy, w wątku maila. Tylko obsługa, zawsze z kliknięcia."""
+
+    from app.services.admin_cases import reply  # noqa: PLC0415
+
+    case = await _readable_case(db, case_id, current_user)
+    try:
+        message = await reply.send_reply(
+            db, case, actor=current_user, body=payload.body
+        )
+    except service.CaseError as exc:
+        raise _unprocessable(exc) from exc
+    await db.commit()
+    return {"id": message.id, "created_at": message.received_at}
+
+
 @router.post("/{case_id}/close")
 async def close_case(
     case_id: int, current_user: CasesHandler, db: AsyncSession = Depends(get_db)

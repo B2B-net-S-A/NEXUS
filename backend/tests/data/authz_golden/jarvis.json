@@ -25,18 +25,21 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPPPPPPPPP"
+  "DELETE /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/conversations/{conversation_id}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/gaps": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/jarvis/status": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/gaps/{gap_id}/report": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/ui-events": "PPPPPPPDPPPPPPPPPPPPPPPPPPP"
  }
 }

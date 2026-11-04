@@ -632,3 +632,93 @@ describe("ContractDetailPage — audyt 24.09 (blok D)", () => {
     expect(screen.queryByText("karta benchmarku")).not.toBeInTheDocument();
   });
 });
+
+/**
+ * Propozycja zespołu 28.10.2026: zakończony projekt z umową B2B bez
+ * rozwiązania przypomina o porozumieniu (69 z 73 zakończonych kontraktów B2B
+ * na kopii z 22.10 nie miało rozwiązanej umowy).
+ */
+describe("ContractDetailPage — umowa B2B nierozwiązana po zakończeniu", () => {
+  const ended = {
+    ...contract,
+    status: "ended",
+    termination_reason: "project_ended",
+    terminated_at: "2026-10-19",
+    end_date: "2026-10-19",
+    agreement_termination_mode: null,
+    agreement_termination_party: null,
+    agreement_termination_signed_on: null,
+    agreement_last_day: null,
+  };
+
+  it("pokazuje przypomnienie z linkiem do porozumienia z datą końca projektu", async () => {
+    mocks.getContract.mockResolvedValue({ data: ended });
+    renderPage();
+    const reminder = await screen.findByTestId("agreement-not-terminated");
+    expect(reminder).toHaveTextContent("Umowa B2B nie jest rozwiązana.");
+    const link = within(reminder).getByRole("link", { name: "Przygotuj porozumienie" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("new")).toBe("termination_agreement");
+    expect(params.get("contract")).toBe("563");
+    expect(params.get("v_termination_date")).toBe("2026-10-19");
+    expect(params.get("v_last_service_date")).toBe("2026-10-19");
+    expect(
+      within(reminder).getByRole("link", { name: "Wszystkie nierozwiązane umowy" }),
+    ).toHaveAttribute("href", "/contracts?status=all&agreement=not_terminated");
+  });
+
+  it("po przedłużeniu porozumienie startuje z daty końca, nie z pierwszego zakończenia", async () => {
+    mocks.getContract.mockResolvedValue({
+      data: { ...ended, end_date: "2026-10-26", terminated_at: "2026-10-19" },
+    });
+    renderPage();
+    const reminder = await screen.findByTestId("agreement-not-terminated");
+    const link = within(reminder).getByRole("link", { name: "Przygotuj porozumienie" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("v_termination_date")).toBe("2026-10-26");
+    expect(params.get("v_last_service_date")).toBe("2026-10-26");
+    expect(screen.getByText("26.10.2026")).toBeInTheDocument();
+  });
+
+  it("umowa rozwiązana albo zlecenie — bez przypomnienia", async () => {
+    mocks.getContract.mockResolvedValue({
+      data: {
+        ...ended,
+        agreement_termination_mode: "mutual_agreement",
+        agreement_termination_party: "company",
+        agreement_termination_signed_on: "2026-10-10",
+        agreement_last_day: "2026-10-19",
+      },
+    });
+    const { unmount } = renderPage();
+    await screen.findByText("Zakończenie współpracy");
+    expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
+    unmount();
+
+    mocks.getContract.mockResolvedValue({ data: { ...ended, contract_type: "uzlecenie" } });
+    renderPage();
+    await screen.findByText("Zakończenie współpracy");
+    expect(screen.queryByTestId("agreement-not-terminated")).toBeNull();
+  });
+});
+
+describe("ContractDetailPage — odmowa dostępu to nie awaria", () => {
+  it("403 mówi o braku uprawnień, a nie o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 403 } });
+    renderPage();
+    expect(await screen.findByText("Brak uprawnień")).toBeInTheDocument();
+    expect(screen.queryByText("Nie udało się wczytać kontraktu.")).toBeNull();
+  });
+
+  it("404 mówi, że rekordu nie ma", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 404 } });
+    renderPage();
+    expect(await screen.findByText("Nie znaleziono")).toBeInTheDocument();
+  });
+
+  it("awaria serwera zostaje komunikatem o nieudanym wczytaniu", async () => {
+    mocks.getContract.mockRejectedValue({ response: { status: 500 } });
+    renderPage();
+    expect(await screen.findByText("Nie udało się wczytać kontraktu.")).toBeInTheDocument();
+  });
+});

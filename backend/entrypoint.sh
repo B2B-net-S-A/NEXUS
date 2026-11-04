@@ -182,6 +182,10 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_lifecycle_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_work_handover'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'admin_case_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_escalated'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'back_office_assigned'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_low_rating'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'portal_monthly_review'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_task'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_protocol_signed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'equipment_return_reminder'",
@@ -333,6 +337,22 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'autofill_quality_report'",
     # 0522: formularz CV klienta z CV i screeningu (Sonnet 5).
     "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'client_form_fill'",
+    # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'consent_screenshot_check'",
+    # 0634: słowa z CV wysłanych do wiersza „musi mieć” (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'requirement_word_hints'",
+    # 0608: wtyczka LinkedIn — szkic wiadomości pod rekrutację (Sonnet 5).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'linkedin_message_draft'",
+    # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji (GPT-6 Luna).
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'candidate_ai_assessment'",
+    # 0628: podsumowanie transkryptu Teams spotkania handlowca.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'sales_meeting_summary'",
+    # 0641: linki we własnych kanałach źródeł, osobno od portali.
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_general'",
+    "ALTER TYPE sourcechannel ADD VALUE IF NOT EXISTS 'career_link_job'",
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'case_triage'",
+    # 0643: podsumowanie rozmowy z portalu konsultanta.
+    "ALTER TYPE aifeaturekey ADD VALUE IF NOT EXISTS 'portal_meeting_summary'",
     # 0233: cotygodniowy digest dopasowań (match_digest_loop)
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'match_digest'",
     # Autenti e-signature (migration 0079_autenti_signatures): 4 nowe wartości
@@ -598,6 +618,8 @@ _ENUM_STATEMENTS = [
     # 0504: powody „nie liczy się do hit ratio” (21.10.2026).
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'duplicate'",
     "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_match'",
+    # 0617: zamknięcie przez NEXUS po 28 dniach bez ruchu (services/job_idle.py).
+    "ALTER TYPE jobclosereason ADD VALUE IF NOT EXISTS 'no_activity'",
     # LinkedIn employment tracking (migracja 0049_linkedin_employment).
     # Candidate model odwołuje się do 7 nowych kolumn + enum — bez nich KAŻDY
     # SELECT kandydata wywala UndefinedColumnError (łącznie z /api/candidates
@@ -785,12 +807,26 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'b2b_agreement_ready'",
     # 0525: P0 na rekrutacji — dzwonek i mail obowiązkowy do zespołu.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_set'",
+    # 0607: zamknięta rekrutacja — rekruter osób od „CV wysłane” (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_closed_people_waiting'",
+    # 0635: zdarzenia z maili CPro (services/cpro_mail.py).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_candidate_rejected'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_interview_change'",
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'cpro_close_needs_decision'",
+    # 0621: odejście rekrutera — pary do domknięcia dla Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'departed_pairs_care'",
+    # 0610: prośba Delivery Leada o P0 — do Head of Recruitment (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_p0_requested'",
+    # 0617: rekrutacje bez ruchu Delivery Leada (mail obowiązkowy).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_idle_reminder'",
     # 0447: „Poprzedni rekruter” — zespół uśpiony przy zejściu z P1 / przywrócony.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_parked'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'recruiter_restored'",
     # 0450: championi rekrutacji — zapis listy / powrót do szukania.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champions_changed'",
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'champion_search_resumed'",
+    # 0615: bliźniacze rekrutacje — połączenie bliźniaka (do zespołów obu).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'job_twin_linked'",
     # 0451: „Klient zaakceptował” (do rekrutera, prowadzącego, DL i HoR).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_accepted'",
     # 0452: karta na „Zatrudniony” bez umowy w Kontraktach (do DL klienta).
@@ -815,6 +851,16 @@ _ENUM_STATEMENTS = [
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'candidate_data_access_alert'",
     # 0510: osoby, których kalendarza nie widzi aplikacja prepów (do adminów).
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'teams_prep_scope_missing'",
+    # 0633: skrzynki poza zakresem aplikacji „NEXUS Kadry” (do adminów).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_m365_scope_missing'",
+    # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE).
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'signature_renewal_requested'",
+    # 0612: nowa osoba po pierwszym logowaniu — do HoR i adminów.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'new_person_signed_in'",
+    # 0619: ważne ogłoszenie na pulpicie — dzwonek i mail obowiązkowy do odbiorców.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'announcement_important'",
+    # 0639: pytanie, prośba o rozmowę albo „nie pasuje” z panelu klienta.
+    "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'client_panel_request'",
     # callstatus: zapisywane przez POST /api/cloudtalk/initiate-call. Uśpione,
     # bo CLOUDTALK_ENABLED=false — ale leży dokładnie na ścieżce aktywacji.
     "ALTER TYPE callstatus ADD VALUE IF NOT EXISTS 'initiated'",
@@ -1025,7 +1071,7 @@ except Exception as _screening_form_err:  # noqa: BLE001
 try:
     from app.services import framework_contract_text_schema as _fc_text
 
-    _FC_TEXT_DDL = list(_fc_text.ALL_DDL)
+    _FC_TEXT_DDL = [*_fc_text.ALL_DDL, *_fc_text.AMENDMENT_ALL_DDL]
 except Exception as _fc_text_err:  # noqa: BLE001
     print(f"framework contract text DDL unavailable: {_fc_text_err!r}")
     _FC_TEXT_DDL = []
@@ -1161,6 +1207,46 @@ except Exception as _pair_owner_err:  # noqa: BLE001
     print(f"pair owner DDL unavailable: {_pair_owner_err!r}")
     _PAIR_OWNER_DDL = []
 
+# Połączenia wtyczki LinkedIn (migracja 0608) — JEDNO źródło z migracją
+# (`app/services/linkedin_extension_schema.py`).
+try:
+    from app.services import linkedin_extension_schema as _linkedin_extension_schema
+
+    _LINKEDIN_EXTENSION_DDL = list(_linkedin_extension_schema.TABLE_DDL)
+except Exception as _linkedin_extension_err:  # noqa: BLE001
+    print(f"linkedin extension DDL unavailable: {_linkedin_extension_err!r}")
+    _LINKEDIN_EXTENSION_DDL = []
+
+# Oceny „Oceń z AI” (migracja 0620) — JEDNO źródło z migracją
+# (`app/services/candidate_ai_assessment_schema.py`).
+try:
+    from app.services import candidate_ai_assessment_schema as _ai_assessment_schema
+
+    _CANDIDATE_AI_ASSESSMENT_DDL = list(_ai_assessment_schema.TABLE_DDL)
+except Exception as _ai_assessment_err:  # noqa: BLE001
+    print(f"candidate ai assessment DDL unavailable: {_ai_assessment_err!r}")
+    _CANDIDATE_AI_ASSESSMENT_DDL = []
+
+# Powody „co generator zrobił źle” (0636,
+# `app/services/cv_generator_feedback_schema.py`).
+try:
+    from app.services import cv_generator_feedback_schema as _cv_generator_feedback_schema
+
+    _CV_GENERATOR_FEEDBACK_DDL = list(_cv_generator_feedback_schema.TABLE_DDL)
+except Exception as _cv_generator_feedback_err:  # noqa: BLE001
+    print(f"cv generator feedback DDL unavailable: {_cv_generator_feedback_err!r}")
+    _CV_GENERATOR_FEEDBACK_DDL = []
+
+# Opieka po odejściu (migracja 0621) — JEDNO źródło z migracją
+# (`app/services/departure_care_schema.py`).
+try:
+    from app.services import departure_care_schema as _departure_care_schema
+
+    _DEPARTURE_CARE_DDL = list(_departure_care_schema.TABLE_DDL)
+except Exception as _departure_care_err:  # noqa: BLE001
+    print(f"departure care DDL unavailable: {_departure_care_err!r}")
+    _DEPARTURE_CARE_DDL = []
+
 # Propozycje: źródło „Z portalu” i powód „Pomiń” (migracja 0405) — JEDNO
 # źródło z migracją (`app/services/job_proposal_feedback_schema.py`).
 try:
@@ -1177,6 +1263,86 @@ except Exception as _proposal_feedback_err:  # noqa: BLE001
     _JOB_PROPOSAL_FEEDBACK_CONSTRAINTS = []
     _JOB_PROPOSAL_STATUS_CONSTRAINTS = []
 
+# Panel klienta pod linkiem z CV (0639) — JEDNO źródło z migracją
+# (`app/services/client_panel_schema.py`, pilnuje test_migration_and_entrypoint_share_one_ddl_source).
+try:
+    from app.services import client_panel_schema as _client_panel_schema
+
+    _CLIENT_PANEL_DDL = list(_client_panel_schema.TABLE_DDL)
+except Exception as _client_panel_schema_err:  # noqa: BLE001
+    print(f"client panel schema unavailable: {_client_panel_schema_err!r}")
+    _CLIENT_PANEL_DDL = []
+
+# Sprzedaż (Atlas → NEXUS, 0601): lejki, firmy, kontakty, szanse, aktywności
+# i pliki — JEDNO źródło z migracją (`app/services/sales_schema.py`).
+try:
+    from app.services import sales_schema as _sales_schema
+
+    _SALES_TABLE_DDL = [
+        *_sales_schema.TABLE_DDL,
+        *_sales_schema.INDEX_DDL,
+        # 0602: skrzynka leadów (po szansach, na które wskazuje).
+        *_sales_schema.LEADS_DDL,
+        # 0614: luki importu Atlasa (opiekun z Atlasa, Outlook, kontakt w wielu firmach).
+        *_sales_schema.GAPS_DDL,
+        # 0618: historia zmian szansy.
+        *_sales_schema.HISTORY_DDL,
+        # 0623: cele i KPI tygodniowe handlowców.
+        *_sales_schema.TARGETS_DDL,
+        # 0624: bieżąca poczta i kalendarz Outlooka handlowców.
+        *_sales_schema.OUTLOOK_SYNC_DDL,
+        # 0628: transkrypty Teams przy spotkaniach handlowców.
+        *_sales_schema.TRANSCRIPTS_DDL,
+    ]
+    _SALES_DATA_DDL = list(_sales_schema.DATA_DDL)
+except Exception as _sales_schema_err:  # noqa: BLE001
+    print(f"sales schema unavailable: {_sales_schema_err!r}")
+    _SALES_TABLE_DDL = []
+    _SALES_DATA_DDL = []
+
+# Kanały linków w źródłach (0641): przepięcie starych zdarzeń — JEDNO źródło
+# z migracją (`app/services/career_link_channels_schema.py`).
+try:
+    from app.services import career_link_channels_schema as _career_link_channels_schema
+
+    _CAREER_LINK_CHANNELS_BACKFILL = list(_career_link_channels_schema.BACKFILL_DDL)
+except Exception as _career_link_channels_schema_err:  # noqa: BLE001
+    print(f"career link channels schema unavailable: {_career_link_channels_schema_err!r}")
+    _CAREER_LINK_CHANNELS_BACKFILL = []
+
+# Dzienne wejścia na linki aplikacyjne (0640): JEDNO źródło z migracją
+# (`app/services/invite_link_visits_schema.py`).
+try:
+    from app.services import invite_link_visits_schema as _invite_link_visits_schema
+
+    _INVITE_LINK_VISITS_DDL = list(_invite_link_visits_schema.TABLE_DDL)
+except Exception as _invite_link_visits_schema_err:  # noqa: BLE001
+    print(f"invite link visits schema unavailable: {_invite_link_visits_schema_err!r}")
+    _INVITE_LINK_VISITS_DDL = []
+
+# Dziennik zdarzeń z maili CPro (0635) — JEDNO źródło z migracją
+# (`app/services/cpro_mail_schema.py`).
+try:
+    from app.services import cpro_mail_schema as _cpro_mail_schema
+
+    _CPRO_MAIL_DDL = list(_cpro_mail_schema.TABLE_DDL)
+except Exception as _cpro_mail_schema_err:  # noqa: BLE001
+    print(f"cpro mail schema unavailable: {_cpro_mail_schema_err!r}")
+    _CPRO_MAIL_DDL = []
+
+# Ogłoszenia na pulpicie (0619): tabele i indeksy — JEDNO źródło z migracją
+# (`app/services/announcements_schema.py`).
+try:
+    from app.services import announcements_schema as _announcements_schema
+
+    _ANNOUNCEMENTS_DDL = [
+        *_announcements_schema.TABLE_DDL,
+        *_announcements_schema.INDEX_DDL,
+    ]
+except Exception as _announcements_schema_err:  # noqa: BLE001
+    print(f"announcements schema unavailable: {_announcements_schema_err!r}")
+    _ANNOUNCEMENTS_DDL = []
+
 # „Ludzie w NEXUSIE” (migracje 0455+): moduł kadrowy, czas pracy, płace,
 # sprzęt, opieka nad konsultantami, sprawy — JEDNO źródło z migracjami przez
 # agregator `app/services/hr_schema_bundle.py`. Wpięte na KOŃCACH faz.
@@ -1191,6 +1357,26 @@ except Exception as _hr_bundle_err:  # noqa: BLE001
     _HR_COLUMN_DDL = []
     _HR_DATA_DDL = []
     _HR_CONSTRAINT_DDL = []
+
+# Nowości do przeklikania (0625): postęp osoby przy nowości — JEDNO źródło
+# z migracją (`app/services/novelty_schema.py`).
+try:
+    from app.services import novelty_schema as _novelty_schema
+
+    _NOVELTY_TABLE_DDL = list(_novelty_schema.TABLE_DDL)
+except Exception as _novelty_schema_err:  # noqa: BLE001
+    print(f"novelty schema unavailable: {_novelty_schema_err!r}")
+    _NOVELTY_TABLE_DDL = []
+
+# Licznik użycia obszarów (0632) — JEDNO źródło z migracją
+# (`app/services/access_usage_schema.py`).
+try:
+    from app.services import access_usage_schema as _access_usage_schema
+
+    _ACCESS_USAGE_TABLE_DDL = list(_access_usage_schema.TABLE_DDL)
+except Exception as _access_usage_schema_err:  # noqa: BLE001
+    print(f"access usage schema unavailable: {_access_usage_schema_err!r}")
+    _ACCESS_USAGE_TABLE_DDL = []
 
 _COLUMN_STATEMENTS = [
     *_KEYWORD_CORPUS_DDL,
@@ -1215,6 +1401,10 @@ _COLUMN_STATEMENTS = [
     *_AUTOFILL_FEEDBACK_DDL,
     *_AUTOFILL_QUALITY_DDL,
     *_PAIR_OWNER_DDL,
+    *_LINKEDIN_EXTENSION_DDL,
+    *_CANDIDATE_AI_ASSESSMENT_DDL,
+    *_CV_GENERATOR_FEEDBACK_DDL,
+    *_DEPARTURE_CARE_DDL,
     # 0269: configurable product-section RBAC. The tables are created here as
     # an idempotent recovery path when Alembic stopped before stamping head.
     """CREATE TABLE IF NOT EXISTS rbac_policy_state (
@@ -1272,7 +1462,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1286,7 +1476,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -5092,6 +5282,16 @@ END $$""",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_at TIMESTAMPTZ NULL",
     "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_set_by INTEGER NULL "
     "REFERENCES users(id) ON DELETE SET NULL",
+    # 0610: prośba Delivery Leada o P0 (services/job_p0.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_reason VARCHAR(300) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_request_duration VARCHAR(16) NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS p0_requested_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
+    # 0617: „Jeszcze trwa” przy rekrutacji bez ruchu (services/job_idle.py).
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idle_snoozed_at TIMESTAMPTZ NULL",
+    "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS idle_snoozed_by INTEGER NULL "
+    "REFERENCES users(id) ON DELETE SET NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP NOT NULL",
     "ALTER TABLE jobs ALTER COLUMN remote_policy DROP DEFAULT",
     # 0282: sprawdzone wymagania wyszukiwania (wspólne dla Radaru i pipeline'u).
@@ -5108,6 +5308,9 @@ END $$""",
     # bez FK: wpis ma przeżyć usunięcie obiektu i konta.
     """ALTER TABLE users
         ADD COLUMN IF NOT EXISTS can_delete_clients BOOLEAN NOT NULL DEFAULT false""",
+    # 0631: imienne prawo do maila „Podsumowanie Rady”; model `User` je deklaruje.
+    """ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS receives_board_report BOOLEAN NOT NULL DEFAULT false""",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
     "ALTER TABLE clients ADD COLUMN IF NOT EXISTS deleted_by INTEGER "
     "REFERENCES users(id) ON DELETE SET NULL",
@@ -5322,6 +5525,17 @@ END $$""",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_b2b_signing_requests_open_per_row "
     "ON b2b_signing_requests (generated_contract_id) "
     "WHERE status IN ('sent', 'contractor_signed')",
+    # 0603: dziennik zdarzeń wniosku i odcisk danych umowy (wygasły link, 27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS events "
+    "JSONB NOT NULL DEFAULT '[]'::jsonb",
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS "
+    "source_payload_sha256 VARCHAR(64)",
+    # 0604: osoby z NEXUSA w DW przy wysyłce do podpisu (27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS cc_user_ids "
+    "JSONB NOT NULL DEFAULT '[]'::jsonb",
+    # 0605: kto obsługuje wysyłkę po „Przejmij obsługę” (zastępstwo, 27.10.2026).
+    "ALTER TABLE b2b_signing_requests ADD COLUMN IF NOT EXISTS handled_by "
+    "INTEGER REFERENCES users (id) ON DELETE SET NULL",
     # 0506: prośby o umowę przedwstępną przy osobie w rekrutacji. Lustro 1:1
     # z `app/services/pre_contract_schema.py` (pilnuje test_pre_contract_schema_mirror)
     # — PO tabeli `b2b_contract_documents`, na którą wskazuje klucz obcy.
@@ -6039,6 +6253,29 @@ END $$""",
     )""",
     "CREATE INDEX IF NOT EXISTS ix_job_similar_links_similar_job_id "
     "ON job_similar_links (similar_job_id)",
+    # 0615: bliźniacze rekrutacje — rodzaj połączenia, pary pytań i pary
+    # odrzucone przez HoR (`app/services/job_twin_schema.py`).
+    # Lustro 1:1 z migracją — pilnuje `test_job_twins.py`.
+    "ALTER TABLE job_similar_links "
+    "ADD COLUMN IF NOT EXISTS kind VARCHAR(16) NOT NULL DEFAULT 'similar'",
+    "ALTER TABLE job_similar_links "
+    "ADD COLUMN IF NOT EXISTS question_pairs JSONB NULL",
+    """DO $$ BEGIN
+        ALTER TABLE job_similar_links
+            ADD CONSTRAINT ck_job_similar_links_kind
+            CHECK (kind IN ('similar', 'twin'));
+    EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
+    "CREATE INDEX IF NOT EXISTS ix_job_similar_links_twins "
+    "ON job_similar_links (job_id) WHERE kind = 'twin'",
+    """CREATE TABLE IF NOT EXISTS job_twin_dismissals (
+        id BIGSERIAL PRIMARY KEY,
+        job_low_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        job_high_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+        dismissed_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        CONSTRAINT uq_job_twin_dismissals_pair UNIQUE (job_low_id, job_high_id),
+        CONSTRAINT ck_job_twin_dismissals_order CHECK (job_low_id < job_high_id)
+    )""",
     # 0342: stan rezerwacji wysyłki maila z NEXUSA (pending/sent/uncertain,
     # NULL = wiersz sprzed zmiany albo z synchronizacji). Lustro 1:1 z migracją.
     "ALTER TABLE emails ADD COLUMN IF NOT EXISTS send_state VARCHAR(16) NULL "
@@ -6137,6 +6374,9 @@ END $$""",
     "ALTER TABLE candidate_client_forms ADD COLUMN IF NOT EXISTS kind VARCHAR(8) NOT NULL DEFAULT 'form'",
     "ALTER TABLE candidate_client_forms DROP CONSTRAINT IF EXISTS uq_candidate_client_forms_pair",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_candidate_client_forms_pair_kind ON candidate_client_forms (candidate_id, job_id, kind)",
+    # 0626: wzór „Karty przed CV” klienta (Credit Agricole) — lustro 1:1
+    # z `app/services/cover_sheet_schema.TABLE_DDL` (pilnuje test_cover_sheet_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS client_cover_sheet_templates (client_id INTEGER PRIMARY KEY REFERENCES clients(id) ON DELETE CASCADE, filename VARCHAR(255) NOT NULL, content BYTEA NOT NULL, sha256 VARCHAR(64) NOT NULL, fields JSONB NOT NULL DEFAULT '[]'::jsonb, uploaded_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     # 0430: ogłoszenie rekrutacji do wklejenia na portale (Pracuj.pl,
     # JustJoin.IT). Lustro 1:1 z `app/services/job_ad_schema.py` (pilnuje
     # test_job_ads_migration_mirror).
@@ -6149,6 +6389,11 @@ END $$""",
     # Lustro 1:1 z `app/services/job_ad_reminder_schema.py` (pilnuje
     # test_job_ad_reminders_migration_mirror).
     "CREATE TABLE IF NOT EXISTS job_ad_channel_skips (job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, channel VARCHAR(16) NOT NULL, reason VARCHAR(300) NOT NULL, created_by INTEGER NULL REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT pk_job_ad_channel_skips PRIMARY KEY (job_id, channel), CONSTRAINT ck_job_ad_channel_skips_channel CHECK (channel IN ('kariera', 'pracuj', 'jjit')))",
+    # 0527: „Czego Jarvis nie umie” — karty braku i zgłoszenia.
+    # Lustro 1:1 z `app/services/jarvis/gap_schema.py` (pilnuje
+    # test_jarvis_gaps_migration_mirror).
+    "CREATE TABLE IF NOT EXISTS jarvis_gaps (id UUID PRIMARY KEY, conversation_id UUID NOT NULL REFERENCES jarvis_conversations(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, tool_use_id VARCHAR(100) NOT NULL, kind VARCHAR(20) NOT NULL, need VARCHAR(160) NOT NULL, why VARCHAR(240) NOT NULL, workaround VARCHAR(240) NOT NULL DEFAULT '', reported_at TIMESTAMPTZ NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), CONSTRAINT ck_jarvis_gaps_kind CHECK (kind IN ('no_access', 'not_supported', 'no_data')))",
+    "CREATE INDEX IF NOT EXISTS ix_jarvis_gaps_created_at ON jarvis_gaps (created_at)",
     # 0352: debrief z jawnym „klient nie zadawał pytań” (bramka przed „Umową”).
     "ALTER TABLE interview_feedback ADD COLUMN IF NOT EXISTS "
     "no_client_questions BOOLEAN NOT NULL DEFAULT false",
@@ -6748,6 +6993,21 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$""",
     # „Ludzie w NEXUSIE” — tabele, indeksy i CHECK-i ról (przed zasiewem
     # macierzy w `_DATA_STATEMENTS`).
     *_HR_COLUMN_DDL,
+    # Sprzedaż — tabele i indeksy (po `clients` i `users`, na które wskazują).
+    *_SALES_TABLE_DDL,
+    *_CLIENT_PANEL_DDL,
+    *_CPRO_MAIL_DDL,
+    # 0612: nowa osoba w NEXUSIE czeka na decyzję HoR albo admina
+    # (`app/services/new_person_setup_schema.py`).
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS setup_pending_since TIMESTAMPTZ NULL",
+    # 0619: ogłoszenia na pulpicie (po `users`, na które wskazują).
+    *_ANNOUNCEMENTS_DDL,
+    # 0640: dzienne wejścia na linki (po `candidate_invite_links`).
+    *_INVITE_LINK_VISITS_DDL,
+    # 0625: nowości do przeklikania (`app/services/novelty_schema.py`).
+    *_NOVELTY_TABLE_DDL,
+    # 0632: licznik użycia obszarów (`app/services/access_usage_schema.py`).
+    *_ACCESS_USAGE_TABLE_DDL,
 ]
 
 _ROLE_DASHBOARD_CUTOVER_SQL = r"""
@@ -7043,6 +7303,17 @@ _DATA_STATEMENTS = [
     *_CONTRACT_RATE_FROM_BACKFILL,
     # 0424: linki karty Championa dla klienta odwołane (D2) — idempotentne.
     *_SCREENING_FORM_DATA,
+    # Karta PKO BP: akapit zgody stał w „Onboardingu”, a jego temat i „Dzień
+    # dobry,” w „Zasadach procesu” — RAZ (znacznik), żeby restart nie cofał
+    # późniejszych edycji karty. Seed ma już poprawny układ.
+    "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM app_settings WHERE key = 'pko_playbook_consent_moved') THEN "
+    "UPDATE client_playbooks SET "
+    "process_rules_md = rtrim(process_rules_md, chr(10)) || chr(10) || substring(onboarding_md from '- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*'), "
+    "onboarding_md = rtrim(regexp_replace(onboarding_md, chr(10) || '?- Ja, .imię i nazwisko kandydata.[^' || chr(10) || ']*', ''), chr(10)), "
+    "version = version + 1 "
+    "WHERE onboarding_md ~ '- Ja, .imię i nazwisko kandydata.'; "
+    "INSERT INTO app_settings (key, value) VALUES ('pko_playbook_consent_moved', jsonb_build_object('at', now())); "
+    "END IF; END $$",
     # 0521: Centrum e-Zdrowia dostaje formularz klienta zamiast CV firmowego —
     # RAZ (znacznik w app_settings), żeby restart nie cofał zmiany z edytora
     # reguły CV. Lustro `client_form_schema.SEED_DDL`.
@@ -7137,10 +7408,10 @@ _DATA_STATEMENTS = [
            ('recruiter', 'insights', 'read'),
            ('recruiter', 'finance', 'none'),
            ('recruiter', 'system_admin', 'none'),
-           ('user', 'sourcing', 'read'),
-           ('user', 'pipeline', 'read'),
+           ('user', 'sourcing', 'none'),
+           ('user', 'pipeline', 'none'),
            ('user', 'delivery', 'none'),
-           ('user', 'insights', 'read'),
+           ('user', 'insights', 'none'),
            ('user', 'finance', 'none'),
            ('user', 'system_admin', 'none'),
            ('trainee', 'sourcing', 'none'),
@@ -7521,6 +7792,38 @@ _DATA_STATEMENTS = [
     "SELECT 'client_form_fill', TRUE, 0, now(), now() "
     "WHERE NOT EXISTS "
     "(SELECT 1 FROM ai_features WHERE feature = 'client_form_fill')",
+    # 0529: seed klucza AI sprawdzenia zrzutu zgody RODO.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'consent_screenshot_check', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'consent_screenshot_check')",
+    # 0634: seed klucza AI słów z CV wysłanych do wiersza „musi mieć”.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'requirement_word_hints', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'requirement_word_hints')",
+    # 0608: seed klucza AI szkicu wiadomości z wtyczki LinkedIn.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'linkedin_message_draft', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'linkedin_message_draft')",
+    # 0620: seed klucza AI „Oceń z AI” (kolejność dzwonienia z cytatem z CV).
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'candidate_ai_assessment', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'candidate_ai_assessment')",
+    # 0637: seed klucza AI rozdzielania spraw back office'u.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'case_triage', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'case_triage')",
+    # 0628: seed klucza AI podsumowania spotkania handlowca.
+    "INSERT INTO ai_features (feature, enabled, monthly_limit, created_at, updated_at) "
+    "SELECT 'sales_meeting_summary', TRUE, 0, now(), now() "
+    "WHERE NOT EXISTS "
+    "(SELECT 1 FROM ai_features WHERE feature = 'sales_meeting_summary')",
+    # 0641: stare zgłoszenia z linków przechodzą z `posting` do kanałów linków.
+    *_CAREER_LINK_CHANNELS_BACKFILL,
     # 0238: jednorazowa korekta dziewięciu kontraktów BIK. Marker i UPDATE są
     # jednym statementem: entrypoint leci przy każdym starcie, więc bez guardu
     # ponownie aktywowałby kontrakt świadomie zakończony później przez admina.
@@ -8930,6 +9233,11 @@ SELECT 'job', id, 'archived',
     "AND EXISTS (SELECT 1 FROM marker)",
     # „Ludzie w NEXUSIE” — przełączniki modułów i zasiew roli „Pracownik”.
     *_HR_DATA_DDL,
+    # Sprzedaż — domyślny lejek „Sprzedaż” z etapami Atlasa.
+    *_SALES_DATA_DDL,
+    # 0612: konta SSO od 19.10 bez decyzji o roli → „Czeka na Ciebie” HoR
+    # i adminów (`app/services/new_person_setup_schema.py`, idempotentne).
+    "UPDATE users u SET setup_pending_since = u.created_at WHERE u.setup_pending_since IS NULL AND u.is_active AND u.roles = jsonb_build_array('employee') AND u.created_at >= '2026-10-19' AND EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action = 'sso_user_provisioned') AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.entity_type = 'user' AND a.entity_id = u.id AND a.action IN ('role_changed', 'roles_changed', 'new_person_setup_decided'))",
 ]
 
 
@@ -10622,6 +10930,48 @@ async def run():
 asyncio.run(run())
 PY
 
+# Kroki jednorazowe bez Pythona po znaczniku (pomiar 02.11.2026). 42 naprawy
+# zabierały 131 ze 170 s startu: każda to osobny proces z importem `app.models`
+# (3–4 s) tylko po to, żeby odczytać własny znacznik w `app_settings` i wyjść,
+# a API leży przez cały start. Listę znaczników czytamy raz. Odczyt padł albo
+# znacznika brak = krok uruchamia się jak dawniej i sam sprawdza znacznik pod
+# advisory lockiem, więc to wyłącznie skrót, nie nowe źródło prawdy. Nowa naprawa:
+# `run_unless_marked "<jej znacznik>"` zamiast `python -`, inaczej dokłada
+# przerwy każdemu wdrożeniu (`test_entrypoint_repair_markers.py`).
+startup_phase "read-repair-markers"
+REPAIR_MARKERS_FILE=/tmp/nexus-repair-markers
+python - > "$REPAIR_MARKERS_FILE" <<'PY' || { echo "repair markers unreadable; running every repair"; : > "$REPAIR_MARKERS_FILE"; }
+import asyncio
+import os
+
+import asyncpg
+
+
+async def read():
+    url = os.environ["DATABASE_URL"].replace("postgresql+asyncpg://", "postgresql://")
+    conn = await asyncpg.connect(url)
+    try:
+        rows = await conn.fetch("SELECT key FROM app_settings")
+    finally:
+        await conn.close()
+    print("\n".join(row["key"] for row in rows))
+
+
+asyncio.run(read())
+PY
+
+run_unless_marked() {
+    local marker
+    for marker in "$@"; do
+        if ! grep -qxF -- "$marker" "$REPAIR_MARKERS_FILE" 2>/dev/null; then
+            python -
+            return
+        fi
+    done
+    cat > /dev/null
+    echo "already done: $*"
+}
+
 # Rozdzielenie zamówień MD i okresowych — jednorazowa naprawa danych
 # (safety-net dla migracji 0262, gdy alembic na prodzie stoi na starszej
 # rewizji). Blok SQL jest ten sam co w migracji — jedno źródło w
@@ -10630,7 +10980,7 @@ PY
 # drugie wywołanie kończy się natychmiast.
 startup_phase "repair-md-periodic-orders"
 echo "Separating MD and periodic client orders (one-shot, idempotent)..."
-python - <<'PY' || echo "md/periodic order separation skipped; continuing"
+run_unless_marked "0262_separate_md_periodic" <<'PY' || echo "md/periodic order separation skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -10658,7 +11008,7 @@ PY
 # marker w `app_settings` + advisory lock → drugi start kończy się natychmiast.
 startup_phase "repair-kpi-catalog-unification"
 echo "KPI targets: unify panel and coach ids (one-shot, idempotent)..."
-python - <<'PY' || echo "kpi catalog unification skipped; continuing"
+run_unless_marked "0346_kpi_catalog_unification" <<'PY' || echo "kpi catalog unification skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -10685,7 +11035,7 @@ PY
 # `app/services/contract_ended_tab_repair.py`; blok jest idempotentny.
 startup_phase "repair-ended-tab-contracts"
 echo "Repairing contracts ended by an order period, not by administration (one-shot)..."
-python - <<'PY' || echo "ended-tab contract repair skipped; continuing"
+run_unless_marked "0274_ended_tab_contract_repair" <<'PY' || echo "ended-tab contract repair skipped; continuing"
 import asyncio
 from sqlalchemy import text
 from app.core.database import engine
@@ -10715,7 +11065,7 @@ PY
 # rusza dopiero po markerze, więc porażka tego bloku niczego nie nadpisze.
 startup_phase "repair-contract-order-sync"
 echo "Contract ↔ order sync: report snapshot + draft contract repair (one-shot)..."
-python - <<'PY' || echo "contract-order sync repair skipped; continuing"
+run_unless_marked "0304_contract_order_sync_repair" <<'PY' || echo "contract-order sync repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10741,7 +11091,7 @@ PY
 # + advisory lock. Log: same liczby.
 startup_phase "repair-notification-backlog"
 echo "Notifications: one-shot mark-as-read of stale backlog..."
-python - <<'PY' || echo "notification backlog repair skipped; continuing"
+run_unless_marked "notification_backlog_read_2026_10" <<'PY' || echo "notification backlog repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10768,7 +11118,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: same liczby per typ.
 startup_phase "repair-notification-topics-backlog"
 echo "Notifications: one-shot mark-as-read of week-old backlog (topbar icons)..."
-python - <<'PY' || echo "notification topics backlog repair skipped; continuing"
+run_unless_marked "notification_topics_backlog_read_2026_10" <<'PY' || echo "notification topics backlog repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10794,7 +11144,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: same liczby i ID.
 startup_phase "repair-job-creator-delivery-lead"
 echo "Jobs: one-shot reassignment of the Delivery Lead to the creating DL..."
-python - <<'PY' || echo "job creator delivery lead repair skipped; continuing"
+run_unless_marked "job_creator_delivery_lead_2026_10" <<'PY' || echo "job creator delivery lead repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10823,7 +11173,7 @@ PY
 # lock. Log: same liczby.
 startup_phase "repair-proposals-added-by-integration"
 echo "Proposals: one-shot revert of 'added' set by integration cards..."
-python - <<'PY' || echo "proposal added repair skipped; continuing"
+run_unless_marked "proposal_added_from_integration_2026_10" <<'PY' || echo "proposal added repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10852,7 +11202,7 @@ PY
 # + advisory lock. Log: same liczby.
 startup_phase "repair-closed-job-proposals"
 echo "Job proposals: one-shot expiry on closed recruitments..."
-python - <<'PY' || echo "closed job proposal expiry skipped; continuing"
+run_unless_marked "job_proposals_closed_jobs_expired_2026_10" <<'PY' || echo "closed job proposal expiry skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10881,7 +11231,7 @@ PY
 # sprzed tej daty nadal go potrzebują. Log: same liczby.
 startup_phase "repair-pending-verification-promotion"
 echo "Pending verifications: one-shot promotion to active (gate removed)..."
-python - <<'PY' || echo "pending verification promotion skipped; continuing"
+run_unless_marked "pending_verification_promotion_2026_09_17" <<'PY' || echo "pending verification promotion skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10910,7 +11260,7 @@ PY
 # od razu. Log: same liczby.
 startup_phase "job-names-backfill"
 echo "Job names: one-shot working titles and client references..."
-python - <<'PY' || echo "job names backfill skipped; continuing"
+run_unless_marked "job_names_backfill_0380" <<'PY' || echo "job names backfill skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10937,7 +11287,7 @@ PY
 # → drugi start kończy się od razu. Log i paragon: same liczby.
 startup_phase "working-title-prose-fix"
 echo "Working titles: one-shot recompute of automatic titles..."
-python - <<'PY' || echo "working title prose fix skipped; continuing"
+run_unless_marked "job_working_title_prose_fix_2026_10" <<'PY' || echo "working title prose fix skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10965,7 +11315,7 @@ PY
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
 startup_phase "client-reference-from-title"
 echo "Client references: one-shot fill from client job titles..."
-python - <<'PY' || echo "client reference from title skipped; continuing"
+run_unless_marked "client_reference_from_title_2026_10" <<'PY' || echo "client reference from title skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -10995,7 +11345,7 @@ PY
 # + advisory lock → drugi start kończy się od razu. Log: same liczby.
 startup_phase "stage-cv-copy-filenames"
 echo "Stage CV copies: one-shot file names from the role name..."
-python - <<'PY' || echo "stage cv copy filenames skipped; continuing"
+run_unless_marked "stage_cv_copy_filename_2026_10" <<'PY' || echo "stage cv copy filenames skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11014,6 +11364,32 @@ async def rename():
 asyncio.run(rename())
 PY
 
+# CV etapu z nazwą usługi w nagłówku i pliku (03.11.2026, decyzja Artura: wszystkie
+# w otwartych rekrutacjach). Zatwierdzone ze złym nagłówkiem dostają nowy szkic do
+# zatwierdzenia, a zamrożona wersja zostaje. Reguła:
+# `app/services/cv_service_title_repair.py`. Marker w `app_settings` + advisory
+# lock → drugi start kończy się od razu. Log: same liczby.
+startup_phase "cv-service-title-repair"
+echo "Stage CVs: one-shot role name instead of the service name..."
+run_unless_marked "cv_service_title_repair_2026_11" <<'PY' || echo "cv service title repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.cv_service_title_repair import repair_service_title_cvs
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            receipt = await repair_service_title_cvs(db)
+            await db.commit()
+        except Exception:
+            await db.rollback()
+            raise
+    print(f"cv service title repair: {receipt or 'nothing to do'}")
+
+asyncio.run(repair())
+PY
+
 # Cztery kategorie kompetencji + stany startowe requestów (0371, 24.09.2026).
 # Decyzja Artura: zespół pracuje w czterech grupach z InfraReportera, a
 # „Dane i AI” oraz security należą do grupy Infra. SQL ma jedno źródło:
@@ -11024,7 +11400,7 @@ PY
 # Log: same liczby.
 startup_phase "competence-categories-four"
 echo "Competence categories: four team groups + initial request work states..."
-python - <<'PY' || echo "competence categories four skipped; continuing"
+run_unless_marked "competence_categories_four_2026_09" "request_work_state_initial_2026_09" <<'PY' || echo "competence categories four skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11055,7 +11431,7 @@ PY
 # Kolejne serie wykrywa pętla po imporcie Traffita. Log: wyłącznie liczby.
 startup_phase "seed-placement-exclusions"
 echo "Placement exclusions: one-shot seed (bulk hired series)..."
-python - <<'PY' || echo "placement exclusion seed skipped; continuing"
+run_unless_marked "0343_placement_exclusions" <<'PY' || echo "placement exclusion seed skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11099,7 +11475,7 @@ PY
 # nigdy tytuły, stawki ani ścieżki — paragon zostaje w `app_settings`.
 startup_phase "repair-pfron-split"
 echo "PFRON 507-509: splitting orders overwritten by an order-mail reactivation (one-shot)..."
-python - <<'PY' || echo "pfron renewal split repair skipped; continuing"
+run_unless_marked "0306_pfron_renewal_split_repair" <<'PY' || echo "pfron renewal split repair skipped; continuing"
 import asyncio
 import json
 import sys
@@ -11140,7 +11516,7 @@ PY
 # 0304); własny marker + advisory lock, jednorazowy. Log: tylko liczby.
 startup_phase "repair-pfron-resync"
 echo "PFRON 507-509: contract revenue schedule resync after the split (one-shot)..."
-python - <<'PY' || echo "pfron revenue resync skipped; continuing"
+run_unless_marked "0306_pfron_revenue_resync" <<'PY' || echo "pfron revenue resync skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11205,7 +11581,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-b2b-end-dates"
 echo "B2B contracts: ticket terminations + indefinite end dates (one-shot)..."
-python - <<'PY' || echo "b2b end-date repair skipped; continuing"
+run_unless_marked "0307_b2b_indefinite_end_date" <<'PY' || echo "b2b end-date repair skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11242,7 +11618,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-contract-start-dates"
 echo "Contracts: start-date correction from 21.09 sheet (one-shot)..."
-python - <<'PY' || echo "contract start-date repair skipped; continuing"
+run_unless_marked "0334_contract_start_date_correction" <<'PY' || echo "contract start-date repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11277,7 +11653,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
 startup_phase "repair-md-import-order-number"
 echo "Orders: correct MD import rows assigned across orders (one-shot)..."
-python - <<'PY' || echo "md import order-number repair skipped; continuing"
+run_unless_marked "md_import_order_number_repair_2026_09_23" <<'PY' || echo "md import order-number repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11312,7 +11688,7 @@ PY
 # marker w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody.
 startup_phase "repair-md-import-split-rows"
 echo "Orders: move MD import rows to the orders named in them (one-shot)..."
-python - <<'PY' || echo "md import split-rows repair skipped; continuing"
+run_unless_marked "md_import_split_rows_repair_2026_09_24" <<'PY' || echo "md import split-rows repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11347,7 +11723,7 @@ PY
 # niczego — następny start ponawia. Log: wyłącznie liczby i ID.
 startup_phase "repair-termination-reversal"
 echo "Contracts: termination reversal from 23.09 ticket (one-shot)..."
-python - <<'PY' || echo "termination reversal repair skipped; continuing"
+run_unless_marked "0368_termination_reversal_ticket_2026_09_23" <<'PY' || echo "termination reversal repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11375,6 +11751,40 @@ async def repair():
 asyncio.run(repair())
 PY
 
+# Cofnięte zakończenia na aktywnych kontraktach (decyzja Artura 02.11.2026) —
+# jednorazowo: współpraca trwa, a data i powód czytały się jak wypowiedzenie.
+# Logika w `app/services/contract_stale_termination_repair.py`, przypięta do
+# trójki ID i starych wartości. Marker w `app_settings` + advisory lock; porażka
+# nie zapisuje niczego — następny start ponawia. Log: wyłącznie liczby i ID.
+startup_phase "repair-stale-termination"
+echo "Contracts: stale termination data from 02.11 decision (one-shot)..."
+run_unless_marked "stale_termination_cleanup_2026_11_02" <<'PY' || echo "stale termination repair skipped; continuing"
+import asyncio
+import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
+from app.core.database import AsyncSessionLocal
+from app.services.contract_stale_termination_repair import (
+    run_stale_termination_repair,
+    summarize_for_log,
+)
+
+async def repair():
+    async with AsyncSessionLocal() as db:
+        try:
+            summary = await run_stale_termination_repair(db)
+            await db.commit()
+        except Exception as exc:  # noqa: BLE001 — treść błędu może nieść dane umów
+            await db.rollback()
+            sqlstate = getattr(getattr(exc, "orig", None), "sqlstate", None)
+            print(
+                f"stale termination repair failed ({type(exc).__name__}, "
+                f"sqlstate={sqlstate}); nothing written, next start retries"
+            )
+            return
+    print(f"stale termination repair: {summarize_for_log(summary)}")
+
+asyncio.run(repair())
+PY
+
 # Zamówienie z odwróconym okresem (Alior, zgłoszenie 28.09.2026) — jednorazowo:
 # drugie zamówienie tej samej osoby o tym samym numerze, 01.01.2027 → 31.12.2026,
 # założone oknem przedłużenia. Ta sama droga co usunięcie z zakładki
@@ -11382,7 +11792,7 @@ PY
 # przypięta do ID, numeru i dat. Plik PDF kasowany po commicie. Log: ID.
 startup_phase "repair-alior-reversed-order"
 echo "Orders: reversed-period duplicate from 28.09 ticket (one-shot)..."
-python - <<'PY' || echo "alior reversed order repair skipped; continuing"
+run_unless_marked "0397_alior_reversed_period_order" <<'PY' || echo "alior reversed order repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11423,7 +11833,7 @@ PY
 # `app/services/nordea_pentesty_scope_repair.py`, przypięta do ID. Log: ID.
 startup_phase "repair-nordea-pentesty-scope"
 echo "Clients: pin Nordea Pentesty contract to its scope (one-shot)..."
-python - <<'PY' || echo "nordea pentesty scope repair skipped; continuing"
+run_unless_marked "0397_nordea_pentesty_scope_pin" <<'PY' || echo "nordea pentesty scope repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11457,7 +11867,7 @@ PY
 # przypięta do id. Marker + advisory lock; porażka nie zapisuje niczego.
 startup_phase "repair-contact-duplicates"
 echo "Contacts: merge Traffit duplicates from 25.09 (one-shot)..."
-python - <<'PY' || echo "contact duplicate merge skipped; continuing"
+run_unless_marked "contact_duplicates_merge_2026_09_25" <<'PY' || echo "contact duplicate merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11491,7 +11901,7 @@ PY
 # przypięta do id; marker + advisory lock; porażka nie zapisuje niczego.
 startup_phase "repair-ezdrowie-merge"
 echo "Clients: finish E-Zdrowie merge 37721 -> 115 (one-shot)..."
-python - <<'PY' || echo "ezdrowie client merge skipped; continuing"
+run_unless_marked "ezdrowie_client_merge_2026_09" "ezdrowie_client_merge_2026_09_processes" <<'PY' || echo "ezdrowie client merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11543,7 +11953,7 @@ PY
 # Log: wyłącznie liczby.
 startup_phase "repair-m365-email-duplicates"
 echo "M365: merge duplicated email rows by internetMessageId (one-shot)..."
-python - <<'PY' || echo "m365 email dedupe skipped; continuing"
+run_unless_marked "0342_m365_email_dedupe" <<'PY' || echo "m365 email dedupe skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11580,7 +11990,7 @@ PY
 # następny start spróbuje ponownie. Log: wyłącznie liczby, ID i kody powodów.
 startup_phase "repair-contract-duplicate"
 echo "Contracts: merge the duplicate contract from the ticket (one-shot)..."
-python - <<'PY' || echo "contract duplicate merge skipped; continuing"
+run_unless_marked "0308_contract_duplicate_merge" <<'PY' || echo "contract duplicate merge skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11612,7 +12022,7 @@ PY
 # (ta sama logika, własny marker i lista par `TICKET_MERGES_2026_10`).
 startup_phase "repair-contract-duplicate-2026-10"
 echo "Contracts: merge the duplicate contract from the 2026-10 ticket (one-shot)..."
-python - <<'PY' || echo "contract duplicate merge 2026-10 skipped; continuing"
+run_unless_marked "0521_contract_duplicate_merge_2026_10" <<'PY' || echo "contract duplicate merge 2026-10 skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11657,7 +12067,7 @@ PY
 # w `app_settings` + advisory lock. Log: wyłącznie liczby, ID i kody powodów.
 startup_phase "repair-cez-standalone-md-duplicates"
 echo "Orders: cancel CeZ standalone orders duplicating group lines (one-shot)..."
-python - <<'PY' || echo "cez standalone md duplicate repair skipped; continuing"
+run_unless_marked "0325_cez_standalone_md_duplicates" <<'PY' || echo "cez standalone md duplicate repair skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11734,7 +12144,7 @@ PY
 # ponawia. Log: wyłącznie liczby (paragon w `app_settings`).
 startup_phase "repair-billing-hours-168"
 echo "Contracts/orders: unify billing hours to 168 h/month (one-shot)..."
-python - <<'PY' || echo "billing hours unification skipped; continuing"
+run_unless_marked "0345_billing_hours_168" <<'PY' || echo "billing hours unification skipped; continuing"
 import asyncio
 import json
 from sqlalchemy import text
@@ -11779,7 +12189,7 @@ PY
 # Log: wyłącznie liczby i kody powodów.
 startup_phase "repair-candidate-contact"
 echo "Contracts: copy B2B generator contact onto linked contracts (one-shot)..."
-python - <<'PY' || echo "candidate contact backfill skipped; continuing"
+run_unless_marked "0320_contract_candidate_contact" <<'PY' || echo "candidate contact backfill skipped; continuing"
 import asyncio
 import sys
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
@@ -11814,7 +12224,7 @@ PY
 # + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "repair-m365-private-event-candidate"
 echo "Calendar: unlink candidates from scrubbed private Outlook events (one-shot)..."
-python - <<'PY' || echo "private event unlink skipped; continuing"
+run_unless_marked "m365_private_event_candidate_unlink_2026_09_26" <<'PY' || echo "private event unlink skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11850,7 +12260,7 @@ PY
 # Log: wyłącznie liczby i kody.
 startup_phase "repair-cardif-client-merge"
 echo "Clients: merge BNP Paribas Cardif 52 -> 38335 (one-shot)..."
-python - <<'PY' || echo "cardif client merge skipped; continuing"
+run_unless_marked "0435_cardif_client_merge" "0436_cardif_contract_fill" <<'PY' || echo "cardif client merge skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11903,7 +12313,7 @@ PY
 # + advisory lock; porażka nie zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "repair-candidate-name-markers"
 echo "Candidates: strip status markers from names (one-shot)..."
-python - <<'PY' || echo "candidate name marker repair skipped; continuing"
+run_unless_marked "0436_candidate_name_markers" <<'PY' || echo "candidate name marker repair skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11937,7 +12347,7 @@ PY
 # w `app_settings` + advisory lock; porażka nie zapisuje niczego. Log: liczby.
 startup_phase "repair-candidate-name-markers-0481"
 echo "Candidates: strip status markers from names, round 2 (one-shot)..."
-python - <<'PY' || echo "candidate name marker repair 0481 skipped; continuing"
+run_unless_marked "0481_candidate_name_markers_v2" <<'PY' || echo "candidate name marker repair 0481 skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -11981,7 +12391,7 @@ PY
 # zapisuje niczego. Log: wyłącznie liczby.
 startup_phase "cleanup-prod-test-records"
 echo "Data: remove UI audit test records (one-shot)..."
-python - <<'PY' || echo "prod test records cleanup skipped; continuing"
+run_unless_marked "prod_test_records_cleanup_2026_10_20" <<'PY' || echo "prod test records cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12024,7 +12434,7 @@ PY
 # paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
 startup_phase "cleanup-settings-test-data"
 echo "Data: remove test traces from Settings (one-shot)..."
-python - <<'PY' || echo "settings test data cleanup skipped; continuing"
+run_unless_marked "settings_test_data_cleanup_2026_10_20" <<'PY' || echo "settings test data cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12059,7 +12469,7 @@ PY
 # paragon w `app_settings` + advisory lock. Log: wyłącznie liczby.
 startup_phase "cleanup-integration-profiles"
 echo "Data: remove HR profiles of OAuth integration accounts (one-shot)..."
-python - <<'PY' || echo "integration profile cleanup skipped; continuing"
+run_unless_marked "hr_integration_profile_cleanup_2026_10_20" <<'PY' || echo "integration profile cleanup skipped; continuing"
 import asyncio
 import app.models  # noqa: F401 — komplet mapperów przed pierwszym zapytaniem
 from app.core.database import AsyncSessionLocal
@@ -12090,51 +12500,6 @@ PY
 # Without this, a container OOM/SIGTERM during backfill leaves last_sync_status
 # pinned at 'running' and the sync loop keeps re-entering mid-flow instead of
 # starting clean.
-startup_phase "m365-sync-reset"
-echo "Resetting stuck m365 sync state (idempotent)..."
-python - <<'PY' || echo "m365 reset skipped (table may not exist yet); continuing"
-import asyncio
-from sqlalchemy import text
-from app.core.database import engine
-
-async def reset():
-    async with engine.begin() as conn:
-        # Cheap existence check so this stays a no-op before migration 0036.
-        exists = await conn.scalar(text(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_name='m365_connections' LIMIT 1"
-        ))
-        if not exists:
-            print("m365_connections: table missing, skipping reset")
-            return
-        result = await conn.execute(text(
-            "UPDATE m365_connections "
-            "SET last_sync_status='idle', "
-            "    last_error=COALESCE(last_error, 'reset after container restart') "
-            "WHERE last_sync_status='running'"
-        ))
-        print(f"m365 reset: rowcount={result.rowcount}")
-        # audyt 22.09 r2 (FIX-07): rezerwacja wysyłki maila przerwana
-        # restartem (deploy) zostawała ``pending`` na zawsze — ekran
-        # pokazywał „Wysyłanie…", a ponowienie dostawało 409. Proces, który
-        # ją trzymał, już nie żyje, więc wynik jest NIEZNANY: ``uncertain``
-        # (nigdy „do ponowienia" — mail mógł wyjść). Minuta zapasu chroni
-        # wysyłkę starego kontenera, który jeszcze kończy pracę.
-        has_send_state = await conn.scalar(text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name='emails' AND column_name='send_state' LIMIT 1"
-        ))
-        if has_send_state:
-            pending = await conn.execute(text(
-                "UPDATE emails SET send_state='uncertain' "
-                "WHERE send_state='pending' "
-                "AND created_at < now() - interval '1 minute'"
-            ))
-            print(f"m365 reset: pending sends -> uncertain rowcount={pending.rowcount}")
-
-asyncio.run(reset())
-PY
-
 # Run seed (idempotent - skips if already seeded)
 startup_phase "mail-delivery-schema"
 python -m app.services.m365.mail_delivery_schema

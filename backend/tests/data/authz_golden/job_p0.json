@@ -25,12 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "GET /api/p0-jobs": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "DELETE /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "DELETE /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "GET /api/p0-jobs": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/jobs/{job_id}/p0/request/approve": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

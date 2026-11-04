@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/autofill-quality/reports": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "GET /api/autofill-quality/summary": "PPPPPPPDPPPPPPPPPPPPDPPPPP",
-  "POST /api/autofill-quality/reports/{report_id}/proposals/{index}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/autofill-quality/reports": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "GET /api/autofill-quality/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
+  "POST /api/autofill-quality/reports/{report_id}/proposals/{index}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

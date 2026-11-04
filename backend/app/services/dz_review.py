@@ -372,7 +372,11 @@ def _patterns(name: str) -> list[re.Pattern[str]]:
     for form in sorted(forms, key=len, reverse=True):
         term = parse_keyword(form)
         if term is not None:
-            out.append(py_regex(term))
+            pattern = py_regex(term)
+            # „C” to nie „C++” ani „C#”, tak jak Java to nie JavaScript.
+            if len(term.text) == 1:
+                pattern = re.compile(pattern.pattern + r"(?![+#])", pattern.flags)
+            out.append(pattern)
     for form in sorted(forms, key=len, reverse=True):
         inflected = _inflected_pattern(form)
         if inflected is not None:
@@ -497,6 +501,13 @@ def found_in(
         for other in _equivalents(name, loose=mode == "presence"):
             if _found(text, Requirement(label=other, alternatives=(other,))):
                 return "translation"
+    for name in names:
+        # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
+        # („Teams” to nie „team”). Ten sam skrót, więc także w ostrym dopasowaniu.
+        bare = name.strip()
+        if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
+            if _found(text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))):
+                return "translation"
     if mode == "presence":
         tokens: Optional[list[str]] = None
         for name in names:
@@ -507,14 +518,6 @@ def found_in(
                 if any(
                     found_in(text, Requirement(label=h, alternatives=(h,)))
                     for h in halves
-                ):
-                    return "translation"
-            # „APIs” ↔ „API”: liczba mnoga tylko skrótu z wielkich liter
-            # („Teams” to nie „team”).
-            bare = name.strip()
-            if len(bare) >= 3 and bare.endswith("s") and bare[:-1].isupper():
-                if _found(
-                    text, Requirement(label=bare[:-1], alternatives=(bare[:-1],))
                 ):
                     return "translation"
             parts = _FOLD_WORD.findall(_fold(name))
@@ -956,10 +959,22 @@ async def _generated_cv(
         )
     ).scalar_one_or_none()
     if row is not None:
+        metadata = row.branded_render_metadata or {}
+        origin = (
+            metadata.get("origin") if isinstance(metadata.get("origin"), dict) else {}
+        )
+        # Treść wczytana z pliku Word bez AI (29.10.2026): QC pokazuje ten sam
+        # znacznik co karta „CV do klienta”, bo przy kontroli to jedyne miejsce,
+        # gdzie widać, że układ przyszedł z pliku, a nie z generatora.
+        from_word_file = metadata.get("source") == "document"
         return {
             "source": "branded_finalized"
             if row.branded_status == "finalized"
             else "branded_draft",
+            "from_word_file": from_word_file,
+            "filename": (str(origin.get("label") or "").strip() or None)
+            if from_word_file
+            else None,
             "stage_id": row.candidate_stage_id,
             "generated_document_id": row.generated_document_id,
             "updated_at": row.branded_finalized_at or row.branded_updated_at,
@@ -1388,6 +1403,7 @@ async def _original_cv(
             "source": "snapshot",
             "stage_id": csv.candidate_stage_id,
             "filename": csv.original_cv_filename,
+            "snapshot_at": csv.original_snapshot_at,
             "text": text[:ORIGINAL_TEXT_MAX] or None,
         }
     profile_text = (candidate.raw_cv_text or "").strip()

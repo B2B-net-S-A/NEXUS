@@ -126,7 +126,7 @@ export default function HrOnboardingPreviewPage() {
       note={`Dane fikcyjne, bez zapytań. ${
         state === "contract" || state === "paths"
           ? "Ogląda opiekunka i head back office."
-          : "Prowadzą Kadry."
+          : "Prowadzą Administracja współpracy."
       } Start ${start}.`}
       states={STATES}
       current={state}

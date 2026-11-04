@@ -314,6 +314,8 @@ export interface LeaveFormValues {
   halfDay: string;
   /** Id zastępcy jako tekst albo `NO_SUBSTITUTE`. */
   substitute: string;
+  /** Kto wrzuca do Cpro w tym czasie (id jako tekst) — tylko osoba od Cpro. */
+  cproSubstitute?: string;
   note: string;
   forward: boolean;
   oofInternal: string;
@@ -325,7 +327,8 @@ export interface LeaveFormValues {
  * `preview` — rodzaj, daty, pół dnia i zastępca, bez notatki: pisanie notatki
  * nie pyta serwera o podgląd. `self` — zapis własnego wniosku: notatka, zgoda
  * na przekierowanie poczty (tylko z zastępcą) i teksty OOF. `on_behalf` — wpis
- * za pracownika: notatka bez zgody i OOF (należą do samej osoby).
+ * za pracownika: notatka bez zgody i OOF (należą do samej osoby). Osoba,
+ * która wrzuca do Cpro, wybrana w obu trybach zapisu (podgląd jej nie potrzebuje).
  */
 export function leaveInputFrom(
   values: LeaveFormValues,
@@ -341,7 +344,11 @@ export function leaveInputFrom(
     substitute_user_id: values.substitute === NO_SUBSTITUTE ? null : Number(values.substitute),
   };
   if (purpose === "preview") return input;
-  const base = { ...input, note: values.note.trim() || null };
+  const cpro =
+    values.cproSubstitute && values.cproSubstitute !== NO_SUBSTITUTE
+      ? { cpro_substitute_user_id: Number(values.cproSubstitute) }
+      : {};
+  const base = { ...input, ...cpro, note: values.note.trim() || null };
   if (purpose === "on_behalf") return base;
   return {
     ...base,
@@ -351,6 +358,21 @@ export function leaveInputFrom(
   };
 }
 
+/**
+ * Własny wniosek osoby od Cpro na pełne dni bez wskazania, kto wrzuca do Cpro
+ * (decyzja Artura 29.10.2026; serwer odmawia tym samym warunkiem). Pół dnia
+ * i wpis za pracownika nie wymagają wyboru.
+ */
+export function cproSubstituteMissing(
+  values: Pick<LeaveFormValues, "start" | "end" | "halfDay" | "cproSubstitute">,
+  cproSender: boolean | undefined,
+  onBehalf: boolean,
+): boolean {
+  if (onBehalf || cproSender !== true) return false;
+  const halfDay = values.start === values.end && values.halfDay !== FULL_DAY;
+  if (halfDay) return false;
+  return !values.cproSubstitute || values.cproSubstitute === NO_SUBSTITUTE;
+}
 
 // ── Źródło wniosku, liczniki statusów, edycja (luki z Compassa, 18.10.2026) ──
 
@@ -437,6 +459,39 @@ export function editChanges(
   if (halfDay !== row.half_day) changes.half_day = halfDay;
   if (substitute !== row.substitute_user_id) changes.substitute_user_id = substitute;
   return Object.keys(changes).length > 0 ? changes : null;
+}
+
+/**
+ * Cofnięcie przez przełożonego albo Kadry od pierwszego dnia wymaga powodu
+ * (decyzja Artura 28.10.2026; backend: `leave_policy.approver_cancel_refusal`).
+ * `today` = `warsawToday()`.
+ */
+export function cancelNeedsReason(row: Pick<LeaveRequestRow, "start_date">, today: string): boolean {
+  return row.start_date <= today;
+}
+
+/** Tytuł i zdanie okna cofnięcia terminu, który już trwa albo minął (słowa formy osoby). */
+export function pastCancelText(
+  row: Pick<LeaveRequestRow, "status" | "start_date" | "end_date" | "employment_type">,
+  today: string,
+): { title: string; text: string } {
+  const range = formatRange(row.start_date, row.end_date);
+  const notice = "Osoba dostanie powiadomienie z powodem.";
+  if (row.status === "pending") {
+    return {
+      title: `Anulować wniosek ${range}?`,
+      text: `Wniosek nie ma decyzji, a jego termin już się zaczął. ${notice}`,
+    };
+  }
+  const timesheet = employmentTerms(row.employment_type).timesheet_genitive;
+  const back = `do ${timesheet} jako dni robocze do uzupełnienia i do statów.`;
+  return {
+    title: `Cofnąć nieobecność ${range}?`,
+    text:
+      row.end_date < today
+        ? `Te dni już minęły. Po cofnięciu wrócą ${back} ${notice}`
+        : `Ten termin już trwa. Po cofnięciu minione dni wrócą ${back} ${notice}`,
+  };
 }
 
 /** Czy patrzący może zmienić wiersz (zgłoszenie z B2B/zlecenia — tylko Kadry, D5). */

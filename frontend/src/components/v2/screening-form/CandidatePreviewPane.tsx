@@ -64,9 +64,11 @@ import { JobRequirementsStrip } from "@/components/champion/JobRequirementsStrip
 import { JobRequirementsSummary } from "@/components/champion/JobRequirementsSummary";
 import { PlainBriefBlock } from "@/components/champion/plain/PlainBriefBlock";
 import { useToast } from "@/components/Toast";
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import {
   FilePreviewContent,
   downloadDocumentBlob,
+  previewKind,
   fetchDocumentBlob,
   type CandidateDocument,
   type DocumentSearchRequest,
@@ -309,6 +311,7 @@ function CvTab({
   const [fileId, setFileId] = useState<number | null>(null);
   const selectedFile = docs.find((d) => d.id === fileId) ?? primaryProfileCv(docs) ?? null;
 
+  const recruiterOnly = useRecruiterOnly();
   const download = (doc: CandidateDocument, fromSnapshot: boolean) => {
     const run = fromSnapshot && stageId != null
       ? downloadAuthenticatedFile(originalDownloadPath(stageId), doc.filename || "CV")
@@ -661,7 +664,11 @@ function CvTab({
             Historia osoby{history.count > 0 ? ` (${history.count})` : ""}
           </button>
         ) : null}
-        {historyOpen ? null : fileDownload === "pending" ? (
+        {historyOpen ||
+        // Sama rola rekrutera ogląda plik tutaj; oryginał pobierze z karty „CV do klienta”.
+        (recruiterOnly &&
+          fileDownload &&
+          (fileDownload === "pending" || previewKind(fileDownload.doc) !== "unsupported")) ? null : fileDownload === "pending" ? (
           <Button type="button" size="sm" variant="outline" disabled data-testid="preview-cv-download">
             <Download className="h-3.5 w-3.5" aria-hidden />
             Pobierz CV

@@ -1,5 +1,9 @@
 """NIP nabywcy → klient NEXUSA (``clients.nip``) i rodzina klienta po scaleniu.
 
+Klucz to polski NIP (10 cyfr) albo identyfikator obcy z prefiksem kraju
+(„FI12345678”, „FR1A123456789”): klient z UE ma go w tym samym polu, a faktura
+niesie go jako ``KodUE`` + ``NrVatUE``.
+
 Numer prowadzi do klienta KANONICZNEGO: scalenie duplikatu nie przepisuje
 danych, więc NIP bywa na scalonym wierszu (``merged_into_client_id``). Ten sam
 NIP u dwóch różnych klientów kanonicznych to niejednoznaczność — faktura
@@ -12,19 +16,25 @@ Zamówienia i faktury klienta czytamy razem z jego scalonymi duplikatami
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.client import Client
 from app.services.client_identity import client_display_name
-from app.services.order_client_identity import normalize_registry_id
+from app.services.order_client_identity import normalize_buyer_number
 
 #: Bezpiecznik łańcucha scaleń (API nie pozwala scalić do scalonego).
 _MERGE_CHAIN_LIMIT = 5
+# Co najmniej 5 cyfr: faktury zapisane przed pełnym numerem mają VAT z literą ucięty
+# do jednej cyfry („FR1”, „IE9”), a taki klucz mają różne firmy.
+_REGISTRY_KEY = re.compile(r"\d{10}|[A-Z]{2}(?=(?:[A-Z+*]*\d){5})[A-Z0-9+*]+")
+
+BuyerNumberState = Literal["add", "same", "differs", "taken", "none"]
 
 
 @dataclass(frozen=True)
@@ -68,8 +78,8 @@ async def nip_registry(db: AsyncSession) -> NipRegistry:
 
     targets: dict[str, set[int]] = {}
     for client_id, raw_nip, _merged, _deleted in rows:
-        nip = normalize_registry_id(raw_nip or "")
-        if len(nip) != 10 or not nip.isdigit():
+        nip = normalize_buyer_number(raw_nip or "")
+        if not _REGISTRY_KEY.fullmatch(nip):
             continue
         target = canonical(int(client_id))
         if target is None or target in deleted:
@@ -102,6 +112,88 @@ async def family(db: AsyncSession, client_ids: Iterable[int]) -> set[int]:
     return found
 
 
+@dataclass(frozen=True)
+class BuyerNumber:
+    """Czy numer nabywcy z faktury można dopisać do klienta.
+
+    ``add`` — klient nie ma numeru, a tego numeru nie ma nikt inny; ``same`` —
+    klient ma już ten numer; ``differs`` — ma inny (nie nadpisujemy); ``taken`` —
+    numer ma inny klient (dopisanie zrobiłoby niejednoznaczność, a faktury
+    przestałyby się wiązać u obu); ``none`` — brak numeru albo klienta.
+    """
+
+    state: BuyerNumberState
+    number: Optional[str] = None
+    client_id: Optional[int] = None
+    existing: Optional[str] = None
+    owner_id: Optional[int] = None
+
+
+async def _canonical(db: AsyncSession, client_id: int) -> Optional[Client]:
+    current = await db.get(Client, client_id)
+    for _ in range(_MERGE_CHAIN_LIMIT):
+        if current is None or current.merged_into_client_id is None:
+            break
+        current = await db.get(Client, current.merged_into_client_id)
+    if current is None or current.merged_into_client_id is not None:
+        return None
+    return None if current.deleted_at is not None else current
+
+
+async def check_buyer_number(
+    db: AsyncSession, client_id: Optional[int], number: Optional[str]
+) -> BuyerNumber:
+    """Stan numeru względem klienta kanonicznego i jego scalonych duplikatów."""
+
+    key = normalize_buyer_number(number or "")
+    client = await _canonical(db, client_id) if client_id is not None else None
+    if client is None or not _REGISTRY_KEY.fullmatch(key):
+        return BuyerNumber("none", number=key or None)
+    members = await family(db, [client.id])
+    existing = [
+        raw.strip()
+        for raw in await db.scalars(select(Client.nip).where(Client.id.in_(members)))
+        if raw and raw.strip()
+    ]
+    if any(normalize_buyer_number(raw) == key for raw in existing):
+        return BuyerNumber("same", number=key, client_id=client.id)
+    if existing:
+        return BuyerNumber(
+            "differs", number=key, client_id=client.id, existing=existing[0]
+        )
+    registry = await nip_registry(db)
+    if key in registry.ambiguous or key in registry.by_nip:
+        return BuyerNumber(
+            "taken",
+            number=key,
+            client_id=client.id,
+            owner_id=registry.by_nip.get(key),
+        )
+    return BuyerNumber("add", number=key, client_id=client.id)
+
+
+async def add_buyer_number(
+    db: AsyncSession, client_id: Optional[int], number: Optional[str]
+) -> BuyerNumber:
+    """Dopisuje numer tylko w stanie ``add``; inny stan wraca bez zapisu."""
+
+    current = await _canonical(db, client_id) if client_id is not None else None
+    if current is None:
+        return BuyerNumber("none", number=number)
+    # Blokada wiersza: dwa przypisania naraz nie nadpiszą sobie numeru.
+    client = await db.scalar(
+        select(Client)
+        .where(Client.id == current.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    check = await check_buyer_number(db, client.id, number)
+    if check.state == "add":
+        client.nip = check.number
+        await db.flush()
+    return check
+
+
 async def names(db: AsyncSession, client_ids: Iterable[int]) -> dict[int, str]:
     ids = sorted({int(cid) for cid in client_ids})
     if not ids:
@@ -110,4 +202,12 @@ async def names(db: AsyncSession, client_ids: Iterable[int]) -> dict[int, str]:
     return {client.id: client_display_name(client) for client in rows.scalars()}
 
 
-__all__ = ["NipRegistry", "family", "names", "nip_registry"]
+__all__ = [
+    "BuyerNumber",
+    "NipRegistry",
+    "add_buyer_number",
+    "check_buyer_number",
+    "family",
+    "names",
+    "nip_registry",
+]

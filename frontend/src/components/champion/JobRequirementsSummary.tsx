@@ -35,11 +35,13 @@ function Eyebrow({ children }: { children: string }) {
 
 function RequirementRow({
   name,
+  fullLabel,
   term,
   critical,
   onPick,
 }: {
   name: string;
+  fullLabel: string;
   term: GlossaryTerm | undefined;
   critical: boolean;
   onPick?: (name: string) => void;
@@ -53,7 +55,7 @@ function RequirementRow({
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-1.5 text-[15px] font-semibold leading-snug text-foreground">
           {critical ? <Star className="h-3.5 w-3.5 shrink-0 fill-primary text-primary" aria-hidden /> : null}
-          <span className="min-w-0 break-words">{name}</span>
+          <span className="min-w-0 break-words">{fullLabel}</span>
           {critical ? <span className="sr-only"> — krytyczna</span> : null}
         </p>
         {term ? <p className="mt-0.5 text-[13px] leading-snug text-muted-foreground">{term.summary}</p> : null}
@@ -64,7 +66,7 @@ function RequirementRow({
           size="sm"
           variant="outline"
           className="shrink-0"
-          aria-label={`Szukaj „${name}” w CV`}
+          aria-label={`Szukaj „${fullLabel}” w CV`}
           onClick={() => onPick(name)}
         >
           <Search className="h-3.5 w-3.5" aria-hidden /> Szukaj w CV
@@ -80,6 +82,7 @@ function RequirementGroup({
   items,
   critical,
   glossary,
+  fullLabels,
   onPick,
 }: {
   title: string;
@@ -87,6 +90,7 @@ function RequirementGroup({
   items: string[];
   critical: boolean;
   glossary: Map<string, GlossaryTerm>;
+  fullLabels: Readonly<Record<string, string>>;
   onPick?: (name: string) => void;
 }) {
   return (
@@ -98,6 +102,7 @@ function RequirementGroup({
             <RequirementRow
               key={name}
               name={name}
+              fullLabel={fullLabels[name] ?? name}
               term={glossary.get(glossaryKey(name))}
               critical={critical}
               onPick={onPick}
@@ -153,7 +158,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
     return <QueryStateNotice state={state} onRetry={refetch} />;
   }
 
-  const { mustCritical, mustOther, nice, critical, criticalLine, experience, notes, conditions } = requirements;
+  const { mustCritical, mustOther, nice, critical, criticalLine, experience, notes, conditions, fullLabels } = requirements;
 
   return (
     <div className="@container" data-testid="job-requirements-summary">
@@ -168,6 +173,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
               items={mustCritical}
               critical
               glossary={glossary}
+              fullLabels={fullLabels}
               onPick={pick}
             />
           ) : null}
@@ -180,6 +186,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
               items={mustOther}
               critical={false}
               glossary={glossary}
+              fullLabels={fullLabels}
               onPick={pick}
             />
           ) : null}
@@ -188,6 +195,7 @@ export function JobRequirementsSummary({ jobId, budgetHourly = null, onPickRequi
             items={nice}
             critical={false}
             glossary={glossary}
+            fullLabels={fullLabels}
             onPick={pick}
           />
           <ExperienceChips experience={experience} />

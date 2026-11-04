@@ -35,6 +35,7 @@ import { criticalBriefLine } from "@/lib/critical-skills";
 import { formatBudgetHourly, formatJobBudgetLabel, type JobBudgetSource } from "@/lib/job-budget";
 import { formatJobDeadline } from "@/lib/job-deadline";
 import { recruitersOf, workingRecruiters, type JobTeamSource } from "@/lib/job-team";
+import { fillSupplierName } from "@/lib/consent-mail";
 import { officeDaysLabel } from "@/lib/office-days";
 import { buildGlossaryLookup } from "@/lib/plain-glossary-lookup";
 import { resolveViewState } from "@/lib/view-state";
@@ -208,6 +209,7 @@ export function ChampionBriefView({
   const criticalResolution = query.data?.critical_resolution ?? null;
   const criticalLine = criticalBriefLine(criticalResolution);
   const nice = stackNames(profile.stack?.nice);
+  const fullLabels = query.data?.requirement_full_labels;
   const questions = profile.screening_questions ?? [];
   const search = profile.search;
   const requirements = search?.requirements ?? [];
@@ -269,7 +271,7 @@ export function ChampionBriefView({
             <div className="space-y-1.5">
               <Eyebrow>Musi mieć</Eyebrow>
               {must.length > 0 ? (
-                <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} glossary={glossary} />
+                <Chips items={must} tone="must" critical={criticalResolution?.effective ?? []} glossary={glossary} fullLabels={fullLabels} />
               ) : (
                 <p className="text-[13px] text-muted-foreground">— brak</p>
               )}
@@ -289,7 +291,7 @@ export function ChampionBriefView({
             <div className="space-y-1.5">
               <Eyebrow>Mile widziane</Eyebrow>
               {nice.length > 0 ? (
-                <Chips items={nice} tone="nice" glossary={glossary} />
+                <Chips items={nice} tone="nice" glossary={glossary} fullLabels={fullLabels} />
               ) : (
                 <p className="text-[13px] text-muted-foreground">— brak</p>
               )}
@@ -433,7 +435,19 @@ export function ChampionBriefView({
                   Oryginalny opis od klienta
                 </summary>
                 <p className="mt-2 max-h-80 overflow-y-auto whitespace-pre-line text-[13px] leading-relaxed text-foreground">
-                  {job.description}
+                  {fillSupplierName(job.description).map((part, index) =>
+                    part.filled ? (
+                      <mark
+                        key={index}
+                        title="W zapytaniu klienta: [Nazwa Dostawcy]"
+                        className="rounded bg-warning-muted px-0.5 text-warning-muted-foreground"
+                      >
+                        {part.value}
+                      </mark>
+                    ) : (
+                      part.value
+                    ),
+                  )}
                 </p>
               </details>
             ) : null}

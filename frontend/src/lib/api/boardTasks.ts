@@ -329,6 +329,22 @@ export type NewJobLeadPendingReason = "assigning" | "passive" | "none" | "not_ha
 export type NewJobLeadSinceReason = "handoff" | "reopen" | "p1";
 
 /**
+ * „Nowe osoby do ustawienia” (0612, 28.10.2026): konto po pierwszym logowaniu
+ * przez Microsoft czeka na decyzję, kim jest, a rekruterowi brakuje kategorii
+ * albo przełożonego. Wiersze dostaje wyłącznie admin i Head of Recruitment.
+ */
+export interface NewPersonSetupRow {
+  user_id: number;
+  name: string;
+  email: string;
+  since: string;
+  /** Nikt jeszcze nie zdecydował, kim jest ta osoba. */
+  needs_decision: boolean;
+  /** Czego brakuje rekruterowi: `categories`, `manager`. */
+  missing: ("categories" | "manager")[];
+}
+
+/**
  * „Nowe rekrutacje — kto prowadzi”: rekrutacje świeżo przekazane do searchu
  * z rekruterem prowadzącym. Lista informacyjna — w trybie „auto” automat
  * przydziela od razu, a Head of Recruitment zmienia tylko to, z czym się nie
@@ -526,6 +542,20 @@ export interface FlowPostingRow {
 export type FlowMissing = "sheet" | "why_candidate" | "rate";
 
 /** Jedna osoba w jednej rekrutacji (Nowi z blokadą, Screening, Zweryfikowany, DL). */
+/** Umówiony telefon na screening w „Czeka na Ciebie” (03.11.2026). */
+export interface BookedCallRow {
+  event_id: number;
+  candidate_id: number;
+  candidate_name: string;
+  job_id: number;
+  job_title: string;
+  job_working_title?: string | null;
+  client_name?: string | null;
+  start_time: string;
+  note?: string | null;
+  in_outlook?: boolean;
+}
+
 export interface FlowPairRow {
   candidate_id: number;
   candidate_name: string;
@@ -536,6 +566,8 @@ export interface FlowPairRow {
   since: string;
   claimed_until?: string | null;
   missing?: FlowMissing[];
+  /** Umówiony telefon tej osoby. */
+  call_at?: string | null;
   qc_status?: string | null;
 }
 
@@ -646,6 +678,7 @@ export interface BoardTasksResponse {
   prep_attention?: PrepAttentionRow[];
   /** 0372: follow-upy z kandydatami do zrobienia przez Ciebie (termin do
    *  jutra). Opcjonalne w typie — brak = pusta lista. */
+  booked_calls?: BookedCallRow[];
   followups?: FollowupRow[];
   /** 0372: Twoi kandydaci, z którymi follow-up robi ktoś inny. */
   followups_by_others?: FollowupRow[];
@@ -662,6 +695,9 @@ export interface BoardTasksResponse {
   /** „Nowe rekrutacje — kto prowadzi” — tylko admin i Head of Recruitment
    *  (reszta dostaje pustą listę); starszy backend pola nie oddaje. */
   new_job_leads?: NewJobLeadRow[];
+  /** „Nowe osoby do ustawienia” — admin i Head of Recruitment. `null` = serwer
+   *  nie policzył listy; starszy backend pola nie oddaje. */
+  new_people?: NewPersonSetupRow[] | null;
   /** „Twoje CV w drodze” — co dzieje się z CV po przekazaniu karty. `null`
    *  albo brak = osoba usunęła listę z pulpitu (albo serwer jej nie policzył). */
   cv_in_transit?: CvInTransit | null;

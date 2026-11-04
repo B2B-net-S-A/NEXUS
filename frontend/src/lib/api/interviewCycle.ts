@@ -36,7 +36,10 @@ export const interviewCycleQueryKey = (scope: CycleScope) =>
   ["interview-cycle", scope] as const;
 export const clientQuestionsQueryKey = (jobId: number) =>
   ["interview-cycle", "client-questions", jobId] as const;
-/** Pula pytań klienta z debriefów — po rekrutacji albo (nowa rekrutacja) po kliencie. */
+/** Wszystkie pytania klienta tej rekrutacji, z rekrutacją przy pytaniu. */
+export const allClientQuestionsQueryKey = (jobId: number) =>
+  ["interview-cycle", "client-questions", "all", jobId] as const;
+/** Pytania z rozmów — tej rekrutacji albo (nowa rekrutacja) całego klienta. */
 export const clientQuestionPoolQueryKey = (
   by: "job" | "client",
   id: number,
@@ -72,6 +75,7 @@ export const interviewCycleApi = {
     duration_minutes: number;
     respond_by?: string | null;
     note?: string | null;
+    replaces_request_id?: number;
   }) => api.post<SlotRequest>("/api/interview-cycle/slots", body).then((r) => r.data),
   /** Terminy z wklejonego maila klienta — podpowiedź, niczego nie zapisuje. */
   readSlotsFromMail: (body: { text: string; mail_date?: string | null }) =>
@@ -145,7 +149,13 @@ export const interviewCycleApi = {
   clientQuestions: (jobId: number) =>
     api
       .get<ClientQuestion[]>("/api/interview-cycle/client-questions", {
-        params: { job_id: jobId, limit: 10 },
+        params: { job_id: jobId, limit: 50 },
+      })
+      .then((r) => r.data),
+  allClientQuestions: (jobId: number) =>
+    api
+      .get<ClientQuestion[]>("/api/interview-cycle/client-questions", {
+        params: { job_id: jobId, scope: "client", limit: 500 },
       })
       .then((r) => r.data),
   clientQuestionPool: (by: "job" | "client", id: number, limit: number) =>
@@ -166,6 +176,8 @@ export interface ClientQuestion {
   id: number;
   text: string;
   created_at: string | null;
+  /** Rekrutacje, w których pytanie padło (tylko lista całego klienta). */
+  jobs?: { id: number; title: string }[];
 }
 
 export interface ArchiveQuestion {
@@ -207,6 +219,15 @@ export function useClientQuestionArchive(jobId: number | null, enabled: boolean)
   });
 }
 
+export function useAllClientQuestions(jobId: number | null, enabled: boolean) {
+  return useQuery({
+    queryKey: allClientQuestionsQueryKey(jobId ?? 0),
+    queryFn: () => interviewCycleApi.allClientQuestions(jobId as number),
+    enabled: enabled && jobId != null,
+    staleTime: 5 * 60_000,
+  });
+}
+
 export function useClientQuestions(jobId: number | null) {
   return useQuery({
     queryKey: clientQuestionsQueryKey(jobId ?? 0),
@@ -223,7 +244,7 @@ export function useClientQuestions(jobId: number | null) {
 export function useClientQuestionPool(
   by: "job" | "client",
   id: number | null,
-  limit = 50,
+  limit = 200,
 ) {
   return useQuery({
     queryKey: clientQuestionPoolQueryKey(by, id ?? 0, limit),

@@ -84,8 +84,12 @@ import {
   decodeNavContext,
   decodeJobBackRef,
   decodeTalentRadarBackRef,
+  decodeJobSearchBackRef,
   encodeNavContext,
+  listBackHref,
+  withJobSearchBackRef,
 } from "@/lib/url-filters";
+import { readJobSearchReturn, writeJobSearchReturn, writeListSearch } from "@/lib/search-memory";
 import { useTabsStore } from "@/store/tabs";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import { invalidateCandidateMutation } from "@/components/v2/pages/candidate-cache";
@@ -100,6 +104,7 @@ import {
   type CandidateProfileViewInput,
 } from "@/components/v2/pages/candidate-profile-navigation";
 import { useCapability } from "@/hooks/useCapability";
+import { AddCvDialog } from "@/components/v2/candidate-profile/AddCvDialog";
 import {
   ProfilePersonBar,
   ProfileTopBar,
@@ -222,6 +227,23 @@ export function CandidateDetailV2({
       embedded ? false : decodeTalentRadarBackRef(new URLSearchParams(searchString)),
     [embedded, searchString],
   );
+  // `?from=job-search&jobId=N` — profil z „Szukaj ręcznie” w oknie rekrutacji.
+  const backJobSearchId = React.useMemo(
+    () => (embedded ? null : decodeJobSearchBackRef(new URLSearchParams(searchString))),
+    [embedded, searchString],
+  );
+  const backJobSearchQuery = useQuery({
+    queryKey: ["job", String(backJobSearchId)],
+    queryFn: () => api.get(`/api/jobs/${backJobSearchId}`).then((r) => r.data),
+    enabled: backJobSearchId != null,
+    staleTime: 5 * 60_000,
+  });
+  // „Wybieram” na profilu z „Szukaj ręcznie” — osoba wraca zaznaczona w oknie.
+  // Czytane po montowaniu: pamięć karty nie istnieje przy renderze serwera.
+  const [pickedIds, setPickedIds] = useState<number[]>([]);
+  useEffect(() => {
+    setPickedIds(backJobSearchId != null ? readJobSearchReturn(backJobSearchId).picked : []);
+  }, [backJobSearchId]);
   const openTabsList = useTabsStore((s) => s.tabs);
   const backJobTitle =
     backJobId != null
@@ -336,14 +358,23 @@ export function CandidateDetailV2({
       if (urlNav) {
         setUrlPosition(next.position);
         let sp = encodeNavContext(urlNav.filters, next.position);
+        if (backJobSearchId != null) {
+          sp = withJobSearchBackRef(sp, backJobSearchId);
+          writeJobSearchReturn(backJobSearchId, { lastOpenedId: next.candidateId });
+        } else {
+          // Lista „Kandydaci” po powrocie wyróżnia ostatnio oglądaną osobę.
+          writeListSearch({ lastOpenedId: next.candidateId });
+        }
         sp = withCandidateProfileView(sp, profileView);
         const messageId = searchParams?.get("msg");
         if (messageId) sp.set("msg", messageId);
-        router.push(`/candidates/${next.candidateId}?${sp.toString()}`);
+        // `replace`: „Wstecz” przeglądarki wraca do wyszukiwania jednym
+        // kliknięciem, nie po kolei przez każdy przejrzany profil.
+        router.replace(`/candidates/${next.candidateId}?${sp.toString()}`);
         router.refresh();
       }
     },
-    [navContext, profileView, searchParams, urlNav, router],
+    [backJobSearchId, navContext, profileView, searchParams, urlNav, router],
   );
 
   const candidateNav = useCandidateNavigation(
@@ -393,6 +424,9 @@ export function CandidateDetailV2({
   const [followupOpen, setFollowupOpen] = useState(false);
   const [blacklistOpen, setBlacklistOpen] = useState(false);
   const [latestCvOpen, setLatestCvOpen] = useState(false);
+  // „Dodaj CV” w pasku osoby (29.10.2026) — prawo jak „Dodaj plik” w Dokumentach.
+  const [addCvOpen, setAddCvOpen] = useState(false);
+  const canManageDocuments = useCapability("candidate.document.manage");
 
   // ── Uprawnienia ───────────────────────────────────────────────────────
   const currentUser = useAuthStore((s) => s.user);
@@ -614,6 +648,31 @@ export function CandidateDetailV2({
       }
     : null;
 
+  // Powrót do wyszukiwania: okno „Szukaj ręcznie” rekrutacji albo lista z filtrami.
+  const backJobSearchTitle: string | null = backJobSearchQuery.data?.title ?? null;
+  const backSearch =
+    backJobSearchId != null
+      ? {
+          href: `/jobs/${backJobSearchId}?win=add&wintab=manual`,
+          context: backJobSearchTitle,
+        }
+      : urlNav && backJobId == null && !backToTalentRadar
+        ? { href: listBackHref(urlNav.filters), context: null }
+        : null;
+  const pick =
+    backJobSearchId != null
+      ? {
+          picked: pickedIds.includes(candidateNumericId),
+          count: pickedIds.length,
+          onToggle: () => {
+            const next = pickedIds.includes(candidateNumericId)
+              ? pickedIds.filter((x) => x !== candidateNumericId)
+              : [...pickedIds, candidateNumericId];
+            setPickedIds(writeJobSearchReturn(backJobSearchId, { picked: next }).picked);
+          },
+        }
+      : null;
+
   return (
     // Laptop z Windows (1280–1536 px): mniejsze odstępy nad zakładkami, żeby
     // zaczynały się w górnych 80% okna — pilnuje `e2e/responsive-preview.spec.ts`.
@@ -628,6 +687,8 @@ export function CandidateDetailV2({
         backJobId={backJobId}
         backJobTitle={backJobTitle}
         backToTalentRadar={backToTalentRadar}
+        backSearch={backSearch}
+        pick={pick}
         candidateId={candidateNumericId}
       />
 
@@ -659,6 +720,7 @@ export function CandidateDetailV2({
           onBlacklist: canWriteSourcing ? () => setBlacklistOpen(true) : undefined,
           latestCv,
           onOpenLatestCv: () => setLatestCvOpen(true),
+          onAddCv: canManageDocuments ? () => setAddCvOpen(true) : undefined,
         }}
       />
 
@@ -923,6 +985,15 @@ export function CandidateDetailV2({
         />
       ) : null}
 
+      {addCvOpen ? (
+        <AddCvDialog
+          open={addCvOpen}
+          onOpenChange={setAddCvOpen}
+          candidateId={candidateNumericId}
+          candidateName={fullName || "Kandydat"}
+        />
+      ) : null}
+
       {latestCvOpen && latestCv ? (
         <FilePreviewModal
           documents={cvDocuments}
@@ -1025,9 +1096,11 @@ export function CandidateDetailV2({
           onOpenChange={setDeleteOpen}
           variant="destructive"
           title="Trwale usunąć profil kandydata?"
-          // Co zniknie ORAZ co zostanie: umowy i faktury przeżywają (odpięte,
-          // migracja 0224), payloady integracji Traffit nie mają FK na kandydata.
-          description={`${fullName} oraz powiązane dane rekrutacyjne (CV, notatki, historia procesu, oceny, komentarze) zostaną trwale usunięte z systemu. Umowy i faktury zostaną zachowane bez powiązania z osobą — retencja dokumentów księgowych nie zależy od obecności kandydata w bazie. Tej operacji nie można cofnąć.`}
+          // Co zniknie ORAZ co zostanie: CV nie kasujemy (decyzja Artura 26.09.2026,
+          // `retain_candidate_files`), wygenerowane CV, zgłoszenia i maile tracą tylko
+          // powiązanie (FK SET NULL); umowy i faktury przeżywają (odpięte, migracja
+          // 0224), payloady integracji Traffit nie mają FK na kandydata.
+          description={`${fullName}: profil, notatki, historia procesu, oceny i komentarze zostaną trwale usunięte z systemu. Nie wszystkie dane osoby znikają: pliki CV, wygenerowane CV, zgłoszenia z formularza i maile zostają w systemie bez powiązania z profilem. Umowy i faktury też zostają bez powiązania z osobą — retencja dokumentów księgowych nie zależy od obecności kandydata w bazie. Tej operacji nie można cofnąć.`}
           confirmLabel="Usuń trwale"
           cancelLabel="Anuluj"
           loading={deleteMut.isPending}

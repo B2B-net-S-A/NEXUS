@@ -1,26 +1,23 @@
 "use client";
 
-import { TerminalChrome } from "@/components/career/TerminalChrome";
+import { BrandBare, BrandTitle, brandStyles as s } from "@/components/career/brand/BrandShell";
+import { CareerThemeScope } from "@/components/career/CareerThemeScope";
 
-/** Awaria odczytu (np. API niedostępne) — w motywie kariery, z ponowieniem. */
+/** Awaria odczytu (np. API niedostępne) — w barwach marki, z ponowieniem. */
 export default function CareerError({ reset }: { error: Error; reset: () => void }) {
   return (
-    <>
-      <TerminalChrome path="~/b2bnetwork/kariera — zsh" />
-      <main className="kr-log" role="alert">
-        <span>
-          <span className="kr-r">[err]</span> <span className="kr-g">503</span>{" "}
-          <span className="kr-c">{"// nie udało się wczytać strony"}</span>
-        </span>
-        <h1 className="kr-log-title">
-          <span className="kr-title-a">Chwilowa</span>{" "}
-          <span className="kr-title-b">przerwa.</span>
-        </h1>
-        <span className="kr-log-text">Spróbuj ponownie za chwilę.</span>
-        <button type="button" className="kr-btn" onClick={reset} style={{ border: 0, font: "inherit" }}>
-          $ ./ponow
-        </button>
-      </main>
-    </>
+    <CareerThemeScope theme="grafit">
+      <BrandBare>
+        <main className={`${s.wrap} ${s.message}`} role="alert">
+          <BrandTitle text="Chwilowa przerwa." />
+          <p className={s.messageText}>Nie udało się wczytać strony. Spróbuj ponownie za chwilę.</p>
+          <div className={`${s.actions} ${s.messageActions}`}>
+            <button type="button" className={s.btn} onClick={reset}>
+              Spróbuj ponownie
+            </button>
+          </div>
+        </main>
+      </BrandBare>
+    </CareerThemeScope>
   );
 }

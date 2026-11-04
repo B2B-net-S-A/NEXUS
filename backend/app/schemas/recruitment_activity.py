@@ -46,6 +46,7 @@ class RecruitmentActivityPerson(RecruitmentActivityModel):
 class RecruitmentActivityMetricCounts(RecruitmentActivityModel):
     metric: RecruitmentActivityMetric
     day: int | None
+    # Liczba okresu `period_start`–`period_end`: miesiąc albo wybrane od–do.
     month: int
 
 
@@ -70,6 +71,9 @@ class RecruitmentActivitySummaryResponse(RecruitmentActivityModel):
     generated_at: datetime
     day: date
     month: date
+    # Dni, które liczy `metrics[].month` (włącznie) — miesiąc albo od–do.
+    period_start: date | None = None
+    period_end: date | None = None
     scope: RecruitmentActivityScope
     can_view_team_details: bool
     subject: RecruitmentActivityPerson | None = None
@@ -138,3 +142,16 @@ class RecruitmentActivityDetailResponse(RecruitmentActivityModel):
     # Ile z `period_total` to tygodniowe wpisy DynaReportera (1.01–11.10.2026):
     # są w liczbie, ale nie na liście — DynaReporter nie zna kandydatów.
     history_total: int = 0
+
+
+class RecruitmentActivityTeamTotalsResponse(RecruitmentActivityModel):
+    """Liczby zespołu za dni od–do dla kilku etapów naraz (kafel „Wyniki
+    zespołu”, 27.10.2026) — każda równa ``period_total`` listy „Kto się
+    liczy” tego etapu w zakresie zespołu."""
+
+    generated_at: datetime
+    period_start: date
+    period_end: date
+    totals: dict[RecruitmentActivityMetric, int] = Field(default_factory=dict)
+    # Ile z liczby to wpisy DynaReportera (bez osób na liście).
+    history: dict[RecruitmentActivityMetric, int] = Field(default_factory=dict)

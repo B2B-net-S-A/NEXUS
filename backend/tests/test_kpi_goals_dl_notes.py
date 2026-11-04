@@ -19,6 +19,9 @@ from app.models.user import UserRole
 from app.services import competitions, kpi_goals
 from app.services.kpi_targets import resolve_kpi_targets_bulk, resolve_org_target
 
+# Atrapa `db` bez obsługi migawki `credited` (27.10.2026).
+pytestmark = pytest.mark.usefixtures("empty_credited_snapshot")
+
 NOW = datetime(2026, 9, 10, tzinfo=timezone.utc)
 
 

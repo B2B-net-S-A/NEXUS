@@ -44,6 +44,22 @@ function renderList() {
   );
 }
 
+describe("EmailThreadList: wątek z samą pustą odpowiedzią na zaproszenie", () => {
+  it("zamiast pustego podglądu mówi, czym jest wiadomość", async () => {
+    const blank = thread(1);
+    blank.subject = "Accepted: Rozmowa";
+    Object.assign(blank.latest, { subject: "Accepted: Rozmowa", body_html: null, body_text: "" });
+    listCandidateThreads.mockReset();
+    listCandidateThreads.mockResolvedValue({
+      data: { items: [blank], total: 1, limit: 50, offset: 0 },
+    });
+
+    renderList();
+
+    expect(await screen.findByText("Odpowiedź na zaproszenie, bez treści")).toBeInTheDocument();
+  });
+});
+
 describe("nextEmailPageOffset", () => {
   it("zwraca następny offset tylko, gdy coś zostało", () => {
     expect(nextEmailPageOffset({ total: 120, offset: 0, limit: 50, items: new Array(50) })).toBe(50);

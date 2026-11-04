@@ -24,6 +24,15 @@ w żadnym źródle.
   ocenia ZDANIA, nie całą odpowiedź: „Używała Grafany. Nie zna Iceberga.”
   zostaje dowodem Grafany). Notatki przez `evidence_note_text` i
   `ai_readable_clause` (bez automatów, wycofanych odpowiedzi karty, follow-upu).
+- **Pytanie nie jest dowodem** (`qc-truth-2`, 02.11.2026). Z karty rekomendacji
+  odpada pytanie i nazwa rekrutacji („Nazwa projektu”, „Nazwa pliku CV”). Pytanie
+  zostaje tylko przy krótkim „tak” (`answer_confirms_question`, do 6 słów):
+  wtedy to ono niesie treść odpowiedzi. To samo robi tabela wymagań przeglądu DL
+  (`dl_review.conversation_texts`). Do tej zmiany QC pisało „kandydat mówił
+  o tym w rozmowie, dopisz” przy słowie z pytania, a w tabeli DL 73 z 319 par
+  miało „jest” tylko z pytania. Pomiar: 867 par, zaliczone 726 → 723 (termin padł
+  tylko w pytaniu, blokada `no_unsupported` ma rację), pozycje `must_in_cv`
+  325 → 301.
 - **Dwa dopasowania, `dz_review.found_in(text, req, mode=…)`.** `_found`
   zostaje dosłowne — czytają je też przegląd DZ, AI w edytorze i przegląd DL.
   - `mode="support"` (blokada `no_unsupported`): dosłownie z aliasami
@@ -74,6 +83,31 @@ w żadnym źródle.
   nie ma jej w całym CV albo brakuje zdania tam, gdzie oryginał ją opisuje.
   Wymaganie opisowe (≥ 4 słowa), którego nie ma nigdzie, to informacja
   („sprawdź ręcznie”), nie „zapytaj kandydata”.
+- **Zdanie z przecinkami to zdanie, nie lista** (`qc-truth-3`, 02.11.2026).
+  `is_tech_list` brała za listę punkt, w którym ponad połowa członów między
+  przecinkami miała do 3 słów, więc „Managed Azure, Entra ID, and Intune” albo
+  „Developed tools in C/C++, using CAN, I2C, SPI” dawały „Jest tylko na liście
+  technologii”, choć zdanie w roli stało. Na 991 takich punktach z 775 par
+  prawie każdy był zdaniem. Teraz nie jest listą tekst ze słowem łączącym
+  (`_SENTENCE_WORDS`, bez „of” i „on”, bo stoją w nazwach), z co najmniej 3 słowami
+  przed dwukropkiem ani tekst, który bez nawiasu ma mniej niż 3 człony. Punkty
+  brane za listę: 991 → 36, a z 568 tekstów z sekcji „Technologie” za listę
+  uchodzi 456 zamiast 455.
+- **„C” to nie „C++” ani „C#”** (`dz._patterns`, tak samo „F#”): litera nie trafia,
+  gdy stoi za nią `+` albo `#`. Do 02.11.2026 QC twierdziło, że oryginał opisuje C
+  przy roli „C++ Software Engineer”. „C/C++” dalej zawiera C. Dotyczy wszystkich
+  czytających `_found` (QC, przegląd DZ, AI w edytorze, przegląd DL), nie
+  wyszukiwarki: tam słowo kluczowe ma co najmniej 2 znaki.
+- **Pomiar `qc-truth-3`** (staging, 814 par z 21 dni, kod starej i nowej wersji):
+  zaliczone 685 → 688, uwagi 1102 → 1067, blokujące 186 → 177, `must_in_roles`
+  65 → 39, `critical_skills` 73 → 64, `no_unsupported` bez zmian. Uwagi oznaczone
+  „To nieprawda”, które QC nadal zgłasza (`qc_eval_dismissals.py`): krytyczne
+  16 → 7. Przejrzane ręcznie wszystkie 36 znikających uwag: każda ma już zdanie
+  w roli. Jedna nowa blokada, prawdziwa: wymaganie „C” przy CV z samym C++ i C#.
+- **`dz_review` w nakładce `qc_overlay.py`** traci ścieżkę słownika tłumaczeń
+  (`__file__` nakładki) i pomiar kończy się samymi `FileNotFoundError`. Przed
+  skryptem pomiaru ustaw `_QC_TRANSLATIONS_FILE` na plik z obrazu i wyczyść
+  `_translation_groups`.
 - **Luka kandydata to informacja, nie uwaga** (D2, decyzja Artura
   17.10.2026). `must_in_cv`: wymaganie, którego nie ma w CV, w oryginale ani
   w rozmowie, idzie do `check["info"]` z `fix: "ask_candidate"` i detalem
@@ -215,3 +249,32 @@ nic nie usuwało. Raport i decyzja: `docs/qc-rate-in-cv-proposal.md`.
 Testy: sekcja „Stawka w CV” w `tests/test_cv_qc.py` (`CV_NOT_RATES`,
 `CV_RATES`: uwaga QC i „Usuń stawkę” zgadzają się na każdym przykładzie;
 `test_rate_mentions_is_linear`).
+
+## Pod inną nazwą zamiast „nie ma w oryginale” (`qc-truth-4`, 02.11.2026)
+
+Zgłoszenie rekruterki: QC mówi, że kandydat nie ma technologii, a ma ją w oryginale.
+Pomiar 635 par z plikiem: na 124 uwagi „nie ma w oryginale” 36 ma w oryginale pokrewne
+słowo, 61 to prawdziwe braki, a 27 wyglądało na stary plik. Z tych 27 aż 23 to firmowe
+`B2B_…` wgrane jako główne CV profilu, więc QC miało rację: dowodu nie bierz z profilu,
+tylko z kopii etapu. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip.
+
+- **`similar_in_original`:** rodzina nazw (`_TERM_FAMILIES`: Git przy GitHub, SQL przy
+  MySQL), człon nazwy „A/B” i rdzeń słowa od 5 liter spoza `_SIMILAR_GENERIC`. Wynik nie
+  zmienia zaliczenia, zmienia zdanie uwagi i daje cytat. Java przy JavaScript, C# przy
+  C++ i Go przy Google dalej nic nie znajdują. Przy lukach działa bez rdzeni, bo
+  pierwsza wersja dawała tam 342 trafienia na 1195 prawdziwych luk.
+- **„To ta sama rzecz”:** pominięcie z powodem `other_name` i cytatem z oryginału (serwer
+  sprawdza, że cytat tam stoi). Liczy się do „Jakości QC”, a przy blokadzie Delivery Lead
+  dostaje dzwonek jak przy każdym pominięciu.
+- **Luka z pokrewnym słowem** nie jest „Luką kandydata”: bez `fix: "ask_candidate"`.
+- **Liczba mnoga skrótu** („REST APIs”) także w `mode="support"`, a do słownika doszły
+  pary potwierdzone ręcznie: analiza systemowa, testy regresyjne, UX Research.
+- **Plik oryginału w oknie QC:** nazwa i data (`original_cv.snapshot_at`), a przy nowszym
+  CV kandydata w profilu (`newer_profile_cv`, 44 z 516 par) „Użyj w tej rekrutacji”.
+  Firmowe CV jako główne się nie liczy (`looks_like_client_cv`).
+- **Mniej niż 500 znaków odczytu kopii etapu** (`original_partial`, zwykle skan):
+  „CV nie twierdzi niczego spoza oryginału” idzie do sprawdzenia ręcznego.
+
+Testy: sekcja „Pod inną nazwą” w `tests/test_cv_qc.py`, `CvQcDialog.test.tsx`
+(„W oryginale pod inną nazwą”).
+

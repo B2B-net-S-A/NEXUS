@@ -27,6 +27,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,7 @@ import {
   rewriteSourceFileId,
   type CvConfirmations,
 } from "@/lib/cv-generate-confirm";
+import { newCvUploadKey, type NewCvUpload } from "@/lib/new-cv-upload";
 import { canMutateSection } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -173,7 +175,15 @@ function CvGeneratePanelForm({
 
   // Potwierdzenia (21.10.2026) — tylko przy generacji, nie przy „Napisz od nowa”.
   const confirming = rewrite === undefined;
-  const [confirmed, setConfirmed] = useState<CvConfirmations>(NO_CONFIRMATIONS);
+  // Nowe CV wgrane przed chwilą w tej rekrutacji (29.10.2026) to wybór
+  // rekrutera — plik jest potwierdzony, zostają odpowiedzi i notatki.
+  const queryClient = useQueryClient();
+  const [confirmed, setConfirmed] = useState<CvConfirmations>(() => {
+    const upload = queryClient.getQueryData<NewCvUpload | null>(newCvUploadKey(candidateId, jobId));
+    return upload?.plan === "confirm" && upload.documentId != null
+      ? { ...NO_CONFIRMATIONS, file: upload.documentId }
+      : NO_CONFIRMATIONS;
+  });
   const left = confirming ? confirmationsLeft(confirmed, { fileId, noteDraft: g.noteDraft }) : [];
 
   // Karta należy do JEDNEJ rekrutacji. Osoba z jednym innym procesem dostałaby
@@ -309,7 +319,9 @@ function CvGeneratePanelForm({
           position={g.position}
           onPositionChange={g.setPosition}
           positionRequired={g.positionRequired}
-          positionFromJob={!!g.recruitment && g.position === g.recruitment.job_title}
+          positionFromJob={!!g.recruitment && g.position === g.positionDefault}
+          positionDefault={g.positionDefault}
+          outcome={{ header: g.headerPreview, filename: g.filenamePreview }}
           projectRef={g.projectRef}
           onProjectRefChange={g.setProjectRef}
           projectRefVisible={g.projectRefVisible}
@@ -385,6 +397,7 @@ function CvGeneratePanelForm({
           onConfirm={setConfirmed}
           left={left}
           disabled={g.generating}
+          stageId={g.recruitment?.stage_id ?? null}
         />
       ) : null}
       {choices}

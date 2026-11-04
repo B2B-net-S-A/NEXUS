@@ -39,14 +39,14 @@ afterEach(() => {
 });
 
 describe("/preview/hr-dashboard", () => {
-  it("rekruterka w zastępstwie: praca Kamila, Mój czas i okienko nieobecnych", async () => {
+  it("rekruterka w zastępstwie: praca Kamila, Moja współpraca i okienko nieobecnych", async () => {
     const user = userEvent.setup();
     open("");
 
     const cover = await screen.findByRole("region", { name: "Zastępstwo: Kamil Testowy" });
     expect(cover).toHaveTextContent("3rekrutacje");
     expect(cover).toHaveTextContent("2rozmowy u klienta");
-    const myTime = screen.getByRole("region", { name: "Mój czas" });
+    const myTime = screen.getByRole("region", { name: "Moja współpraca" });
     expect(await within(myTime).findByText("zostało")).toBeInTheDocument();
     expect(within(myTime).queryByRole("alert")).toBeNull();
 
@@ -79,10 +79,10 @@ describe("/preview/hr-dashboard", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona: Do akceptacji i ostrzeżenie o nieobecnym zastępcy", async () => {
+  it("koordynatorka: Do akceptacji i ostrzeżenie o nieobecnym zastępcy", async () => {
     open("?as=manager");
     const approvals = await screen.findByRole("region", { name: "Do akceptacji" });
-    expect(approvals).toHaveTextContent("4wnioski lub timesheety czekają na Twoją decyzję");
+    expect(approvals).toHaveTextContent("4wnioski lub raporty godzin czekają na Twoją decyzję");
     expect(
       screen.getByText(/Adam Wzorcowy — zastępca \(Kamil Testowy\) też ma dziś nieobecność/),
     ).toBeInTheDocument();

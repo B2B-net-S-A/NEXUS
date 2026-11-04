@@ -24,7 +24,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import OperationalUser, RecruiterPlus
+from app.api.deps import LinkResultsManager, OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
@@ -41,7 +41,10 @@ from app.schemas.invite_link import (
     CareerLinkResponse,
     CareerLinkResultCounts,
     CareerLinkResultRow,
+    CareerLinkPeople,
+    CareerLinkPerson,
     CareerLinkResults,
+    JobTeamLink,
     CareerLinkStats,
     CareerLinkUpdate,
     PublicProfileDraft,
@@ -63,6 +66,7 @@ from app.services.career_slugs import (
 from app.services.job_ad.text import visible
 from app.services.public_profile_lint import lint_internal_codes, lint_public_texts
 from app.services.public_apply import link_key
+
 
 router = APIRouter(dependencies=PIPELINE_SECTION_DEPENDENCIES)
 
@@ -273,12 +277,68 @@ async def get_my_link_results(
     # Suma widocznych wierszy — kafel liczony z innego zbioru niż lista pod
     # nim nie daje się sprawdzić wzrokiem.
     totals = {
-        key: sum(getattr(r, key) for r in rows)
+        key: sum(getattr(r, key) or 0 for r in rows)
         for key in CareerLinkResultCounts.model_fields
     }
+    if since is None:
+        totals["visits_in_period"] = None
     return CareerLinkResults(
-        days=days or None, totals=CareerLinkResultCounts(**totals), links=rows
+        days=days or None,
+        visits_tracked_from=await clr.visits_tracked_from(db),
+        totals=CareerLinkResultCounts(**totals),
+        links=rows,
     )
+
+
+@router.get("/me/career-link/people", response_model=CareerLinkPeople)
+async def get_my_link_people(
+    current_user: RecruiterPlus,
+    days: int = Query(0, ge=0, le=3650),
+    db: AsyncSession = Depends(get_db),
+) -> CareerLinkPeople:
+    """Kto zgłosił się z linków osoby i gdzie jest teraz. ``days=0`` = od początku."""
+    from app.services import career_link_results as clr
+
+    since = None if days == 0 else _now() - timedelta(days=days)
+    rows, total = await clr.link_people(db, current_user.id, since)
+    return CareerLinkPeople(
+        days=days or None,
+        total=total,
+        truncated=total > len(rows),
+        people=[
+            CareerLinkPerson(
+                **{key: row[key] for key in CareerLinkPerson.model_fields if key in row}
+            )
+            for row in rows
+        ],
+    )
+
+
+@router.get("/jobs/{job_id}/link-results", response_model=list[JobTeamLink])
+async def get_job_team_links(
+    job_id: int, current_user: LinkResultsManager, db: AsyncSession = Depends(get_db)
+) -> list[JobTeamLink]:
+    """Kto z zespołu ma link do rekrutacji i co przyniósł (decyzja Artura 02.11.2026)."""
+    from app.api.candidate_search import _authorized_job
+    from app.services import career_link_results as clr
+
+    # Sekcja Pipeline i istnienie rekrutacji; dla Delivery Leada rekrutacje są org-wide.
+    job = await _authorized_job(db, current_user, job_id)
+    rows = await clr.job_team_links(db, job.id)
+    now = _now()
+    return [
+        JobTeamLink(
+            **{key: row[key] for key in JobTeamLink.model_fields if key in row},
+            state=(
+                "revoked"
+                if row["revoked"]
+                else "expired"
+                if row["expires_at"] is not None and row["expires_at"] < now
+                else "active"
+            ),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/me/career-link/slug-available", response_model=SlugAvailability)

@@ -4,6 +4,7 @@ import * as React from"react";
 import { AlertTriangle } from"lucide-react";
 import {
  Dialog,
+ DialogBody,
  DialogContent,
  DialogDescription,
  DialogFooter,
@@ -11,6 +12,16 @@ import {
  DialogTitle,
 } from"@/components/ui/dialog";
 import { Button } from"@/components/ui/button";
+import { Textarea } from"@/components/ui/textarea";
+
+/** Pole tekstowe w oknie potwierdzenia (np. powód anulowania). */
+export interface ConfirmField {
+ label: string;
+ placeholder?: string;
+ /** Najmniej znaków po przycięciu, żeby przycisk potwierdzenia działał. */
+ minLength?: number;
+ maxLength?: number;
+}
 
 interface Props {
  open: boolean;
@@ -22,6 +33,7 @@ interface Props {
  variant?:"default" |"destructive";
  onConfirm: () => void;
  loading?: boolean;
+ field?: ConfirmField & { value: string; onChange: (value: string) => void };
 }
 
 /**
@@ -38,7 +50,11 @@ export function ConfirmV2({
  variant ="default",
  onConfirm,
  loading,
+ field,
 }: Props) {
+ const fieldId = React.useId();
+ const fieldShort =
+ field !== undefined && field.value.trim().length < (field.minLength ?? 1);
  return (
  <Dialog open={open} onOpenChange={onOpenChange}>
  <DialogContent size="sm">
@@ -54,6 +70,23 @@ export function ConfirmV2({
  {description && <DialogDescription>{description}</DialogDescription>}
  </DialogHeader>
 
+ {field && (
+ <DialogBody className="space-y-1.5 pt-0">
+ <label htmlFor={fieldId} className="text-sm font-medium">
+ {field.label}
+ </label>
+ <Textarea
+ id={fieldId}
+ rows={3}
+ autoFocus
+ value={field.value}
+ placeholder={field.placeholder}
+ maxLength={field.maxLength}
+ onChange={(event) => field.onChange(event.target.value)}
+ />
+ </DialogBody>
+ )}
+
  <DialogFooter>
  <Button
  variant="ghost"
@@ -66,6 +99,7 @@ export function ConfirmV2({
  variant={variant === "destructive" ?"destructive" :"primary"}
  onClick={onConfirm}
  loading={loading}
+ disabled={fieldShort}
  >
  {confirmLabel}
  </Button>
@@ -83,6 +117,10 @@ export interface ConfirmRequest {
   variant?: "default" | "destructive";
 }
 
+export interface ReasonRequest extends ConfirmRequest {
+  field: ConfirmField;
+}
+
 /**
  * Obietnicowe potwierdzenie na ConfirmV2 — zamiennik `window.confirm()`
  * (runda 11 audytu, FRONT). Natywny dialog zamraża automatyzację przeglądarki
@@ -92,14 +130,19 @@ export interface ConfirmRequest {
  * - Anulowanie (przycisk, Esc, klik obok) = `false`, nic się nie dzieje.
  * - Potwierdzenie rozwiązuje obietnicę RAZ — drugie kliknięcie w trakcie
  *   zamykania nie wykona akcji drugi raz.
+ * - `askReason` to samo pytanie z polem tekstowym (np. powód anulowania):
+ *   zwraca przycięty tekst albo `null` przy anulowaniu.
  * - `confirmDialog` wyrenderuj raz w komponencie, który woła `askConfirm`.
  */
 export function useConfirmV2(): {
   askConfirm: (request: ConfirmRequest) => Promise<boolean>;
+  askReason: (request: ReasonRequest) => Promise<string | null>;
   confirmDialog: React.ReactNode;
 } {
-  const [request, setRequest] = React.useState<ConfirmRequest | null>(null);
+  const [request, setRequest] = React.useState<ConfirmRequest | ReasonRequest | null>(null);
   const [open, setOpen] = React.useState(false);
+  const [text, setText] = React.useState("");
+  const textRef = React.useRef("");
   const resolverRef = React.useRef<((value: boolean) => void) | null>(null);
 
   const settle = React.useCallback((value: boolean) => {
@@ -122,10 +165,29 @@ export function useConfirmV2(): {
     resolverRef.current?.(false);
     return new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
+      textRef.current = "";
+      setText("");
       setRequest(next);
       setOpen(true);
     });
   }, []);
+
+  const askReason = React.useCallback(
+    async (next: ReasonRequest) => ((await askConfirm(next)) ? textRef.current.trim() : null),
+    [askConfirm],
+  );
+
+  const field =
+    request && "field" in request
+      ? {
+          ...request.field,
+          value: text,
+          onChange: (value: string) => {
+            textRef.current = value;
+            setText(value);
+          },
+        }
+      : undefined;
 
   const confirmDialog = request ? (
     <ConfirmV2
@@ -138,9 +200,10 @@ export function useConfirmV2(): {
       confirmLabel={request.confirmLabel}
       cancelLabel={request.cancelLabel}
       variant={request.variant}
+      field={field}
       onConfirm={() => settle(true)}
     />
   ) : null;
 
-  return { askConfirm, confirmDialog };
+  return { askConfirm, askReason, confirmDialog };
 }

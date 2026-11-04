@@ -548,8 +548,8 @@ async def load_ending_intents(
         if status_value in (ContractStatus.ended.value, ContractStatus.void.value):
             terminal_contracts.add(contract_id)
             continue
-        # `terminated_at` przeżywa wznowienie umowy, ale wznowienie czyści
-        # datę końca — więc wypowiedzenie liczy się tylko z datą końca.
+        # Wiersze przywrócone przed 02.11.2026 niosą `terminated_at` bez daty
+        # końca — więc wypowiedzenie liczy się tylko z datą końca.
         if end_date is not None and (
             terminated_at is not None or reason is not None or contract_id in early
         ):

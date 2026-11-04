@@ -43,6 +43,7 @@ from app.models.recruitment_pipeline import (
 from app.models.recruitment_priority import PriorityChannel
 from app.models.recruitment_process import RecruitmentProcess
 from app.services import candidate_claim, client_off_limits
+from app.services import sent_vs_system
 from app.services.process_entry_meta import auto_match_entry_meta
 from app.services.candidate_stage_cv_service import create_original_cv_snapshot
 from app.services.candidate_contact_hooks import maybe_ensure_contact_opportunity
@@ -105,6 +106,10 @@ BulkAddSource = Literal[
     # 14.10.2026: „Pasuje też do” pod osobą właśnie dodaną do innej rekrutacji
     # (okno „Kandydaci do dodania”). Ręczne dodanie + dzwonek do rekrutera.
     "also_fits",
+    # 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” — rekrutacja
+    # wskazana ręcznie, gdy „Pasuje też do” jej nie podsunął. Wpis i dzwonek
+    # jak przy `also_fits`, inne słowa; osobny kod w telemetrii podpowiedzi.
+    "also_manual",
     # 22.10.2026: zakładka „Podobni” na profilu kandydata. Osoba bez
     # umiejętności krytycznej rekrutacji wchodzi tylko ze zdaniem „dlaczego
     # mimo to” (``reasons``), które trafia na kartę jako notatka.
@@ -158,7 +163,8 @@ class BulkProposalsRequest(BaseModel):
     run_id: Optional[str] = Field(default=None, max_length=64)
     source: Optional[BulkAddSource] = None
     # „Pasuje też do” (14.10.2026): rekrutacja, przy której padła podpowiedź —
-    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`.
+    # trafia do historii i do dzwonka rekrutera. Czytane tylko przy `also_fits`
+    # i `also_manual`.
     origin_job_id: Optional[int] = Field(default=None, gt=0)
     # „Podobni” (22.10.2026): zdanie „dlaczego mimo to” dla osoby bez
     # umiejętności krytycznej tej rekrutacji. Czytane tylko przy
@@ -332,8 +338,9 @@ def _is_entry_column(stage_def: PipelineStageDef) -> bool:
     ruchu — QC CV, stawkę DL, osobę od Cpro, debrief — które sprawdza wyłącznie
     ``POST /api/pipeline/move``. Bulk-add na taki etap omijał je wszystkie
     (przegląd PR #1836, bliźniak poprawki „para bez wierszy liczy od Nowi”).
-    Reguła żyje w ``board_stage_badges.is_entry_column`` — czyta ją też
-    wtyczka LinkedIn (``/api/candidates/from-linkedin``).
+    Reguła żyje w ``board_stage_badges.is_entry_column``. Wtyczka LinkedIn
+    (``/api/extension/candidates``) wybiera stałe wejście „Nowi” i nie
+    przyjmuje etapu od klienta.
     """
     from app.services.board_stage_badges import is_entry_column
 
@@ -814,6 +821,22 @@ async def add_candidates_to_job(
         and entry_source != candidate_claim.ENTRY_REASSIGN,
     )
 
+    # Gdzie osoba stała u systemu, zanim dodał ją człowiek (02.11.2026).
+    system_views = (
+        await sent_vs_system.snapshot_for_add(
+            db,
+            job,
+            [
+                candidates_by_id[cid]
+                for cid in lock_ordered_ids
+                if cid in candidates_by_id and cid not in already_in_job_set
+            ],
+            now=now,
+        )
+        if entry_source in candidate_claim.HUMAN_ENTRY_SOURCES
+        else {}
+    )
+
     # Jeden skan progresu assignmentu na cały batch: bez tego każda
     # iteracja powtarza pełne zapytanie KPI trzymając blokadę wiersza joba.
     with milestone_counts_scope():
@@ -899,7 +922,9 @@ async def add_candidates_to_job(
                 ),
                 reassign_from_job_id=reassign_sources.get(candidate_id),
                 claim_for_user_id=actor_user_id if claim else None,
-                entry_meta=entry_meta,
+                entry_meta=sent_vs_system.with_system_view(
+                    entry_meta, system_views.get(candidate_id)
+                ),
                 # Propozycje oznacza ta funkcja sama (`mark_proposals`, niżej).
                 mark_proposals=False,
             )
@@ -1290,7 +1315,7 @@ async def bulk_add_proposals(
     if added:
         # Live kanban: the rest of the team re-reads the board (best-effort).
         await broadcast_pipeline_changed(db, job_id, actor_id)
-    if added and body.source == "also_fits" and not from_integration:
+    if added and body.source in ("also_fits", "also_manual") and not from_integration:
         from app.services.also_fits import record_also_fits_added
 
         await record_also_fits_added(
@@ -1299,6 +1324,7 @@ async def bulk_add_proposals(
             candidate_ids=added,
             actor_id=actor_id,
             origin_job_id=body.origin_job_id,
+            manual=body.source == "also_manual",
         )
 
     # Match telemetry (no-op unless AI_MATCH_TELEMETRY_ENABLED): one

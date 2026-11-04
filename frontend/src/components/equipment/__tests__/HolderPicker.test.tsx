@@ -84,4 +84,51 @@ describe("HolderPicker", () => {
     expect(screen.getByText("Ola Przykładowa")).toBeInTheDocument();
     expect(screen.getByText(/Uczestnik Akademii · Akademia Rekrutera/)).toBeInTheDocument();
   });
+
+  it("labels the register mode with the three sources, without employment-contract words", () => {
+    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
+    // Bez „pracownik” na ekranie wielu osób (słowa zgodne z PIP, 21.10.2026).
+    expect(screen.getByRole("button", { name: "Zespół, kontrakty, osoby spoza" })).toBeInTheDocument();
+    expect(screen.queryByText(/[Pp]racownik/)).toBeNull();
+    expect(screen.getByPlaceholderText("Imię i nazwisko albo e-mail…")).toBeInTheDocument();
+  });
+
+  it("explains where it searched and what to do with a newcomer without an account", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({ data: { items: [] } });
+    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
+    await user.type(screen.getByRole("textbox", { name: "Szukaj osoby albo kontraktu" }), "sylwesiuk");
+    expect(await screen.findByText("Nikt nie pasuje do „sylwesiuk”.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/aktywnych kont NEXUSA, kontraktów konsultantów \(od szkicu do zakończenia\)/),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Nowa osoba w firmie?")).toBeInTheDocument();
+    expect(screen.getByText(/przepiszesz go jednym kliknięciem/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Osoba spoza NEXUSA/ })).toBeInTheDocument();
+  });
+
+  it("academy mode keeps its short no-match sentence", async () => {
+    const user = userEvent.setup();
+    mocks.get.mockResolvedValue({ data: { items: [] } });
+    wrap(<HolderPicker academy value={null} onChange={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Uczestnik Akademii" }));
+    await user.type(screen.getByRole("textbox", { name: "Szukaj uczestnika Akademii" }), "Zuza");
+    expect(await screen.findByText("Nikt nie pasuje do „Zuza”.")).toBeInTheDocument();
+    expect(screen.queryByText("Nowa osoba w firmie?")).toBeNull();
+    expect(screen.getByPlaceholderText("Imię i nazwisko uczestnika Akademii…")).toBeInTheDocument();
+  });
+
+  it("accounts-only picker lists NEXUS accounts and cannot add a person outside", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const EXTERNAL = { kind: "external", id: 7, name: "Olga Spoza", email: null, detail: "Osoba spoza NEXUSA" };
+    mocks.get.mockResolvedValue({ data: { items: [WORKER, EXTERNAL] } });
+    wrap(<HolderPicker accountsOnly value={null} onChange={onChange} />);
+    expect(screen.queryByRole("button", { name: /Osoba spoza NEXUSA/ })).toBeNull();
+    await user.type(screen.getByRole("textbox", { name: "Szukaj konta NEXUSA" }), "Ol");
+    expect(await screen.findByRole("button", { name: /Olga Testowa/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Olga Spoza/ })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /Olga Testowa/ }));
+    expect(onChange).toHaveBeenCalledWith(WORKER);
+  });
 });

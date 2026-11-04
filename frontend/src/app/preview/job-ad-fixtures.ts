@@ -49,6 +49,7 @@ export const CONTENT: AdContent = {
   start: "listopad 2026",
   duration: "",
   language: "polski, angielski B2",
+  city: "",
   responsibilities: [
     "projektowanie i rozwój mikroserwisów w Javie 21 i Spring Boot",
     "przenoszenie modułu autoryzacji płatności na komunikację przez Kafkę",
@@ -316,6 +317,7 @@ export function stateOf(
     stale?: boolean;
     publications?: AdPublication[];
     career?: AdCareerState;
+    jjit_api?: JobAdState["jjit_api"];
   } = {},
 ): JobAdState {
   return {
@@ -335,6 +337,9 @@ export function stateOf(
     can_copy: !findings.some((f) => f.severity === "block"),
     publications: patch.publications ?? [],
     career: patch.career ?? NO_CAREER_PAGE,
+    reminders: null,
+    pracuj_request: null,
+    jjit_api: patch.jjit_api ?? null,
   };
 }
 
@@ -349,6 +354,9 @@ function initial(state: HarnessState): JobAdState {
       can_copy: false,
       publications: [],
       career: NO_CAREER_PAGE,
+      reminders: null,
+      pracuj_request: null,
+      jjit_api: null,
     };
   }
   if (state === "published") {

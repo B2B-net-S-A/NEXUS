@@ -232,6 +232,8 @@ async def placement_margin_per_hour_by_user(
     from app.services.insights_board_money import fold_money, margin_per_hour
     from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
 
+    # Świeże CTE, nie minutowa migawka (`credited_snapshot`): mail „Nowy
+    # placement” pyta o placement sprzed chwili, którego migawka może nie znać.
     if not user_ids:
         return {}
     rows = (
@@ -382,14 +384,17 @@ async def last_recommendation_at_by_user(
     end: datetime,
 ) -> dict[int, datetime]:
     """Moment ostatniej zaliczonej rekomendacji (`cv_sent`) w oknie."""
-    from app.services.kpi_panel import VERIFIER_ANCHORED_CTE
+    from app.services.credited_snapshot import (
+        CREDITED_FROM_SNAPSHOT_CTE,
+        credited_bind,
+    )
 
     if not user_ids:
         return {}
     rows = (
         await db.execute(
             text(
-                VERIFIER_ANCHORED_CTE
+                CREDITED_FROM_SNAPSHOT_CTE
                 + """
                 SELECT c.credit_user, max(c.reached_at) AS last_at
                 FROM credited c
@@ -403,7 +408,12 @@ async def last_recommendation_at_by_user(
                 GROUP BY c.credit_user
                 """
             ),
-            {"start": start, "end": end, "uids": list(user_ids)},
+            {
+                "start": start,
+                "end": end,
+                "uids": list(user_ids),
+                **await credited_bind(db, stage="cv_sent", since=start, until=end),
+            },
         )
     ).all()
     return {r.credit_user: r.last_at for r in rows}

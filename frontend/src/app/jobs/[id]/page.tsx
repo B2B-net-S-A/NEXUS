@@ -1,6 +1,11 @@
 "use client";
 
 import { useUrlSyncedState, useUrlWriter, writeUrlParams } from "@/lib/url-selection";
+import {
+  readAdMailIntent,
+  withoutAdMailParams,
+  type AdMailIntent,
+} from "@/lib/job-ad-mail-intent";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -8,6 +13,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api, { jobChatApi, matchingApi } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 import { useCapability } from "@/hooks/useCapability";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
   canEditJobContent,
   hasFullJobEditFallback,
@@ -53,6 +59,11 @@ import {
 import { JobCloseReasonBadge } from "@/components/v2/jobs/JobCloseReasonBadge";
 import { JobCloseWithReasonDialog } from "@/components/v2/jobs/JobCloseWithReasonDialog";
 import { JobReopenDialog } from "@/components/v2/jobs/JobReopenDialog";
+import { JobIdleBanner } from "@/components/v2/jobs/JobIdleBanner";
+import { JobCproBanner } from "@/components/v2/jobs/JobCproBanner";
+import { fetchJobCproEvents } from "@/lib/cpro-events-api";
+import { fetchJobIdle, jobIdleKey, snoozeJobIdle } from "@/lib/job-idle-api";
+import { apiErrorMessage } from "@/lib/api-error";
 import { scrollToWhenReady } from "@/components/v2/recruitment/OrderMissingBlock";
 import {
   ManagedInNexusChip,
@@ -78,6 +89,8 @@ import {
   peopleInProgress,
   type AddedByFilter,
 } from "@/lib/board-added-by";
+import { closeReasonLabel } from "@/lib/job-close-reasons";
+import { closedOnLabel } from "@/lib/job-closed-waiting";
 import { AddCandidatesQuickModal } from "@/components/v2/modals/AddCandidatesQuickModal";
 import { AddCandidateFromCVModal } from "@/components/v2/modals/AddCandidateFromCVModal";
 import { AddCandidatesPanel } from "@/components/v2/recruitment/AddCandidatesPanel";
@@ -115,6 +128,7 @@ import { OrderSlideOver } from "@/components/v2/recruitment/slideovers/OrderSlid
 import { jobClientTitle, jobDisplayTitle } from "@/lib/job-names";
 import { copyClientReference } from "@/components/v2/jobs/ClientReferenceChip";
 import { QuestionBankSlideOver } from "@/components/v2/recruitment/slideovers/QuestionBankSlideOver";
+import { ClientPanelSlideOver } from "@/components/v2/recruitment/slideovers/ClientPanelSlideOver";
 import { JobFilesSlideOver } from "@/components/v2/recruitment/slideovers/JobFilesSlideOver";
 import { fetchJobFiles, jobFilesKey } from "@/lib/api/jobFiles";
 import { HistoryChatSlideOver } from "@/components/v2/recruitment/slideovers/HistoryChatSlideOver";
@@ -206,7 +220,11 @@ export default function JobDetailPage() {
   const canOpenCandidateProfile = useCapability("nav.candidates");
   const canOpenMyPeople = useCapability("nav.my_people");
   const openMyPeople = useMyPeoplePanel((s) => s.openPanel);
+  // Wejście z maila przypomnienia o ogłoszeniu (27.10.2026): okno „Ogłoszenie”
+  // na kanale, „Nie publikujemy” albo „Przypomnij”. Efekt, nie inicjalizator
+  // `useState` — link z maila może przyjść przy już otwartej rekrutacji.
   const [showJobAd, setShowJobAd] = useState(false);
+  const [adIntent, setAdIntent] = useState<AdMailIntent | null>(null);
   const [showEditJob, setShowEditJob] = useState(false);
   const [showInviteLink, setShowInviteLink] = useState(false);
   const [showAddCandidates, setShowAddCandidates] = useState(false);
@@ -529,6 +547,16 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["job", id],
     queryFn: () => api.get(`/api/jobs/${id}`).then((r) => r.data),
+    // Globalnie wyłączone od 27.10.2026 (`QueryProvider`); tu zostaje — zmiana
+    // z drugiej karty (własna, więc bez `pipeline_changed`) wraca po powrocie.
+    refetchOnWindowFocus: true,
+  });
+
+  // Co NEXUS zrobił sam z maili CPro (02.11.2026).
+  const { data: cproEvents } = useQuery({
+    queryKey: ["job-cpro-events", id],
+    queryFn: () => fetchJobCproEvents(Number(id)),
+    retry: false,
   });
 
   const {
@@ -546,6 +574,9 @@ export default function JobDetailPage() {
   } = useQuery({
     queryKey: ["kanban", id],
     queryFn: () => api.get(`/api/pipeline/kanban/${id}`).then((r) => r.data),
+    // Jak wyżej: własny ruch z drugiej karty nie przychodzi gniazdem
+    // (serwer pomija autora), więc Tablica odświeża się przy powrocie.
+    refetchOnWindowFocus: true,
   });
 
   const kanbanViewState = resolveViewState({
@@ -576,6 +607,17 @@ export default function JobDetailPage() {
   // „Otwórz w panelu” z okna „Dodaj z CV”: ten sam jednorazowy `?candidate=`
   // co powiadomienia — dok otwiera się na świeżej Tablicy, gdy karta już jest.
   const urlWriter = useUrlWriter();
+
+  useEffect(() => {
+    const intent = readAdMailIntent(searchParams);
+    if (!intent) return;
+    setAdIntent(intent);
+    setShowJobAd(true);
+    // F5 nie otwiera okna drugi raz (`maile-z-przyciskami-akcji.md`).
+    urlWriter.replaceUrl(
+      withoutAdMailParams(window.location.search) || window.location.pathname,
+    );
+  }, [searchParams, urlWriter]);
   const openPersonPanel = useCallback(
     (candidateId: number) => {
       if (!showBoard) selectView("board");
@@ -709,6 +751,31 @@ export default function JobDetailPage() {
     }
   }, [job, id, openTab]);
 
+  // Rekrutacja bez ruchu (28.10.2026): pasek z „Zamknij…” i „Jeszcze trwa”
+  // dla tych, którzy mogą ją zamknąć; serwer liczy dni i odmawia reszcie.
+  const idleEnabled = Boolean(job && job.status === "published" && canManageRecruitment);
+  const { data: jobIdle } = useQuery({
+    queryKey: jobIdleKey(jobId),
+    queryFn: () => fetchJobIdle(jobId),
+    enabled: idleEnabled,
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+  const [idleSnoozing, setIdleSnoozing] = useState(false);
+  const onIdleSnooze = useCallback(async () => {
+    setIdleSnoozing(true);
+    try {
+      const next = await snoozeJobIdle(jobId);
+      queryClient.setQueryData(jobIdleKey(jobId), next);
+      showSuccess("Odłożone o 14 dni. NEXUS zapyta znowu, jeśli nic się nie ruszy.");
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się odłożyć przypomnienia."));
+    } finally {
+      setIdleSnoozing(false);
+    }
+  }, [jobId, queryClient, showError, showSuccess]);
+
+  const hydrated = useHydrated();
   // 403 (brak uprawnień) i 5xx (awaria) NIE mogą udawać „nie znaleziono" —
   // to dokładnie ten wzorzec, przez który 403 na GET czytało się jako utratę
   // danych (audyt F-20).
@@ -718,7 +785,10 @@ export default function JobDetailPage() {
     error: jobError,
     isEmpty: !job,
   });
-  if (jobViewState === "loading")
+  // Okruszek w powłoce czyta rekrutację pod tym samym kluczem i hydratuje się
+  // wcześniej — jego odpowiedź bywała w cache'u, zanim React doszedł do tej
+  // strony. Do końca hydratacji ten sam stan co z serwera („Ładowanie...”).
+  if (!hydrated || jobViewState === "loading")
     return <div className="p-6 text-muted-foreground">Ładowanie...</div>;
   if (jobViewState !== "ready")
     return (
@@ -851,7 +921,8 @@ export default function JobDetailPage() {
                 onOpenPerson={openPersonPanel}
               />
             ) : job.status === "closed" ? null : (
-              // Zamknięta: plakietka z powodem niżej (`JobCloseReasonBadge`).
+              // Zamknięta bez statusu requestu: „Zamknięta · powód” niżej
+              // (`JobCloseReasonBadge`); ze statusem plakietka mówi sam powód.
               <Badge
                 variant={
                   job.status === "published"
@@ -869,7 +940,11 @@ export default function JobDetailPage() {
               </Badge>
             )}
             {job.status === "closed" ? (
-              <JobCloseReasonBadge reason={job.close_reason} notes={job.close_notes} />
+              <JobCloseReasonBadge
+                reason={job.close_reason}
+                notes={job.close_notes}
+                statusShown={championsStatusShown}
+              />
             ) : null}
             {!canWritePipeline ? (
               <Badge variant="info">Tylko odczyt</Badge>
@@ -897,6 +972,9 @@ export default function JobDetailPage() {
             canSet={canSetPriority}
             p0={job}
             canSetP0={job.can_set_p0 === true}
+            // Delivery Lead tej rekrutacji prosi o P0 (28.10.2026).
+            canRequestP0={job.can_request_p0 === true}
+            p0RequestPending={Boolean(job.p0_requested_at)}
             jobTitle={job.working_title || job.title}
             // P1 wstrzymany, bo mamy championa (D6, 15.10.2026).
             paused={job.priority_paused === true}
@@ -950,6 +1028,9 @@ export default function JobDetailPage() {
         onOpenHistoryChat={() => openSlideOver("history-chat")}
         onOpenFiles={() => openSlideOver("files")}
         filesCount={jobFiles?.items.length}
+        // Ta sama bramka co zamknięcie rekrutacji: serwer wymaga prawa do jej
+        // prowadzenia i dostępu do tej rekrutacji, a bez niego odda 403.
+        onOpenClientPanel={canCloseJob ? () => openSlideOver("client-panel") : undefined}
         onEditFullChampion={canEditChampion ? () => openChampion({ edit: true }) : undefined}
         onAddByName={canWritePipeline ? () => setShowAddCandidates(true) : undefined}
         onAddFromCv={canWritePipeline ? () => setShowAddFromCv(true) : undefined}
@@ -998,9 +1079,14 @@ export default function JobDetailPage() {
           jobId={jobId}
           jobTitle={jobDisplayTitle(job)}
           jobClosed={job.status === "closed"}
+          focusChannel={adIntent?.focus ?? (adIntent?.remind ? "kariera" : null)}
+          openSkip={adIntent?.skip ?? false}
+          askRemind={adIntent?.remind ?? false}
+          openSend={adIntent?.send ?? false}
           open
           onClose={() => {
             setShowJobAd(false);
+            setAdIntent(null);
             // Kropki w nagłówku: publikacja w oknie zmienia stronę kariery i portale.
             void refetchJob();
           }}
@@ -1154,6 +1240,11 @@ export default function JobDetailPage() {
         jobId={jobId}
         readOnly={!canEditJobContentFields}
       />
+      <ClientPanelSlideOver
+        open={slideOver === "client-panel" && canCloseJob}
+        onOpenChange={slideOverOpenChange("client-panel")}
+        jobId={jobId}
+      />
       <HistoryChatSlideOver
         open={slideOver === "history-chat"}
         onOpenChange={slideOverOpenChange("history-chat")}
@@ -1269,6 +1360,20 @@ export default function JobDetailPage() {
       {/* ── Widok „Tablica": kafle źródeł, kanban z przeciąganiem, dok osoby ── */}
       {showBoard && (
         <div>
+          <JobCproBanner
+            jobId={jobId}
+            events={cproEvents}
+            onChangeReason={canCloseJob && job.status === "closed" ? () => setShowChangeCloseReason(true) : undefined}
+            onReopen={publishAction === "reopen" ? () => changeReopenOpen(true) : undefined}
+          />
+          {canCloseJob && job.status === "published" ? (
+            <JobIdleBanner
+              idle={jobIdle}
+              onClose={() => setShowCloseJob(true)}
+              onSnooze={() => void onIdleSnooze()}
+              snoozing={idleSnoozing}
+            />
+          ) : null}
           <PipelineBoardGate
             state={kanbanViewState}
             hasData={Boolean(kanban)}
@@ -1319,6 +1424,16 @@ export default function JobDetailPage() {
               // Filtr „Kto dodał” (14.10.2026): chowa karty i zawęża kolejkę panelu.
               addedBy={addedBy}
               onAddedByChange={setAddedBy}
+              // Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego,
+              // którym trzeba dać znać.
+              closedJob={
+                job.status === "closed"
+                  ? {
+                      closedOn: closedOnLabel(job.closed_at),
+                      reasonLabel: job.close_reason ? closeReasonLabel(job.close_reason) : null,
+                    }
+                  : null
+              }
               // `?candidate=&panel=` (także linki zapisane w powiadomieniach):
               // od razu warsztat tej osoby na właściwej sekcji.
               initialWorkbench={

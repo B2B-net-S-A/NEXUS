@@ -189,10 +189,20 @@ def test_notes_for_ended_contract_without_recruitment_or_generator():
     )
 
 
-def test_notes_prefer_termination_date_over_contract_end():
+def test_notes_take_contract_end_over_first_termination():
+    """R8-N13-1: `terminated_at` przeżywa przedłużenie i niesie PIERWSZE zakończenie."""
     contract = _contract(
         status=ContractStatus.ending,
         end_date=date(2026, 12, 31),
+        terminated_at=date(2026, 11, 15),
+    )
+    assert placement_notes(contract, _facts()) == "Koniec 31.12.2026"
+
+
+def test_notes_fall_back_to_termination_date_without_contract_end():
+    contract = _contract(
+        status=ContractStatus.ended,
+        end_date=None,
         terminated_at=date(2026, 11, 15),
     )
     assert placement_notes(contract, _facts()) == "Koniec 15.11.2026"

@@ -97,11 +97,11 @@ MESSAGE = "Powrót po 1 dniach od zakończenia poprzedniego zamówienia"
 
 
 def _heredoc_opening(tolerated_echo: str) -> str:
-    return f"python - <<'PY' || echo \"{tolerated_echo}\"\n"
+    return f"<<'PY' || echo \"{tolerated_echo}\"\n"
 
 
 def _entrypoint_python_block(source: str, tolerated_echo: str) -> str:
-    """Treść heredoca ``python - <<'PY' || echo "<tolerated_echo>"``."""
+    """Treść heredoca ``... <<'PY' || echo "<tolerated_echo>"``."""
     opening = _heredoc_opening(tolerated_echo)
     assert opening in source, tolerated_echo
     return source.split(opening, 1)[1].split("\nPY\n", 1)[0]

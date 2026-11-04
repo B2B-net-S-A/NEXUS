@@ -108,6 +108,18 @@ class TestFeatureKeyEnum:
             "autofill_quality_report",
             # 0522: formularz CV klienta wypełniany z CV i screeningu.
             "client_form_fill",
+            # 0529: zrzut zgody RODO pod CV — odczyt nadawcy, daty i ZOB.
+            "consent_screenshot_check",
+            "linkedin_message_draft",
+            # 0620: „Oceń z AI” na zaznaczonych osobach w rekrutacji.
+            "candidate_ai_assessment",
+            "sales_meeting_summary",
+            "case_triage",
+            "portal_meeting_summary",
+            # 0634: słowa z CV wysłanych do wiersza „musi mieć”.
+            "requirement_word_hints",
+            # 0638: podsumowanie rozmowy z portalu konsultanta.
+            "portal_meeting_summary",
         }
 
     def test_every_key_has_label_and_data_descriptor(self):

@@ -53,7 +53,6 @@ _INDEXING_CALLS = {
 _WRITE_PATHS = [
     # Ciało `POST /api/candidates` (ekran i API v1 od 15.10.2026).
     ("app/api/candidates.py", "apply_candidate_create"),
-    ("app/api/candidates.py", "create_candidate_from_linkedin"),
     ("app/api/import_export.py", "import_candidates"),
     ("app/api/candidates.py", "bulk_import_candidates"),
     ("app/services/traffit/importer.py", "import_candidates"),

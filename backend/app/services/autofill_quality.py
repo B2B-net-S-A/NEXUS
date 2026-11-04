@@ -197,6 +197,8 @@ async def _worst_jobs(db, since: datetime, until: datetime) -> list[dict]:
 
 async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dict:
     """Liczby okna ``[since, until)`` — wszystko, co pokazuje ekran B2."""
+    from app.services.sent_vs_system import sent_vs_system
+
     system = await _cohort(db, (candidate_claim.ENTRY_SYSTEM,), since, until)
     manual = await _cohort(db, _MANUAL_SOURCES, since, until)
     decided_at = RecruitmentProcess.entry_meta["decided_at"].astext.cast(
@@ -255,6 +257,7 @@ async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dic
         "waiting_now": await _waiting_now(db, now),
         "buckets": [buckets[b] for b in BUCKETS],
         "worst_jobs": await _worst_jobs(db, since, until),
+        "sent_vs_system": await sent_vs_system(db, since=since, until=until),
     }
 
 
@@ -263,15 +266,20 @@ async def summary(db, *, since: datetime, until: datetime, now: datetime) -> dic
 _RULE_FIX = {
     "missing_skill": "Sprawdzić, czy umiejętności krytyczne są oznaczone w Championie tych rekrutacji, i obniżać w puli osoby bez spełnionego „musi mieć”.",
     "too_junior": "Mocniej liczyć lata w roli z CV, gdy rekrutacja wymaga doświadczenia.",
+    "overqualified": "Obniżać w wyniku osoby o poziom lub dwa wyżej niż rekrutacja.",
     "other_level_or_role": "Uwzględnić w wyniku poziom (junior, mid, senior) i tytuł roli z CV.",
     "location_mode": "Pomijać w dopełnianiu osoby z lokalizacją albo trybem pracy sprzecznym z rekrutacją.",
     "language": "Dopisywać wymóg języka do wierszy Championa i sprawdzać go w CV.",
     "too_expensive": "Pomijać w dopełnianiu osoby ze znaną „Stawką od” powyżej budżetu +15% i pytać o stawkę na początku rozmowy.",
     "outdated_cv": "Prosić o świeże CV osoby, których CV ma ponad rok, zanim system je doda.",
     "profile_mismatch": "Poprawić profile w bazie, na które wskazali rekruterzy.",
-    "not_looking": "Pomijać osoby odrzucone z „Nie szuka pracy” przez 90 dni w każdej rekrutacji.",
+    "wrong_phone": "Poprawić numery telefonów w profilach, na które wskazali rekruterzy.",
+    "not_looking": "Podawać przy odrzuceniu „do kiedy nie szuka” — system pominie osobę do tej daty we wszystkich rekrutacjach.",
     "no_answer": "Nie dokładać ponownie osób, które trzy razy nie odebrały, przez 30 dni.",
     "in_other_process": "Pomijać w dopełnianiu osoby w toku w innej rekrutacji od „Zweryfikowanego”.",
+    "client_employed": "Prosić rekruterów o zaznaczanie „cały klient” i dopisywać pośredników klienta do aliasów, żeby bramka off-limits łapała pracę przez inną firmę.",
+    "client_refused": "Zaznaczać „cały klient” przy odmowie — system nie podsunie tej osoby żadnej rekrutacji tego klienta.",
+    "client_other_vendor": "Zaznaczać „cały klient” — osoby zgłoszonej przez inną firmę klient drugi raz nie przyjmie.",
 }
 
 

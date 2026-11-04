@@ -1,12 +1,14 @@
 import { Sparkles } from "lucide-react";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
 import { workdaysText } from "@/lib/board-card-badges";
+import { daysAgoText } from "@/lib/new-column-queue";
 import { cn } from "@/lib/utils";
 
 /**
  * „Dlaczego system dodał” na górze panelu osoby (silnik „Nowi na 20”,
  * makieta A2 z 23.10.2026): wynik, spełnione i brakujące wymagania oraz to,
- * czego system NIE wiedział w chwili dodania (stawka, dostępność). Ta
+ * czego system NIE wiedział w chwili dodania (stawka, dostępność), a od
+ * 27.10.2026 także co wiedział i co przemawia przeciw („Na co uważać”). Ta
  * migawka rozstrzyga potem, czy odrzucenie to błąd wyszukiwania, czy brak
  * danych. Dla osób dodanych przez ludzi nic nie rysuje.
  */
@@ -36,6 +38,22 @@ export function DockAutofillReason({
           </span>
         ) : null}
       </div>
+      {meta.known ? (
+        <div data-testid="dock-autofill-known" className="rounded-md bg-primary/10 px-2 py-1.5 text-[11px] leading-snug">
+          <p className="font-semibold text-primary">Wyżej w kolejce o {meta.known.points} pkt, bo znamy tę osobę</p>
+          {meta.known.client_points > 0 ? (
+            <p>
+              +{meta.known.client_points} zweryfikowana u tego klienta ({meta.known.verified_at_client}×)
+            </p>
+          ) : null}
+          {meta.known.note_points > 0 && meta.known.last_note_days != null ? (
+            <p>
+              +{meta.known.note_points} notatka {daysAgoText(meta.known.last_note_days)}
+            </p>
+          ) : null}
+          <p className="text-muted-foreground">Procent się nie zmienia. Punkty układają tylko kolejkę.</p>
+        </div>
+      ) : null}
       {meta.matched_must.length || meta.missing_must.length ? (
         <ul className="flex flex-wrap gap-1" aria-label="Wymagania „musi mieć”">
           {meta.matched_must.map((name) => (
@@ -55,6 +73,18 @@ export function DockAutofillReason({
             </li>
           ))}
         </ul>
+      ) : null}
+      {meta.cautions?.length ? (
+        <div className="space-y-0.5" data-testid="dock-autofill-cautions">
+          <p className="text-[11px] font-semibold text-warning-muted-foreground">
+            Na co uważać — system to wiedział, więc dał tę osobę niżej:
+          </p>
+          <ul className="list-disc space-y-0.5 pl-4 text-[11px]">
+            {meta.cautions.map((c) => (
+              <li key={c.key}>{c.title}</li>
+            ))}
+          </ul>
+        </div>
       ) : null}
       <p className={cn("text-[11px]", unknown.length ? "text-foreground" : "text-muted-foreground")}>
         {unknown.length

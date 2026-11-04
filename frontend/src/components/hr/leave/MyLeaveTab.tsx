@@ -165,12 +165,12 @@ export function MyLeaveTab() {
         onSuccess: (saved) =>
           showToast(
             saved.forward_mail_consent
-              ? "Poczta będzie przekierowana do zastępcy"
-              : "Przekierowanie poczty wyłączone",
+              ? "Zastępca dostanie kopię, maile zostają w Twojej skrzynce"
+              : "Kopia poczty do zastępcy wyłączona",
             "success",
           ),
         onError: (err) =>
-          showToast(apiErrorMessage(err, "Nie udało się zmienić przekierowania."), "error"),
+          showToast(apiErrorMessage(err, "Nie udało się zmienić kopii poczty."), "error"),
       },
     );
   };
@@ -285,7 +285,10 @@ export function MyLeaveTab() {
                   <TableCell>
                     {row.substitute_name ?? <span className={CALM_EMPTY}>—</span>}
                     {row.forward_mail_consent ? (
-                      <span className={CALM_SUBLINE}>przekierowanie poczty</span>
+                      <span className={CALM_SUBLINE}>kopia poczty do zastępcy</span>
+                    ) : null}
+                    {row.cpro_substitute_name ? (
+                      <span className={CALM_SUBLINE}>Cpro: {row.cpro_substitute_name}</span>
                     ) : null}
                   </TableCell>
                   {report ? null : (
@@ -302,7 +305,7 @@ export function MyLeaveTab() {
                           disabled={consent.isPending}
                           onClick={() => toggleForward(row)}
                         >
-                          {row.forward_mail_consent ? "Wyłącz przekierowanie" : "Przekieruj pocztę"}
+                          {row.forward_mail_consent ? "Wyłącz kopię poczty" : "Wyślij kopię poczty"}
                         </Button>
                       ) : null}
                       {row.can_cancel ? (

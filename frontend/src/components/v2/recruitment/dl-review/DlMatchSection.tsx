@@ -6,12 +6,14 @@
  * a akceptacja wysyła osobę także tam: „CV wysłane”, u Nordei kolejka Cpro.
  * Połączone z tą rekrutacją („Podobne rekrutacje”) są zaznaczone od razu,
  * reszta czeka na decyzję DL-a. Makiety: https://claude.ai/artifact/HTjysWg2TjaDvxvCtjd1RV.
+ * Od 27.10.2026 DL dodaje też rekrutację ręcznie („+ Dodaj inną rekrutację”,
+ * cała firma): https://claude.ai/artifact/KDADjkrPBTT2ztuybznuJ8.
  */
 
 import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { BOARD_COLUMN_LABEL, type BoardColumnKey } from "@/lib/board-stages";
@@ -25,6 +27,8 @@ import {
   type DlMatchTarget,
 } from "@/lib/dl-match-api";
 import { cn } from "@/lib/utils";
+
+import { DlMatchAddJob, otherLeadLabel } from "./DlMatchAddJob";
 
 const STALE_MS = 5 * 60 * 1000;
 
@@ -115,11 +119,23 @@ function columnLabel(column: string): string {
 
 export interface DlMatchModel {
   query: ReturnType<typeof useQuery<DlMatchSuggestions>>;
+  candidateId: number;
+  fromJobId: number;
+  /** Z oceny Nexusa i dodane ręcznie (na końcu). */
   jobs: DlMatchJob[];
   selection: DlMatchSelection;
   toggle: (jobId: number, checked: boolean) => void;
   setRate: (jobId: number, rate: string) => void;
+  /** Rekrutacja wskazana przez DL-a — od razu zaznaczona. */
+  add: (job: DlMatchJob) => void;
+  remove: (jobId: number) => void;
   reset: () => void;
+}
+
+/** Lista z serwera + dodane ręcznie, bez powtórek (ocena wygrywa). */
+export function mergeJobs(suggested: readonly DlMatchJob[], added: readonly DlMatchJob[]): DlMatchJob[] {
+  const seen = new Set(suggested.map((j) => j.job_id));
+  return [...suggested, ...added.filter((j) => !seen.has(j.job_id))];
 }
 
 /** Lista i zaznaczenie — stan żyje u rodzica (przegląd albo okno). */
@@ -130,26 +146,52 @@ export function useDlMatch(candidateId: number, fromJobId: number, enabled: bool
     enabled: enabled && candidateId > 0 && fromJobId > 0,
     staleTime: STALE_MS,
   });
-  const jobs = useMemo(() => query.data?.jobs ?? [], [query.data]);
-  const [edits, setEdits] = useState<{ key: string; selection: DlMatchSelection } | null>(null);
-  const key = `${fromJobId}:${candidateId}:${jobs.map((j) => j.job_id).join(",")}`;
-  // Zaznaczenie startuje od listy z serwera i zeruje się przy innej osobie.
-  const selection = edits?.key === key ? edits.selection : initialSelection(jobs);
+  const suggested = useMemo(() => query.data?.jobs ?? [], [query.data]);
+  const [edits, setEdits] = useState<{
+    key: string;
+    selection: DlMatchSelection;
+    added: DlMatchJob[];
+  } | null>(null);
+  const key = `${fromJobId}:${candidateId}:${suggested.map((j) => j.job_id).join(",")}`;
+  // Zaznaczenie i dodane ręcznie startują od listy z serwera i zerują się przy innej osobie.
+  const current = edits?.key === key ? edits : null;
+  const added = useMemo(() => current?.added ?? [], [current]);
+  const jobs = useMemo(() => mergeJobs(suggested, added), [suggested, added]);
+  const selection = current?.selection ?? initialSelection(suggested);
+  const edit = useCallback(
+    (fn: (selection: DlMatchSelection, added: DlMatchJob[]) => { selection: DlMatchSelection; added: DlMatchJob[] }) =>
+      setEdits((prev) => {
+        const base = prev?.key === key ? prev : { selection: initialSelection(suggested), added: [] };
+        return { key, ...fn(base.selection, base.added) };
+      }),
+    [suggested, key],
+  );
   const update = useCallback(
     (jobId: number, patch: Partial<DlMatchRowState>) =>
-      setEdits((prev) => {
-        const base = prev?.key === key ? prev.selection : initialSelection(jobs);
-        const row = base[jobId] ?? { checked: false, rate: null };
-        return { key, selection: { ...base, [jobId]: { ...row, ...patch } } };
+      edit((sel, add) => {
+        const row = sel[jobId] ?? { checked: false, rate: null };
+        return { selection: { ...sel, [jobId]: { ...row, ...patch } }, added: add };
       }),
-    [jobs, key],
+    [edit],
   );
   return {
     query,
+    candidateId,
+    fromJobId,
     jobs,
     selection,
     toggle: (jobId, checked) => update(jobId, { checked }),
     setRate: (jobId, rate) => update(jobId, { rate, checked: true }),
+    add: (job) =>
+      edit((sel, add) => ({
+        selection: { ...sel, [job.job_id]: { checked: job.sendable, rate: sel[job.job_id]?.rate ?? null } },
+        added: add.some((j) => j.job_id === job.job_id) ? add : [...add, { ...job, manual: true }],
+      })),
+    remove: (jobId) =>
+      edit((sel, add) => {
+        const { [jobId]: _gone, ...rest } = sel;
+        return { selection: rest, added: add.filter((j) => j.job_id !== jobId) };
+      }),
     reset: () => setEdits(null),
   };
 }
@@ -165,7 +207,7 @@ export interface DlMatchSectionProps {
 export function DlMatchSection({ model, fallbackRate, disabled = false, className }: DlMatchSectionProps) {
   const { query, jobs, selection } = model;
   const alreadyIn = query.data?.already_in ?? [];
-  if (query.isSuccess && jobs.length === 0 && alreadyIn.length === 0) return null;
+  const listedIds = new Set([...jobs.map((j) => j.job_id), ...alreadyIn.map((a) => a.job_id)]);
   const checkedCount = jobs.filter((j) => selection[j.job_id]?.checked && j.sendable).length;
 
   return (
@@ -230,6 +272,12 @@ export function DlMatchSection({ model, fallbackRate, disabled = false, classNam
                       {job.score != null ? (
                         <span className="font-semibold text-success-muted-foreground">≈ {job.score}%</span>
                       ) : null}
+                      {job.manual ? (
+                        <span className="rounded-full bg-muted px-1.5 font-medium text-foreground">dodana przez Ciebie</span>
+                      ) : null}
+                      {job.in_portfolio === false ? (
+                        <span className="rounded-full bg-muted px-1.5">{otherLeadLabel(job)}</span>
+                      ) : null}
                       {job.linked ? (
                         <span className="rounded-full bg-primary/10 px-1.5 font-medium text-primary">połączona</span>
                       ) : null}
@@ -263,6 +311,17 @@ export function DlMatchSection({ model, fallbackRate, disabled = false, classNam
                     />
                     {budget ? <span className="text-[10px] text-muted-foreground">{budget}</span> : null}
                   </div>
+                  {job.manual ? (
+                    <button
+                      type="button"
+                      className="col-start-3 flex items-center justify-end gap-0.5 text-[10px] text-muted-foreground hover:text-foreground hover:underline"
+                      onClick={() => model.remove(job.job_id)}
+                      disabled={disabled}
+                      aria-label={`Usuń z listy: ${name}`}
+                    >
+                      <X className="size-3" aria-hidden /> usuń
+                    </button>
+                  ) : null}
                 </li>
               );
             })}
@@ -277,9 +336,22 @@ export function DlMatchSection({ model, fallbackRate, disabled = false, classNam
               </li>
             ))}
           </ul>
+          {query.isSuccess && jobs.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">
+              Nexus nie podsunął innej Twojej rekrutacji z wynikiem ≥ 70%.
+            </p>
+          ) : null}
+          <DlMatchAddJob
+            candidateId={model.candidateId}
+            fromJobId={model.fromJobId}
+            listedIds={listedIds}
+            onAdd={model.add}
+            disabled={disabled}
+          />
           <p className="text-[11px] text-muted-foreground">
-            Twoje rekrutacje (portfel), wynik ≥ 70%. To samo CV, bez arkusza i pytań; proces zaliczy się Tobie.
-            Rekruter tej rekrutacji dostanie prośbę, żeby dał znać kandydatowi.
+            Nexus podsuwa Twoje rekrutacje (portfel) z wynikiem ≥ 70%; każdą inną otwartą dodasz sam. To samo CV,
+            bez arkusza i pytań; proces zaliczy się Tobie. Rekruter tej rekrutacji dostanie prośbę, żeby dał znać
+            kandydatowi, a prowadzący i DL rekrutacji docelowej — dzwonek.
           </p>
         </>
       )}

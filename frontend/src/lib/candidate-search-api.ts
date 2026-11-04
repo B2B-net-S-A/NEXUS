@@ -377,6 +377,8 @@ export type BulkAddSource =
   | "my_people"
   // 14.10.2026: „Pasuje też do” pod osobą dodaną do innej rekrutacji.
   | "also_fits"
+  // 29.10.2026: „+ Dodaj inną rekrutację” w „Screening dla” (wskazana ręcznie).
+  | "also_manual"
   // 22.10.2026: zakładka „Podobni” na profilu kandydata.
   | "similar_candidates";
 
@@ -477,14 +479,17 @@ export const proposalsBulkApi = {
   addInChunks: async (
     jobId: number,
     body: BulkProposalsRequest,
+    // 1 = osoba po osobie w podanej kolejności („Oceń z AI”: Tablica stawia
+    // najnowsze wejście na górze, a jedno żądanie dodaje w kolejności id).
+    chunkSize: number = BULK_ADD_CHUNK,
   ): Promise<BulkProposalsResponse> => {
     const ids = [...new Set(body.candidate_ids)];
     const parts: BulkProposalsResponse[] = [];
-    for (let start = 0; start < ids.length; start += BULK_ADD_CHUNK) {
+    for (let start = 0; start < ids.length; start += chunkSize) {
       parts.push(
         await proposalsBulkApi.add(jobId, {
           ...body,
-          candidate_ids: ids.slice(start, start + BULK_ADD_CHUNK),
+          candidate_ids: ids.slice(start, start + chunkSize),
         }),
       );
     }

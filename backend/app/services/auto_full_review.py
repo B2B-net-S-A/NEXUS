@@ -12,7 +12,9 @@ Reguły, które łatwo cofnąć „przy okazji":
   zasila auto-match nowych CV) NOWSZE niż ostatni przegląd automatyczny tej
   rekrutacji — nie „każda opublikowana rekrutacja". Przegląd to ~100–130 MB
   wierszy wyników; przemiatanie wszystkich otwartych rekrutacji co noc
-  zapchałoby wolumen bazy.
+  zapchałoby wolumen bazy. Pierwszeństwo daje też inny odcisk requestu niż przy
+  ostatnim przeglądzie (`_request_changed_ids`, 02.11.2026), bo słownik aliasów
+  i statystyki krytycznych zmieniają go bez zdarzenia.
 * Najwyżej JEDEN przegląd automatyczny na rekrutację na noc (także nieudany —
   awaria nie może zapętlić się w oknie) i `AUTO_FULL_REVIEW_MAX_PER_NIGHT`
   łącznie. Odcisk requestu równy ostatniemu UDANEMU przeglądowi automatycznemu
@@ -29,7 +31,10 @@ Reguły, które łatwo cofnąć „przy okazji":
   domyka przeglądy, którym publikacja się nie udała.
 * Od 07.10.2026 (decyzja Artura) publikujemy WSZYSTKIE osoby powyżej progu
   `AUTO_FULL_REVIEW_MIN_SCORE`, które przechodzą `is_good_match` — bez limitu
-  liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Propozycje
+  liczby (dawne `AUTO_FULL_REVIEW_TOP_K` = 60 nie jest czytane). Od 28.10.2026
+  (najlepsze 40) przy mniejszej liczbie dochodzą najlepsi spod progu do
+  łącznie `AUTO_FULL_REVIEW_MIN_COUNT`; dzwonek i liczniki liczą dalej tylko
+  osoby od progu (`job_proposals.meets_threshold`). Propozycje
   `full_base`, których przegląd już nie zaproponował, dostają `expired`
   (`job_proposals.expire_full_base`) — tylko po najnowszym przeglądzie tej
   rekrutacji z wynikami (`_newest_result_run`) i tylko osoby, które ten
@@ -227,14 +232,51 @@ def _reviewed_under_older_versions():
     )
 
 
+async def _request_changed_ids(db, due_clauses: tuple) -> list[int]:
+    """Rekrutacje, których dzisiejszy odcisk różni się od ostatniego przeglądu.
+
+    Zdarzenie nie łapie wszystkiego (pomiar 02.11.2026, 8 ze 187 rekrutacji):
+    pole spoza list zdarzeń (`hiring_manager_contact_id`), cotygodniowe
+    przeliczenie podpowiedzi krytycznych i nowy alias w słowniku zmieniają
+    odcisk bez żadnego zapisu w kolejce. Porównanie 190 rekrutacji to ok. 0,4 s.
+    Rekrutacja bez odcisku nie ma z czym się porównać. Wyjątek przy liczeniu
+    kontekstu nie zatrzymuje kolejki, `start_for_job` zapisze awarię tej rekrutacji.
+    """
+    from app.services.request_matching_context import build_request_context
+    from app.services.scoring_service import resolve_active_profile
+
+    jobs = (await db.scalars(select(Job).where(*due_clauses))).unique().all()
+    changed = []
+    for job in jobs:
+        fingerprint, _reviewed_at = await _last_successful_fingerprint(db, job.id)
+        if fingerprint is None:
+            continue
+        try:
+            profile = await resolve_active_profile(
+                db, user_id=None, client_id=job.client_id
+            )
+            current = build_request_context(job, profile).fingerprint
+        except Exception as exc:  # noqa: BLE001 — jedna rekrutacja nie blokuje nocy
+            logger.warning(
+                "[auto_full_review] job=%s fingerprint check: %s",
+                job.id,
+                type(exc).__name__,
+            )
+            continue
+        if current != fingerprint:
+            changed.append(job.id)
+    return changed
+
+
 async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> list[int]:
     """Opublikowane rekrutacje w pracy, które tej nocy jeszcze nie miały przeglądu.
 
     Od 30.09.2026 (decyzja Artura) co noc WSZYSTKIE rekrutacje w pracy, nie
     tylko te ze zdarzeniem: nowe CV w bazie nie jest zdarzeniem rekrutacji,
     a do 30.09 propozycje dostawało 5 rekrutacji na noc. Kolejność: najpierw
-    zdarzenie nowsze niż ostatni przegląd albo przegląd pod starą wersją reguł
-    (07.10.2026), potem „Szukamy”, potem najdawniej przeglądane.
+    zdarzenie nowsze niż ostatni przegląd, przegląd pod starą wersją reguł
+    (07.10.2026) albo inny odcisk requestu (02.11.2026), potem „Szukamy”, potem
+    najdawniej przeglądane.
     """
     lookback = now - timedelta(
         days=max(1, int(settings.AUTO_FULL_REVIEW_EVENT_LOOKBACK_DAYS))
@@ -258,21 +300,23 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
     )
     last_auto = _last_auto_run_at()
     stale_versions = _reviewed_under_older_versions()
+    due_clauses = (
+        Job.status == JobStatus.published,
+        # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
+        # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
+        Job.work_state.in_(IN_WORK_STATES),
+        # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
+        # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
+        # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
+        # `_author_id`.
+        ~ran_tonight,
+    )
+    request_changed = await _request_changed_ids(db, due_clauses)
     rows = await db.execute(
         select(Job.id)
-        .where(
-            Job.status == JobStatus.published,
-            # 0371: „Klient milczy” i „Zakończony” to requesty, nad którymi
-            # nikt nie pracuje — nocny limit przeglądów idzie na te w pracy.
-            Job.work_state.in_(IN_WORK_STATES),
-            # Bez warunku „ma rekrutera” (23.10.2026): 133 z 203 rekrutacji
-            # w pracy nie miało nikogo w `recruiter_id`/`tac_id`, a silnik
-            # dopełniania „Nowych” potrzebuje puli każdej. Autora wybiera
-            # `_author_id`.
-            ~ran_tonight,
-        )
-        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł) pierwsze,
-        # potem „Szukamy kandydatów”,
+        .where(*due_clauses)
+        # Zdarzenie od ostatniego przeglądu (albo stara wersja reguł, albo inny
+        # odcisk requestu) pierwsze, potem „Szukamy kandydatów”,
         # potem najdawniej przeglądane.
         .order_by(
             case(
@@ -286,6 +330,7 @@ async def pending_job_ids(db, *, now: datetime, limit: int = _PICK_LIMIT) -> lis
                 # Przegląd pod starą wersją reguł jest nieczytelny (409) — jak
                 # zdarzenie rekrutacji.
                 (stale_versions, 0),
+                (Job.id.in_(request_changed), 0),
                 else_=1,
             ),
             case((Job.work_state == "searching", 0), else_=1),
@@ -641,16 +686,27 @@ async def _job_accepts_proposals(db, job_id: int) -> bool:
     )
 
 
+def min_count() -> int:
+    """Ile propozycji przegląd daje co najmniej (`AUTO_FULL_REVIEW_MIN_COUNT`)."""
+    return max(0, int(getattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 0) or 0))
+
+
 async def publish_run_proposals(
     db, run: CandidateSearchRun, *, revive_expired: bool = True
 ) -> int:
-    """Wszystkie wyniki przeglądu powyżej progu → `job_proposals` (`full_base`).
+    """Wyniki przeglądu → `job_proposals` (`full_base`): wszyscy od progu
+    plus najlepsi spod progu do łącznie `AUTO_FULL_REVIEW_MIN_COUNT`.
 
-    Bez limitu liczby (07.10.2026): każda osoba dopuszczona, zmierzona,
-    z wynikiem ≥ progu (`ranking_weights.nightly_min_score`: panel, a bez
-    zapisu `AUTO_FULL_REVIEW_MIN_SCORE`) i przechodząca `is_good_match`.
-    Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też paczkami
-    (`job_proposals._UPSERT_CHUNK`). Bez commitu.
+    Od progu bez limitu liczby (07.10.2026): każda osoba dopuszczona,
+    zmierzona, z wynikiem ≥ progu (`ranking_weights.nightly_min_score`: panel,
+    a bez zapisu `AUTO_FULL_REVIEW_MIN_SCORE`) i przechodząca `is_good_match`.
+    Najlepsze N (28.10.2026): gdy takich osób jest mniej niż `min_count()`,
+    dochodzą najlepsi dopuszczeni i zmierzeni spod progu — z tą samą regułą
+    „musi mieć” i bez innej roli — aż do łącznie N. Osoba spod progu nie ma
+    w zapisie flagi: „poniżej progu” liczy się przy odczycie z wyniku
+    (`job_proposals.meets_threshold`), więc dzwonek i liczniki zostają przy
+    osobach od progu. Paczkami po `_PUBLISH_PAGE` wierszy przeglądu, upsert też
+    paczkami (`job_proposals._UPSERT_CHUNK`). Bez commitu.
     """
     from app.services.auto_match_outbox import candidate_revision
     from app.services.job_proposals import upsert_proposals
@@ -671,11 +727,81 @@ async def publish_run_proposals(
     # kolejność listy; o tym, KTO trafia do propozycji, dalej decyduje próg.
     from app.services.known_people_signal import known_people_for_job
 
-    known = await known_people_for_job(db, await db.get(Job, run.job_id))
-    published = 0
-    offset = 0
-    while True:
-        rows = (
+    job = await db.get(Job, run.job_id)
+    known = await known_people_for_job(db, job)
+
+    async def publish_page(
+        rows, *, rule_min: float, room: Optional[int], skip: frozenset = frozenset()
+    ) -> int:
+        picked = []
+        for row in rows:
+            if row.candidate_id in skip:
+                continue
+            requirements = (row.evidence or {}).get("requirements") or []
+            rec = {
+                "score": float(row.fit_score),
+                "status": "published",
+                "matching_must": _requirement_names(requirements, met=True),
+                "gap_must": _requirement_names(requirements, met=False),
+            }
+            if not is_good_match(rec, min_score=rule_min, require_must=require_must):
+                continue
+            picked.append((row, rec, requirements))
+        if not picked:
+            return 0
+        candidates = {
+            c.id: c
+            for c in (
+                await db.scalars(
+                    select(Candidate).where(
+                        Candidate.id.in_([row.candidate_id for row, _, _ in picked])
+                    )
+                )
+            ).all()
+        }
+        # Tester przy programiście (27.10.2026): inna rola nie jest
+        # propozycją, chyba że spełnia większość „musi mieć”.
+        off_role = await _off_role_ids(
+            db,
+            job,
+            [(row.candidate_id, requirements) for row, _, requirements in picked],
+            candidates,
+        )
+        payload = [
+            {
+                "candidate_id": row.candidate_id,
+                "score": rec["score"],
+                "cv_revision": candidate_revision(candidates[row.candidate_id]),
+                # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
+                "evidence": {
+                    "requirements": requirements,
+                    "matched_must": rec["matching_must"],
+                    "missing_must": rec["gap_must"],
+                    **(
+                        {"history": known[row.candidate_id].evidence()}
+                        if row.candidate_id in known
+                        else {}
+                    ),
+                },
+            }
+            for row, rec, requirements in picked
+            if row.candidate_id in candidates and row.candidate_id not in off_role
+        ]
+        if room is not None:
+            payload = payload[:room]
+        if not payload:
+            return 0
+        return await upsert_proposals(
+            db,
+            run.job_id,
+            payload,
+            source="full_base",
+            run_id=run.id,
+            revive_expired=revive_expired,
+        )
+
+    async def page(score_clause, offset: int):
+        return (
             (
                 await db.execute(
                     select(CandidateSearchResult)
@@ -685,7 +811,7 @@ async def publish_run_proposals(
                         CandidateSearchResult.eligible.is_(True),
                         # Wynik bez zmierzonej semantyki nie jest rankingiem.
                         CandidateSearchResult.measurement == "measured",
-                        CandidateSearchResult.fit_score >= min_score,
+                        score_clause,
                     )
                     .order_by(
                         CandidateSearchResult.fit_score.desc(),
@@ -698,63 +824,76 @@ async def publish_run_proposals(
             .scalars()
             .all()
         )
+
+    published = 0
+    offset = 0
+    while True:
+        rows = await page(CandidateSearchResult.fit_score >= min_score, offset)
         if not rows:
             break
         offset += len(rows)
-        picked = []
-        for row in rows:
-            requirements = (row.evidence or {}).get("requirements") or []
-            rec = {
-                "score": float(row.fit_score),
-                "status": "published",
-                "matching_must": _requirement_names(requirements, met=True),
-                "gap_must": _requirement_names(requirements, met=False),
-            }
-            if not is_good_match(rec, min_score=min_score, require_must=require_must):
-                continue
-            picked.append((row, rec, requirements))
-        if picked:
-            candidates = {
-                c.id: c
-                for c in (
-                    await db.scalars(
-                        select(Candidate).where(
-                            Candidate.id.in_([row.candidate_id for row, _, _ in picked])
-                        )
-                    )
-                ).all()
-            }
-            payload = [
-                {
-                    "candidate_id": row.candidate_id,
-                    "score": rec["score"],
-                    "cv_revision": candidate_revision(candidates[row.candidate_id]),
-                    # `sanitize_evidence` przepuszcza wyłącznie nazwy wymagań i liczby.
-                    "evidence": {
-                        "requirements": requirements,
-                        "matched_must": rec["matching_must"],
-                        "missing_must": rec["gap_must"],
-                        **(
-                            {"history": known[row.candidate_id].evidence()}
-                            if row.candidate_id in known
-                            else {}
-                        ),
-                    },
-                }
-                for row, rec, requirements in picked
-                if row.candidate_id in candidates
-            ]
-            published += await upsert_proposals(
-                db,
-                run.job_id,
-                payload,
-                source="full_base",
-                run_id=run.id,
-                revive_expired=revive_expired,
-            )
+        published += await publish_page(rows, rule_min=min_score, room=None)
+        if len(rows) < _PUBLISH_PAGE:
+            break
+    # Najlepsze N (28.10.2026): dopełnienie spod progu, tylko do łącznie N.
+    # Osoba już pominięta albo dodana w tej rekrutacji nie zajmuje miejsca —
+    # lista pokazałaby wtedy mniej niż N.
+    wanted = min_count()
+    handled = (
+        frozenset(await _handled_candidate_ids(db, run.job_id))
+        if published < wanted
+        else frozenset()
+    )
+    offset = 0
+    while published < wanted:
+        rows = await page(CandidateSearchResult.fit_score < min_score, offset)
+        if not rows:
+            break
+        offset += len(rows)
+        published += await publish_page(
+            rows, rule_min=float("-inf"), room=wanted - published, skip=handled
+        )
         if len(rows) < _PUBLISH_PAGE:
             break
     return published
+
+
+async def _handled_candidate_ids(db, job_id: int) -> list[int]:
+    """Osoby, których para w tej rekrutacji jest pominięta albo dodana."""
+    from app.models.job_proposal import JobProposal
+
+    rows = await db.scalars(
+        select(JobProposal.candidate_id)
+        .where(
+            JobProposal.job_id == job_id,
+            JobProposal.status.in_(("dismissed", "added")),
+        )
+        .distinct()
+    )
+    return list(rows.all())
+
+
+async def _off_role_ids(
+    db,
+    job: Optional[Job],
+    pairs: list[tuple[int, list]],
+    candidates: dict,
+    *,
+    keep_strong: bool = True,
+) -> set[int]:
+    """Osoby z innej roli niż rekrutacja bez `KEEP_MUST_SHARE` „musi mieć”;
+    z ``keep_strong=False`` — wszystkie osoby z innej roli."""
+    from app.services.role_family import keeps_despite_role, mismatches_for_job
+
+    if job is None:
+        return set()
+    mismatched = await mismatches_for_job(db, job, list(candidates.values()))
+    return {
+        candidate_id
+        for candidate_id, requirements in pairs
+        if candidate_id in mismatched
+        and not (keep_strong and keeps_despite_role(requirements))
+    }
 
 
 # Pula dopełniania „Nowych” (0513, decyzja Artura 23.10.2026): najlepsi
@@ -762,6 +901,12 @@ async def publish_run_proposals(
 # poniżej progu propozycji. Zapas ponad 20 na wykluczenia (osoby już
 # w rekrutacji, pominięte propozycje, „Nie szuka pracy”).
 AUTOFILL_POOL_SIZE = 150
+# Inna rola odpada dopiero po odczycie osoby, więc wiersze idą paczkami, aż
+# pula będzie pełna (02.11.2026: w „Python Developer” 137 ze 150 najlepszych to
+# testerzy i z 65 tys. ocenionych zostawało 13 osób). Limit chroni transakcję
+# kończącą przegląd przed czytaniem całej bazy przy rzadkiej roli.
+_POOL_PAGE = 500
+AUTOFILL_POOL_SCAN_LIMIT = 5000
 
 
 async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
@@ -769,6 +914,9 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
 
     Ten sam filtr co propozycje (dopuszczony, oceniony, zmierzony), bez progu
     i bez ``is_good_match``. Dowody = same nazwy wymagań, jak w propozycjach.
+    Inna rola niż rekrutacja odpada zawsze, także z ≥ 80% „musi mieć” —
+    karta z puli ląduje na tablicy bez człowieka (decyzja Artura 29.10.2026) —
+    a na jej miejsce wchodzą kolejni, do ``AUTOFILL_POOL_SIZE`` osób.
     """
     from sqlalchemy import delete, insert
 
@@ -777,54 +925,70 @@ async def refresh_autofill_pool(db, run: CandidateSearchRun) -> int:
 
     if run.job_id is None:
         return 0
-    rows = (
-        await db.execute(
-            select(
-                CandidateSearchResult.candidate_id,
-                CandidateSearchResult.fit_score,
-                CandidateSearchResult.evidence,
-            )
-            .where(
-                CandidateSearchResult.run_id == run.id,
-                CandidateSearchResult.state == "evaluated",
-                CandidateSearchResult.eligible.is_(True),
-                CandidateSearchResult.measurement == "measured",
-                CandidateSearchResult.fit_score.is_not(None),
-            )
-            .order_by(
-                CandidateSearchResult.fit_score.desc(),
-                CandidateSearchResult.candidate_id,
-            )
-            .limit(AUTOFILL_POOL_SIZE)
-        )
-    ).all()
-    candidates = {
-        c.id: c
-        for c in (
-            await db.scalars(
-                select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+    job = await db.get(Job, run.job_id)
+    payload: list[dict] = []
+    scanned = 0
+    while len(payload) < AUTOFILL_POOL_SIZE and scanned < AUTOFILL_POOL_SCAN_LIMIT:
+        page_size = min(_POOL_PAGE, AUTOFILL_POOL_SCAN_LIMIT - scanned)
+        rows = (
+            await db.execute(
+                select(
+                    CandidateSearchResult.candidate_id,
+                    CandidateSearchResult.fit_score,
+                    CandidateSearchResult.evidence,
+                )
+                .where(
+                    CandidateSearchResult.run_id == run.id,
+                    CandidateSearchResult.state == "evaluated",
+                    CandidateSearchResult.eligible.is_(True),
+                    CandidateSearchResult.measurement == "measured",
+                    CandidateSearchResult.fit_score.is_not(None),
+                )
+                .order_by(
+                    CandidateSearchResult.fit_score.desc(),
+                    CandidateSearchResult.candidate_id,
+                )
+                .offset(scanned)
+                .limit(page_size)
             )
         ).all()
-    }
-    payload = []
-    for candidate_id, score, evidence in rows:
-        candidate = candidates.get(candidate_id)
-        if candidate is None:
-            continue
-        requirements = (evidence or {}).get("requirements") or []
-        payload.append(
-            {
-                "job_id": run.job_id,
-                "candidate_id": candidate_id,
-                "score": round(float(score), 2),
-                "run_id": run.id,
-                "cv_revision": candidate_revision(candidate),
-                "evidence": {
-                    "matched_must": _requirement_names(requirements, met=True),
-                    "missing_must": _requirement_names(requirements, met=False),
-                },
-            }
+        scanned += len(rows)
+        candidates = {
+            c.id: c
+            for c in (
+                await db.scalars(
+                    select(Candidate).where(Candidate.id.in_([r[0] for r in rows]))
+                )
+            ).all()
+        }
+        off_role = await _off_role_ids(
+            db,
+            job,
+            [(cid, (ev or {}).get("requirements") or []) for cid, _score, ev in rows],
+            candidates,
+            keep_strong=False,
         )
+        for candidate_id, score, evidence in rows:
+            candidate = candidates.get(candidate_id)
+            if candidate is None or candidate_id in off_role:
+                continue
+            requirements = (evidence or {}).get("requirements") or []
+            payload.append(
+                {
+                    "job_id": run.job_id,
+                    "candidate_id": candidate_id,
+                    "score": round(float(score), 2),
+                    "run_id": run.id,
+                    "cv_revision": candidate_revision(candidate),
+                    "evidence": {
+                        "matched_must": _requirement_names(requirements, met=True),
+                        "missing_must": _requirement_names(requirements, met=False),
+                    },
+                }
+            )
+        if len(rows) < page_size:
+            break
+    payload = payload[:AUTOFILL_POOL_SIZE]
     await db.execute(
         delete(JobAutofillPool).where(JobAutofillPool.job_id == run.job_id)
     )

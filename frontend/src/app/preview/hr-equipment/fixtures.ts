@@ -604,6 +604,10 @@ export function buildEquipmentData(phase: EquipmentPhase): EquipmentHarnessData 
         unit_value: spec.kind === "wydanie" && !noValue ? item.model.price_pln : null,
         condition: spec.kind === "zwrot" ? (spec.condition ?? "sprawny") : null,
         notes: null,
+        // Okno „Popraw protokół” rozdziela nazwę z rejestru i dodatki recepcji.
+        ...(spec.kind === "wydanie"
+          ? { base_name: lineName(item, null), accessories: spec.accessories?.[item.id] ?? "" }
+          : {}),
       };
     });
     const totalCents = lines.reduce(
@@ -833,7 +837,7 @@ const UNRESOLVED_TEMPLATES: { sheet: string; data: (n: number) => ImportRowData;
       model: "Xiaomi Redmi A5",
       inventory_number: `T-0${n}`,
       imei: `TEST-00${n}`,
-      holder_text: "dawny pracownik",
+      holder_text: "dawny osoba",
       item_status: "na_stanie",
     }),
     reason: "Osoba z pliku nie ma konta w NEXUSIE",

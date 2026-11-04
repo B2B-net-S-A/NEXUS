@@ -70,6 +70,7 @@ from app.services.request_allocation_plan import (
     PROPOSAL_RELEASE_PREFIX,
     PersonInfo,
     PlanInput,
+    PlanRules,
     RequestInfo,
     plan_assignments,
 )
@@ -489,7 +490,7 @@ async def _live(
 
 async def _unseen_workers(
     db: AsyncSession, requests: list[RequestInfo], live: list[LiveAssignment]
-) -> tuple[frozenset[int], dict[int, int]]:
+) -> tuple[frozenset[int], dict[int, int], dict[int, frozenset[int]]]:
     """Kto pracuje nad requestem z puli, a planer nie widzi go jako wiersza.
 
     Reguła „kto pracuje” jest jedna (``job_team.recruiters_for_jobs``). Poza
@@ -500,21 +501,28 @@ async def _unseen_workers(
     (propozycja przy nim znika), a osoba ma go w obłożeniu.
 
     Zwraca (requesty z taką osobą, ile takich requestów P1 ma każda osoba —
-    obłożenie liczy tylko P1, 14.10.2026).
+    obłożenie liczy tylko P1, 14.10.2026 —, kto to jest przy każdym requeście:
+    obsada przy zasadzie „ilu ludzi na rekrutację”).
     """
     active = {(row.job_id, row.user_id) for row in live if row.state == "active"}
     p1 = {request.job_id for request in requests if request.automat_assigns}
     team = await recruiters_for_jobs(db, [request.job_id for request in requests])
     staffed: set[int] = set()
     extra_load: dict[int, int] = {}
+    who: dict[int, set[int]] = {}
     for job_id, people in team.items():
         for person in working(people):
             if (job_id, person.user_id) in active:
                 continue
             staffed.add(job_id)
+            who.setdefault(job_id, set()).add(person.user_id)
             if job_id in p1:
                 extra_load[person.user_id] = extra_load.get(person.user_id, 0) + 1
-    return frozenset(staffed), extra_load
+    return (
+        frozenset(staffed),
+        extra_load,
+        {job_id: frozenset(ids) for job_id, ids in who.items()},
+    )
 
 
 async def _apply(
@@ -631,6 +639,18 @@ async def _set_owner_if_empty(db: AsyncSession, job_id: int, user_id: int) -> No
 REVIEW_LATEST = time(17, 0)
 
 
+def plan_rules(rules: AllocationRules) -> PlanRules:
+    """Zasady z Ustawień w postaci, którą zna czysty planer."""
+    return PlanRules(
+        include_p2=rules.include_p2,
+        people_per_p1=rules.people_per_p1,
+        max_load=rules.max_load,
+        overflow=rules.overflow,
+        outsiders=rules.outsiders,
+        order=rules.order,
+    )
+
+
 def _review_due(stats: dict[str, Any], rules: AllocationRules, now: datetime) -> bool:
     local = now.astimezone(ZoneInfo(settings.BUSINESS_TZ))
     clock = rules.review_clock
@@ -674,14 +694,20 @@ async def run_request_allocation(
     live, out, inactive_ids = await _live(db)
     staffed: frozenset[int] = frozenset()
     extra_load: dict[int, int] = {}
+    staffed_people: dict[int, frozenset[int]] = {}
     rejected: frozenset[tuple[int, int]] = frozenset()
     # Urlopy z Compassa włączone, ale nieaktualne: tryb ``auto`` czeka, bo
     # request mógłby dostać ktoś na urlopie. Przy wyłączonych urlopach nie ma
-    # na co czekać — automat przydziela od razu.
-    leave_blocks_auto = availability_enabled() and not availability_fresh
+    # na co czekać — automat przydziela od razu. Zasada „Przydzielaj” z
+    # Ustawień (29.10.2026) też nie czeka.
+    leave_blocks_auto = (
+        availability_enabled()
+        and not availability_fresh
+        and rules.leave_policy == "wait"
+    )
     if mode != "off":
         # Tryb ``off`` niczego nie przydziela — nie liczy obsady ani blokad.
-        staffed, extra_load = await _unseen_workers(db, requests, live)
+        staffed, extra_load, staffed_people = await _unseen_workers(db, requests, live)
         rejected = await _blocked(db, REJECTED_PROPOSAL)
     changes = plan_assignments(
         PlanInput(
@@ -697,6 +723,8 @@ async def run_request_allocation(
             inactive_ids=inactive_ids,
             staffed=staffed,
             extra_load=extra_load,
+            staffed_people=staffed_people,
+            rules=plan_rules(rules),
         )
     )
     counts = await _apply(db, changes, mode=mode, now=now)
@@ -750,6 +778,135 @@ async def run_request_allocation(
             logger.exception("[request_allocation] morning notices failed")
         stats["last_review_date"] = local_date.isoformat()
     return stats
+
+
+async def preview_allocation(
+    db: AsyncSession, rules_list: list[AllocationRules]
+) -> list[dict[str, Any]]:
+    """Przebieg „na sucho” dla kilku zestawów zasad — nic nie zapisuje.
+
+    Ustawienia → „Automat przydziału” (29.10.2026) pokazują obok formularza,
+    co zasady zrobią przy następnym przebiegu na dzisiejszych danych. Te same
+    odczyty i ten sam planer co ``run_request_allocation``, bez adopcji
+    prowadzących (zapis) i w trybie podglądu, żeby było widać propozycje także
+    przy wyłączonym automacie. Przydziały, które już są, zostają (zasady
+    działają tylko na nowe), więc wynik to nowe osoby i rekrutacje, które
+    poczekają na człowieka.
+    """
+    from app.services.workforce_availability import (  # noqa: PLC0415
+        workforce_context,
+    )
+
+    context = await workforce_context(db)
+    known = bool(context.fresh and availability_enabled())
+    requests = await _requests(db)
+    people, eligible_ids = await _people(
+        db, available_ids=set(context.available_ids) if known else None
+    )
+    blocked = await _blocked(db) | await _blocked(db, REJECTED_PROPOSAL)
+    live, out, inactive_ids = await _live(db)
+    staffed, extra_load, staffed_people = await _unseen_workers(db, requests, live)
+    names = dict(
+        (
+            await db.execute(
+                select(User.id, User.name).where(
+                    User.id.in_({p.user_id for p in people} | {r.user_id for r in live})
+                )
+            )
+        ).all()
+    )
+    pool = {r.job_id: r for r in requests}
+    p1_now: dict[int, int] = dict(extra_load)
+    for row in live:
+        if row.job_id in pool and pool[row.job_id].automat_assigns:
+            p1_now[row.user_id] = p1_now.get(row.user_id, 0) + 1
+
+    results = []
+    for rules in rules_list:
+        plan = plan_rules(rules)
+        changes = plan_assignments(
+            PlanInput(
+                requests=requests,
+                people=people,
+                live=live,
+                out_of_pool=out,
+                mode="shadow",
+                availability_known=known,
+                eligible_ids=eligible_ids,
+                blocked=blocked,
+                inactive_ids=inactive_ids,
+                staffed=staffed,
+                extra_load=extra_load,
+                staffed_people=staffed_people,
+                rules=plan,
+            )
+        )
+        released = {(c.job_id, c.user_id) for c in changes if c.kind == "release"}
+        staying: dict[int, int] = {
+            job_id: max(1, len(staffed_people.get(job_id, ()))) for job_id in staffed
+        }
+        for row in live:
+            if row.job_id in pool and (row.job_id, row.user_id) not in released:
+                staying[row.job_id] = staying.get(row.job_id, 0) + 1
+        new: dict[int, int] = {}
+        new_p1: dict[int, int] = {}
+        for change in changes:
+            if change.kind != "assign":
+                continue
+            new[change.job_id] = new.get(change.job_id, 0) + 1
+            if pool[change.job_id].automat_assigns:
+                new_p1[change.user_id] = new_p1.get(change.user_id, 0) + 1
+        target = [r for r in requests if r.staffed_by(plan)]
+        waiting = [
+            r.job_id
+            for r in target
+            if staying.get(r.job_id, 0) + new.get(r.job_id, 0) < r.wanted(plan)
+        ]
+        assigns = [c for c in changes if c.kind == "assign"]
+        per_person: dict[int, int] = {}
+        for change in assigns:
+            per_person[change.user_id] = per_person.get(change.user_id, 0) + 1
+        results.append(
+            {
+                "pool": len(target),
+                "empty": sum(1 for r in target if staying.get(r.job_id, 0) == 0),
+                "new_people": len(assigns),
+                "new_requests": len(new),
+                "waiting": len(waiting),
+                # Propozycje automatu, które znikną (np. P2 po wyłączeniu
+                # zasady). Działających przypisań zasady nie zwalniają.
+                "proposals_dropped": sum(
+                    1
+                    for c in changes
+                    if c.kind == "release" and c.reason in {"not_p1", "superseded"}
+                ),
+                "at_limit": (
+                    sum(1 for p in people if p1_now.get(p.user_id, 0) >= rules.max_load)
+                    if rules.max_load is not None
+                    else 0
+                ),
+                "team": len(people),
+                "people": sorted(
+                    (
+                        {
+                            "user_id": user_id,
+                            "name": names.get(user_id) or f"#{user_id}",
+                            "p1_now": p1_now.get(user_id, 0),
+                            "new": count,
+                            "new_p1": new_p1.get(user_id, 0),
+                        }
+                        for user_id, count in per_person.items()
+                    ),
+                    key=lambda item: (-item["new"], item["name"]),
+                ),
+                "auto_waits_for_leave": bool(
+                    availability_enabled()
+                    and not context.fresh
+                    and rules.leave_policy == "wait"
+                ),
+            }
+        )
+    return results
 
 
 def job_in_pool(job: Job) -> bool:

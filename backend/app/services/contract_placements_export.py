@@ -172,13 +172,33 @@ def bonus_text(bonuses: Iterable[PlacementBonus]) -> str:
     return "; ".join(parts)
 
 
+MARGIN_COLUMNS = frozenset({"Marża", "Marża mies."})
+
+
+def without_margin_columns(
+    rows: Iterable[list[Any]],
+) -> tuple[tuple[str, ...], list[list[Any]]]:
+    """Kolumny i wiersze arkusza bez marży (dla konta bez „Wyników firmy”)."""
+
+    keep = [
+        index
+        for index, name in enumerate(PLACEMENT_EXPORT_COLUMNS)
+        if name not in MARGIN_COLUMNS
+    ]
+    return (
+        tuple(PLACEMENT_EXPORT_COLUMNS[index] for index in keep),
+        [[row[index] for index in keep] for row in rows],
+    )
+
+
 def placement_notes(contract: Contract, facts: PlacementFacts) -> str:
     """Uwagi, które arkusz miał tekstem, złożone z danych kontraktu."""
 
     notes: list[str] = []
     status = getattr(contract.status, "value", contract.status)
     if status in (ContractStatus.ended.value, ContractStatus.ending.value):
-        end = contract.terminated_at or contract.end_date
+        # R8-N13-1: `terminated_at` przeżywa przedłużenie (pierwsze zakończenie).
+        end = contract.end_date or contract.terminated_at
         if end is not None:
             text = f"Koniec {end:%d.%m.%Y}"
             reason = getattr(

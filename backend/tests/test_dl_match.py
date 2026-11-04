@@ -135,10 +135,12 @@ async def test_month_match_handoffs_counts_processes_from_match() -> None:
 # ── Integracyjne ─────────────────────────────────────────────────────────────
 
 
-async def _second_job(world: dict, *, delivery_lead_id: int | None) -> int:
+async def _second_job(
+    world: dict, *, delivery_lead_id: int | None, title: str | None = None
+) -> int:
     async with AsyncSessionLocal() as db:
         job = Job(
-            title=f"BT Java B {uuid.uuid4().hex[:6]}",
+            title=title or f"BT Java B {uuid.uuid4().hex[:6]}",
             location="Warszawa",
             status=JobStatus.published,
             remote_policy=RemotePolicy.hybrid,
@@ -281,9 +283,11 @@ async def test_nordea_target_lands_in_the_cpro_queue(
 
 
 @pytest.mark.asyncio
-async def test_job_outside_the_portfolio_is_refused_without_writes(
+async def test_job_of_another_dl_is_sent_and_its_dl_is_told(
     api_client: AsyncClient, dl_skips_on, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Od 27.10.2026 (prośba Igora, decyzja Artura) DL wysyła też do cudzej
+    rekrutacji, którą dodał ręcznie; DL tamtej rekrutacji dostaje dzwonek."""
     monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
     world = await _seed_world()
     rec_id, _ = await _seed_user(UserRole.recruiter)
@@ -296,12 +300,100 @@ async def test_job_outside_the_portfolio_is_refused_without_writes(
         resp = await _send(api_client, dl, world, job_b)
         assert resp.status_code == 200, resp.text
         [result] = resp.json()["results"]
-        assert result["status"] == "failed"
-        assert "portfelu" in result["reason"]
-        assert await _rows_in(job_b, world["candidate_id"]) == []
+        assert result["status"] == "sent", result
+        rows = await _rows_in(job_b, world["candidate_id"])
+        assert rows[-1].stage == PipelineStage.cv_sent
+        async with AsyncSessionLocal() as db:
+            told = await db.scalar(
+                select(Notification).where(Notification.user_id == other_dl)
+            )
+        assert told is not None and "Match z" in told.title
     finally:
         await _drop([job_b], [rec_id, dl_id, other_dl])
         await _cleanup(world, [rec_id, dl_id, other_dl])
+
+
+@pytest.mark.asyncio
+async def test_closed_job_is_refused_without_writes(
+    api_client: AsyncClient, dl_skips_on, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    rec_id, _ = await _seed_user(UserRole.recruiter)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    job_b = await _second_job(world, delivery_lead_id=dl_id)
+    try:
+        async with AsyncSessionLocal() as db:
+            job = await db.get(Job, job_b)
+            job.status = JobStatus.closed
+            await db.commit()
+        await _verified_in_a(world, rec_id)
+        resp = await _send(api_client, dl, world, job_b)
+        assert resp.status_code == 200, resp.text
+        [result] = resp.json()["results"]
+        assert result["status"] == "failed"
+        assert "nie jest otwarta" in result["reason"]
+        assert await _rows_in(job_b, world["candidate_id"]) == []
+    finally:
+        await _drop([job_b], [rec_id, dl_id])
+        await _cleanup(world, [rec_id, dl_id])
+
+
+async def _search(client: AsyncClient, headers: dict, world: dict, phrase: str):
+    return await client.get(
+        f"/api/dl-match/candidates/{world['candidate_id']}/search",
+        headers=headers,
+        params={"from_job_id": world["job_id"], "q": phrase},
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_finds_open_jobs_in_the_whole_company_own_first(
+    api_client: AsyncClient,
+) -> None:
+    """„+ Dodaj inną rekrutację”: cała firma, portfel na górze, przy cudzej
+    rekrutacji jej DL; bez rekrutacji, w których osoba już jest, i zamkniętych."""
+    world = await _seed_world()
+    other_dl, _ = await _seed_user(UserRole.delivery_lead)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    dl = await _login(api_client, dl_creds)
+    marker = f"Żółw {uuid.uuid4().hex[:8]}"
+    mine, theirs, closed, already = [
+        await _second_job(world, delivery_lead_id=lead, title=f"{marker} {n}")
+        for n, lead in enumerate((dl_id, other_dl, dl_id, dl_id))
+    ]
+    try:
+        async with AsyncSessionLocal() as db:
+            (await db.get(Job, closed)).status = JobStatus.closed
+            db.add(
+                CandidateStage(
+                    candidate_id=world["candidate_id"],
+                    job_id=already,
+                    stage=PipelineStage.screening,
+                    stage_def_id=world["defs"]["screening"],
+                )
+            )
+            await db.commit()
+        # Bez polskich znaków i wielkości liter: „zolw” znajduje „Żółw”.
+        resp = await _search(api_client, dl, world, marker.replace("Żółw", "zolw"))
+        assert resp.status_code == 200, resp.text
+        jobs = resp.json()["jobs"]
+        ids = [j["job_id"] for j in jobs]
+        assert ids == [mine, theirs]
+        assert jobs[0]["in_portfolio"] is True
+        assert jobs[0]["delivery_lead_name"] is None
+        assert jobs[1]["in_portfolio"] is False
+        assert jobs[1]["delivery_lead_name"]
+        assert jobs[0]["score"] is None
+
+        short = await _search(api_client, dl, world, "b")
+        assert short.status_code == 200 and short.json()["jobs"] == []
+        wildcard = await _search(api_client, dl, world, "%")
+        assert wildcard.status_code == 200 and wildcard.json()["jobs"] == []
+    finally:
+        await _drop([mine, theirs, closed, already], [dl_id, other_dl])
+        await _cleanup(world, [dl_id, other_dl])
 
 
 @pytest.mark.asyncio
@@ -334,6 +426,8 @@ async def test_recruiter_cannot_use_match(api_client: AsyncClient) -> None:
             params={"from_job_id": world["job_id"]},
         )
         assert listing.status_code == 403, listing.text
+        search = await _search(api_client, rec, world, "java")
+        assert search.status_code == 403, search.text
     finally:
         await _cleanup(world, [rec_id])
 

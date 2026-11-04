@@ -806,7 +806,8 @@ export type CycleAction =
   | { type: "reply"; pair: PairInfo; request: SlotRequest }
   | { type: "plan_prep"; pair: PairInfo; second: boolean }
   | { type: "prep_review"; pair: PairInfo; eventId: number; tab?: "score" | "summary" | "transcript" }
-  | { type: "add_slots"; pair: PairInfo | null }
+  /** `request`: „Zmień terminy” — okno wczytuje otwarty wniosek i go zastępuje. */
+  | { type: "add_slots"; pair: PairInfo | null; request?: SlotRequest | null }
   /** Prep zaplanowany po rozmowie u klienta: nowy termin TEGO spotkania. */
   | {
       type: "reschedule_prep";

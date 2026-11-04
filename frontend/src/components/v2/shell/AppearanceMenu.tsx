@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Gamepad2, Moon, Palette } from "lucide-react";
+import { Bot, Check, Gamepad2, Moon, Palette } from "lucide-react";
 
 import {
   DropdownMenu,
@@ -10,6 +10,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useJarvisMascotVisibility } from "@/components/jarvis/useJarvisMascotVisibility";
 import { useThemeStore } from "@/store/theme";
 
 import { PaletteMenuItems } from "./PaletteSwitcher";
@@ -20,11 +21,13 @@ import { useKidsModeToggle } from "./ThemeControls";
  * ciemny w jednym menu (decyzja Artura 13.10.2026). Trzy osobne przyciski
  * po 32 px zabierały 112 px — to miejsce zajmuje przycisk Ligi Mistrzów.
  * Na telefonie przełączniki zostają osobno w szufladzie nawigacji.
+ * „Robot Jarvisa w rogu” — tu się go przywraca po „Schowaj” na samym robocie.
  */
 export function AppearanceMenu() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggleTheme);
   const { kidsMode, toggle: toggleKidsMode } = useKidsModeToggle();
+  const mascot = useJarvisMascotVisibility();
   const [mounted, setMounted] = useState(false);
 
   // Motyw jest czytany z localStorage tylko w przeglądarce — bez rozjazdu hydracji.
@@ -40,7 +43,7 @@ export function AppearanceMenu() {
         <button
           type="button"
           aria-label="Wygląd"
-          title="Wygląd: motyw koloru, tryb gry, tryb ciemny"
+          title="Wygląd: motyw koloru, tryb gry, tryb ciemny, robot Jarvisa"
           className="h-9 w-9 flex items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           <Palette className="h-4 w-4" />
@@ -70,6 +73,18 @@ export function AppearanceMenu() {
           <span className="flex-1">Tryb ciemny</span>
           {theme === "dark" && <Check className="h-4 w-4 shrink-0 text-foreground" />}
         </DropdownMenuItem>
+        {mascot.visible !== null && (
+          <DropdownMenuItem
+            role="menuitemcheckbox"
+            aria-checked={mascot.visible}
+            onSelect={() => mascot.setVisible(!mascot.visible)}
+            className="cursor-pointer gap-2.5"
+          >
+            <Bot className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="flex-1">Robot Jarvisa w rogu</span>
+            {mascot.visible && <Check className="h-4 w-4 shrink-0 text-foreground" />}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

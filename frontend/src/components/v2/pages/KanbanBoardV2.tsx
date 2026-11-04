@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from"react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from"react";
 import { invalidatePreContract, preContractsApi } from "@/lib/api/preContracts";
 import { useQueryClient } from"@tanstack/react-query";
 import Link from"next/link";
@@ -41,6 +41,7 @@ import {
  UserPlus,
  UserX,
  XCircle,
+ PhoneCall,
 } from"lucide-react";
 import {
  api,
@@ -115,6 +116,9 @@ import {
  peopleInProgress,
  type AddedByFilter,
 } from "@/lib/board-added-by";
+import { cardCareLabel } from "@/lib/departed-care";
+import { myWaitingItems } from "@/lib/job-closed-waiting";
+import { ClosedJobWaitingBanner } from "@/components/v2/jobs/ClosedJobWaitingBanner";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import {
  MOVE_REQUIREMENTS_PREFIX,
@@ -135,9 +139,11 @@ import {
  type StageBadgeKey,
 } from "@/lib/board-stages";
 import { boardColumnPurpose } from "@/lib/board-column-purpose";
+import { CALL_FIRST_COUNT, knownFactLabels, newColumnSection, orderNewColumn, type NewColumnSection } from "@/lib/new-column-queue";
 import { HiredColumnHelp } from "@/components/v2/jobs/HiredColumnHelp";
 import { hasPermission } from "@/lib/permissions";
 import { hasRole, useAuthStore } from "@/store/auth";
+import { isRecruiterOnly } from "@/lib/cv-download-access";
 import {
  CARD_BADGE_TONE_CLASS,
  cardBadges,
@@ -187,6 +193,7 @@ import {
  PipelineCandidateDock,
  type PipelineMoveTarget,
 } from "@/components/v2/jobs/PipelineCandidateDock";
+import { PersonPanelErrorBoundary } from "@/components/v2/jobs/PersonPanelErrorBoundary";
 import {
  colId,
  columnLabel,
@@ -300,6 +307,8 @@ interface KanbanBoardV2Props {
   * przełącznik widoku tablicy — widoczny tylko przy bardzo szerokim szablonie.
   */
  renderAbove?: (viewControls: React.ReactNode) => React.ReactNode;
+ /** Zamknięta rekrutacja (28.10.2026): pasek z osobami patrzącego od „CV wysłane”. */
+ closedJob?: { closedOn: string | null; reasonLabel: string | null } | null;
  /** Filtr „Kto dodał” (14.10.2026): strona trzyma go w adresie (`?added_by=`).
   *  Chowa karty innych osób w kolumnach w toku i zawęża kolejkę panelu.
   *  Obiekt ma być stabilny między renderami (strona go memoizuje). */
@@ -706,6 +715,10 @@ interface CardProps {
  overBudget: boolean;
  /** Krytyczne bez śladu w profilu, CV i notatkach — odznaka, nie blokada. */
  criticalGaps?: string[];
+ /** Miejsce w „Zadzwoń najpierw” kolumny „Nowi” (`lib/new-column-queue.ts`). */
+ callFirstRank?: number;
+ /** Przeskoczył na co 5. miejsce jako osoba bez procesu (`freshSlots`). */
+ freshSlot?: boolean;
  matchScore?: number;
  scoresLoading?: boolean;
  onRemoveFromRecruitment: (item: KanbanItem) => void;
@@ -820,6 +833,7 @@ const COMPACT_BADGE_ICON: Record<string, typeof Lock> = {
  source: UserPlus,
  claim: Lock,
  recommendation_card: ClipboardList,
+ booked_call: PhoneCall,
 };
 
 function CardV4Badges({
@@ -923,6 +937,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  onOpenScorecard,
  overBudget,
  criticalGaps,
+ callFirstRank,
+ freshSlot,
  matchScore,
  scoresLoading,
  onRemoveFromRecruitment,
@@ -991,6 +1007,8 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ? `Prowadzi: ${owner.name}${
  item.owner_assigned_by_name ? ` · przypisał(a) ${item.owner_assigned_by_name}` : ""
  }\n${addedLine}`
+ : owner.role === "taken"
+ ? `Wziął(-ęła) „Biorę”: ${owner.name}\n${addedLine}`
  : owner.role === "verified"
  ? `Zweryfikował(a): ${owner.name}${
  item.verified_at ? ` · ${formatDate(item.verified_at)}` : ""
@@ -1000,6 +1018,12 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  // a karta do 12.10.2026 rysowała tylko weto HM i „ponad budżet”.
  const warningBadges = eligibilityWarningBadges(item.warnings, item.employment_marker);
  const criticalGap = criticalGapBadge(criticalGaps);
+ // Odejście z firmy (28.10.2026): para osoby z wyłączonym kontem, którą
+ // domyka Delivery Lead — „Prowadzi” zostaje przy osobie, która odeszła.
+ const care =
+ item.care_user_id != null && item.care_departed_name
+ ? cardCareLabel(item.care_departed_name, item.care_user_id, item.care_user_name, v5?.viewerId ?? null)
+ : null;
  // Kolumny zamknięte (19.10.2026): powód widać bez otwierania karty, komentarz
  // i kto zamknął — w dymku i w opisie karty dla czytnika.
  const closed = closedReason(item);
@@ -1036,6 +1060,7 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  closedSummary ? `${closedSummary}.` : null,
  item.hm_veto ? "Ostrzeżenie: weto hiring managera." : null,
  ...warningBadges.map((w) => `Ostrzeżenie: ${w.label}.`),
+ care ? `${care.departed}, ${care.caretaker}.` : null,
  item.employment_marker ? `${markerLabel(item.employment_marker)}.` : null,
  // Na końcu, nie w środku — „następny krok" jest podsumowaniem karty, a nie
  // kolejnym faktem o kandydacie.
@@ -1066,12 +1091,14 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  return (
  <div
  data-kanban-card=""
+ data-tour="jobs.board.card"
  data-candidate-id={item.candidate_id}
  data-champion={item.is_champion ? "true" : undefined}
  onClick={handleCardClick}
  className={cn("group relative rounded-lg bg-card border border-border transition-all","hover:shadow-xs hover:border-primary/40",
  // Champion (D3, 15.10.2026): złota obwódka; zaznaczenie i weto HM wygrywają.
  item.is_champion &&"border-medal-gold-foreground/40",
+ callFirstRank != null &&"border-primary/50",
  selected &&"ring-2 ring-primary border-primary",
  // Makieta kroku 04 daje karcie ~9 px oddechu; stare `p-5` (20 px) zjadało
  // przy 176 px kolumny ćwierć jej szerokości na sam padding.
@@ -1127,6 +1154,16 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  aria-hidden="true"
  />
  )}
+
+ {callFirstRank != null ? (
+ <span
+ data-testid="card-call-first-rank"
+ aria-label={`Zadzwoń najpierw, miejsce ${callFirstRank}`}
+ className="absolute -left-1.5 -top-1.5 z-10 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold leading-none text-primary-foreground"
+ >
+ {callFirstRank}
+ </span>
+ ) : null}
 
  {desktopOverview && (
  <div className="absolute right-0 top-0 hidden h-6 min-w-6 items-center justify-center xl:pointer-fine:flex">
@@ -1319,6 +1356,19 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  <span aria-hidden="true">{w.label}</span>
  </span>
  ))}
+ {care && (
+ <span
+ data-testid="card-departed-care"
+ className={cn(
+ "inline-flex min-w-0 max-w-full items-center gap-0.5 rounded px-1 text-[10px] font-semibold bg-muted text-foreground",
+ desktopOverview && "xl:pointer-fine:hidden"
+ )}
+ title={`${care.departed} (odejście z firmy) — ${care.caretaker}. „Prowadzi” bez zmian: nie liczy się do Ligi, KPI ani premii.`}
+ >
+ <UserX className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+ <span className="truncate" aria-hidden="true">{care.caretaker}</span>
+ </span>
+ )}
  {impliedBadges(cardStageBadge(item, stageBadge))
  .filter((badge) => !(badge === "acceptance" && boardKey === "contract" && item.client_acceptance))
  .map((badge) => (
@@ -1459,6 +1509,24 @@ const CandidateKanbanCard = memo(function CandidateKanbanCard({
  ) : null}
 
  {/* Wiersz 3 makiety: kto ma ruch, co zrobić i strzałka „→" (v5). */}
+ {callFirstRank != null && (freshSlot || knownFactLabels(item.entry_autofill?.known).length > 0) ? (
+ <div data-testid="card-known-facts" className="mt-1 flex flex-wrap gap-1 pl-2">
+ {knownFactLabels(item.entry_autofill?.known).map((label) => (
+ <span key={label} className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary">
+ {label}
+ </span>
+ ))}
+ {freshSlot ? (
+ <span
+ data-testid="card-fresh-slot"
+ title="Co piąte miejsce w kolejce należy do najlepszej osoby, która nie była jeszcze w żadnej rekrutacji."
+ className="rounded-full bg-primary/10 px-1.5 text-[10px] font-semibold leading-4 text-primary"
+ >
+ Jeszcze bez procesu
+ </span>
+ ) : null}
+ </div>
+ ) : null}
  <NextActionRow
  action={nextAction}
  step={nextStep}
@@ -1611,6 +1679,8 @@ interface ColProps {
  onOpenScreening: (stageId: number, name: string) => void;
  scoreMap?: Map<number, number>;
  criticalGapMap?: Map<number, string[]>;
+ /** Kolejka kolumny „Nowi”: miejsca kart od systemu, `null` w innych kolumnach. */
+ newQueue?: { ranks: Map<number, number>; total: number; freshFirst: boolean; freshSlots: Set<number> } | null;
  scoresLoading?: boolean;
  /** Definicje etapów ze scorecardem — odznaka „Scorecard" (17.09.2026). */
  stagesWithScorecard: Set<number>;
@@ -1678,6 +1748,33 @@ function ContractStepChips({ counts }: { counts: ContractStepCounts }) {
  );
 }
 
+/** Podział kolumny „Nowi” (`lib/new-column-queue.ts`). */
+function NewColumnSectionHeader({ section, total, freshFirst }: { section: NewColumnSection; total: number; freshFirst: boolean }) {
+ const callFirst = Math.min(total, CALL_FIRST_COUNT);
+ const label =
+ section === "team"
+ ? "Dodani przez zespół"
+ : section === "call_first"
+ ? `Zadzwoń najpierw · ${callFirst} z ${total}`
+ : `Dalej w kolejce · ${total - callFirst}`;
+ return (
+ <div
+ data-testid={`new-column-section-${section}`}
+ data-tour={section === "call_first" ? "board.new-queue" : undefined}
+ className="px-0.5 pt-1 text-[11px] leading-tight"
+ >
+ <div className={cn("font-semibold", section === "call_first" ? "text-primary" : "text-muted-foreground")}>
+ {label}
+ </div>
+ {section === "call_first" ? (
+ <div className="mt-0.5 text-[10.5px] text-muted-foreground">
+ {freshFirst ? "Najpierw nowi w bazie, potem wynik i to, co o osobie wiemy" : "Wynik plus to, co o osobie wiemy"}
+ </div>
+ ) : null}
+ </div>
+ );
+}
+
 const KanbanColumnV2 = memo(function KanbanColumnV2({
  col,
  jobId,
@@ -1686,6 +1783,7 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScreening,
  scoreMap,
  criticalGapMap,
+ newQueue = null,
  scoresLoading,
  stagesWithScorecard,
  onOpenScorecard,
@@ -1869,9 +1967,19 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  snapshot.isDraggingOver &&"bg-primary/10"
  )}
  >
- {col.items.map((item, index) => (
+ {col.items.map((item, index) => {
+ const section = newQueue && newQueue.total > 0 ? newColumnSection(newQueue.ranks.get(item.id)) : null;
+ const previous = index > 0 ? col.items[index - 1] : null;
+ const startsSection =
+ section != null &&
+ (previous == null || newColumnSection(newQueue?.ranks.get(previous.id)) !== section);
+ const rank = newQueue?.ranks.get(item.id);
+ return (
+ <Fragment key={String(item.id)}>
+ {startsSection && newQueue ? (
+ <NewColumnSectionHeader section={section} total={newQueue.total} freshFirst={newQueue.freshFirst} />
+ ) : null}
  <Draggable
- key={String(item.id)}
  draggableId={String(item.id)}
  index={index}
  isDragDisabled={readOnly}
@@ -1904,6 +2012,8 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  onOpenScorecard={(it) => onOpenScorecard(it, col)}
  overBudget={isOverHourlyBudget(item, jobBudgetHourly)}
  criticalGaps={criticalGapMap?.get(item.candidate_id)}
+ callFirstRank={rank != null && rank <= CALL_FIRST_COUNT ? rank : undefined}
+ freshSlot={newQueue?.freshSlots.has(item.id) ?? false}
  matchScore={scoreMap?.get(item.candidate_id)}
  scoresLoading={scoresLoading}
  onRemoveFromRecruitment={onRemoveFromRecruitment}
@@ -1917,7 +2027,9 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
  </div>
  )}
  </Draggable>
- ))}
+ </Fragment>
+ );
+ })}
  {/* Ramka „upuść tutaj” pojawia się dopiero w trakcie przeciągania
  karty (`data-dragging` na korzeniu tablicy) — w spoczynku pusta
  kolumna jest po prostu pusta (04.10.2026). */}
@@ -1956,13 +2068,16 @@ const KanbanColumnV2 = memo(function KanbanColumnV2({
 
 // ── Board ────────────────────────────────────────────────────────────
 
-/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026). */
+/** Kolumna z kartami, które przechodzą filtr „Kto dodał” (14.10.2026).
+ *  `boardKey` = kolumna Tablicy — od „Zweryfikowanego” liczy się osoba,
+ *  która zweryfikowała, jak na karcie (29.10.2026). */
 function withAddedByFilter<C extends { items: KanbanItem[]; count: number }>(
  col: C,
- filter: AddedByFilter
+ filter: AddedByFilter,
+ boardKey: BoardColumnKey | null
 ): C {
  if (filter.kind === "all") return col;
- const items = col.items.filter((item) => matchesAddedBy(item, filter));
+ const items = col.items.filter((item) => matchesAddedBy(item, filter, boardKey));
  return { ...col, items, count: items.length };
 }
 
@@ -1974,7 +2089,7 @@ const MIN_COLUMN_HEIGHT = 280;
 // `p-4` obszaru treści powłoki (góra + dół) — patrz pomiar planszy na telefonie.
 const MOBILE_MAIN_PADDING_Y = 32;
 
-export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange }: KanbanBoardV2Props) {
+export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapMap, scoresLoading, headerCollapsed, offTemplate, readOnly = false, clientId = null, initialDockCandidateId = null, onInitialDockHandled, initialDockOpensReview = false, onDockCandidateChange, workbenchContext, kanbanQueryState, initialWorkbench = null, onInitialWorkbenchHandled, cproEnabled = false, viewerOwnsDlReview = false, renderAbove, addedBy = ADDED_BY_ALL, onAddedByChange, closedJob = null }: KanbanBoardV2Props) {
  // Widok tablicy: kafelki ↔ kolumny. Reguła automatyczna (szeroki szablon
  // otwiera się kafelkowo) jest WARTOŚCIĄ DOMYŚLNĄ, wybór użytkownika ją
  // nadpisuje i jest pamiętany — patrz `lib/kanban-view-preferences.ts`.
@@ -1994,17 +2109,35 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => foldBoardColumns(stageCols, { cproEnabled }),
  [stageCols, cproEnabled]
  );
+ // Kolejka w „Nowych” (02.11.2026): zespół na górze, potem karty od systemu
+ // od najwyższego wyniku. Liczona przed filtrem „Kto dodał”, żeby miejsce
+ // karty nie zależało od filtra.
+ const newColumnQueue = useMemo(
+ () =>
+ orderNewColumn(
+ boardFold.columns.find((f) => f.key === "new")?.items ?? [],
+ criticalGapMap
+ ),
+ [boardFold, criticalGapMap]
+ );
  const allDisplayCols = useMemo(
  () =>
- boardFold.columns.map((f) => ({ ...f.host, items: f.items, count: f.count })),
- [boardFold]
+ boardFold.columns.map((f) => ({
+ ...f.host,
+ items: f.key === "new" ? newColumnQueue.items : f.items,
+ count: f.count,
+ })),
+ [boardFold, newColumnQueue]
  );
  // Filtr „Kto dodał” (14.10.2026) chowa karty w kolumnach w toku. Liczony
  // PRZED przeciąganiem: indeksy kart w kolumnie to indeksy widocznej listy.
  // `count` = widoczne karty, liczba bez filtra — `totalCountByColId`.
  const displayCols = useMemo(
- () => allDisplayCols.map((c) => withAddedByFilter(c, addedBy)),
- [allDisplayCols, addedBy]
+ () =>
+ allDisplayCols.map((c, i) =>
+ withAddedByFilter(c, addedBy, boardFold.columns[i]?.key ?? null)
+ ),
+ [allDisplayCols, addedBy, boardFold]
  );
  const boardKeyByColId = useMemo(() => {
  const m = new Map<string, BoardColumnKey>();
@@ -3106,6 +3239,12 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  () => stageCols.find((c) => terminalOf(c) === "rejected"),
  [stageCols]
  );
+ // Zamknięta rekrutacja (28.10.2026): osoby patrzącego od „CV wysłane”, którym
+ // trzeba dać znać — ta sama osoba karty co dzwonek z serwera.
+ const myWaiting = useMemo(
+ () => (closedJob ? myWaitingItems(stageCols, authUser?.id) : []),
+ [closedJob, stageCols, authUser?.id]
+ );
  const dockItemColumn = dockItemColId
  ? (cols.find((c) => colId(c) === dockItemColId) ?? null)
  : null;
@@ -3666,7 +3805,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  // nie mówiła, że coś ukryła.
  const allOffTemplateCols = useMemo(() => cols.filter((c) => isOffTemplate(c)), [cols]);
  const offTemplateCols = useMemo(
- () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy)),
+ () => allOffTemplateCols.map((c) => withAddedByFilter(c, addedBy, null)),
  [allOffTemplateCols, addedBy]
  );
  // Liczba osób w kolumnie bez filtra „Kto dodał” — licznik „N z M” i napis
@@ -3687,13 +3826,17 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  setSelected((prev) => {
  if (prev.size === 0) return prev;
  const hidden = new Set<number>();
- for (const c of [...allDisplayCols, ...allOffTemplateCols]) {
- for (const item of c.items) if (!matchesAddedBy(item, addedBy)) hidden.add(item.candidate_id);
+ allDisplayCols.forEach((c, i) => {
+ const key = boardFold.columns[i]?.key ?? null;
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, key)) hidden.add(item.candidate_id);
+ });
+ for (const c of allOffTemplateCols) {
+ for (const item of c.items) if (!matchesAddedBy(item, addedBy, null)) hidden.add(item.candidate_id);
  }
  const next = new Set(Array.from(prev).filter((id) => !hidden.has(id)));
  return next.size === prev.size ? prev : next;
  });
- }, [addedBy, allDisplayCols, allOffTemplateCols]);
+ }, [addedBy, allDisplayCols, allOffTemplateCols, boardFold]);
  // Menu „Kto dodał” w panelu osoby — te same liczby co przycisk w nagłówku
  // (osoby w toku, `lib/board-added-by.ts`), z żywego stanu Tablicy.
  const addedByMenuOptions = useMemo(
@@ -4117,6 +4260,18 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  ) : null}
 
  <div className={cn("min-w-0 space-y-3", dockItem && dockItemColLabel !== null &&"lg:pr-[380px]")}>
+ {closedJob ? (
+ <ClosedJobWaitingBanner
+ closedOn={closedJob.closedOn}
+ reasonLabel={closedJob.reasonLabel}
+ people={myWaiting.map((item) => [item.name, item.lastname].filter(Boolean).join(" ") || `Kandydat #${item.candidate_id}`)}
+ onRejectFirst={
+ !readOnly && rejectedTemplateCol && myWaiting.length > 0
+ ? () => requestReject(myWaiting[0], rejectedTemplateCol)
+ : undefined
+ }
+ />
+ ) : null}
  {offTemplate && offTemplate.count > 0 && (
  <Alert
  variant="warning"
@@ -4196,6 +4351,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  Wyślij CV do klienta
  </Button>
  )}
+ {isRecruiterOnly(authUser) ? null : (
  <Button
  size="sm"
  variant="secondary"
@@ -4209,6 +4365,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  )}{""}
  CV (ZIP)
  </Button>
+ )}
  {/* Skrót do tej samej ścieżki, co wybór „Odrzucony" z listy wyżej —
  `bulkMove` otwiera wspólny modal powodu (`RejectionV2`). Żadnej nowej
  mutacji: bez kolumny terminalnej „Odrzucony" w szablonie przycisku
@@ -4298,6 +4455,7 @@ export function KanbanBoardV2({ columns, jobId, jobTitle, scoreMap, criticalGapM
  onOpenScreening={handleOpenScreening}
  scoreMap={scoreMap}
  criticalGapMap={criticalGapMap}
+ newQueue={boardKeyByColId.get(entry.key) === "new" ? newColumnQueue : null}
  scoresLoading={scoresLoading}
  stagesWithScorecard={stagesWithScorecard}
  onOpenScorecard={handleOpenScorecard}
@@ -4395,6 +4553,7 @@ headerAction={
  hidden={reviewOpen}
  inert={reviewOpen || undefined}
  >
+ <PersonPanelErrorBoundary key={dockItem.candidate_id} onClose={closeDock}>
  <PipelineCandidateDock
  key={dockItem.candidate_id}
  item={dockItem}
@@ -4516,6 +4675,7 @@ headerAction={
  ) : null
  }
  />
+ </PersonPanelErrorBoundary>
  </div>
  )}
  {dlReviewTask ? (

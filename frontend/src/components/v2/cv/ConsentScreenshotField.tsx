@@ -17,7 +17,9 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, Upload, X } from "lucide-react";
 
+import { ConsentCheckNotice } from "@/components/v2/cv/ConsentCheckNotice";
 import api from "@/lib/api";
+import { needsConsentDecision, type ConsentCheck, type ConsentUploadResult } from "@/lib/consent-check";
 import { extractErrorDetail } from "@/lib/cv-generator";
 import { cn } from "@/lib/utils";
 
@@ -64,6 +66,10 @@ export function ConsentScreenshotField({
   const [name, setName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // F37 (27.10.2026): wynik sprawdzenia zrzutu; przy niepasującym trzymamy
+  // plik, żeby „zapisz mimo to” wysłało go jeszcze raz z powodem.
+  const [check, setCheck] = useState<ConsentCheck | null>(null);
+  const [mismatchFile, setMismatchFile] = useState<File | null>(null);
   const contextRef = useRef(context);
   contextRef.current = context;
   const onChangeRef = useRef(onChange);
@@ -77,6 +83,8 @@ export function ConsentScreenshotField({
     requestVersion.current += 1;
     setName(null);
     setError(null);
+    setCheck(null);
+    setMismatchFile(null);
     setBusy(false);
     onChangeRef.current(null, null);
     return () => { requestVersion.current += 1; };
@@ -88,7 +96,7 @@ export function ConsentScreenshotField({
     if (!value) setName(null);
   }, [value]);
 
-  const handleFile = async (file: File | undefined) => {
+  const handleFile = async (file: File | undefined, overrideReason?: string) => {
     if (!file || !hasSubject || disabled) return;
     const submittedContext = context;
     const version = ++requestVersion.current;
@@ -107,8 +115,9 @@ export function ConsentScreenshotField({
       if (context.projectRef !== undefined) fd.append("project_ref", context.projectRef);
       if (context.bindingStageId) fd.append("binding_stage_id", String(context.bindingStageId));
       if (context.clientId != null) fd.append("client_id", String(context.clientId));
+      if (overrideReason) fd.append("override_reason", overrideReason);
       if (!stillCurrent()) return;
-      const res = await api.post<{ consent_token: string; filename: string }>(
+      const res = await api.post<ConsentUploadResult>(
         "/api/cv-generator/consent-screenshot",
         fd,
         // Wspólna instancja axiosa domyślnie wysyła JSON; FormData wymaga
@@ -117,7 +126,14 @@ export function ConsentScreenshotField({
         { headers: { "Content-Type": "multipart/form-data" }, timeout: 60_000 },
       );
       if (!stillCurrent()) return;
+      setCheck(res.data.check ?? null);
+      if (needsConsentDecision(res.data)) {
+        setMismatchFile(file);
+        onChange(null, null);
+        return;
+      }
       if (!res.data.consent_token) throw new Error("Missing consent binding");
+      setMismatchFile(null);
       setName(res.data.filename || file.name);
       onChange(res.data.consent_token, res.data.filename || file.name);
     } catch (err) {
@@ -137,6 +153,8 @@ export function ConsentScreenshotField({
     requestVersion.current += 1;
     setName(null);
     setError(null);
+    setCheck(null);
+    setMismatchFile(null);
     onChange(null, null);
     if (inputRef.current) inputRef.current.value = "";
   };
@@ -192,24 +210,46 @@ export function ConsentScreenshotField({
             onChange={(e) => void handleFile(e.target.files?.[0])}
             className="sr-only"
           />
-          <label
-            htmlFor={inputId}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium",
-              "border-border bg-card hover:bg-muted",
-              (disabled || busy || !hasSubject) && "pointer-events-none opacity-60",
-              required && !value && "border-destructive/40",
-            )}
-          >
-            {busy ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Upload className="h-3.5 w-3.5" />
-            )}
-            {busy ? "Wgrywam…" : "Wybierz zrzut (PNG / JPEG)"}
-          </label>
+          {/* Przy niepasującym zrzucie „Wgraj inny zrzut” stoi w uwagach poniżej. */}
+          {mismatchFile && !busy ? null : (
+            <label
+              htmlFor={inputId}
+              className={cn(
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium",
+                "border-border bg-card hover:bg-muted",
+                (disabled || busy || !hasSubject) && "pointer-events-none opacity-60",
+                required && !value && "border-destructive/40",
+              )}
+            >
+              {busy ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {busy ? "Sprawdzam zrzut…" : "Wybierz zrzut (PNG / JPEG)"}
+            </label>
+          )}
         </div>
       )}
+
+      {value && check?.status === "ok" ? (
+        <p className="text-[11px] text-success-muted-foreground" data-testid="consent-check-ok">
+          Zgoda pasuje: {check.passed.map((line) => line.detail).join(" · ")}.
+        </p>
+      ) : value && check?.status === "unavailable" ? (
+        <p className="text-[11px] text-muted-foreground" data-testid="consent-check-unavailable">
+          AI nie sprawdziło zrzutu — Delivery Lead obejrzy go w QC CV.
+        </p>
+      ) : null}
+
+      {!value && mismatchFile && check ? (
+        <ConsentCheckNotice
+          check={check}
+          busy={busy}
+          onPickAnother={() => inputRef.current?.click()}
+          onOverride={(reason) => void handleFile(mismatchFile, reason)}
+        />
+      ) : null}
 
       {error && (
         <p

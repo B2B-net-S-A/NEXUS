@@ -1,4 +1,4 @@
 {
-  "sha256": "8aeebfff7f91bfc601f58a5a452fab2be8f03fcef5dfd171f68cbe0a441f7768",
+  "sha256": "bb0cd0690da330b66d74b46557696529b200139820e56c0f08210a248f5a3666",
   "source": "backend/app/services/order_mail_gate.py"
 }

@@ -14,11 +14,17 @@ vi.mock("@/components/Toast", () => ({ useToast: () => toast }));
 const apiMock = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() }));
 vi.mock("@/lib/api", () => ({ api: apiMock, default: apiMock }));
 
+const clipboard = vi.hoisted(() => ({
+  copyTextToClipboard: vi.fn(async () => true),
+  copyHtmlToClipboard: vi.fn(async () => true),
+}));
+vi.mock("@/lib/clipboard", () => clipboard);
+
 import { jobAdQueryKey, type JobAdState } from "@/lib/api/jobAd";
 import { jobsListQueryKey } from "@/components/v2/pages/JobsListV2";
 
 import { AdPublications, JOBS_LIST_QUERY_ROOT, type AdPublicationsApi } from "../AdPublications";
-import { adState, EMPTY_STATE, PRACUJ_URL, publication } from "./job-ad-fixtures";
+import { adState, CLIENT_FINDING, EMPTY_STATE, PRACUJ_URL, publication } from "./job-ad-fixtures";
 
 function setup(state: JobAdState, options: { jobClosed?: boolean; fail?: unknown } = {}) {
   const api = {
@@ -61,6 +67,28 @@ describe("AdPublications", () => {
     expect(row("JustJoin.IT")).toHaveTextContent("Opublikowane");
     expect(row("JustJoin.IT")).toHaveTextContent("bez linku");
     expect(within(row("JustJoin.IT")).getByRole("button", { name: "Dodaj link" })).toBeEnabled();
+  });
+
+  it("JustJoin.IT bez publikacji mówi, że wstawia się go ręcznie, i kopiuje opis", async () => {
+    // Zgłoszenie 28.10.2026: „na jj muszę wchodzić i dodawać? nie widzę przycisku”.
+    setup(adState());
+    const card = row("JustJoin.IT");
+    expect(card).toHaveTextContent("Ogłoszenie wstawiasz w panelu pracodawcy JustJoin.IT");
+    fireEvent.click(within(card).getByRole("button", { name: "Kopiuj opis JustJoin.IT" }));
+    await waitFor(() =>
+      expect(clipboard.copyHtmlToClipboard).toHaveBeenCalledWith("<p>opis html</p>", "opis tekst"),
+    );
+    expect(
+      await within(card).findByRole("button", { name: "Skopiowane" }),
+    ).toBeInTheDocument();
+    expect(row("Pracuj.pl")).not.toHaveTextContent("panelu pracodawcy");
+  });
+
+  it("opis JustJoin.IT z fragmentem blokującym się nie kopiuje", () => {
+    setup(adState({ findings: [CLIENT_FINDING] }));
+    expect(
+      within(row("JustJoin.IT")).getByRole("button", { name: "Kopiuj opis JustJoin.IT" }),
+    ).toBeDisabled();
   });
 
   it("bez przygotowanego ogłoszenia nie ma czego oznaczać", () => {

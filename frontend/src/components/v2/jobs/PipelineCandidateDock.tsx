@@ -51,6 +51,8 @@ import {
   MoreHorizontal,
   Pencil,
   PhoneOff,
+  Plus,
+  Rows3,
   Undo2,
   Send,
   Sparkles,
@@ -61,6 +63,7 @@ import {
 } from "lucide-react";
 
 import { PreContractRequestDialog } from "@/components/v2/person/pre-contract/PreContractDialogs";
+import { usePersonPanelConversationMode } from "@/components/v2/person/PersonPanelSide";
 import { invalidatePreContract, preContractReadOnly } from "@/lib/api/preContracts";
 import api, {
   candidatesApi,
@@ -78,7 +81,7 @@ import { useStageBrandedCv } from "@/hooks/useStageBrandedCv";
 import { useToast } from "@/components/Toast";
 import { MentionTextarea } from "@/components/v2/forms/MentionTextarea";
 import { Badge } from "@/components/ui/badge";
-import { PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
+import { ENTRY_STAGES, PairOwnerCompact, PairOwnerLine } from "@/components/v2/jobs/PairOwnerLine";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -97,6 +100,7 @@ import {
 import { useAuthStore } from "@/store/auth";
 import { hasPermission } from "@/lib/permissions";
 import { DlMatchDialog } from "@/components/v2/recruitment/dl-review/DlMatchDialog";
+import { QuickAssignV2 } from "@/components/v2/modals/QuickAssignV2";
 import type { ClientRateUnit } from "@/lib/person-facts";
 import { encodeJobBackRef } from "@/lib/url-filters";
 import { ContactStatusBadge } from "@/components/candidate-contact/ContactStatusBadge";
@@ -117,6 +121,7 @@ import { isOverHourlyBudget } from "@/lib/rate-to-hourly";
 import { CV_CLIENT_LINKS_UI_ENABLED } from "@/lib/cv-generator";
 import { stageCvStatus } from "@/lib/cv-to-client";
 import { CvGeneratorDialog } from "@/components/v2/cv-generator/CvGeneratorDialog";
+import { CvFileNameRow } from "@/components/v2/recruitment/CvFileNameRow";
 import { CvQcDialog } from "@/components/v2/recruitment/CvQcDialog";
 import { DebriefRequiredDialog } from "@/components/v2/recruitment/DebriefRequiredDialog";
 import { DockNextStage } from "@/components/v2/jobs/DockNextStage";
@@ -162,10 +167,12 @@ import {
   recruitmentRateHintsQueryKey,
 } from "@/lib/api/recruitmentRateHints";
 import { sentLine, useClientRateHistory } from "@/lib/api/clientRateHistory";
+import { downloadCoverSheet, useCoverSheet } from "@/lib/api/coverSheet";
 import { canViewClientRate } from "@/lib/client-rate-access";
 import { availabilityText, onsiteText } from "@/lib/person-facts";
 import { contractAvailability, contractAvailabilityText } from "@/lib/contract-availability";
 import { dockNotesSummary, splitPersonNotes } from "@/components/v2/person/notes-by-recruitment";
+import { ScreeningCallControl } from "@/components/v2/recruitment/ScreeningCallControl";
 import { PersonContactLine } from "@/components/v2/person/PersonContactLine";
 import { PersonFacts, RateWithBudget } from "@/components/v2/person/PersonFacts";
 import { NewInBasePill, type CandidateInBase } from "@/components/v2/person/PersonInBase";
@@ -177,7 +184,13 @@ import { RateChangeDialog } from "@/components/v2/rate-change/RateChangeDialog";
 import { rateChangeStatusLabel } from "@/lib/rate-change";
 import { useNoAnswerNote } from "@/hooks/useNoAnswerNote";
 import { useCapability } from "@/hooks/useCapability";
-import { CvFileDropTarget, StageCvUploadTile, useStageCvUpload } from "@/components/v2/person/StageCvUpload";
+import {
+  CvFileDropTarget,
+  StageCvUploadButton,
+  StageCvUploadTile,
+  useStageCvUpload,
+} from "@/components/v2/person/StageCvUpload";
+import { NewCvProgress } from "@/components/v2/recruitment/NewCvProgress";
 import { DockCvFreshness, profileReadPending } from "@/components/v2/jobs/DockCvFreshness";
 import { CompanyCvStaleNotice } from "@/components/v2/recruitment/CompanyCvStaleNotice";
 import { ClientFormCard } from "@/components/v2/recruitment/client-form/ClientFormCard";
@@ -258,6 +271,7 @@ function DockSection({
   isNow,
   open,
   onToggle,
+  action,
   children,
 }: {
   id: DockTab;
@@ -266,6 +280,8 @@ function DockSection({
   isNow: boolean;
   open: boolean;
   onToggle: () => void;
+  /** Przycisk obok nagłówka, widoczny także po zwinięciu (np. „Wgraj nowe CV”). */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -276,27 +292,30 @@ function DockSection({
       )}
       aria-labelledby={`dock-section-${id}`}
     >
-      <button
-        type="button"
-        id={`dock-section-${id}`}
-        onClick={onToggle}
-        aria-expanded={open}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left"
-      >
-        <span className="text-xs font-semibold text-foreground">{label}</span>
-        {isNow ? (
-          <span className="rounded bg-primary px-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
-            Teraz
+      <div className="flex items-center gap-1.5 pr-2">
+        <button
+          type="button"
+          id={`dock-section-${id}`}
+          onClick={onToggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left"
+        >
+          <span className="text-xs font-semibold text-foreground">{label}</span>
+          {isNow ? (
+            <span className="rounded bg-primary px-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+              Teraz
+            </span>
+          ) : null}
+          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+            {open ? null : summary}
           </span>
-        ) : null}
-        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-          {open ? null : summary}
-        </span>
-        <ChevronDown
-          className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
-          aria-hidden="true"
-        />
-      </button>
+          <ChevronDown
+            className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", open && "rotate-180")}
+            aria-hidden="true"
+          />
+        </button>
+        {action}
+      </div>
       {open ? <div className="px-3 pb-3">{children}</div> : null}
     </section>
   );
@@ -522,9 +541,6 @@ export interface PipelineCandidateDockProps {
 
 type WorkbenchSection = "cv" | "screening" | "interviews" | "contract" | "notes";
 
-/** Etapy, na których pierwszą pracą jest telefon (kolumny „Nowi” i „Screening”). */
-const ENTRY_STAGES: ReadonlySet<string> = new Set(["posting", "new", "screening", "prep_call"]);
-
 /**
  * Zdanie QC CV w doku na „Zweryfikowanym” (PR 4, 04.10.2026). Od 18.10.2026
  * dopisuje nieblokujące uwagi tą samą regułą co plakietka karty
@@ -574,6 +590,7 @@ function PersonMoreMenu({
   onBlacklist,
   onPreContract,
   onSendAlso,
+  onAddAlso,
 }: {
   onOpenCv: () => void;
   onSendEmail: () => void;
@@ -585,11 +602,22 @@ function PersonMoreMenu({
   onPreContract?: () => void;
   /** Match (22.10.2026): DL wysyła osobę także do innych swoich rekrutacji. */
   onSendAlso?: () => void;
+  /**
+   * „Dodaj też do rekrutacji…” (decyzja Artura 29.10.2026, wariant B): osoba
+   * na dowolnym etapie trafia do „Nowych” innej rekrutacji — to samo okno co
+   * „Przypisz do rekrutacji” na profilu.
+   */
+  onAddAlso?: () => void;
 }) {
   return (
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button size="icon-sm" variant="outline" aria-label="Więcej akcji osoby">
+        <Button
+          size="icon-sm"
+          variant="outline"
+          aria-label="Więcej akcji osoby"
+          data-tour="person.dock.more"
+        >
           <MoreHorizontal className="h-4 w-4" />
         </Button>
       </DropdownMenuTrigger>
@@ -605,6 +633,15 @@ function PersonMoreMenu({
             <ExternalLink className="h-3.5 w-3.5" /> Pełny profil
           </Link>
         </DropdownMenuItem>
+        {onAddAlso && (
+          <DropdownMenuItem
+            onSelect={() => deferMenuAction(onAddAlso)}
+            data-testid="dock-add-also"
+            data-tour="person.dock.add-also"
+          >
+            <Plus className="h-3.5 w-3.5" /> Dodaj też do rekrutacji…
+          </DropdownMenuItem>
+        )}
         {onSendAlso && (
           <DropdownMenuItem onSelect={() => deferMenuAction(onSendAlso)} data-testid="dock-send-also">
             <Send className="h-3.5 w-3.5" /> Wyślij też do…
@@ -901,10 +938,13 @@ export function PipelineCandidateDock({
   const [openBlacklist, setOpenBlacklist] = useState(false);
   const [openPreContract, setOpenPreContract] = useState(false);
   const [openSendAlso, setOpenSendAlso] = useState(false);
+  const [openAddAlso, setOpenAddAlso] = useState(false);
   // Szkic notatki per osoba + rekrutacja (12.10.2026): dok montuje się na
   // nowo dla każdej osoby (`key` w `KanbanBoardV2`), więc niewysłany tekst
   // wraca z pamięci karty przeglądarki, a nie ze stanu.
   const userId = useAuthStore((s) => s.user?.id);
+  // „Tryb rozmowy” (29.10.2026): tylko w rozwiniętym panelu od 1024 px okna.
+  const conversationMode = usePersonPanelConversationMode();
   const [noteText, setNoteTextState] = useState(() =>
     readNoteDraft(userId, jobId, item.candidate_id),
   );
@@ -977,7 +1017,13 @@ export function PipelineCandidateDock({
   // z portfela; prawo to samo co wysyłka CV do klienta.
   const canSendAlso =
     !readOnly && hasPermission(dockUser, "recruitment_manage") && SEND_ALSO_STAGES.has(item.stage ?? "");
-  const cvUpload = useStageCvUpload({ candidateId: item.candidate_id, stageId: item.id, jobId });
+  const cvUpload = useStageCvUpload({
+    candidateId: item.candidate_id,
+    stageId: item.id,
+    jobId,
+    // Wgranie z nagłówka zwiniętej sekcji: blok „Nowe CV” ma być widoczny.
+    onUploaded: () => setOpenSections((prev) => (prev.has("cv") ? prev : new Set(prev).add("cv"))),
+  });
   // Nazwa kolejki strzałek za „‹ N z M ›”. Z menu „Kto dodał”, bo w widoku
   // „Rozwiń” Tablica (i przycisk w nagłówku) jest zasłonięta (14.10.2026).
   const queueTag = queueLabel ? (
@@ -1366,6 +1412,25 @@ export function PipelineCandidateDock({
     !split && clientRateText != null && canViewClientRate(authUser),
   ).data;
   const clientRateLock = clientRateHistory?.order_lock ?? null;
+  // „Karta przed CV” (29.10.2026): po wysyłce DL pobiera kartę także stąd —
+  // tylko u klienta z wzorem karty i tylko rola, która widzi stawkę.
+  const coverSheetEnabled =
+    useCoverSheet(
+      item.candidate_id,
+      jobId,
+      !split && clientRateText != null && canViewClientRate(authUser),
+    ).data?.enabled === true;
+  const [coverSheetBusy, setCoverSheetBusy] = useState(false);
+  const downloadSheet = async () => {
+    setCoverSheetBusy(true);
+    try {
+      await downloadCoverSheet(item.candidate_id, jobId);
+    } catch (error) {
+      showError(apiErrorMessage(error, "Nie udało się pobrać karty przed CV."));
+    } finally {
+      setCoverSheetBusy(false);
+    }
+  };
   const clientRateHint = clientRateHistory
     ? [
         sentLine(clientRateHistory),
@@ -1497,6 +1562,17 @@ export function PipelineCandidateDock({
                       Zmień
                     </button>
                   ) : null}
+                  {coverSheetEnabled ? (
+                    <button
+                      type="button"
+                      data-testid="dock-cover-sheet-download"
+                      disabled={coverSheetBusy}
+                      onClick={() => void downloadSheet()}
+                      className="ml-1.5 text-xs font-medium text-primary hover:underline disabled:opacity-60"
+                    >
+                      Karta (Word)
+                    </button>
+                  ) : null}
                 </>
               ),
             },
@@ -1536,6 +1612,11 @@ export function PipelineCandidateDock({
         >
           <PhoneOff className="h-3.5 w-3.5" /> Nie odebrał
         </Button>
+        <ScreeningCallControl
+          candidateId={item.candidate_id}
+          jobId={jobId}
+          call={item.booked_call}
+        />
       </div>
     ) : null;
 
@@ -1670,13 +1751,35 @@ export function PipelineCandidateDock({
               Panel osoby
             </span>
           )}
+          {expanded && conversationMode ? (
+            <button
+              type="button"
+              onClick={conversationMode.toggle}
+              aria-pressed={conversationMode.on}
+              data-testid="person-conversation-mode"
+              data-tour="person.panel.conversation-mode"
+              title="Tryb rozmowy: nagłówek osoby w jednej linii, „Screening dla” zwinięte — więcej miejsca na formularz"
+              className={cn(
+                "ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                conversationMode.on
+                  ? "bg-primary/10 text-primary hover:bg-primary/15"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              <Rows3 className="h-3.5 w-3.5" aria-hidden="true" />
+              Tryb rozmowy
+            </button>
+          ) : null}
           {onToggleExpanded ? (
             <button
               type="button"
               onClick={onToggleExpanded}
               aria-pressed={expanded}
               data-help="jobs.person.expand"
-              className="ml-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className={cn(
+                !(expanded && conversationMode) && "ml-auto",
+                "inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              )}
             >
               {expanded ? (
                 <Minimize2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -1722,10 +1825,10 @@ export function PipelineCandidateDock({
         ) : null}
 
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground [[data-compact]_&]:hidden">
             {initials}
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 [[data-compact]_&>*:not(:first-child)]:hidden">
             <div className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-semibold text-foreground">
                 {fullName}
@@ -1751,6 +1854,7 @@ export function PipelineCandidateDock({
               >
                 Profil <span aria-hidden="true">↗</span>
               </Link>
+              <PairOwnerCompact item={item} />
             </div>
             {/* Podtytuł: stanowisko · firma · miasto · wynik. Człony, których
                 nie znamy, po prostu nie wchodzą — myślnik w środku listy
@@ -1994,6 +2098,7 @@ export function PipelineCandidateDock({
                 onUndoClientAcceptance={onUndoClientAcceptance}
                 onBlacklist={canBlacklist ? () => setOpenBlacklist(true) : undefined}
                 onSendAlso={canSendAlso ? () => setOpenSendAlso(true) : undefined}
+                onAddAlso={canWriteCandidate && !readOnly ? () => setOpenAddAlso(true) : undefined}
                 onPreContract={
                   canRequestPreContract
                     ? () => (onOpenWorkbench ? onOpenWorkbench("contract") : setOpenPreContract(true))
@@ -2260,8 +2365,10 @@ export function PipelineCandidateDock({
           isNow={nowSection === "cv"}
           open={isOpen("cv")}
           onToggle={() => toggleSection("cv")}
+          action={canUploadCv ? <StageCvUploadButton upload={cvUpload} /> : undefined}
         >
           <div className="space-y-3">
+            <NewCvProgress candidateId={item.candidate_id} jobId={jobId} readOnly={!canUploadCv} />
             {/* 0521: klient bierze swój formularz CV zamiast CV firmowego —
                 formularz pierwszy, CV firmowe tylko na żądanie (decyzja D2). */}
             {item.client_form ? (
@@ -2328,6 +2435,16 @@ export function PipelineCandidateDock({
                     )}
                   </span>
                 </div>
+                {!brandedFailed && companyBranded?.current_filename ? (
+                  <div className="pl-3.5 text-xs text-muted-foreground">
+                    <CvFileNameRow
+                      stageId={editStageId}
+                      filename={companyBranded.current_filename}
+                      patternFilename={companyBranded.pattern_filename}
+                      readOnly={readOnly}
+                    />
+                  </div>
+                ) : null}
                 {/* Awaria odczytu nie udaje braku CV: bez pobierania i bez „Generuj CV”. */}
                 {!brandedFailed && (canDownloadCompanyCv || !readOnly) ? (
                   <div className="flex flex-wrap gap-1.5 pl-3.5">
@@ -2356,7 +2473,7 @@ export function PipelineCandidateDock({
                     ) : null}
                     {!readOnly ? (
                       stageCv === "ready" ? (
-                        <Button size="sm" variant="outline" onClick={() => setOpenBranded(true)}>
+                        <Button size="sm" variant="outline" data-tour="person.cv.edit" onClick={() => setOpenBranded(true)}>
                           <Pencil className="h-3.5 w-3.5" aria-hidden /> Edytuj CV
                         </Button>
                       ) : (
@@ -2717,6 +2834,14 @@ export function PipelineCandidateDock({
           candidateId={item.candidate_id}
           candidateName={fullName}
           alreadyBlacklisted={candidate?.status === "blacklisted"}
+        />
+      )}
+      {openAddAlso && (
+        <QuickAssignV2
+          open
+          onOpenChange={setOpenAddAlso}
+          candidateId={item.candidate_id}
+          candidateName={fullName}
         />
       )}
       {openSendAlso && (

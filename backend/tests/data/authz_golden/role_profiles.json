@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/role-profiles": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "GET /api/role-profiles/{role_id}": "PPPPPPPDPPPPPPPPPPPPDPPPPD",
-  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDD"
+  "GET /api/role-profiles": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/role-profiles/{role_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "PUT /api/role-profiles/{role_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
  }
 }

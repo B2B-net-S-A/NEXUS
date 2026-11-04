@@ -29,7 +29,7 @@ from tests.test_hr_team_api import (  # noqa: F401 — fikstura
 )
 
 EXITED_DETAIL = (
-    "Wybrany przełożony zakończył współpracę — wybierz osobę, która pracuje."
+    "Wybrany koordynator zakończył współpracę — wybierz aktywną osobę."
 )
 
 

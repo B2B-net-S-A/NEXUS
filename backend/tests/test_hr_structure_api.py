@@ -203,7 +203,7 @@ async def test_tree_counts_reports_marks_leavers_divisions_and_m365_hints(
         "name": head.name,
     }
     assert rows[head.id]["suggested_manager"] is None, "head nie podlega sam sobie"
-    assert rows[first.id]["suggested_manager"] is None, "ma przełożonego"
+    assert rows[first.id]["suggested_manager"] is None, "ma koordynatora"
     assert await _manager_of(orphan.id) is None
 
     # Rozjazd z M365: tylko podpowiedź (wielkość liter bez znaczenia).
@@ -298,7 +298,7 @@ async def test_reassign_refuses_like_the_profile_does_for_the_whole_set(
 
     itself = await reassign([other.id, top.id], top.id)
     assert itself.status_code == 422
-    assert "własnym przełożonym" in itself.json()["detail"]
+    assert "własnym koordynatorem" in itself.json()["detail"]
     # `middle` podlega `top` — przepięcie `top` (razem z kimś) pod `middle` = pętla.
     loop = await reassign([other.id, top.id], middle.id)
     assert loop.status_code == 422

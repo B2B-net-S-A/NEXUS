@@ -8,6 +8,11 @@
 import { useQuery } from "@tanstack/react-query";
 
 import api from "@/lib/api";
+import type {
+  JobPostingStatus,
+  PendingAction,
+  PortalListingOptions,
+} from "@/lib/api/jobPortals";
 import { SLOW_ENDPOINT_TIMEOUT_MS } from "@/lib/http-timeouts";
 
 // ── Typy ─────────────────────────────────────────────────────────────────
@@ -33,14 +38,28 @@ export interface AdContent {
   duration: string;
   /** Język pracy (np. „polski, angielski B2”) — nie język ogłoszenia. */
   language: string;
+  /** Miasto w ogłoszeniu; puste = miasto z rekrutacji (bez adresu). */
+  city: string;
   responsibilities: string[];
   requirements: string[];
   nice_to_have: string[];
   offer: string[];
+  /** Punkty z rekrutacji i stałego bloku ukryte w tym ogłoszeniu. */
+  offer_hidden?: string[];
 }
 
+/** Ile własnych punktów „co oferujemy” przyjmuje serwer (`LIST_LIMITS`). */
+export const OFFER_OWN_MAX = 6;
+
 export type AdListKey = "responsibilities" | "requirements" | "nice_to_have" | "offer";
-export type AdTextKey = "title" | "lead" | "about" | "start" | "duration" | "language";
+export type AdTextKey =
+  | "title"
+  | "lead"
+  | "about"
+  | "start"
+  | "duration"
+  | "language"
+  | "city";
 
 export interface AdTechItem {
   name: string;
@@ -93,6 +112,9 @@ export interface RenderedField {
   auto_count: number;
   /** Ostatnie N pozycji to stały blok z Ustawień. */
   fixed_count: number;
+  /** Punkty z rekrutacji / stałego bloku ukryte w tym ogłoszeniu. */
+  hidden_auto?: string[];
+  hidden_fixed?: string[];
 }
 
 export interface RenderedTech {
@@ -162,6 +184,53 @@ export const NO_CAREER_PAGE: AdCareerState = {
   published_by_name: null,
 };
 
+/** Kanał ogłoszenia rekrutacji (przypomnienia mailem, 27.10.2026). */
+export type AdChannel = "kariera" | "pracuj" | "jjit";
+
+export const AD_CHANNEL_LABEL: Record<AdChannel, string> = {
+  kariera: "Strona kariery",
+  pracuj: "Pracuj.pl",
+  jjit: "JustJoin.IT",
+};
+
+export interface AdChannelView {
+  channel: AdChannel;
+  /** `requested` = mail do opiekuna Pracuj.pl wyszedł, opiekun ma jeszcze czas. */
+  state: "live" | "missing" | "skipped" | "requested";
+  since: string | null;
+  /** Brak robi osoba na ekranie (rekruter: strona kariery; DL: portale). */
+  mine: boolean;
+  owner_names: string[];
+  skip_reason: string | null;
+  skipped_by_name: string | null;
+}
+
+export interface AdReminders {
+  channels: AdChannelView[];
+  /** „Nie publikujemy” i „Przypomnij”: DL rekrutacji, Head of Recruitment, admin. */
+  can_manage: boolean;
+  recruiter_names: string[];
+}
+
+export interface AdRemindResult {
+  sent_to: string[];
+  /** Już dziś przypomniano — drugi mail tego dnia nie wychodzi. */
+  already: string[];
+}
+
+/** Rekrutacja z brakiem, który robi osoba („Ogłoszenia do nadrobienia”). */
+export interface MissingAdsItem {
+  job_id: number;
+  title: string;
+  client: string | null;
+  opened_at: string | null;
+  /** Otwarta przed startem przypomnień — idzie mailem zbiorczym. */
+  backlog: boolean;
+  channels: AdChannelView[];
+}
+
+export const missingAdsQueryKey = ["job-ad", "missing"] as const;
+
 export interface JobAdState {
   ad: AdRead | null;
   /** Strona kariery z tej samej treści. */
@@ -174,6 +243,48 @@ export interface JobAdState {
   can_copy: boolean;
   /** Gdzie ogłoszenie wisi — także wiersze „zdjęte z portalu”. */
   publications: AdPublication[];
+  /** Trzy kanały i kto je robi; `null` = rekrutacja zamknięta. */
+  reminders: AdReminders | null;
+  /** Ostatni mail do opiekuna Pracuj.pl (27.10.2026). */
+  pracuj_request: PracujRequest | null;
+  /** JustJoin.IT przez API; `null` = portal wyłączony (kopiuj-wklej, 03.11.2026). */
+  jjit_api: AdJjitApi | null;
+}
+
+/** Publikacja na JustJoin.IT przez kolejkę portali; `status` = ostatnie zlecenie. */
+export interface AdJjitApi {
+  ready: boolean;
+  status: JobPostingStatus | null;
+  pending_action: PendingAction;
+  last_error: string | null;
+  options: PortalListingOptions | null;
+}
+
+/** Mail z ogłoszeniem do opiekuna Pracuj.pl wysłany z NEXUSA. */
+export interface PracujRequest {
+  sent_at: string;
+  sent_by_name: string | null;
+  to: string | null;
+  /** Opiekun ma jeszcze czas — przypomnienia o Pracuj.pl milczą. */
+  waiting: boolean;
+}
+
+export interface PracujMailRates {
+  rate_from: number | null;
+  rate_to: number | null;
+}
+
+/** Podgląd maila do opiekuna — skład z serwera, ten sam co przy wysyłce. */
+export interface PracujMailPreview {
+  to_name: string;
+  to_email: string;
+  /** `ready` = wyśle · `missing` = skrzynka niepodłączona · `reconnect` = połącz ponownie. */
+  mailbox: "ready" | "missing" | "reconnect";
+  from_address: string | null;
+  subject: string;
+  body_text: string;
+  /** Stawka, której nie wyślemy (pusta, odwrócona) — komunikat do pola. */
+  rate_error: string | null;
 }
 
 /** Otwarta rekrutacja bez strony kariery — kolejka „Opublikuj i następna” (21.10.2026). */
@@ -205,15 +316,25 @@ export interface FixedLangBlocks {
   about: string;
 }
 
+export interface PracujCaretaker {
+  /** Imię do powitania („Dzień dobry Nicola,”); puste = „Dzień dobry,”. */
+  name: string;
+  email: string;
+}
+
 export interface FixedBlocks {
   title_suffix: TitleSuffix;
   pl: FixedLangBlocks;
   en: FixedLangBlocks;
+  /** Opiekun konta Pracuj.pl — adresat „Wyślij do Pracuj.pl” (27.10.2026). */
+  pracuj_caretaker: PracujCaretaker;
 }
 
 // ── Klucze zapytań ───────────────────────────────────────────────────────
 
 export const jobAdQueryKey = (jobId: number) => ["job-ad", jobId] as const;
+export const pracujMailPreviewQueryKey = (jobId: number, rates: PracujMailRates) =>
+  ["job-ad", jobId, "pracuj-mail", rates.rate_from, rates.rate_to] as const;
 export const jobAdFixedBlocksQueryKey = () => ["job-ad", "fixed-blocks"] as const;
 export const careerQueueQueryKey = (scope: CareerQueueScope, limit?: number) =>
   ["job-ad", "career-queue", scope, limit ?? "all"] as const;
@@ -231,6 +352,18 @@ function normalize(data: unknown): JobAdState {
     rendered: d.rendered ?? null,
     can_copy: d.can_copy === true,
     publications: Array.isArray(d.publications) ? d.publications : [],
+    reminders:
+      d.reminders && Array.isArray(d.reminders.channels)
+        ? {
+            channels: d.reminders.channels,
+            can_manage: d.reminders.can_manage === true,
+            recruiter_names: Array.isArray(d.reminders.recruiter_names)
+              ? d.reminders.recruiter_names
+              : [],
+          }
+        : null,
+    pracuj_request: d.pracuj_request ?? null,
+    jjit_api: d.jjit_api ?? null,
   };
 }
 
@@ -312,6 +445,69 @@ export const jobAdApi = {
       all_count: res.data?.all_count ?? 0,
       items: Array.isArray(res.data?.items) ? res.data.items : [],
     };
+  },
+  /** „Nie publikujemy tej rekrutacji na …” z powodem (DL, HoR, admin). */
+  skipChannel: async (
+    jobId: number,
+    channel: AdChannel,
+    reason: string,
+  ): Promise<JobAdState> => {
+    const res = await api.put(`/api/jobs/${jobId}/portal-ad/skips/${channel}`, { reason });
+    return normalize(res.data);
+  },
+  /** Cofnięcie „nie publikujemy” — przypomnienia o kanale wracają. */
+  unskipChannel: async (jobId: number, channel: AdChannel): Promise<JobAdState> => {
+    const res = await api.delete(`/api/jobs/${jobId}/portal-ad/skips/${channel}`);
+    return normalize(res.data);
+  },
+  /** DL prosi rekruterów o stronę kariery — mail od razu, raz dziennie. */
+  remindRecruiters: async (jobId: number): Promise<AdRemindResult> => {
+    const res = await api.post<AdRemindResult>(`/api/jobs/${jobId}/portal-ad/remind`);
+    return {
+      sent_to: Array.isArray(res.data?.sent_to) ? res.data.sent_to : [],
+      already: Array.isArray(res.data?.already) ? res.data.already : [],
+    };
+  },
+  /** Rekrutacje z brakiem, który robi osoba — od najnowszej. */
+  missing: async (): Promise<MissingAdsItem[]> => {
+    const res = await api.get<{ items?: MissingAdsItem[] }>("/api/job-ads/missing");
+    return Array.isArray(res.data?.items) ? res.data.items : [];
+  },
+  /** Podgląd maila do opiekuna Pracuj.pl (DL, HoR, admin) — nic nie zapisuje. */
+  previewPracujMail: async (
+    jobId: number,
+    rates: PracujMailRates,
+  ): Promise<PracujMailPreview> => {
+    const res = await api.post<PracujMailPreview>(
+      `/api/jobs/${jobId}/portal-ad/pracuj-mail/preview`,
+      rates,
+    );
+    return res.data;
+  },
+  /**
+   * Mail z ogłoszeniem do opiekuna Pracuj.pl ze skrzynki osoby. Ten sam
+   * `clientRequestId` przy ponowieniu = ten sam mail, bez drugiej wysyłki.
+   */
+  sendPracujMail: async (
+    jobId: number,
+    input: PracujMailRates & {
+      expected_updated_at: string | null;
+      client_request_id: string;
+    },
+  ): Promise<JobAdState> => {
+    const res = await api.post(`/api/jobs/${jobId}/portal-ad/pracuj-mail`, input);
+    return normalize(res.data);
+  },
+  /**
+   * Zlecenie publikacji albo aktualizacji na JustJoin.IT; portal woła worker.
+   * Aktualizacja bez `options` zostawia ustawienia z publikacji.
+   */
+  publishJjit: async (
+    jobId: number,
+    input: { expected_updated_at: string | null; options?: PortalListingOptions },
+  ): Promise<JobAdState> => {
+    const res = await api.post(`/api/jobs/${jobId}/portal-ad/jjit`, input);
+    return normalize(res.data);
   },
   getFixedBlocks: async (): Promise<FixedBlocks> => {
     const res = await api.get<FixedBlocks>("/api/job-ads/fixed-blocks");

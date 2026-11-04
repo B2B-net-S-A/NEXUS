@@ -16,6 +16,16 @@ w poziom ponad P1:
 * przy ustawieniu dzwonek i mail obowiązkowy dostają rekruterzy i Delivery
   Lead rekrutacji (bez osoby, która ustawiła).
 
+Propozycje Olafa z 28.10.2026 (decyzje Artura):
+
+* pulpit i górny pasek pokazują P0 tylko zespołowi rekrutacji: rekruterom,
+  którzy nad nią pracują, i jej Delivery Leadowi; Head of Recruitment
+  i admin widzą wszystkie (``visible_to``). Lista rekrutacji i Daily — bez
+  zmian;
+* Delivery Lead rekrutacji nie ustawia P0 sam, tylko o nie prosi (powód
+  i czas); Head of Recruitment albo admin zatwierdza (= ustawia P0 z tym
+  powodem i czasem) albo odrzuca. Jedna oczekująca prośba na rekrutację.
+
 Reguła: ``docs/claude/rekrutacja-tablica/p0-ultrapilne-24-h.md``.
 """
 
@@ -25,7 +35,7 @@ import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Literal, Optional
+from typing import Any, Iterable, Literal, Optional
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, case, func, select
@@ -54,6 +64,10 @@ SET_DENIED = "P0 ustawia Head of Recruitment albo administrator."
 ACTION_SET = "p0_set"
 ACTION_EXTENDED = "p0_extended"
 ACTION_CLEARED = "p0_cleared"
+ACTION_REQUESTED = "p0_requested"
+ACTION_REQUEST_REJECTED = "p0_request_rejected"
+
+REQUEST_DENIED = "O P0 prosi Delivery Lead tej rekrutacji."
 
 
 @dataclass(frozen=True)
@@ -64,6 +78,19 @@ class P0Error(Exception):
 
 def can_set_p0(user: Any) -> bool:
     return bool(user is not None and user.has_any_role(*P0_ROLES))
+
+
+def can_request_p0(user: Any, job: Any) -> bool:
+    """Delivery Lead tej rekrutacji (prośba, nie ustawienie)."""
+    return bool(
+        user is not None
+        and getattr(job, "delivery_lead_id", None) is not None
+        and job.delivery_lead_id == user.id
+    )
+
+
+def has_request(job: Any) -> bool:
+    return getattr(job, "p0_requested_at", None) is not None
 
 
 def _utc(value: datetime) -> datetime:
@@ -160,6 +187,8 @@ async def set_p0(
     job.p0_reason = clean
     job.p0_set_at = now
     job.p0_set_by = actor_id
+    # Ustawienie P0 (także zatwierdzenie prośby) zamyka oczekującą prośbę DL.
+    _clear_request(job)
     db.add(
         Activity(
             entity_type="job",
@@ -226,6 +255,171 @@ async def clear_p0(
         )
     await db.flush()
     return active
+
+
+def _clear_request(job: Job) -> None:
+    job.p0_request_reason = None
+    job.p0_request_duration = None
+    job.p0_requested_at = None
+    job.p0_requested_by = None
+
+
+async def request_p0(
+    db: AsyncSession,
+    job: Job,
+    *,
+    actor_id: Optional[int],
+    reason: Optional[str],
+    duration: str = "24h",
+    now: Optional[datetime] = None,
+) -> None:
+    """Prośba Delivery Leada o P0 — nadpisuje jego wcześniejszą prośbę."""
+    _require_open(job)
+    now = now or datetime.now(timezone.utc)
+    if is_active(job, now):
+        raise P0Error(409, "Ta rekrutacja już ma P0.")
+    if duration not in P0_DURATIONS:
+        raise P0Error(422, "Nieznany czas P0 — wybierz 24 h, 48 h albo „do piątku”.")
+    clean = normalize_reason(reason)
+    job.p0_request_reason = clean
+    job.p0_request_duration = duration
+    job.p0_requested_at = now
+    job.p0_requested_by = actor_id
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action=ACTION_REQUESTED,
+            user_id=actor_id,
+            details={"duration": duration, "reason": clean},
+        )
+    )
+    await db.flush()
+
+
+async def approve_request(
+    db: AsyncSession,
+    job: Job,
+    *,
+    actor_id: Optional[int],
+    now: Optional[datetime] = None,
+) -> None:
+    """„Zatwierdź” — P0 z powodem i czasem z prośby."""
+    if not has_request(job):
+        raise P0Error(409, "Ta prośba o P0 jest już rozpatrzona.")
+    await set_p0(
+        db,
+        job,
+        actor_id=actor_id,
+        reason=job.p0_request_reason,
+        duration=job.p0_request_duration or "24h",
+        now=now,
+    )
+
+
+async def reject_request(
+    db: AsyncSession, job: Job, *, actor_id: Optional[int]
+) -> None:
+    """„Odrzuć” — prośba znika, P0 nie powstaje; ślad w Historii zdarzeń."""
+    if not has_request(job):
+        raise P0Error(409, "Ta prośba o P0 jest już rozpatrzona.")
+    details = {
+        "requested_by": job.p0_requested_by,
+        "reason": job.p0_request_reason,
+    }
+    _clear_request(job)
+    db.add(
+        Activity(
+            entity_type="job",
+            entity_id=job.id,
+            action=ACTION_REQUEST_REJECTED,
+            user_id=actor_id,
+            details=details,
+        )
+    )
+    await db.flush()
+
+
+def request_fields(job: Any) -> dict[str, Any]:
+    if not has_request(job):
+        return {
+            "p0_requested": False,
+            "p0_request_reason": None,
+            "p0_request_duration": None,
+        }
+    return {
+        "p0_requested": True,
+        "p0_request_reason": job.p0_request_reason,
+        "p0_request_duration": job.p0_request_duration,
+    }
+
+
+async def head_of_recruitment_recipients(db: AsyncSession) -> list[int]:
+    """Aktywni Head of Recruitment; bez nich — administratorzy."""
+    from sqlalchemy import or_  # noqa: PLC0415
+
+    for role in (UserRole.head_of_recruitment, UserRole.admin):
+        ids = (
+            await db.scalars(
+                select(User.id).where(
+                    User.is_active.is_(True),
+                    or_(User.role == role, User.roles.contains([role.value])),
+                )
+            )
+        ).all()
+        if ids:
+            return sorted(ids)
+    return []
+
+
+async def notify_request(
+    db: AsyncSession, job: Job, *, actor_id: Optional[int]
+) -> list[int]:
+    """Dzwonek (i mail obowiązkowy) do Head of Recruitment: DL prosi o P0."""
+    from app.services.job_working_title import display_title  # noqa: PLC0415
+    from app.services.notification_triggers import emit  # noqa: PLC0415
+
+    recipients = [
+        uid for uid in await head_of_recruitment_recipients(db) if uid != actor_id
+    ]
+    if not recipients:
+        return []
+    client_name = await db.scalar(
+        select(func.coalesce(Client.display_name, Client.name)).where(
+            Client.id == job.client_id
+        )
+    )
+    actor_name = (
+        await db.scalar(select(User.name).where(User.id == actor_id))
+        if actor_id is not None
+        else None
+    )
+    head = display_title(job)
+    head = f"{head} · {client_name}" if client_name else head
+    who = actor_name or "Delivery Lead"
+    sent: list[int] = []
+    for user_id in recipients:
+        try:
+            async with db.begin_nested():
+                row = await emit(
+                    db,
+                    user_id=user_id,
+                    title=f"{who} prosi o P0",
+                    message=f"{head}. Powód: {job.p0_request_reason}.",
+                    ntype=NotificationType.job_p0_requested,
+                    related_entity_type="job",
+                    related_entity_id=job.id,
+                    link="/dashboard",
+                )
+            if row is not None:
+                sent.append(user_id)
+        except Exception:  # noqa: BLE001 — dzwonek nie może cofnąć prośby
+            logger.exception(
+                "job_p0: dzwonek prośby dla user_id=%s job_id=%s nie powstał",
+                user_id,
+                job.id,
+            )
+    return sent
 
 
 async def team_recipients(
@@ -304,8 +498,28 @@ async def set_by_name(db: AsyncSession, job: Job) -> Optional[str]:
     return await db.scalar(select(User.name).where(User.id == job.p0_set_by))
 
 
-async def list_active(db: AsyncSession) -> list[dict[str, Any]]:
-    """Aktywne P0 dla górnego paska i pulpitu — najbliższy koniec najpierw."""
+def sees_all(user: Any) -> bool:
+    """Head of Recruitment i admin widzą każde P0 i każdą prośbę."""
+    return can_set_p0(user)
+
+
+def visible_to(
+    user: Any, *, delivery_lead_id: Optional[int], working_ids: Iterable[int]
+) -> bool:
+    """Czy P0 tej rekrutacji jest na pulpicie i w pasku ``user`` (28.10.2026):
+    rekruter pracujący nad rekrutacją, jej Delivery Lead, HoR i admin."""
+    if user is None:
+        return False
+    if sees_all(user):
+        return True
+    return user.id == delivery_lead_id or user.id in set(working_ids)
+
+
+async def list_active(db: AsyncSession, viewer: Any = None) -> list[dict[str, Any]]:
+    """Aktywne P0 dla górnego paska i pulpitu — najbliższy koniec najpierw.
+
+    ``viewer`` zawęża listę do jego zespołów (``visible_to``); ``None`` = całość.
+    """
     from app.services.job_team import recruiters_for_jobs, working  # noqa: PLC0415
     from app.services.job_working_title import job_display_title_expr  # noqa: PLC0415
 
@@ -322,6 +536,7 @@ async def list_active(db: AsyncSession) -> list[dict[str, Any]]:
                 Job.p0_set_at,
                 setter.c.name,
                 lead.c.name,
+                Job.delivery_lead_id,
             )
             .select_from(Job)
             .outerjoin(Client, Client.id == Job.client_id)
@@ -332,17 +547,69 @@ async def list_active(db: AsyncSession) -> list[dict[str, Any]]:
         )
     ).all()
     teams = await recruiters_for_jobs(db, [row[0] for row in rows])
+    items = []
+    for row in rows:
+        team = working(teams.get(row[0], []))
+        if viewer is not None and not visible_to(
+            viewer,
+            delivery_lead_id=row[8],
+            working_ids=(person.user_id for person in team),
+        ):
+            continue
+        items.append(
+            {
+                "job_id": row[0],
+                "title": row[1],
+                "client_name": row[2],
+                "p0_until": row[3],
+                "p0_reason": row[4],
+                "p0_set_at": row[5],
+                "p0_set_by_name": row[6],
+                "delivery_lead_name": row[7],
+                "recruiters": [person.name for person in team],
+            }
+        )
+    return items
+
+
+async def list_requests(db: AsyncSession, viewer: Any) -> list[dict[str, Any]]:
+    """Oczekujące prośby DL o P0: HoR i admin — wszystkie, DL — swoje."""
+    from app.services.job_working_title import job_display_title_expr  # noqa: PLC0415
+
+    if viewer is None:
+        return []
+    asker = User.__table__.alias("p0_asker")
+    query = (
+        select(
+            Job.id,
+            job_display_title_expr(),
+            func.coalesce(Client.display_name, Client.name),
+            Job.p0_request_reason,
+            Job.p0_request_duration,
+            Job.p0_requested_at,
+            asker.c.name,
+        )
+        .select_from(Job)
+        .outerjoin(Client, Client.id == Job.client_id)
+        .outerjoin(asker, asker.c.id == Job.p0_requested_by)
+        .where(
+            Job.p0_requested_at.is_not(None),
+            Job.status == JobStatus.published,
+        )
+        .order_by(Job.p0_requested_at.asc(), Job.id.asc())
+    )
+    if not sees_all(viewer):
+        query = query.where(Job.delivery_lead_id == viewer.id)
+    rows = (await db.execute(query)).all()
     return [
         {
             "job_id": row[0],
             "title": row[1],
             "client_name": row[2],
-            "p0_until": row[3],
-            "p0_reason": row[4],
-            "p0_set_at": row[5],
-            "p0_set_by_name": row[6],
-            "delivery_lead_name": row[7],
-            "recruiters": [person.name for person in working(teams.get(row[0], []))],
+            "reason": row[3],
+            "duration": row[4] or "24h",
+            "requested_at": row[5],
+            "requested_by_name": row[6],
         }
         for row in rows
     ]

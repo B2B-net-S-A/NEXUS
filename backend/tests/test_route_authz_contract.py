@@ -76,6 +76,9 @@ _GATE_QUALNAME_MARKERS = (
     # Umowy przedwstępne (22.10.2026): rola z ``PRE_CONTRACT_ROLES`` i sekcja
     # „Rekrutacje” — Finanse, Rada i Automatyzacje z tytułu roli.
     "require_pre_contract_access",
+    # Skrzynka Outlook (28.10.2026): odczyt kandydatów albo „Sprzedaż: podgląd”
+    # (``api/microsoft365.require_mailbox_owner`` / ``_status_reader``).
+    "require_mailbox_",
 )
 
 # The bare authentication dependency: proves identity, decides nothing.
@@ -233,10 +236,18 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("POST", "/api/jarvis/actions/{action_id}/reject"),
     ("POST", "/api/jarvis/conversations/{conversation_id}/cancel"),
     ("POST", "/api/jarvis/ui-events"),
+    ("POST", "/api/jarvis/gaps/{gap_id}/report"),
     # Przewodniki ekranów Jarvisa — treść pomocy bez danych domenowych,
     # bliźniaczo do /api/procedures.
     ("GET", "/api/help/screens"),
     ("GET", "/api/help/screens/{key}"),
+    # Nowości do przeklikania (0625) — wyłącznie własny stan przy nowościach
+    # swojej roli; treść to rejestr bez danych domenowych.
+    ("GET", "/api/novelties/mine"),
+    ("POST", "/api/novelties/{novelty_id}/events"),
+    # Start w NEXUSIE (30.10.2026) — własny postęp osoby przy przeklikaniach
+    # jej roli, ten sam rejestr bez danych domenowych. Wyłącznik ma bramkę HoR.
+    ("GET", "/api/novelties/start"),
     ("GET", "/api/notifications"),
     ("GET", "/api/notifications/chats"),
     ("GET", "/api/notifications/contracts"),
@@ -260,6 +271,14 @@ _BARE_BASELINE: set[tuple[str, str]] = {
     ("PUT", "/api/users/me/email-notifications/{kind}"),
     # Własny pulpit (0337): sam układ kafelków właściciela; dane kafelków
     # pobierają ich własne endpointy za bramkami sekcji.
+    # Ogłoszenia na pulpicie (0619, decyzja Artura 28.10.2026): pulpit ma każde
+    # konto, także „Pracownik” i Rada, więc odczyt nie stoi za sekcją. Odbiorców
+    # (wszyscy albo wybrane role) filtruje serwer w `announcements.list_for`,
+    # a „Przeczytane” na ogłoszeniu nie do patrzącego daje 404
+    # (`test_announcements.py`). Publikacja, poprawka i zdjęcie — sekcja
+    # Rekrutacje + Head of Recruitment albo admin.
+    ("GET", "/api/announcements"),
+    ("POST", "/api/announcements/{announcement_id}/read"),
     ("GET", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard"),
     ("PUT", "/api/users/me/dashboard/panels/{panel}"),

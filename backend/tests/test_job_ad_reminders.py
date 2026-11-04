@@ -170,7 +170,12 @@ def test_lead_card_lists_three_channels_and_opens_each_from_the_mail() -> None:
     assert facts["JustJoin.IT"] == "✗ brak · robisz Ty"
     assert [(b.label, b.path, b.style) for b in card.buttons] == [
         ("Wstaw na JustJoin.IT", "/jobs/789139?ogloszenie=jjit", "primary"),
-        ("Wstaw na Pracuj.pl", "/jobs/789139?ogloszenie=pracuj", "secondary"),
+        # Pracuj.pl wstawia opiekun — przycisk otwiera od razu mail do niego.
+        (
+            "Wyślij do Pracuj.pl",
+            "/jobs/789139?ogloszenie=pracuj&wyslij=opiekun",
+            "secondary",
+        ),
         (
             "Przypomnij: Julia S.",
             "/jobs/789139?ogloszenie=kariera&przypomnij=rekruter",

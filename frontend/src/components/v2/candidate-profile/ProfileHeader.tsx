@@ -30,6 +30,7 @@ import {
   Ban,
   Calendar,
   CalendarPlus,
+  Check,
   Combine,
   Copy,
   FileText,
@@ -43,6 +44,7 @@ import {
   ShieldAlert,
   Tags,
   Trash2,
+  Upload,
   UserPlus,
   X,
 } from "lucide-react";
@@ -91,6 +93,8 @@ export function ProfileTopBar({
   backJobId,
   backJobTitle,
   backToTalentRadar,
+  backSearch,
+  pick,
   candidateId,
 }: {
   embedded: boolean;
@@ -99,6 +103,10 @@ export function ProfileTopBar({
   backJobId: number | null;
   backJobTitle: string | null;
   backToTalentRadar: boolean;
+  /** Powrót do wyszukiwania, z którego otwarto profil (okno rekrutacji albo lista). */
+  backSearch?: { href: string; context: string | null } | null;
+  /** „Wybieram” — osoba wraca zaznaczona w oknie „Szukaj ręcznie” rekrutacji. */
+  pick?: { picked: boolean; count: number; onToggle: () => void } | null;
   candidateId: number;
 }) {
   if (embedded) return nav ? <CandidateNav {...nav} /> : null;
@@ -107,7 +115,20 @@ export function ProfileTopBar({
   const backLabel = backJobTitle ? `Wróć do rekrutacji: ${backJobTitle}` : "Wróć do rekrutacji";
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      {backJobId != null ? (
+      {backSearch ? (
+        <Link
+          href={backSearch.href}
+          data-tour="candidate.profile.back-to-search"
+          className={`${backClass} min-w-0 flex-1 basis-0 font-medium text-primary`}
+          title={backSearch.context ?? undefined}
+        >
+          <ArrowLeft className="h-4 w-4 shrink-0" />
+          <span className="shrink-0">Wróć do wyników wyszukiwania</span>
+          {backSearch.context ? (
+            <span className="truncate font-normal text-muted-foreground">· {backSearch.context}</span>
+          ) : null}
+        </Link>
+      ) : backJobId != null ? (
         <Link
           href={`/jobs/${backJobId}?candidate=${candidateId}`}
           className={`${backClass} max-w-88`}
@@ -125,7 +146,35 @@ export function ProfileTopBar({
           <ArrowLeft className="h-4 w-4" /> Wróć do kandydatów
         </Link>
       )}
-      {nav ? <CandidateNav {...nav} className="ml-auto" /> : null}
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        {pick ? (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={pick.onToggle}
+            aria-pressed={pick.picked}
+            data-tour="candidate.profile.pick"
+            title={`Osoba wróci zaznaczona w oknie wyszukiwania. Wybrani: ${pick.count}`}
+            className={`min-h-11 ${pick.picked ? "border-primary bg-primary/10 text-primary hover:bg-primary/15" : ""}`}
+          >
+            <span
+              aria-hidden
+              className={`flex h-4 w-4 items-center justify-center rounded border ${
+                pick.picked ? "border-primary bg-primary text-primary-foreground" : "border-muted-foreground"
+              }`}
+            >
+              {pick.picked ? <Check className="h-3 w-3" /> : null}
+            </span>
+            Wybieram
+            {pick.count > 0 ? (
+              <span className="rounded-full bg-muted px-1.5 text-xs tabular-nums text-muted-foreground">
+                {pick.count}
+              </span>
+            ) : null}
+          </Button>
+        ) : null}
+        {nav ? <CandidateNav {...nav} /> : null}
+      </div>
     </div>
   );
 }
@@ -156,6 +205,8 @@ export interface ProfilePersonBarActions {
   /** „Najnowsze CV” — bez pliku CV (albo przed wczytaniem listy) przycisku nie ma. */
   latestCv?: CandidateDocument | null;
   onOpenLatestCv?: () => void;
+  /** „Dodaj CV” (29.10.2026) — okno `AddCvDialog`; tylko z prawem wgrywania plików. */
+  onAddCv?: () => void;
 }
 
 export interface ProfilePersonBarProps {
@@ -476,6 +527,19 @@ function PersonActions({
         >
           <FileText className="h-4 w-4" />
           Najnowsze CV
+        </Button>
+      ) : null}
+      {actions.onAddCv ? (
+        <Button
+          size="sm"
+          variant="outline"
+          className="min-h-11 min-w-11"
+          onClick={actions.onAddCv}
+          title="Nowe CV od kandydata — do profilu i do rekrutacji w toku"
+          data-tour="candidate.profile.add-cv"
+        >
+          <Upload className="h-4 w-4" />
+          Dodaj CV
         </Button>
       ) : null}
       {/* modal={false} jest nośne: modalne menu zostawia zablokowane

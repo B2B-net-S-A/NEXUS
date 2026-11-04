@@ -14,6 +14,7 @@ import {
   type AddedByItem,
 } from "@/lib/board-added-by";
 import {
+  autofillCautionBadges,
   autofillDecisionBadge,
   autofillSourceBadge,
   cardOwner,
@@ -40,6 +41,23 @@ describe("plakietki osoby od systemu", () => {
     expect(badge?.title).toContain("Brakuje: AWS.");
     expect(badge?.title).toContain("Stawka nieznana.");
     expect(autofillSourceBadge(null)).toBeNull();
+  });
+
+  it("ostrzeżenia z serwera idą na kartę jako plakietki „czekaj” z dymkiem", () => {
+    const badges = autofillCautionBadges({
+      ...meta,
+      cautions: [
+        { key: "budget", label: "+12% budżetu", title: "„Stawka od” 106 zł/h, budżet 95 zł/h." },
+        { key: "office_city", label: "Inne miasto: Kraków", title: "Mieszka: Kraków." },
+      ],
+    });
+    expect(badges.map((b) => [b.key, b.label, b.tone])).toEqual([
+      ["autofill_caution_budget", "+12% budżetu", "wait"],
+      ["autofill_caution_office_city", "Inne miasto: Kraków", "wait"],
+    ]);
+    expect(badges[0].title).toBe("„Stawka od” 106 zł/h, budżet 95 zł/h.");
+    expect(autofillCautionBadges(meta)).toEqual([]);
+    expect(autofillCautionBadges(null)).toEqual([]);
   });
 
   it("termin decyzji tylko po 2 dniach i z dniami roboczymi", () => {

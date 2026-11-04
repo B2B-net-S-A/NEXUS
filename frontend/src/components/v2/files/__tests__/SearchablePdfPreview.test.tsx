@@ -167,6 +167,16 @@ describe("SearchablePdfPreview", () => {
     ).toBeInTheDocument();
   });
 
+  it("long scan notice truncates instead of crushing the search field in a narrow pane", () => {
+    renderPreview();
+    act(() => viewer.props?.onTextAvailability?.("no_text"));
+    const notice = screen.getByText("Ten plik to skan — nie ma w nim tekstu do przeszukania");
+    expect(notice).toHaveClass("min-w-0", "truncate");
+    expect(notice).not.toHaveClass("shrink-0");
+    expect(notice).toHaveAttribute("title", "Ten plik to skan — nie ma w nim tekstu do przeszukania");
+    expect(screen.getByRole("searchbox").parentElement).toHaveClass("min-w-44");
+  });
+
   it("Escape clears the query before anything else", () => {
     renderPreview();
     const input = screen.getByRole("searchbox") as HTMLInputElement;
@@ -185,7 +195,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(true);
     expect(document.activeElement).toBe(input);
@@ -200,7 +210,7 @@ describe("SearchablePdfPreview", () => {
       cancelable: true,
     });
     act(() => {
-      window.dispatchEvent(event);
+      document.body.dispatchEvent(event);
     });
     expect(event.defaultPrevented).toBe(false);
     expect(document.activeElement).not.toBe(screen.getByRole("searchbox"));

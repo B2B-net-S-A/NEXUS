@@ -15,13 +15,17 @@ w ``_ENUM_STATEMENTS`` — ta lista jest zdefiniowana przed importami.
 from __future__ import annotations
 
 from app.services import admin_cases_schema as admin_cases
+from app.services import back_office_schema as back_office
 from app.services import board_role_schema as board_role
+from app.services import viewer_role_schema as viewer_role
 from app.services import care_announcements_schema as care_announcements
 from app.services import care_board_schema as care_board
 from app.services import client_sales_invoices_schema as sales_invoices
 from app.services import client_structure_schema as client_structure
+from app.services import consultant_portal_schema as consultant_portal
 from app.services import contract_care_schema as contract_care
 from app.services import equipment_extras_schema as equipment_extras
+from app.services import equipment_protocol_cancel_schema as equipment_cancel
 from app.services import equipment_schema as equipment
 from app.services import hr_access_schema as access
 from app.services import hr_account_profile_schema as account_profile
@@ -32,6 +36,7 @@ from app.services import hr_approvals_schema as approvals
 from app.services import hr_documents_schema as documents
 from app.services import hr_foundation_schema as foundation
 from app.services import hr_leave_proofs_schema as leave_proofs
+from app.services import hr_leave_cpro_schema as leave_cpro
 from app.services import hr_leave_schema as leave
 from app.services import hr_lifecycle_schema as lifecycle
 from app.services import hr_notification_schema as notifications
@@ -63,6 +68,14 @@ MODULES = (
     approval_basis,
     # 0509: tablica opieki i popyt dla DL (przebudowa opieki, 22.10.2026).
     care_board,
+    # 0611: poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    equipment_cancel,
+    # 0622: zastępca do Cpro we wniosku urlopowym (29.10.2026).
+    leave_cpro,
+    # 0637: kolejka spraw całego back office'u (02.11.2026).
+    back_office,
+    # 0638: portal konsultanta (02.11.2026).
+    consultant_portal,
 )
 
 COLUMN_DDL: tuple[str, ...] = (
@@ -80,6 +93,8 @@ DATA_DDL: tuple[str, ...] = (
     *foundation.DATA_DDL,
     *access.SEED_DDL,
     *board_role.SEED_DDL,
+    # 0637: raz, potem decyzja admina z panelu wygrywa.
+    *viewer_role.DATA_DDL,
     *(stmt for module in MODULES for stmt in module.DATA_DDL),
 )
 

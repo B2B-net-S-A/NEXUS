@@ -62,7 +62,9 @@ def test_action_check_literals_in_entrypoint_know_the_new_permissions() -> None:
     )
     for action in schema.NEW_ACTIONS:
         assert f"'{action}'" in permission_schema.ACTION_CHECK_SQL
-    assert set(schema.PREVIOUS_ACTIONS) | set(schema.NEW_ACTIONS) == set(
+    # Podzbiór, nie równość: późniejsze uprawnienia (Sprzedaż, 0600) dochodzą
+    # na końcu katalogu i nie są częścią 0456.
+    assert set(schema.PREVIOUS_ACTIONS) | set(schema.NEW_ACTIONS) <= set(
         permission_schema.ACTIONS
     )
 

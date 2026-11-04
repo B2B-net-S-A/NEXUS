@@ -164,7 +164,7 @@ export function AccountMismatchesSection({
           ) : null}
           {pendingPeople.length === 0 && pending.manager > 0 ? (
             <li className="text-xs text-muted-foreground">
-              Przełożony do uzupełnienia: {pending.manager}
+              Koordynator do uzupełnienia: {pending.manager}
             </li>
           ) : null}
         </ul>

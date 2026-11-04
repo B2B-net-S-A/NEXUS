@@ -85,6 +85,30 @@ CHAIN = (
         "0508_candidate_data_access_alert",
         "care_board_schema",
     ),
+    # Poprawka i anulowanie protokołu sprzętu (28.10.2026).
+    (
+        "0611_equipment_protocol_cancel",
+        "0610_job_p0_request",  # down_revision — przepina rechain_migration.py
+        "equipment_protocol_cancel_schema",
+    ),
+    # Zastępca do Cpro we wniosku urlopowym (29.10.2026).
+    (
+        "0622_leave_cpro_substitute",
+        "0621_pair_departure_care",  # down_revision — przepina rechain_migration.py
+        "hr_leave_cpro_schema",
+    ),
+    # Kolejka spraw back office'u (02.11.2026).
+    (
+        "0642_back_office",
+        "0641_career_link_channels",  # down_revision — przepina rechain_migration.py
+        "back_office_schema",
+    ),
+    # Portal konsultanta (02.11.2026).
+    (
+        "0643_consultant_portal",
+        "0642_back_office",  # down_revision — przepina rechain_migration.py
+        "consultant_portal_schema",
+    ),
 )
 
 

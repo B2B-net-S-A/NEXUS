@@ -62,3 +62,11 @@ describe("fileTypeLabel", () => {
     expect(fileTypeLabel("application/octet-stream", "bez-rozszerzenia")).toBeNull();
   });
 });
+
+describe("wpis o adresie trwale usuniętego profilu", () => {
+  it("ma polską etykietę, nie surowy slug", () => {
+    expect(activityActionLabel("recreated_after_erasure")).toBe(
+      "Adres należał do profilu trwale usuniętego",
+    );
+  });
+});

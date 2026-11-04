@@ -25,16 +25,20 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPD",
-  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPD"
+  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/pipeline/stages/{stage_id}/qc/consent-screenshot": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
+  "GET /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
+  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
  }
 }

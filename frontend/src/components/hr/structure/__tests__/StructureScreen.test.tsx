@@ -105,7 +105,7 @@ describe("StructureScreen — schemat", () => {
     mocks.post.mockResolvedValue({ data: { changed: [3], unchanged: [] } });
   });
 
-  it("przeciągnięcie karty na inną zmienia przełożonego dopiero po potwierdzeniu", async () => {
+  it("przeciągnięcie karty na inną zmienia koordynatora dopiero po potwierdzeniu", async () => {
     renderScreen();
     const ewaCard = await screen.findByTestId("org-card-3");
     const kamilCard = screen.getByTestId("org-card-1");
@@ -126,7 +126,7 @@ describe("StructureScreen — schemat", () => {
     );
   });
 
-  it("upuszczenie przełożonego na własnego podwładnego nic nie robi (pętla)", async () => {
+  it("upuszczenie koordynatora na własnego podwładnego nic nie robi (pętla)", async () => {
     renderScreen();
     const kamilCard = await screen.findByTestId("org-card-1");
     const ewaCard = screen.getByTestId("org-card-3");
@@ -175,7 +175,7 @@ describe("StructureScreen — schemat", () => {
     expect(screen.getByRole("button", { name: "Headowie pionów" })).toBeInTheDocument();
   });
 
-  it("duży zespół bez własnych ludzi stoi w kolumnie pod przełożonym, karty dalej przyjmują przeciąganie", async () => {
+  it("duży zespół bez własnych ludzi stoi w kolumnie pod koordynatorem, karty dalej przyjmują przeciąganie", async () => {
     // Prod 20.10.2026: kilkadziesiąt osób pod jedną — rząd miał 5384 px szerokości.
     const team = Array.from({ length: 12 }, (_, i) =>
       person(50 + i, `Członek ${String(i).padStart(2, "0")}`, {

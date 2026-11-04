@@ -9,7 +9,7 @@ w tej samej transakcji co status.
 
 Na B2B i zleceniu (etap 2, D5, 17.10.2026) nieobecność jest ZGŁOSZENIEM, nie
 wnioskiem: termin wchodzi od razu (``approved`` bez decydującego, Microsoft 365
-i godziny od razu), koordynator dostaje informację i może zgłosić kolizję
+i godziny od razu), koordynator dostaje informację i może zgłosić uwagę
 (``report_conflict``) — nie akceptuje, nie odrzuca i nie anuluje (to robią
 sama osoba albo Kadry). Od 08.07.2026 PIP sam stwierdza stosunek pracy,
 a akceptacja urlopu przez przełożonego to sygnał podporządkowania. Słowa
@@ -83,6 +83,7 @@ from app.services.hr.leave_policy import (
     can_decide,
     covering_manager,
     forward_target_allowed,
+    approver_cancel_refusal,
     own_cancel_refusal,
     plan_days,
     requested_days,
@@ -130,13 +131,29 @@ from app.services.hr.recipients import (
 )
 
 CONFLICT_NOTE_MAX = 1000
+
+
+async def is_leave_approver(db: AsyncSession, user: User) -> bool:
+    """Kto widzi kolejkę nieobecności: Kadry, admin, przełożony, zastępca
+    przełożonego, który jest dziś na urlopie, albo head pionu z osobami bez
+    żywego przełożonego. Ta sama reguła stoi w bramce tras i w ``/api/hr/config``."""
+
+    if actor_of(user).sees_everyone:
+        return True
+    if await people.direct_report_ids(db, user.id):
+        return True
+    if await leave_substitute.covered_reports(db, user.id, business_today()):
+        return True
+    return bool(await division_charges(db, user.id))
+
+
 REPORT_NOT_DECIDED = (
     "Na B2B i zleceniu nieobecność jest zgłoszeniem — nikt jej nie zatwierdza ani "
-    "nie odrzuca. Jeśli termin koliduje z pracą, zgłoś kolizję."
+    "nie odrzuca. Jeśli termin koliduje z pracą, zgłoś uwagę."
 )
 REPORT_CANCEL_FORBIDDEN = (
-    "Zgłoszenie osoby na B2B albo zleceniu anuluje ona sama albo Kadry — "
-    "koordynator może zgłosić kolizję."
+    "Zgłoszenie osoby na B2B albo zleceniu anuluje ona sama albo Administracja współpracy — "
+    "koordynator może zgłosić uwagę."
 )
 
 
@@ -163,6 +180,7 @@ class LeaveInput:
     forward_mail_consent: bool = False
     oof_internal_message: Optional[str] = None
     oof_external_message: Optional[str] = None
+    cpro_substitute_user_id: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -207,10 +225,52 @@ async def _validate_substitute(
     if substitute is None or not substitute.is_active:
         raise LeavePolicyError("Wybrany zastępca nie ma aktywnego konta.")
     if not await people.has_live_profile(db, substitute_id):
-        raise LeavePolicyError(
-            "Zastępcą może być osoba z kartoteką pracownika w NEXUSIE."
-        )
+        raise LeavePolicyError("Zastępcą może być osoba z kartoteką w NEXUSIE.")
     return substitute
+
+
+CPRO_SUBSTITUTE_REQUIRED = (
+    "Wrzucasz kandydatów Nordei do Cpro — wskaż, kto zrobi to w tym czasie."
+)
+CPRO_SUBSTITUTE_NOT_SENDER = (
+    "Zastępcę do Cpro wskazuje tylko osoba, która wrzuca kandydatów Nordei do Cpro."
+)
+
+
+async def _is_cpro_sender(db: AsyncSession, user_id: int) -> bool:
+    from app.services import cpro_sender  # noqa: PLC0415 — cykl importu
+
+    return (await cpro_sender.firm_sender(db)).user_id == user_id
+
+
+async def _validate_cpro_substitute(
+    db: AsyncSession, *, subject_id: int, data: LeaveInput, for_self: bool
+) -> Optional[User]:
+    """Zastępca do Cpro (decyzja Artura 29.10.2026).
+
+    Wymagany we własnym wniosku osoby od Cpro na pełne dni — bez niego
+    kolejka Cpro i dzwonki czekały na nieobecną osobę. Pół dnia go nie
+    wymaga (osoba od Cpro jest wtedy w pracy). Wybór jak w „Zmień” przy
+    kolejce: aktywna osoba z zespołu rekrutacji (``load_assignee``).
+    """
+
+    is_sender = await _is_cpro_sender(db, subject_id)
+    if data.cpro_substitute_user_id is None:
+        if is_sender and for_self and data.half_day is None:
+            raise LeavePolicyError(CPRO_SUBSTITUTE_REQUIRED)
+        return None
+    if not is_sender:
+        raise LeavePolicyError(CPRO_SUBSTITUTE_NOT_SENDER)
+    if data.cpro_substitute_user_id == subject_id:
+        raise LeavePolicyError("Nie można wybrać siebie na zastępcę do Cpro.")
+    from fastapi import HTTPException  # noqa: PLC0415
+
+    from app.services import board_tasks  # noqa: PLC0415 — cykl importu
+
+    try:
+        return await board_tasks.load_assignee(db, data.cpro_substitute_user_id)
+    except HTTPException as exc:
+        raise LeavePolicyError(str(exc.detail)) from exc
 
 
 def _assert_forward_target(substitute: Optional[User]) -> None:
@@ -339,6 +399,8 @@ async def preview(
         "work": {"total": 0, "by_kind": [], "items": []},
         "substitute_absent": False,
         "return_on": None,
+        # Osoba od Cpro — okno pyta, kto wrzuca do Cpro w tym czasie.
+        "cpro_sender": await _is_cpro_sender(db, subject.id),
     }
     try:
         validate_shape(
@@ -508,6 +570,9 @@ async def submit(
     )
     if for_self and data.forward_mail_consent:
         _assert_forward_target(substitute)
+    cpro_substitute = await _validate_cpro_substitute(
+        db, subject_id=subject.id, data=data, for_self=for_self
+    )
     words = terms(profile.employment_type)
     approved = on_behalf or data.leave_type in AUTO_APPROVED_TYPES or reported
     now = datetime.now(timezone.utc)
@@ -521,6 +586,7 @@ async def submit(
         half_day=data.half_day,
         note=_clean(data.note),
         substitute_user_id=substitute.id if substitute else None,
+        cpro_substitute_user_id=cpro_substitute.id if cpro_substitute else None,
         forward_mail_consent=bool(
             for_self and substitute is not None and data.forward_mail_consent
         ),
@@ -637,6 +703,21 @@ async def _after_approval(
             ),
             ntype=NotificationType.hr_leave_substitute,
             link=LINK_CALENDAR,
+        )
+    if request.cpro_substitute_user_id is not None and request.end_date >= today:
+        # Bez rodzaju nieobecności (D6) — zastępca do Cpro nie jest w kręgu.
+        await notify(
+            db,
+            [request.cpro_substitute_user_id],
+            exclude={actor.id},
+            title="Wysyłasz kandydatów do Cpro",
+            message=(
+                f"{format_range(request.start_date, request.end_date)} wrzucasz "
+                f"kandydatów Nordei do Cpro w zastępstwie za {subject.name}. "
+                "W te dni kolejka Cpro jest u Ciebie w „Czeka na Ciebie”."
+            ),
+            ntype=NotificationType.cpro_send_assigned,
+            link="/dashboard#czeka-na-ciebie",
         )
     await _enqueue_m365(db, request, "approved", today=today)
     # „Mój miesiąc” (E2): godziny wpisane na pełne dni urlopu znikają, płatny
@@ -889,7 +970,7 @@ async def reject(
         title="Wniosek odrzucony",
         message=(
             f"{format_range(request.start_date, request.end_date)} — "
-            "powód znajdziesz w „Mój czas”."
+            "powód znajdziesz w „Mojej współpracy”."
         ),
         ntype=NotificationType.hr_leave_decided,
         link=LINK_SELF,
@@ -906,6 +987,7 @@ async def _after_cancel(
     subject: User,
     profile: Optional[EmployeeProfile],
     today: date,
+    reason: Optional[str] = None,
 ) -> tuple[str, ...]:
     await _set_days_active(db, request.id, False)
     await db.refresh(request)
@@ -914,7 +996,11 @@ async def _after_cancel(
         actor_id=actor.id,
         request=request,
         action="leave_cancelled",
-        extra={"previous_status": previous_status},
+        extra={
+            "previous_status": previous_status,
+            **({"reason": reason} if reason else {}),
+        },
+        free_text=reason,
     )
     await notify_cancelled(
         db,
@@ -923,6 +1009,7 @@ async def _after_cancel(
         actor=actor,
         subject=subject,
         profile=profile,
+        reason=reason,
     )
     if previous_status != "approved":
         return ()
@@ -967,7 +1054,9 @@ async def cancel_own(
             raise LeavePolicyError(refusal)
         raise LeaveConflict(refusal)
     previous = request.status
-    extra = (LeaveRequest.start_date > today,) if previous == "approved" else ()
+    # Ten sam warunek co w ``own_cancel_refusal``, w zapytaniu: edycja Kadr
+    # w międzyczasie nie przesunie startu przed „dziś” za plecami osoby.
+    extra = (LeaveRequest.start_date > today,)
     changed = await _conditional_status(
         db,
         request_id,
@@ -990,8 +1079,16 @@ async def cancel_own(
 
 
 async def cancel_as_approver(
-    db: AsyncSession, *, actor: User, request_id: uuid.UUID, today: date
+    db: AsyncSession,
+    *,
+    actor: User,
+    request_id: uuid.UUID,
+    today: date,
+    reason: Optional[str] = None,
 ) -> LeaveOutcome:
+    """Cofnięcie przez przełożonego albo Kadry; od pierwszego dnia z powodem
+    (dni wracają do raportu godzin, osoba dostaje powód — 28.10.2026)."""
+
     request, subject, profile = await _decidable(db, actor, request_id)
     refusal = team_cancel_refusal(status=request.status)
     if refusal is not None:
@@ -1003,12 +1100,22 @@ async def cancel_as_approver(
         and not actor_of(actor).sees_everyone
     ):
         raise LeaveForbidden(REPORT_CANCEL_FORBIDDEN)
+    reason = _clean(reason)
+    reason_refusal = approver_cancel_refusal(
+        start=request.start_date, today=today, reason=reason
+    )
+    if reason_refusal is not None:
+        raise LeavePolicyError(reason_refusal)
     previous = request.status
+    # Bez powodu tylko przyszły termin — także gdy edycja w międzyczasie
+    # przesunęła start.
+    extra = () if reason else (LeaveRequest.start_date > today,)
     changed = await _conditional_status(
         db,
         request_id,
         from_statuses=(previous,),
         values={"status": "cancelled"},
+        extra_where=extra,
     )
     if not changed:
         raise LeaveConflict("Ten wniosek zmienił się w międzyczasie — odśwież listę.")
@@ -1020,6 +1127,7 @@ async def cancel_as_approver(
         subject=subject,
         profile=profile,
         today=today,
+        reason=reason,
     )
     return LeaveOutcome(request, locked)
 
@@ -1108,7 +1216,7 @@ async def set_forward_consent(
     if request.end_date < today:
         raise LeavePolicyError("Ta nieobecność już minęła.")
     if consent and request.substitute_user_id is None:
-        raise LeavePolicyError("Przekierowanie wymaga zastępcy we wniosku.")
+        raise LeavePolicyError("Kopia poczty wymaga zastępcy we wniosku.")
     if consent:
         _assert_forward_target(await db.get(User, request.substitute_user_id))
     if request.forward_mail_consent == consent:
@@ -1137,9 +1245,7 @@ async def set_forward_consent(
     return request
 
 
-ON_BEHALF_REPORT_FORBIDDEN = (
-    "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robią Kadry."
-)
+ON_BEHALF_REPORT_FORBIDDEN = "Nieobecność osoby na B2B albo zleceniu zgłasza ona sama — wpis za nią robi Administracja współpracy."
 
 
 async def subject_for_on_behalf(
@@ -1150,7 +1256,7 @@ async def subject_for_on_behalf(
     subject, profile = await _subject(db, user_id)
     if subject.id == actor.id:
         raise LeaveForbidden(
-            "Własną nieobecność składasz w „Mój czas” — akceptuje ją ktoś inny."
+            "Własną nieobecność zgłaszasz w „Mojej współpracy” — akceptuje ją ktoś inny."
         )
     if profile.employment_status == "exited":
         raise LeaveNotFound(user_id)

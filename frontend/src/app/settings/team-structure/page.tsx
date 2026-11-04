@@ -21,6 +21,7 @@ import { TAC_UI_ENABLED } from "@/lib/tac-ui"
 import { useUrlWriter } from "@/lib/url-selection"
 import { TabbedNav } from "@/components/ds/TabbedNav"
 import { CompetenceTeamPanel } from "@/components/v2/competence-team/CompetenceTeamPanel"
+import { AllocationRulesPanel } from "@/components/v2/competence-team/AllocationRulesPanel"
 import { usePathname, useSearchParams } from "next/navigation"
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -356,11 +357,12 @@ function TeamStructureReadOnly({
 
 // ── Page ──────────────────────────────────────────────────────────────────────────────
 
-type TeamTab = "kategorie" | "dl"
+type TeamTab = "kategorie" | "dl" | "automat"
 
 const TEAM_TABS = [
   { value: "kategorie", label: "Kategorie" },
   { value: "dl", label: "Delivery Leadzi i klienci" },
+  { value: "automat", label: "Automat przydziału" },
 ]
 
 export default function AdminTeamStructurePage() {
@@ -371,7 +373,8 @@ export default function AdminTeamStructurePage() {
   const searchParams = useSearchParams()
   const pathname = usePathname() ?? "/settings/team-structure"
   const { replaceUrl } = useUrlWriter()
-  const tab: TeamTab = searchParams?.get("zakladka") === "dl" ? "dl" : "kategorie"
+  const rawTab = searchParams?.get("zakladka")
+  const tab: TeamTab = rawTab === "dl" || rawTab === "automat" ? rawTab : "kategorie"
   const selectTab = (next: string) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "")
     params.set("zakladka", next)
@@ -464,6 +467,8 @@ export default function AdminTeamStructurePage() {
           />
           {tab === "kategorie" ? (
             <CompetenceTeamPanel />
+          ) : tab === "automat" ? (
+            <AllocationRulesPanel />
           ) : (
             <>
               <DeliveryLeadReportingInfo />

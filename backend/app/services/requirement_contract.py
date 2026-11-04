@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from app.schemas.matching_requirements import MatchingRequirements, SkillRequirement
+from app.services import skill_freshness
 
 _ALTERNATIVE = re.compile(r"\s+(?:lub|albo|or)\s+", re.IGNORECASE)
 # `SkillRequirement` accepts names of at most 100 characters.
@@ -227,27 +228,41 @@ def evaluate_requirements(
     # samo co bramka, z podstawą „text_mention”.
     evidence = getattr(candidate, "_must_text_evidence", None)
     text_met = {label.lower() for label in getattr(evidence, "met", ())}
+    last_used = skill_freshness.last_used_index(candidate)
     results = []
     for group in contract.all_of:
         found = [name for name in group.any_of if skill_present(name, skills)]
-        mentioned = not found and (
-            requirement_label(group).lower() in text_met
-            or any(name.lower() in text_met for name in group.any_of)
+        # 27.10.2026: technologia nieużywana od ponad 3 lat to „?” z rokiem,
+        # nie „✓” — także gdy CV ją wymienia (to ta sama, stara pozycja CV).
+        stale = {
+            name: year
+            for name in group.any_of
+            if (year := skill_freshness.stale_year(name, last_used)) is not None
+        }
+        fresh = [name for name in found if name not in stale]
+        mentioned = not fresh and (
+            any(name.lower() in text_met and name not in stale for name in group.any_of)
+            or (
+                requirement_label(group).lower() in text_met
+                and len(stale) < len(group.any_of)
+            )
         )
         # Absence in imported/extracted skills is not proof of inability.
         results.append(
             {
                 "any_of": group.any_of,
                 "level": group.level,
-                "status": "met" if (found or mentioned) else "unknown",
-                "matched": found,
+                "status": "met" if (fresh or mentioned) else "unknown",
+                "matched": fresh,
                 # Imported/extracted profile signals do not establish current
                 # proficiency, a verification date or project usage context.
                 "evidence_basis": (
                     "profile_signal"
-                    if found
+                    if fresh
                     else "text_mention"
                     if mentioned
+                    else "stale_profile_signal"
+                    if stale
                     else "no_evidence"
                 ),
                 "verified_at": None,
@@ -257,8 +272,11 @@ def evaluate_requirements(
                 "candidate_updated_at": str(getattr(candidate, "updated_at", "")),
             }
         )
+        if stale and not (fresh or mentioned):
+            results[-1]["last_used_year"] = max(stale.values())
         review = reviewed_group(candidate, contract, group, job_id=job_id)
         if review:
+            results[-1].pop("last_used_year", None)
             results[-1].update(
                 **review,
                 evidence_basis="reviewed",

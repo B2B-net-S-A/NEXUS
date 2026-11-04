@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -155,6 +156,25 @@ def test_find_words_cover_every_requirement_of_the_job():
     assert payload["Kafka"] == ["Kafka", "kolejk"]
 
 
+def test_find_words_include_alternatives_of_a_non_critical_row():
+    """Zgłoszenie 30.10.2026: „Agile lub Prince2” — lupa ma szukać obu słów,
+    także gdy wiersz nie jest krytyczny."""
+    from app.services import keyword_suggest
+    from app.services.champion_intake import requirement_find_words_payload
+
+    job = _job(["Agile"], critical=[])
+    job.champion_profile["stack"]["rows"] = [
+        {"words": ["Prince2*", "Agile", "Prince2"], "level": "must"}
+    ]
+    saved = keyword_suggest._catalog
+    keyword_suggest.load_catalog([], [])
+    try:
+        payload = requirement_find_words_payload(job)
+    finally:
+        keyword_suggest._catalog = saved
+    assert payload["Agile"] == ["Agile", "Prince2"]
+
+
 def test_single_letter_critical_is_skipped_from_search_rows_with_a_note(monkeypatch):
     """Krytyczna „R” nie staje się słowem kluczowym (prawie cała baza) —
     payload mówi, że pominięta; bramka AI dalej czyta ją z profilu."""
@@ -282,3 +302,21 @@ def test_seed_file_is_readable_and_has_only_numbers():
     assert payload["labels"]["java"]["jobs"] > 100
     for entry in payload["labels"].values():
         assert set(entry) <= {"rate", "jobs", "pairs"}
+
+
+def test_stats_count_only_people_sent_to_the_client():
+    """Rozmowa wewnętrzna (`interview`) to jeszcze nie wysyłka, jak w analityce."""
+    from app.api.jobs import SENT_TO_CLIENT_STAGES
+
+    captured: dict = {}
+
+    class _Db:
+        async def execute(self, _statement, params):
+            captured.update(params)
+            return SimpleNamespace(all=lambda: [])
+
+    payload = asyncio.run(critical_skills.compute_stats(_Db()))
+
+    assert payload["jobs"] == 0
+    assert "interview" not in captured["stages"]
+    assert set(captured["stages"]) == {s.value for s in SENT_TO_CLIENT_STAGES}

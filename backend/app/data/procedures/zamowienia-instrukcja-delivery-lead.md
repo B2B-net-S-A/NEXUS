@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 23.10.2026
+> **Zgodność z systemem sprawdzona:** 03.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -33,6 +33,8 @@ szarym **pasem zamówienia** (numer, typ, okres, liczba osób i uwagi), a pod
 numerem stoi **budżet całego zamówienia** z paskiem — te same liczby co
 w panelu: przy MD „Budżet · wykorzystano · pozostało" (wspólna pula:
 „Wspólna pula: budżet …"), przy kosztowym „Kwota · zafakturowano · pozostało".
+Przy budżecie per osoba „pozostało" obejmuje ręczne korekty MD, tak samo jak
+wiersz osoby, a ich suma stoi obok w dopisku „w tym korekta".
 W wierszach osób kolumna **Zużycie** pokazuje, ile dana osoba wykorzystała na
 tym zamówieniu od jego początku: przy budżecie per osoba przycisk „Zużycie",
 przy wspólnej puli sumę jej MD ze zejść miesięcznych (kolumna „Zostało MD"
@@ -55,10 +57,11 @@ strony, więc odświeżenie i link z powiadomienia pokazują ten sam wiersz.
 
 Nad listą masz:
 
-* filtry z licznikami: **Wszystkie**, **Aktywne**, **Bez kontynuacji 30 dni**,
-  **Zakończeni**, **Wyczerpane**, **Anulowane**, **Draft** (szkice do uzupełnienia)
-  oraz — tylko gdy coś czeka — czerwony **Wymaga decyzji** (zamówienia MD
-  i kosztowe z osobą, o której trzeba zdecydować po zakończeniu współpracy).
+* filtry z licznikami: **Aktywne**, **Bez kontynuacji 30 dni**,
+  **Zakończeni**, **Wyczerpane**, **Anulowane**, **Draft** (szkice do uzupełnienia),
+  czerwony **Wymaga decyzji**, gdy coś czeka (zamówienia MD i kosztowe z osobą,
+  o której trzeba zdecydować po zakończeniu współpracy), i na końcu **Wszystkie**. Zakładka otwiera się na **Aktywnych**; zakończone,
+  anulowane i szkice zobaczysz w ich filtrach albo we **Wszystkich**.
   Obok stoi lista **Typ zamówienia** (wszystkie / MD / Kosztowe / Okresowe);
   eksport do Excela bierze pod uwagę także ten wybór.
   **O tym, kto jest w „Zakończonych", decyduje wyłącznie umowa z modułu
@@ -245,8 +248,9 @@ linii nie ma wcale.
 
 **Po renegocjacji stawki z klientem popraw stawkę do klienta w rekrutacji**
 (profil kandydata → zakładka „Rekrutacje” albo panel osoby na Tablicy). Tylko
-wtedy notka znika, a zamówienia z maila z nową stawką przestają czekać
-w weryfikacji z powodu różnicy.
+wtedy notka znika. Zamówienia z maila porównują stawkę z rekrutacją **tylko
+przy pierwszym zamówieniu osoby** u klienta — przedłużenie porównują
+z poprzednim zamówieniem tej osoby, więc rekrutacji sprzed lat nie poprawiasz.
 
 > **Jednostka stawki jest domyślnie „Miesięczna".** Ustaw ją **zanim** wpiszesz
 > kwoty — przełączenie jednostki przelicza obie stawki, a stawka godzinowa
@@ -644,6 +648,11 @@ Zapis przelicza „zafakturowano" i „pozostało" na karcie zamówienia i zdejm
 uwagę „Brak zejścia za [miesiąc]" dla tego miesiąca. **Ręcznego wpisu import
 Finansów nie nadpisuje**: wiersz arkusza za ten sam miesiąc dostaje status
 „Jest ręczny wpis za ten miesiąc — faktura pominięta" i czeka na decyzję.
+Uwaga „Brak zejścia za [miesiąc]" dotyczy tylko osoby, która w tym miesiącu
+była na zamówieniu: kto zaczyna później albo skończył wcześniej, jej nie
+dostaje. Osoba dopisana od przyszłego miesiąca ma w zakładce zamiast
+formularza informację „Zaczyna pracę [data]" — pierwsze zejście przyjdzie
+z importu za miesiąc startu.
 
 ### Zakładka „Importy MD"
 
@@ -988,7 +997,10 @@ odczycie to nie awaria — to odmowa zgadywania.
 system obsługuje: w zamówieniach zbiorczych i w edycji zamówienia przyjmowany
 jest wyłącznie `.pdf`, a przy dodawaniu konsultanta i przy przedłużeniu
 pojedynczego zamówienia także `.docx`. O formacie decyduje treść pliku, nie
-jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Odczyt
+jego nazwa: PDF zapisany jako `.docx` zostanie przeczytany jak PDF. Plik Word,
+z którego nie da się wyjąć tekstu wprost (stary `.doc`, treść w polach
+tekstowych, skan wklejony do Worda), system zamienia na PDF i czyta jak PDF,
+w tych samych granicach co skany. Odczyt
 korzysta z modułu AI — jeżeli
 administrator go wyłączy albo ustawi miesięczny limit i ten się wyczerpie,
 zobaczysz komunikat „Odczyt AI jest chwilowo niedostępny (…). Wpisz dane
@@ -1052,9 +1064,29 @@ stawki do klienta z rekrutacji „[tytuł]” (165 zł/h) — sprawdź, czy klie
 przyjął inną stawkę…”. To **sprawdzenie, nie blokada**: jeśli stawka
 z zamówienia jest właściwa (klient przyjął inną po negocjacji), kliknij
 **„Zastosuj”**, a potem popraw stawkę do klienta w rekrutacji, żeby kolejne
-zamówienia tej osoby zapisywały się same. Porównanie pomija osoby spoza listy
-konsultantów klienta, zamówienia kosztowe, wiersze bez stawki oraz stawki
-nieporównywalne (inna waluta, stawka miesięczna wobec godzinowej). Role bez
+zamówienia tej osoby zapisywały się same. Rekrutacja jest odniesieniem tylko
+dla **pierwszego** zamówienia osoby. **Przedłużenie** (osoba ma już zamówienie
+ze stawką — trwające, wstrzymane albo zakończone) porównujemy z **poprzednim
+zamówieniem**: ta sama stawka zapisuje się sama, inna czeka z powodem
+„„[osoba]”: przy przedłużeniu zmienia się stawka do klienta: 120 zł/h →
+138 zł/h (+15%) względem zamówienia #70 — potwierdź, że klient przyjął nową
+stawkę”, a pod stawką w planie widzisz „było 120 zł/h (#70)”. Porównanie pomija
+osoby spoza listy konsultantów klienta, zamówienia kosztowe, wiersze bez stawki
+oraz stawki nieporównywalne (inna waluta, stawka miesięczna wobec godzinowej).
+**Przedłużenie, które zaczyna się przed końcem obecnego zamówienia** (np. nowe
+od 01.12, obecne do 31.12), czeka w kolejce z planem „Przedłużenie #70 —
+wybierz niżej”. Pod planem wybierasz, co zrobić z nakładającymi się dniami:
+**„Skróć #70 do 30.11, [numer] od 01.12”** (klient płaci nową stawkę od
+początku nowego zamówienia — wybór domyślny) albo **„#70 bez zmian do 31.12,
+[numer] od 01.01”**. „Zastosuj” wykonuje wybór: skraca obecne zamówienie
+(zostaje ślad w jego historii z datą sprzed zmiany) albo przesuwa początek
+nowego. Zamówienia, które ma już fakturę za skracany miesiąc, „Zastosuj” nie
+skróci — zrób to w oknie zamówienia. Nie skróci go też, gdy nowe zamówienie
+nie może się aktywować (np. wypowiedziana umowa) — wtedy przedłużenie
+zapisujesz w oknie zamówienia. Gdy plan zmienił się, zanim kliknąłeś (ktoś
+zmienił obecne zamówienie), „Zastosuj” odmówi i poprosi o ponowny wybór. Gdy nowy okres mieści się w obecnym,
+obecne jest bezterminowe albo nachodzą dwa zamówienia, wyboru nie ma
+i rozstrzygasz w oknie zamówienia. Role bez
 podglądu kwot widzą ten powód z kwotami zastąpionymi „…”. „Zastosuj” odmawia też
 wiersza, który ma stawkę, ale **bez jednostki** (np. inna kwota niż w nagłówku
 dokumentu bez „zł/MD” czy „zł/h”) — jednostkę uzupełniasz w oknie zamówienia,

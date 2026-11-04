@@ -15,8 +15,9 @@ Mapowanie:
 * tytuł strony ZOSTAJE tytułem publicznym rekrutacji: ogłoszenie i tak
   zaczyna od niego, a tytuł wchodzi do odcisku materiału — przepisanie go
   zapalałoby w oknie „Rekrutacja zmieniła się od przygotowania ogłoszenia”,
-* wymagania, miasto, tryb i start strona bierze z rekrutacji (migawka
-  zatwierdzenia), jak dotąd.
+* „Wymagane” i „Mile widziane” = punkty ogłoszenia („Nasze wymagania”,
+  „Mile widziane”) — od 29.10.2026, wcześniej słowa do szukania,
+* miasto, tryb i start strona bierze z rekrutacji (migawka zatwierdzenia).
 
 Reguły: ``docs/claude/rekrutacja-tworzenie/ogloszenie-jedna-tresc-strona-kariery.md``.
 """
@@ -105,10 +106,21 @@ class CareerState:
         }
 
 
-def _same_text(profile: JobPublicProfile, text: CareerText) -> bool:
-    return (profile.subtitle or None) == text.subtitle and (
-        profile.about or None
-    ) == text.about
+def career_points(content: dict[str, Any]) -> Optional[dict[str, list[str]]]:
+    """Punkty „Wymagane” i „Mile widziane” strony z treści ogłoszenia."""
+    return jpp.requirement_points(
+        [_line(item) for item in content.get("requirements") or []],
+        [_line(item) for item in content.get("nice_to_have") or []],
+    )
+
+
+def _same_text(profile: JobPublicProfile, ad: JobAd) -> bool:
+    text = career_text(ad.content, ad.lang)
+    return (
+        (profile.subtitle or None) == text.subtitle
+        and (profile.about or None) == text.about
+        and jpp.approved_points(profile.sections) == career_points(ad.content)
+    )
 
 
 async def career_state(
@@ -128,7 +140,7 @@ async def career_state(
     status = STATUS_LIVE
     if ad is not None:
         approved = not version.pending_changes
-        if not approved or not _same_text(profile, career_text(ad.content, ad.lang)):
+        if not approved or not _same_text(profile, ad):
             status = STATUS_OUTDATED
     own = await career_board.own_job_link(db, job, user_id)
     slug = (
@@ -170,7 +182,9 @@ async def publish(db: AsyncSession, job: Job, ad: JobAd, *, user_id: int) -> Non
         await jpp.keep_published_text(db, job, profile)
     profile.subtitle = text.subtitle
     profile.about = text.about
-    await jpp.approve_profile(db, job, profile, user_id=user_id)
+    await jpp.approve_profile(
+        db, job, profile, user_id=user_id, points=career_points(ad.content)
+    )
     await db.flush()
     _default, title = await jpp.public_titles(db, job, profile)
     await career_board.ensure_own_job_link(db, job, user_id, title)

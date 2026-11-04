@@ -43,8 +43,8 @@ afterEach(() => {
   window.history.replaceState({}, "", "/");
 });
 
-describe("zakładki miesiąca Płac", () => {
-  it("tylko Płace przy otwartym module; przełożony widzi sam miesiąc", () => {
+describe("zakładki miesiąca Rozliczeń", () => {
+  it("tylko Rozliczenia przy otwartym module; koordynator widzi sam miesiąc", () => {
     const open = { open_modules: { ...hrConfig().open_modules, settlements: true } };
     expect(payrollMonthTabs(open, true).map((tab) => tab.value)).toEqual([
       "month",

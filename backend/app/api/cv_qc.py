@@ -14,10 +14,11 @@ guardy `Annotated` w parametry QUERY).
 from datetime import datetime
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.cv_generator_b2b import _sniff_image_type
 from app.api.deps import OperationalUser, RecruiterPlus
 from app.api.recruitment_access import ensure_job_membership, ensure_job_read_access
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
@@ -51,12 +52,20 @@ class QcDismissalInfo(BaseModel):
     at: datetime
 
 
+class QcSimilar(BaseModel):
+    """Fragment oryginału z tą samą rzeczą pod inną nazwą (02.11.2026)."""
+
+    term: str
+    quote: str
+
+
 class QcItem(BaseModel):
     # Stały klucz pozycji (sprawdzenie | wymaganie | rola) — dla pominięć.
     key: Optional[str] = None
     requirement: Optional[str] = None
     role: Optional[str] = None
     detail: Optional[str] = None
+    similar: Optional[QcSimilar] = None
     fix: Optional[str] = None
     term: Optional[str] = None
     role_index: Optional[int] = None
@@ -114,6 +123,8 @@ class QcCv(BaseModel):
     generated_document_id: Optional[int] = None
     document_id: Optional[int] = None
     filename: Optional[str] = None
+    # Szkic etapu wczytany z pliku Word bez AI (`source: document` w metadanych).
+    from_word_file: bool = False
     bold_known: bool = True
     updated_at: Optional[datetime] = None
     # Wersja szkicu CV etapu, na której policzono QC (brak dla CV bez szkicu).
@@ -121,10 +132,17 @@ class QcCv(BaseModel):
     blocks: list[QcBlock]
 
 
+class QcNewerProfileCv(BaseModel):
+    filename: str
+    uploaded_at: datetime
+
+
 class QcOriginal(BaseModel):
     source: Optional[Literal["snapshot", "profile_text"]] = None
     filename: Optional[str] = None
     text: Optional[str] = None
+    snapshot_at: Optional[datetime] = None
+    newer_profile_cv: Optional[QcNewerProfileCv] = None
 
 
 class QcClientRequest(BaseModel):
@@ -164,6 +182,8 @@ class QcResponse(BaseModel):
     advisory: bool = False
     can_override: bool = False
     confirmations: list[QcConfirmation] = []
+    # Firmy z ról osoby do pola „W której roli?” przy potwierdzeniu.
+    confirm_roles: list[str] = []
     run_id: Optional[int] = None
     computed_at: datetime
     cv: Optional[QcCv] = None
@@ -192,11 +212,15 @@ class QcFixesResponse(BaseModel):
 
 
 class QcApplyRequest(BaseModel):
-    action: Literal["ai_fix", "bold_all", "remove_term", "spelling", "role_order"]
+    action: Literal[
+        "ai_fix", "bold_all", "remove_term", "spelling", "role_order", "restore_dates"
+    ]
     fix_id: Optional[str] = Field(default=None, max_length=40)
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # `restore_dates`: numer stanowiska w CV (bez niego wszystkie).
+    role_index: Optional[int] = Field(default=None, ge=0, le=99)
     # Wersja szkicu z odpowiedzi QC; inna niż w bazie = 409 `CV_CHANGED`.
     # Opcjonalna: karty otwarte przed tą zmianą jej nie wysyłają.
     expected_revision: Optional[int] = Field(default=None, ge=0)
@@ -211,6 +235,7 @@ class QcTransformAction(BaseModel):
         "remove_term",
         "spelling",
         "role_order",
+        "restore_dates",
         "years",
         "title",
         "strip_client_rules",
@@ -220,6 +245,8 @@ class QcTransformAction(BaseModel):
     text: Optional[str] = Field(default=None, max_length=1000)
     scope: Optional[Literal["must", "nice"]] = None
     term: Optional[str] = Field(default=None, max_length=120)
+    # `restore_dates`: numer stanowiska w CV (bez niego wszystkie).
+    role_index: Optional[int] = Field(default=None, ge=0, le=99)
 
 
 class QcTransformRequest(BaseModel):
@@ -254,10 +281,32 @@ class QcTransformResponse(BaseModel):
 
 
 class QcConfirmRequest(BaseModel):
-    """„Potwierdzone z kandydatem”: pozycja z listy QC i opcjonalny opis."""
+    """„Potwierdzone z kandydatem”: pozycja z listy QC, słowa kandydata i rola.
+
+    Minimum liczy serwisowa reguła (`check_confirmation_text`), żeby odmowa
+    miała zdanie dla człowieka, nie 422 ze schematu.
+    """
 
     term: str = Field(min_length=1, max_length=120)
     text: Optional[str] = Field(default=None, max_length=1000)
+    role: Optional[str] = Field(default=None, max_length=200)
+
+
+class QcRoleFact(BaseModel):
+    term: str
+    quote: str
+
+
+class QcRoleFactsResponse(BaseModel):
+    facts: list[QcRoleFact] = []
+    roles: list[str] = []
+
+
+class QcRoleFactRequest(BaseModel):
+    """Fakt z rozmowy i rola, której dotyczy — przed generacją CV."""
+
+    term: str = Field(min_length=1, max_length=200)
+    role: str = Field(min_length=1, max_length=200)
 
 
 class QcDismissRequest(BaseModel):
@@ -381,6 +430,38 @@ async def get_stage_qc(
         request,
         current_user,
         await cv_qc.run_qc(db, stage, user_id=current_user.id, persist=not transient),
+    )
+
+
+@router.get("/stages/{stage_id}/qc/consent-screenshot")
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def get_stage_qc_consent_screenshot(
+    request: Request,
+    stage_id: int,
+    current_user: OperationalUser,
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    """Zrzut zgody RODO przy CV z QC — miniatura przy uwadze `consent_matches`.
+
+    Ta sama bramka co odczyt QC, bez integracji: obraz niesie adres e-mail
+    kandydata, a token OAuth dostaje tylko „zgoda jest”. Nie trafia też do
+    publicznego linku CV (`zrzut-zgody-rodo-na-koncu-cv-wymog-pko-bp.md`).
+    """
+
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_read_access(db, current_user, stage.job_id)
+    image = await cv_qc.consent_image(db, stage)
+    media_type = _sniff_image_type(image) if image else None
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="To CV nie ma zrzutu zgody.")
+    return Response(
+        content=image,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -510,6 +591,50 @@ async def override_stage_qc(
     return await _response(db, request, current_user, result)
 
 
+@router.get("/stages/{stage_id}/qc/role-facts", response_model=QcRoleFactsResponse)
+@limiter.limit("60/minute", key_func=user_or_ip_key)
+async def stage_role_facts(
+    request: Request,
+    stage_id: int,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcRoleFactsResponse:
+    """Wymagania z rozmowy, których nie ma w oryginale — krok przed generacją."""
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    return QcRoleFactsResponse(**await cv_qc.role_facts(db, stage))
+
+
+@router.post("/stages/{stage_id}/qc/role-facts", response_model=QcRoleFactsResponse)
+@limiter.limit("30/minute", key_func=user_or_ip_key)
+async def save_stage_role_fact(
+    request: Request,
+    stage_id: int,
+    payload: QcRoleFactRequest,
+    current_user: RecruiterPlus,
+    db: AsyncSession = Depends(get_db),
+) -> QcRoleFactsResponse:
+    """Zapisz fakt z rozmowy z rolą jako notatkę pary i zwróć resztę listy."""
+    _ensure_person(request)
+    stage = await _stage(db, stage_id)
+    await ensure_job_membership(db, current_user, stage.job_id)
+    try:
+        result = await cv_qc.save_role_fact(
+            db,
+            stage,
+            term=payload.term,
+            role=payload.role,
+            user_id=current_user.id,
+        )
+    except cv_qc.ApplyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "CV_QC_ROLE_FACT_FAILED", "message": str(exc)},
+        ) from exc
+    await db.commit()
+    return QcRoleFactsResponse(**result)
+
+
 @router.post("/stages/{stage_id}/qc/confirm", response_model=QcResponse)
 @limiter.limit("30/minute", key_func=user_or_ip_key)
 async def confirm_stage_qc_item(
@@ -536,6 +661,7 @@ async def confirm_stage_qc_item(
             term=payload.term,
             text=payload.text,
             user_id=current_user.id,
+            role=payload.role,
         )
     except cv_qc.ApplyError as exc:
         raise HTTPException(

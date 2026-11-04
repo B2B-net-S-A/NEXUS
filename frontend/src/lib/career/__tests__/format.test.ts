@@ -4,12 +4,9 @@ import {
   aboutParagraphs,
   genitiveName,
   instrumentalName,
-  jobHandle,
   paramRows,
   paramsSummary,
-  recruiterLogin,
   requirementHandle,
-  splitTitle,
 } from "@/lib/career/format";
 
 const params = {
@@ -68,22 +65,7 @@ describe("paramRows", () => {
 });
 
 describe("teksty", () => {
-  it("dzieli tytuł na dwie linie z kropką", () => {
-    expect(splitTitle("Senior Java Developer")).toEqual({ first: "Senior Java", second: "Developer." });
-    expect(splitTitle("DevOps")).toEqual({ first: "", second: "DevOps." });
-    expect(splitTitle("Kto?")).toEqual({ first: "", second: "Kto?" });
-    expect(splitTitle("Java Developer (ZOB-3003)")).toEqual({
-      first: "Java Developer",
-      second: "(ZOB-3003)",
-    });
-    expect(splitTitle("Tester v2")).toEqual({ first: "Tester", second: "v2." });
-    expect(splitTitle("Analityk łódź")).toEqual({ first: "Analityk", second: "łódź." });
-  });
-
-  it("handle z tytułu, bez polskich znaków", () => {
-    expect(jobHandle({ slug: "x-ab12", title: "Analityk biznesowy — Łódź" })).toBe(
-      "analityk-biznesowy-lodz",
-    );
+  it("handle wymagania bez polskich znaków", () => {
     expect(requirementHandle("Java 17+ i Spring Boot")).toBe("java_17+_i_spring_boot");
   });
 
@@ -104,6 +86,5 @@ describe("teksty", () => {
     expect(genitiveName("Ola")).toBe("Oli");
     expect(genitiveName("Ela")).toBe("Eli");
     expect(genitiveName("Tomasz")).toBe("Tomasza");
-    expect(recruiterLogin("Łucja")).toBe("lucja@b2bnetwork");
   });
 });

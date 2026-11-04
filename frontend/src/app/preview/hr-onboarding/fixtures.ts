@@ -69,9 +69,9 @@ function taskSpecs(start: string): TaskSpec[] {
     { title: "Karta dostępu: ogólny + biuro, pon–pt 7–19", category: "equipment", assignee_kind: "reception", who: zofia, due_date: addWorkDays(start, -2) },
     { title: "Mail powitalny z planem pierwszego dnia", category: "documents", assignee_kind: "people_admin", who: paulina, due_date: addWorkDays(start, -1) },
     { title: "Protokół wydania sprzętu do podpisu w biurze", category: "documents", assignee_kind: "reception", who: zofia, due_date: start },
-    { title: "Check-in z przełożoną — dzień 1", category: "meeting", assignee_kind: "manager", who: marta, due_date: start },
-    { title: "Check-in z przełożoną — dzień 7", category: "meeting", assignee_kind: "manager", who: marta, due_date: addWorkDays(start, 4) },
-    { title: "Check-in z przełożoną — dzień 30", category: "meeting", assignee_kind: "manager", who: marta, due_date: addWorkDays(start, 21) },
+    { title: "Check-in z koordynatorką — dzień 1", category: "meeting", assignee_kind: "manager", who: marta, due_date: start },
+    { title: "Check-in z koordynatorką — dzień 7", category: "meeting", assignee_kind: "manager", who: marta, due_date: addWorkDays(start, 4) },
+    { title: "Check-in z koordynatorką — dzień 30", category: "meeting", assignee_kind: "manager", who: marta, due_date: addWorkDays(start, 21) },
   ];
 }
 

@@ -3,8 +3,9 @@
  *
  * Reguły pod ochroną:
  *
- * 1. **Okres na kafelku** — liczby i lista idą z trasy listy „Kto się liczy”
- *    z zakresem zespołu i dniami od–do wybranego okresu.
+ * 1. **Okres na kafelku** — cztery liczby JEDNYM zapytaniem (`/team-totals`,
+ *    27.10.2026), lista z trasy listy „Kto się liczy” z zakresem zespołu
+ *    i dniami od–do wybranego okresu.
  * 2. **Klik w liczbę rozwija listę osób** (zwarte wiersze) i zwija ją drugi klik.
  * 3. **Akceptacje sprzed 12.10.2026 to „—”**, nie zero — wtedy ich nie liczono.
  * 4. **Okres pamięta przeglądarka per kafelek**; zepsuty wpis = okres domyślny.
@@ -69,8 +70,18 @@ function renderTile(tileId = "tile-1") {
 
 beforeEach(() => {
   mocks.get.mockReset()
-  mocks.get.mockImplementation((_url: string, config: { params: Record<string, unknown> }) =>
-    Promise.resolve({ data: detailResponse(config.params) }),
+  mocks.get.mockImplementation((url: string, config: { params: Record<string, unknown> }) =>
+    Promise.resolve({
+      data: url.endsWith("/team-totals")
+        ? {
+            generated_at: "2026-10-25T10:00:00Z",
+            period_start: config.params.date_from,
+            period_end: config.params.date_to,
+            totals: TOTALS,
+            history: {},
+          }
+        : detailResponse(config.params),
+    }),
   )
   window.localStorage.clear()
   useAuthStore.setState({
@@ -84,12 +95,17 @@ describe("TeamResultsTile", () => {
     const placements = await screen.findByRole("button", { name: "Placementy: 15. Pokaż osoby" })
     expect(screen.getByRole("button", { name: "Weryfikacje: 506. Pokaż osoby" })).toBeInTheDocument()
 
-    const call = mocks.get.mock.calls[0][1].params
-    expect(call).toMatchObject({ scope: "team", window: "range" })
-    expect(call.date_from).toMatch(/^\d{4}-\d{2}-01$/)
+    // Jedno zapytanie o cztery liczby, nie jedno na etap.
+    expect(mocks.get).toHaveBeenCalledTimes(1)
+    const [url, config] = mocks.get.mock.calls[0]
+    expect(url).toBe("/api/dashboard/v2/recruitment-activity/team-totals")
+    expect(config.params.metric).toEqual(["verification", "recommendation", "acceptance", "placement"])
+    expect(config.params.date_from).toMatch(/^\d{4}-\d{2}-01$/)
 
     fireEvent.click(placements)
     const list = await screen.findByTestId("who-counts-list")
+    const listCall = mocks.get.mock.calls.find(([u]) => String(u).endsWith("/details"))
+    expect(listCall?.[1].params).toMatchObject({ scope: "team", window: "range", metric: "placement" })
     expect(await within(list).findByText("Kandydat Testowy")).toBeInTheDocument()
     expect(within(list).getByText(/liczy się: Rekruterka Testowa/)).toBeInTheDocument()
     // Zwarte wiersze, nie szeroka tabela.

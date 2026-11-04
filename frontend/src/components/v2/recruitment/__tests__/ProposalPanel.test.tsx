@@ -54,6 +54,25 @@ describe("ProposalPanel", () => {
     expect(screen.getByText("AWS").parentElement).toHaveTextContent("brak potwierdzenia");
   });
 
+  it("technologia sprzed ponad 3 lat: „?” z rokiem ostatniego użycia (27.10.2026)", () => {
+    const base = entry();
+    const [stale] = mergeProposals({
+      inbox: [{
+        candidate: { id: 5, name: "Jan", lastname: "Kowalski", title: "QA", city: null, availability_status: null, availability_date: null, expected_rate_hourly: null, expected_rate_redacted: false },
+        sources: ["full_base"], score: 77,
+        evidence: { requirements: [{ any_of: ["java"], level: "must", status: "met" }, { any_of: ["angular"], level: "must", status: "unknown", last_used_year: 2020 }] },
+        first_seen_at: null, last_seen_at: null, is_new: false, status: "proposed", eligibility: null,
+      }],
+      budgetHourly: null,
+    });
+    expect(stale.detail.requirements[1]).toMatchObject({ label: "angular", status: "unknown", lastUsedYear: 2020 });
+    expect(base.detail.requirements[0]).not.toHaveProperty("lastUsedYear");
+    renderPanel({ entry: stale });
+    const row = screen.getByText("angular").parentElement!;
+    expect(row).toHaveTextContent("?angular· 2020");
+    expect(row).toHaveTextContent("ostatnio używane w 2020, do potwierdzenia");
+  });
+
   it("konflikt z klientem ostrzega i NIE blokuje; weto HM blokuje dodanie", () => {
     const { unmount } = render(<ProposalPanel jobId={42} entry={entry(nda)} budgetHourly={150} onAdd={vi.fn()} onShortlist={vi.fn()} onDismiss={vi.fn()} />);
     expect(screen.queryByRole("alert")).toBeNull();

@@ -170,7 +170,13 @@ vi.mock("@/components/v2/recruitment/AddToRecruitmentDialog", () => ({
 
 import { useUiStore } from "@/store/ui";
 import { useAuthStore } from "@/store/auth";
-import { clearSearchMemory, readJobSearch, writeListSearch } from "@/lib/search-memory";
+import {
+  clearSearchMemory,
+  readJobSearch,
+  readJobSearchReturn,
+  writeJobSearchReturn,
+  writeListSearch,
+} from "@/lib/search-memory";
 import { CandidatesListV2 } from "@/components/v2/pages/CandidatesListV2";
 import { DEFAULT_FILTERS, type CandidateFilters } from "@/lib/url-filters";
 
@@ -485,3 +491,33 @@ describe("„Szukaj ręcznie” — przycisk Szukaj i pamięć rekrutacji (25.09
   });
 });
 
+
+// Zgłoszenie 28.10.2026: z profilu otwartego w oknie „Wróć” lądował na całej bazie.
+describe("„Szukaj ręcznie” — powrót z profilu (28.10.2026)", () => {
+  beforeEach(() => clearSearchMemory());
+
+  it("nazwisko otwiera profil z adresem powrotu do tej rekrutacji i zapamiętuje osobę", async () => {
+    renderEmbedded();
+    const link = await screen.findByRole("link", { name: "Ewa Marczak" });
+    const params = new URLSearchParams(link.getAttribute("href")!.split("?")[1]);
+    expect(params.get("from")).toBe("job-search");
+    expect(params.get("jobId")).toBe("7");
+    expect(params.get("nav")).toBe("search");
+    fireEvent.click(link);
+    expect(readJobSearchReturn(7).lastOpenedId).toBe(1);
+  });
+
+  it("osoby „wybrane” na profilu wracają zaznaczone, gotowe do dodania", async () => {
+    writeJobSearchReturn(7, { picked: [1, 2] });
+    renderEmbedded();
+    await screen.findByText("Ewa Marczak");
+    expect(screen.getByRole("checkbox", { name: "Zaznacz Ewa Marczak" })).toBeChecked();
+    expect(screen.getByRole("button", { name: /Dodaj 2 do Nowych/ })).toBeInTheDocument();
+  });
+
+  it("zaznaczenie w oknie wraca do pamięci, więc profil widzi ten sam zbiór", async () => {
+    renderEmbedded();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Zaznacz Piotr Lis" }));
+    await waitFor(() => expect(readJobSearchReturn(7).picked).toEqual([2]));
+  });
+});

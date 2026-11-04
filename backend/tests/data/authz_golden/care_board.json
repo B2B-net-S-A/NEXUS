@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/care/board": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
-  "GET /api/care/clients": "BBDBBDDDBBBDBBBBDBBDDDDDDD",
-  "PUT /api/care/board/state": "BBDBBDDDBBBDBBBDDDBDDDDDDD"
+  "GET /api/care/board": "BBDBBDDDBBBDBBBBDBBDDDDDDDB",
+  "GET /api/care/clients": "BBDBBDDDBBBDBBBBDBBDDDDDDDB",
+  "PUT /api/care/board/state": "BBDBBDDDBBBDBBBDDDBDDDDDDDB"
  }
 }

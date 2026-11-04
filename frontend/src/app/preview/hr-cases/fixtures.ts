@@ -295,7 +295,7 @@ export function onboardingCase(today: string, d11 = false): CaseDetail {
       {
         id: 1,
         sender_email: "kadry.ubezpieczenia@example.com",
-        sender_name: `Kadry — ${HR_CLIENTS.insurance.name}`,
+        sender_name: `Administracja współpracy — ${HR_CLIENTS.insurance.name}`,
         subject: `Nowa osoba w projekcie od ${start}`,
         received_at: at(received, "08:12:00"),
         body_text:

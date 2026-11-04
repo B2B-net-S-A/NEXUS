@@ -263,7 +263,7 @@ export function ConsentDetail({
 
 /** Zdanie pod listą, gdy widać zgody: premie z umowy liczą się same. */
 export const CONSENT_RULES_NOTE =
-  "Wynagrodzenie z reguł umowy (placementy, ligi, reguły Płac) tu nie trafia — liczy się samo.";
+  "Wynagrodzenie z reguł umowy (placementy, ligi, reguły Rozliczeń) tu nie trafia — liczy się samo.";
 
 /**
  * Okno decyzji zgody — z przycisku w szczególe albo z linku maila

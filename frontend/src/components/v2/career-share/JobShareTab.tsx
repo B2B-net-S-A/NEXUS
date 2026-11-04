@@ -14,6 +14,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { ogJobTiles } from "@/components/career/ogCard";
 import { useToast } from "@/components/Toast";
 import { QueryStateNotice } from "@/components/ds/QueryStateNotice";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,7 @@ import {
   useShareablePublishedJobs,
   type PublishedJobLite,
 } from "@/lib/api/careerLinks";
+import { JobTeamLinks } from "./JobTeamLinks";
 import { useDebouncedValue } from "@/lib/use-debounced-value";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { downloadAuthenticatedFile } from "@/lib/authenticated-files";
@@ -75,9 +77,7 @@ import {
   linkUrl,
   liveFindings,
   pageState,
-  paramsTagline,
   removeExcerpt,
-  slugifyTitle,
 } from "./share-utils";
 
 interface FormState {
@@ -758,9 +758,11 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
               <div className="space-y-1.5">
                 <span className="text-sm font-medium text-foreground">Podgląd posta na LinkedInie</span>
                 <LinkedInPreviewCard
-                  command={`cat /rekrutacje/${slugifyTitle(previewTitle)}`}
+                  status={{ label: "Rekrutacja otwarta" }}
+                  kicker="Rekrutacja IT"
                   headline={previewTitle}
-                  tagline={paramsTagline(profile?.preview?.params)}
+                  facts={ogJobTiles(profile?.preview?.params)}
+                  foot="Aplikuj w 2 minuty →"
                   cardTitle={previewTitle}
                   host={host}
                   theme={profile ? profile.theme ?? profile.theme_default : null}
@@ -775,6 +777,8 @@ export function JobShareTab({ enabled, defaultJobId, onJobChange }: JobShareTabP
                   busy={themeBusy}
                 />
               ) : null}
+
+              <JobTeamLinks enabled={enabled} jobId={jobId} />
 
               <section className="space-y-3" aria-labelledby="job-link-heading">
                 <h3 id="job-link-heading" className="text-sm font-semibold text-foreground">

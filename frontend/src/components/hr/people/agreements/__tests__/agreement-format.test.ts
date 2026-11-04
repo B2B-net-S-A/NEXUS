@@ -121,11 +121,11 @@ describe("afterSigning", () => {
     ]);
   });
 
-  it("podpis bez Płac: stawki nie zapisze, przepisze ją osoba z Płac (19.10.2026)", () => {
+  it("podpis bez Rozliczeń: stawki nie zapisze, przepisze ją osoba z Rozliczeń (19.10.2026)", () => {
     expect(
       afterSigning({ kind: "agreement", employmentType: "b2b" }, "2026-11-01", { appliesRate: false }),
     ).toEqual([
-      "przekaże Płacom stawkę od 01.11.2026 — Stawkę przepisze osoba z Płac",
+      "przekaże Rozliczeniom stawkę od 01.11.2026 — Stawkę przepisze osoba z Rozliczeń",
       "ustawi formę „B2B” i potwierdzanie godzin w kartotece",
       "doda umowę do dokumentów osoby",
     ]);

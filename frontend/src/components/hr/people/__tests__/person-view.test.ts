@@ -47,7 +47,7 @@ function bonus(id: number, status: BonusRow["status"], amount: string, year = 20
 }
 
 describe("tabFromHash", () => {
-  it("dzwonek Płac `#place` otwiera „Płace i premie”", () => {
+  it("dzwonek Rozliczeń `#place` otwiera „Rozliczenia i premie”", () => {
     expect(tabFromHash("#place")).toBe("payroll");
     expect(tabFromHash("#sprzet")).toBe("equipment");
     expect(tabFromHash("")).toBe("overview");
@@ -149,7 +149,7 @@ describe("buildTimeline — oś „Ostatnio”", () => {
     expect(timeline[3].title).toMatch(/^Stawka startowa/);
   });
 
-  it("przełożony bez stawek (D2) — oś bez wierszy stawek", () => {
+  it("koordynator bez stawek (D2) — oś bez wierszy stawek", () => {
     const timeline = buildTimeline({ rates: [], bonuses: [], today: "2026-10-19" });
     expect(timeline).toEqual([]);
   });

@@ -34,12 +34,19 @@ from app.models.user import UserRole
 from app.services.action_permissions import ProductAction, has_permission
 from app.services.hr import modules as hr_modules
 from app.services.admin_cases import service as admin_cases_service
-from app.services.hr import account_profiles, leave_substitute, people, person_history
+from app.services.hr import (
+    account_profiles,
+    leave_service,
+    leave_substitute,
+    people,
+    person_history,
+)
 from app.services.hr.absence import absences_on
 from app.services.hr.leave_balance import balance_payload
 from app.services.hr.leave_policy import actor_of, can_see_type
 from app.services.hr.leave_calendar import presence_between
 from app.services.hr.modules import HrModule
+from app.services.back_office import access as back_office_access
 from app.services.hr.lifecycle_templates import is_back_office_head
 from app.services.hr.program import program_enabled
 from app.services.hr_foundation_schema import EmploymentStatus, EmploymentType
@@ -70,13 +77,22 @@ async def hr_config(
                 "payroll": False,
                 "equipment": False,
                 "cases": False,
+                "timesheets": False,
+                "leave_approver": False,
                 "has_assigned_cases": False,
                 "back_office_head": False,
+                "back_office_member": False,
+                "back_office_lead": False,
             },
         }
     profile = await people.profile_of(db, current_user.id)
     reports = await people.direct_report_ids(db, current_user.id)
     is_admin = current_user.has_role(UserRole.admin)
+    back_office_viewer = (
+        await back_office_access.load_viewer(db, current_user)
+        if hr_modules.module_open_for(current_user, loaded, "back_office")
+        else None
+    )
     return {
         "program": True,
         "modules": loaded,
@@ -98,6 +114,10 @@ async def hr_config(
             "payroll": has_permission(current_user, ProductAction.payroll),
             "equipment": has_permission(current_user, ProductAction.equipment),
             "cases": has_permission(current_user, ProductAction.cases),
+            "timesheets": has_permission(current_user, ProductAction.timesheets),
+            # Kolejka nieobecności (bramka tras urlopów) — „Akceptacje” chowają
+            # nieobecności osobie, która akceptuje same raporty godzin.
+            "leave_approver": await leave_service.is_leave_approver(db, current_user),
             # Przypisany do sprawy bez uprawnienia widzi zakładkę „Sprawy”
             # (tylko swoje sprawy — pilnuje tego `/api/cases`).
             "has_assigned_cases": await admin_cases_service.has_assigned_cases(
@@ -105,6 +125,10 @@ async def hr_config(
             ),
             # Head back office edytuje ścieżkę „Konsultant u klienta” (etap 3, O4).
             "back_office_head": await is_back_office_head(db, current_user),
+            "back_office_member": bool(
+                back_office_viewer and back_office_viewer.has_access
+            ),
+            "back_office_lead": bool(back_office_viewer and back_office_viewer.is_lead),
         },
     }
 
@@ -275,9 +299,7 @@ async def get_person(
     return {**payload, "scope": scope}
 
 
-HISTORY_DETAIL = (
-    "Nieobecności i godziny widzą ta osoba, jej koordynator, Kadry i Finanse."
-)
+HISTORY_DETAIL = "Nieobecności i godziny widzą ta osoba, jej koordynator, Administracja współpracy i Finanse."
 
 
 @router.get("/people/{user_id}/history")

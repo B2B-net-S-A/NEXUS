@@ -48,6 +48,7 @@ const config: HrConfig = {
     equipment: false,
     settlements: false,
     approvals: false,
+    back_office: false,
   },
   open_modules: {
     people: true,
@@ -60,6 +61,7 @@ const config: HrConfig = {
     equipment: false,
     settlements: false,
     approvals: false,
+    back_office: false,
   },
   me: {
     has_profile: true,
@@ -105,7 +107,7 @@ function month(overrides: Partial<MonthView> = {}): MonthView {
     employment_type: "uop",
     default_location: "onsite",
     can_log_overtime: false,
-    approver_name: "Jan Przełożony",
+    approver_name: "Jan Koordynator",
     timesheet: null,
     days: [
       day("2031-03-03", 1, {
@@ -217,7 +219,7 @@ describe("MyMonthTab", () => {
     expect(within(leave).queryByRole("button", { name: /Dodaj wpis/ })).toBeNull();
     expect(screen.getByText("szkic · wyślij do 05.04")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Wyślij do akceptacji" })).toBeInTheDocument();
-    expect(screen.getByText("Jan Przełożony")).toBeInTheDocument();
+    expect(screen.getByText("Jan Koordynator")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Pobierz PDF/ })).toBeNull();
   });
 
@@ -237,11 +239,28 @@ describe("MyMonthTab", () => {
     renderTab();
 
     const paid = await screen.findByTestId("day-2031-03-04");
-    expect(within(paid).getByText(/wpisze się ze zgłoszenia/)).toBeInTheDocument();
+    expect(within(paid).getByText(/wpisze się ze zgłoszenia/)).toHaveTextContent(
+      "Realizacja usług zgodnie z umową · wpisze się ze zgłoszenia",
+    );
     expect(within(paid).queryByText(/wniosk/)).toBeNull();
   });
 
-  it("wysłany timesheet nie ma akcji edycji, zaakceptowany ma PDF", async () => {
+  it("B2B: pusty dzień wpisuje się opisem „Realizacja usług zgodnie z umową”, nie „Praca standardowa”", async () => {
+    routeGet(month({ employment_type: "b2b" }));
+    mocks.post.mockResolvedValue({ data: {} });
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    await waitFor(() =>
+      expect(mocks.post).toHaveBeenCalledWith(
+        "/api/hr/time/me/2031/3/entries",
+        expect.objectContaining({ description: "Realizacja usług zgodnie z umową" }),
+      ),
+    );
+  });
+
+  it("wysłany raport godzin nie ma akcji edycji, zaakceptowany ma PDF", async () => {
     const header = {
       id: 5,
       status: "approved" as const,
@@ -249,7 +268,7 @@ describe("MyMonthTab", () => {
       return_note: null,
       returned_at: null,
       approved_at: "2031-04-02T08:00:00Z",
-      approved_by_name: "Jan Przełożony",
+      approved_by_name: "Jan Koordynator",
       payroll_locked: false,
       pdf_hash: "a".repeat(64),
     };
@@ -260,6 +279,50 @@ describe("MyMonthTab", () => {
     expect(screen.queryByRole("button", { name: "Wyślij do akceptacji" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Dodaj wpis/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sourcing: Java Developer" })).toBeNull();
+  });
+
+  it("wysłany raport osoba wycofuje sama, dopóki nikt go nie przyjął", async () => {
+    const sent = {
+      id: 5,
+      status: "submitted" as const,
+      submitted_at: "2031-04-01T08:00:00Z",
+      return_note: null,
+      returned_at: null,
+      approved_at: null,
+      approved_by_name: null,
+      payroll_locked: false,
+      pdf_hash: null,
+    };
+    routeGet(month({ timesheet: sent }));
+    mocks.post.mockResolvedValue({ data: { ...sent, status: "draft", submitted_at: null } });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Wycofaj i popraw" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledWith("/api/hr/time/me/2031/3/withdraw"));
+  });
+
+  it("przyjętego i zamkniętego w płacach raportu wycofać się nie da", async () => {
+    const closed = {
+      id: 5,
+      status: "submitted" as const,
+      submitted_at: "2031-04-01T08:00:00Z",
+      return_note: null,
+      returned_at: null,
+      approved_at: null,
+      approved_by_name: null,
+      payroll_locked: true,
+      pdf_hash: null,
+    };
+    routeGet(month({ timesheet: closed }));
+    const first = renderTab();
+    await screen.findByText(/zamknięty w rozliczeniach/);
+    expect(screen.queryByRole("button", { name: "Wycofaj i popraw" })).toBeNull();
+    first.unmount();
+
+    routeGet(month({ timesheet: { ...closed, status: "approved", payroll_locked: false } }));
+    renderTab();
+    await screen.findByRole("button", { name: /Pobierz PDF/ });
+    expect(screen.queryByRole("button", { name: "Wycofaj i popraw" })).toBeNull();
   });
 
   it("przełącznik Biuro/Zdalnie zapisuje wyjątek dnia", async () => {
@@ -359,6 +422,24 @@ describe("MyMonthTab", () => {
     expect(mocks.post).not.toHaveBeenCalled();
   });
 
+  it("godziny bez limitu: wpis w wierszu przechodzi ponad 8 h, a ponad 24 h nie", async () => {
+    routeGet({ ...month(), no_hours_limit: true });
+    mocks.post.mockResolvedValue({ data: {} });
+    renderTab();
+
+    const row = await screen.findByTestId("day-2031-03-05");
+    const hours = within(row).getByLabelText("Godziny 2031-03-05");
+    fireEvent.change(hours, { target: { value: "25" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    expect(await within(row).findByRole("alert")).toHaveTextContent("Godziny od 0 do 24");
+    expect(mocks.post).not.toHaveBeenCalled();
+
+    fireEvent.change(hours, { target: { value: "20" } });
+    fireEvent.click(within(row).getByRole("button", { name: "Wpisz" }));
+    await waitFor(() => expect(mocks.post).toHaveBeenCalledTimes(1));
+    expect(mocks.post.mock.calls[0][1]).toMatchObject({ hours: 20 });
+  });
+
   it("tydzień ma nagłówek z sumą godzin wobec normy, a nad siatką baner braków", async () => {
     routeGet(month());
     renderTab();
@@ -366,7 +447,7 @@ describe("MyMonthTab", () => {
     expect(await screen.findByTestId("week-2031-03-03")).toHaveTextContent(
       "Tydzień 3–8.03 · 8 / 24 h",
     );
-    expect(screen.getByText("Brakuje 19 dni roboczych.")).toBeInTheDocument();
+    expect(screen.getByText("19 dni bez wpisu.")).toBeInTheDocument();
     expect(screen.getByText("8 / 168 h")).toBeInTheDocument();
   });
 
@@ -421,7 +502,7 @@ describe("MyMonthTab", () => {
     routeGet(month());
     renderTab();
     await screen.findByTestId("day-2031-03-03");
-    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     fireEvent.click(await screen.findByRole("button", { name: "Eksport CSV" }));
     expect(await screen.findByText("Eksport godzin do CSV")).toBeInTheDocument();
     expect((screen.getByLabelText("Od miesiąca") as HTMLInputElement).value).toBe("2031-03");
@@ -434,13 +515,13 @@ describe("MyMonthTab", () => {
     expect(screen.queryByTestId("day-2031-03-03")).toBeNull();
   });
 
-  it("archiwum timesheetów: pobierane po rozwinięciu, PDF tylko przy zaakceptowanym", async () => {
+  it("archiwum raportów godzin: pobierane po rozwinięciu, PDF tylko przy zaakceptowanym", async () => {
     routeGet(month());
     renderTab();
     await screen.findByTestId("day-2031-03-03");
     expect(mocks.get).not.toHaveBeenCalledWith("/api/hr/time/me/history");
 
-    fireEvent.click(screen.getByRole("button", { name: /Archiwum timesheetów/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Archiwum raportów godzin/ }));
     const archive = await screen.findByRole("button", { name: "Pobierz PDF luty 2031" });
     expect(archive).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Pobierz PDF marzec 2031" })).toBeNull();

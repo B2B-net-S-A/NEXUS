@@ -91,6 +91,10 @@ class NotificationType(str, enum.Enum):
     signature_signed = "signature_signed"
     signature_rejected = "signature_rejected"
     signature_failed = "signature_failed"
+    # 0603: kontraktor z wygasłego linku prosi o nowy (podpis w NEXUSIE,
+    # 27.10.2026). Własny typ, bo dzienny dedup (user+typ+wniosek) zjadałby go
+    # razem z dzwonkiem o wygaśnięciu z tego samego dnia.
+    signature_renewal_requested = "signature_renewal_requested"
     # Client framework contract (MSA) lifecycle (migracja 0092).
     # Daily scheduler emituje 30/14/7 dni przed `expiry_date` do każdego DL
     # przypisanego do klienta + admin/HoR. Dedup przez (type, related_entity_id, lokalny dzień).
@@ -153,11 +157,28 @@ class NotificationType(str, enum.Enum):
     # alarm bez blokady do adminów i Head of Recruitment, mail od razu
     # (`services/candidate_data_access_alerts.py`).
     candidate_data_access_alert = "candidate_data_access_alert"
+    # 0612 (28.10.2026): ktoś zalogował się pierwszy raz przez Microsoft —
+    # Head of Recruitment i admini decydują, kim jest, i ustawiają rekrutera;
+    # mail od razu (`services/new_person_setup.py`).
+    new_person_signed_in = "new_person_signed_in"
+    # 0619 (28.10.2026): Head of Recruitment albo admin opublikował ogłoszenie
+    # oznaczone „ważne” — do odbiorców ogłoszenia (wszyscy albo wybrane role),
+    # bez autora; related_entity=(announcement, id). Mail obowiązkowy
+    # (`services/announcements.py`).
+    announcement_important = "announcement_important"
+    # 0639 (02.11.2026): klient z panelu pod linkiem z CV zadał pytanie, poprosił
+    # o rozmowę, napisał „nie pasuje” albo zmianę wymagań — do Delivery Leada;
+    # related_entity=(client_panel_request, id). Mail obowiązkowy jak rozmowy.
+    client_panel_request = "client_panel_request"
     # 0510: aplikacja „NEXUS Teams Prep” nie ma dostępu do kalendarza DL-a,
     # rekrutera albo Head of Recruitment (poza grupą NEXUS-Meetings-Scope) —
     # dzienna lista do dopisania, tylko admini, mail od razu
     # (`services/teams_prep_scope.py`).
     teams_prep_scope_missing = "teams_prep_scope_missing"
+    # 0633: aplikacja „NEXUS Kadry” nie czyta skrzynki aktywnej osoby (poza
+    # grupą zakresu) — lista do dopisania po uzgadnianiu o 7:00, tylko admini,
+    # mail od razu (`services/hr/m365/scope_alerts.py`).
+    hr_m365_scope_missing = "hr_m365_scope_missing"
     # 0336: zapisane wyszukiwanie po migracji na wspólną semantykę filtrów
     # zwraca inny zbiór osób — alert wstrzymany do akceptacji właściciela.
     saved_search_reapproval = "saved_search_reapproval"
@@ -269,6 +290,29 @@ class NotificationType(str, enum.Enum):
     # bez osoby, która ustawiła; related_entity=(job, id). Mail obowiązkowy
     # „P0 na rekrutacji” (`services/job_p0.py`).
     job_p0_set = "job_p0_set"
+    # 0607 (28.10.2026): ktoś zamknął rekrutację, w której Twoje osoby stoją
+    # od „CV wysłane” w górę — daj im znać; related_entity=(job, id), bez
+    # osoby, która zamknęła. Mail obowiązkowy „Rekrutacja zamknięta — Twoje
+    # osoby czekają” (`services/job_closed_notices.py`).
+    job_closed_people_waiting = "job_closed_people_waiting"
+    # 0635: zdarzenia z maili CPro (`services/cpro_mail.py`).
+    cpro_candidate_rejected = "cpro_candidate_rejected"
+    cpro_interview_change = "cpro_interview_change"
+    cpro_close_needs_decision = "cpro_close_needs_decision"
+    # 0621 (28.10.2026): rekruter odszedł z firmy (konto wyłączone), a jego
+    # osoby w Twoich rekrutacjach domykasz Ty; related_entity=(user, id osoby,
+    # która odeszła). Od razu i przypomnienie po 5 dniach roboczych. Mail
+    # obowiązkowy „Kandydaci po osobie, która odeszła” (`services/departure_care.py`).
+    departed_pairs_care = "departed_pairs_care"
+    # 0610 (28.10.2026): Delivery Lead prosi o P0 dla swojej rekrutacji —
+    # do Head of Recruitment (zatwierdza albo odrzuca); related_entity=(job, id).
+    # Mail obowiązkowy jak przy P0 (`services/job_p0.py`).
+    job_p0_requested = "job_p0_requested"
+    # 0617 (28.10.2026): rekrutacje bez ruchu Delivery Leada — JEDEN wpis
+    # dziennie na osobę: DL (14 i 21 dni), Head of Recruitment (21 dni)
+    # i oboje przy zamknięciu przez NEXUS (28 dni); related_entity=(user, id).
+    # Mail obowiązkowy (`services/job_idle.py`).
+    job_idle_reminder = "job_idle_reminder"
     # 0374: praktykant kończy program wdrożenia (5 dni roboczych przed końcem)
     # — decyzja Head of Recruitment; related_entity=(user, id), raz na program.
     trainee_program_decision = "trainee_program_decision"
@@ -322,6 +366,10 @@ class NotificationType(str, enum.Enum):
     # related_entity=(job, id). Bez maila.
     champions_changed = "champions_changed"
     champion_search_resumed = "champion_search_resumed"
+    # 0615: bliźniacze rekrutacje (28.10.2026) — ktoś połączył rekrutację
+    # z bliźniakiem. Do rekruterów i Delivery Leadów obu rekrutacji poza
+    # osobą, która połączyła; link do rekrutacji. Bez maila.
+    job_twin_linked = "job_twin_linked"
     # 0451: karta weszła na etap „Akceptacja” — klient zaakceptował osobę
     # (D1–D6, 16.10.2026). Do rekrutera kandydata, prowadzącego, Delivery
     # Leada rekrutacji i każdego Head of Recruitment poza osobą, która
@@ -353,6 +401,11 @@ class NotificationType(str, enum.Enum):
     hr_lifecycle_task = "hr_lifecycle_task"
     hr_work_handover = "hr_work_handover"
     admin_case_assigned = "admin_case_assigned"
+    # 0637: kolejka back office'u.
+    back_office_escalated = "back_office_escalated"
+    back_office_assigned = "back_office_assigned"
+    portal_low_rating = "portal_low_rating"
+    portal_monthly_review = "portal_monthly_review"
     equipment_task = "equipment_task"
     equipment_protocol_signed = "equipment_protocol_signed"
     # 0479: „Przypomnij” o zwrocie sprzętu — recepcja → posiadacz z kontem.

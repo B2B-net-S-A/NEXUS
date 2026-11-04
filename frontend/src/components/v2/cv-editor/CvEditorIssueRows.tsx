@@ -19,6 +19,7 @@ import { Ban, Copy, Loader2, LocateFixed, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ConsentAttachButton } from "@/components/v2/cv-generator/ConsentAttachButton";
+import { ConsentScreenshotThumb } from "@/components/v2/cv/ConsentScreenshotThumb";
 import {
   DismissForm,
   ItemAction,
@@ -53,6 +54,7 @@ import {
   taskTitle,
   type IssueTarget,
   type QcTask,
+  QC_CONFIRM_TEXT_MIN,
 } from "@/lib/cv-qc";
 import { cn } from "@/lib/utils";
 
@@ -353,35 +355,57 @@ const CONFIRM_TEXT_MAX = 1000;
 
 function ConfirmInline({ term, qc, onClose }: { term: string; qc: ActionContext; onClose: () => void }) {
   const [text, setText] = useState("");
+  const [role, setRole] = useState("");
   const fieldId = useId();
+  const roleId = useId();
+  const said = text.trim();
+  const roles = qc.confirmRoles ?? [];
   return (
     <form
       className="space-y-1 rounded-md border border-border bg-card px-2 py-1.5 text-xs"
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
-        const said = text.trim();
-        qc.confirm(said ? { term, text: said } : { term }, onClose);
+        qc.confirm(role ? { term, text: said, role } : { term, text: said }, onClose);
       }}
     >
       <label htmlFor={fieldId} className="block font-medium">
-        Co powiedział kandydat? (opcjonalnie)
+        Co dokładnie powiedział kandydat? (wymagane)
       </label>
-      <div className="flex items-start gap-1">
-        <textarea
-          id={fieldId}
-          rows={1}
-          maxLength={CONFIRM_TEXT_MAX}
-          className="min-h-8 w-0 flex-1 resize-y rounded-md border border-input bg-background px-2 py-1 text-sm"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        <Button type="submit" size="sm" className={SMALL} disabled={qc.confirming}>
-          {qc.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
-          Zapisz w notatkach
-        </Button>
-      </div>
+      <textarea
+        id={fieldId}
+        rows={2}
+        maxLength={CONFIRM_TEXT_MAX}
+        className="min-h-8 w-full resize-y rounded-md border border-input bg-background px-2 py-1 text-sm"
+        placeholder="Jego słowami: co robił, gdzie i jak długo."
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {roles.length > 0 ? (
+        <div>
+          <label htmlFor={roleId} className="block font-medium">
+            W której roli?
+          </label>
+          <select
+            id={roleId}
+            className="mt-0.5 h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+          >
+            <option value="">Nie w konkretnej roli (tylko umiejętności)</option>
+            {roles.map((company) => (
+              <option key={company} value={company}>
+                {company}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+      <Button type="submit" size="sm" className={SMALL} disabled={qc.confirming || said.length < QC_CONFIRM_TEXT_MIN}>
+        {qc.confirming ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : null}
+        Zapisz w notatkach
+      </Button>
       <p className="text-muted-foreground">
-        Zapisze się notatka „Potwierdzone z kandydatem: {term}” — QC przyjmie ją jako źródło.{" "}
+        Zapisze się notatka „Potwierdzone z kandydatem: {term}” z tym zdaniem. QC przyjmie ją jako źródło, a zobaczy ją Delivery Lead.{" "}
         <button type="button" className="font-medium text-foreground hover:underline" onClick={onClose}>
           Anuluj
         </button>
@@ -505,7 +529,8 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
   const roleItems = items.filter((item) => item.role);
   const target = first ? itemTarget(first) : null;
   const busy = qc.busy || !qc.editable;
-  const consent = first?.fix === "upload_consent" ? consentTarget(qc.data) : null;
+  const consent =
+    first?.fix === "upload_consent" || first?.fix === "replace_consent" ? consentTarget(qc.data) : null;
 
   let actions: ReactNode = null;
   let body: ReactNode = null;
@@ -579,7 +604,14 @@ function TaskRow({ task, fixes, ctx }: { task: QcTask; fixes: QcFix[]; ctx: RowC
     );
   } else if (consent) {
     // Zrzut wgrywa się tu, bez generatora i bez ponownej generacji (PR 4, 17.10.2026).
-    actions = <ConsentAttachButton compact hasConsent={false} {...consent} onAttached={ctx.refreshQc} />;
+    actions = (
+      <ConsentAttachButton
+        compact
+        hasConsent={first?.fix === "replace_consent"}
+        {...consent}
+        onAttached={ctx.refreshQc}
+      />
+    );
   } else if (first?.fix === "upload_consent" || first?.fix === "generate_cv") {
     actions = <ItemAction item={first} ctx={qc} />;
   } else if (first && itemQuickFix(check, first)?.action === "strip_client_rules") {
@@ -746,7 +778,21 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
   let sub: ReactNode = item.detail && name ? item.detail : check.label;
   let action: ReactNode = null;
   let extra: ReactNode = null;
-  if (item.fix === "role_order") {
+  if (item.fix === "restore_dates") {
+    title = "Daty stanowiska inne niż w oryginale";
+    sub = item.detail;
+    action = (
+      <Button
+        size="sm"
+        variant="outline"
+        className={SMALL}
+        disabled={busy}
+        onClick={() => qc.apply({ action: "restore_dates", role_index: item.role_index ?? undefined }, "Przywrócono daty z oryginału.")}
+      >
+        Przywróć daty z oryginału
+      </Button>
+    );
+  } else if (item.fix === "role_order") {
     title = "Stanowiska nie od najnowszego";
     sub = item.detail;
     action = (
@@ -793,6 +839,20 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
     action = proposal.action;
   } else if (item.fix === "ask_candidate") {
     action = <CopyQuestion item={item} qc={qc} />;
+  } else if (item.fix === "replace_consent") {
+    // Zrzut, którego AI nie potwierdziło (F37): obraz i wymiana w wierszu uwagi (27.10.2026).
+    const consent = consentTarget(qc.data);
+    title = "Zrzut zgody nie pasuje";
+    // api-detail-ok: `QcItem.detail` to zdanie uwagi QC (tekst z kontraktu), nie `detail` błędu API.
+    sub = item.detail ?? check.label;
+    action = (
+      <>
+        <ConsentScreenshotThumb stageId={qc.data.stage_id} />
+        {consent && qc.editable ? (
+          <ConsentAttachButton compact hasConsent {...consent} onAttached={ctx.refreshQc} />
+        ) : null}
+      </>
+    );
   } else if (quick?.action === "years") {
     // Liczba z dat historii — ta sama reguła co uwaga QC (PR 2, 17.10.2026).
     const preview = yearsPreview(item);
@@ -847,6 +907,8 @@ function ItemRow({ row, ctx }: { row: Extract<IssueRow, { kind: "item" }>; ctx: 
       title={title}
       sub={sub}
       actions={action}
+      // Miniatura zrzutu obok tytułu ściska treść uwagi do wąskiej kolumny.
+      actionsBelow={item.fix === "replace_consent"}
       details={
         <>
           {item.fix === "ai" && item.detail ? <p className="text-muted-foreground">{item.detail}</p> : null}

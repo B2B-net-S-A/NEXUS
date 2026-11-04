@@ -190,6 +190,10 @@ class CVBrandedResponse(BaseModel):
     text_align: Literal["justify", "left"] = "justify"
     docx_available: bool = False
     docx_filename: str | None = None
+    # Nazwa pliku także dla szkicu (`docx_filename` jest tylko przy zatwierdzonym)
+    # i nazwa ze wzoru klienta, gdy ktoś zmienił ją ręcznie (02.11.2026).
+    current_filename: str | None = None
+    pattern_filename: str | None = None
     generated_document_id: int | None = None
     from_generator: bool = False
     # Skąd treść: generator (także kopia z innej rekrutacji), plik Word
@@ -247,6 +251,29 @@ class StageCvUploadResponse(CVOriginalSnapshotResponse):
     # „Cofnij” w komunikacie: tylko gdy nie zastąpiliśmy niczyjej pracy.
     undo_available: bool = False
     stored_in_profile: bool = False
+    # Dokument profilu z wgranym plikiem — karta potwierdza go jako plik CV.
+    uploaded_document_id: Optional[int] = None
+    # CV do klienta po nowym CV (29.10.2026, `services/new_cv_company_cv.py`):
+    # generuje się samo, pytamy, czeka na potwierdzenia, zablokowane po
+    # „CV wysłane” albo klient bierze własny formularz. Puste = cofnięcie
+    # wgrania CV do klienta albo plik został CV do klienta.
+    company_cv: Optional[
+        Literal["regenerating", "ask", "confirm", "locked", "none"]
+    ] = None
+    company_cv_stage_id: Optional[int] = None
+    company_cv_status: Optional[str] = None
+    regenerating_document_id: Optional[int] = None
+
+
+class CVBrandedRegenerateFromOriginal(BaseModel):
+    """„Generuj z nowego CV” — rewizja szkicu, który zastąpi gotowa wersja."""
+
+    expected_revision: int = Field(ge=0)
+
+
+class CVBrandedRegenerateResponse(BaseModel):
+    generated_document_id: int
+    company_cv_stage_id: int
 
 
 class CVBrandedUpdate(BaseModel):
@@ -319,6 +346,8 @@ class CVImportPreview(BaseModel):
 
     content_html: str
     filename: str
+    # Plik ma układ szablonu B2B; `False` = wygląda na CV kandydata (29.10.2026).
+    b2b_template: bool = True
 
 
 class CVBrandedFinalizeResponse(BaseModel):
@@ -415,3 +444,12 @@ class PublicCVView(BaseModel):
     job_title: Optional[str] = None
     cv_html: str
     expires_at: Optional[datetime] = None
+
+
+class CVFilenameUpdate(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+
+
+class CVFilenameResponse(BaseModel):
+    filename: str
+    pattern_filename: str | None = None

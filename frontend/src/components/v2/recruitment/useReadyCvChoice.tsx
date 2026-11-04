@@ -11,9 +11,12 @@
  * zastąpienia szkicu i stan „w toku”.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 
 import api, { type CVBrandedState } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { networkHistoryApi } from "@/lib/api/cvEditorHistory";
+import { useToast } from "@/components/Toast";
 import type { StageCvOption } from "@/lib/stage-cv-options";
 import { candidateQueryKeys } from "@/components/v2/pages/candidate-query-keys";
 import type { CandidateDocument } from "@/components/v2/files/FilePreviewModal";
@@ -46,6 +49,16 @@ export function useReadyCvChoice({
   onChosen?: (state: CVBrandedState) => void;
 }) {
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const { showError } = useToast();
+  // Plik z dysku przed zapisem: czy ma układ szablonu B2B (29.10.2026). Sam
+  // odczyt (`import-preview` niczego nie zapisuje) — zapis robi `upload`.
+  const inspectMutation = useMutation({
+    mutationFn: (file: File) => networkHistoryApi.importPreview(targetStageId, file),
+    onError: (error) =>
+      showError(
+        apiErrorMessage(error, "Nie udało się wczytać pliku. Sprawdź, czy to plik Word (.docx), i spróbuj ponownie."),
+      ),
+  });
   // Ten sam klucz co podgląd screeningu i dok osoby — odpowiedź jest wspólna.
   const docsQuery = useQuery<CandidateDocument[]>({
     queryKey: candidateQueryKeys.cvDocuments(candidateId),
@@ -96,8 +109,17 @@ export function useReadyCvChoice({
     upload: async (file: File) => {
       if (await confirmReplace()) chooser.upload(file);
     },
+    /**
+     * Czy plik wygląda na CV w szablonie B2B; `null` = nie udało się go
+     * odczytać (komunikat już poszedł). Starszy serwer bez pola = tak.
+     */
+    inspect: (file: File): Promise<boolean | null> =>
+      inspectMutation.mutateAsync(file).then(
+        (preview) => preview.b2b_template !== false,
+        () => null,
+      ),
     busyKey: chooser.busyKey,
-    uploading: chooser.uploading,
+    uploading: chooser.uploading || inspectMutation.isPending,
     confirmDialog,
   };
 }

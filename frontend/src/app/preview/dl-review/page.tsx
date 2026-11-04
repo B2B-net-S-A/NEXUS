@@ -51,6 +51,7 @@ import {
   type RecommendationCard,
 } from "@/lib/api/recommendationCards";
 import { dlMatchKeys, type DlMatchSuggestions } from "@/lib/dl-match-api";
+import { coverSheetKey } from "@/lib/api/coverSheet";
 import { useAuthStore } from "@/store/auth";
 
 const CANDIDATE_ID = 101;
@@ -271,6 +272,7 @@ const CONTEXT: DlReviewContext = {
     { key: "must:1", label: "Spring Boot", level: "must", status: "met", sources: ["CV"], candidate_value: "…Spring Boot 3, integracje REST…" },
     { key: "must:2", label: "Kafka", level: "must", status: "met", sources: ["notatka"], candidate_value: "Kafka do zdarzeń kredytowych" },
     { key: "must:3", label: "Oracle", level: "must", status: "missing", sources: [], candidate_value: null },
+    { key: "must:4", label: "Angular", level: "must", status: "unknown", sources: ["profil", "CV"], candidate_value: "…2019–2021: testy aplikacji w Angularze (Protractor)…", last_used_year: 2021 },
     { key: "nice:0", label: "Kubernetes", level: "nice", status: "met", sources: ["profil"], candidate_value: null },
     { key: "experience:domains:0", label: "Bankowość (min. 3 lat)", level: "experience", status: "unknown", sources: [], candidate_value: null },
   ],
@@ -629,6 +631,8 @@ function seededClient(): QueryClient {
   qc.setQueryData(dlReviewContextQueryKey(JOB_ID, CANDIDATE_ID), CONTEXT, fresh);
   qc.setQueryData(dlReviewQueueQueryKey(JOB_ID), QUEUE, fresh);
   qc.setQueryData(dlMatchKeys.one(JOB_ID, CANDIDATE_ID), MATCH, fresh);
+  // Klient bez wzoru „Karty przed CV” — pigułki karty nie ma.
+  qc.setQueryData(coverSheetKey(CANDIDATE_ID, JOB_ID), { enabled: false }, fresh);
   // „@” w uwadze dla rekrutera (22.10.2026): lista osób do oznaczenia —
   // klucz `useMentionableUsers` dla zakresu rekrutacji.
   qc.setQueryData(

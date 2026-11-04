@@ -1,41 +1,33 @@
 /**
- * Szablony graficzne strony kariery (0478, 19.10.2026) — jedno źródło kolorów
- * dla strony (`CareerThemeScope` → zmienne `--kr-*`), grafik OG (`og.tsx`)
- * i podglądu posta w NEXUSIE (`LinkedInPreviewCard`).
+ * Szablony graficzne strony kariery — jedno źródło kolorów dla strony
+ * (`CareerThemeScope` → zmienne `--kr-*`), grafik OG (`og.tsx`) i podglądu
+ * posta w NEXUSIE (`LinkedInPreviewCard`).
+ *
+ * Od 28.10.2026 (decyzja Artura po feedbacku zespołu: „nieczytelne”, „nie
+ * w szacie B2B”, „jakby się nie doładowało”) są trzy szablony zamiast 12 scen:
+ * Terminal (role deweloperskie), Grafit (domyślny) i Jasny (role biznesowe),
+ * każdy w barwach marki B2B Network. Makiety:
+ * https://claude.ai/artifact/RGquQpMFyKgRYHPognJ2kU (A, C, B).
  *
  * Domyślny szablon rekrutacji liczy backend (`services/career_theme.py`: rola
- * z tytułu → kategoria → Terminal); lista identyfikatorów musi być ta sama —
- * pilnuje `__tests__/themes.test.ts`. Makiety:
- * https://claude.ai/artifact/TFqDt54DUg4qRdyJXnu6wm (strona „Najczęstsze role”).
+ * z tytułu → kategoria → Grafit); lista identyfikatorów musi być ta sama —
+ * pilnuje `__tests__/themes.test.ts`.
  *
  * Moduł bez zależności od Node — importuje go komponent kliencki.
  */
-import { OG_COLORS } from "./palette";
+import type { OG_COLORS } from "./palette";
 
-export const CAREER_THEME_IDS = [
-  "terminal",
-  "sekwencja",
-  "glitch",
-  "konstelacja",
-  "c4",
-  "topologia",
-  "tablica",
-  "plan",
-  "papier",
-  "radar",
-  "horyzont",
-  "szafa",
-] as const;
+export const CAREER_THEME_IDS = ["grafit", "terminal", "jasny"] as const;
 
 export type CareerThemeId = (typeof CAREER_THEME_IDS)[number];
 
-export const DEFAULT_CAREER_THEME: CareerThemeId = "terminal";
+export const DEFAULT_CAREER_THEME: CareerThemeId = "grafit";
 
 /** Bazowa paleta szablonu; reszta tokenów wynika z niej (`themeTokens`). */
 export interface ThemePalette {
   /** Nazwa w oknie „Udostępnij”. */
   label: string;
-  /** Rola, dla której szablon jest domyślny (podpis w oknie wyboru). */
+  /** Role, dla których szablon jest domyślny (podpis w oknie wyboru). */
   role: string;
   bg: string;
   /** Tekst główny. */
@@ -48,7 +40,7 @@ export interface ThemePalette {
   para: string;
   /** Drobny tekst akcentu i linki — ≥ 4,5:1. */
   accent: string;
-  /** Druga linia tytułu — ≥ 3:1 (duży tekst). */
+  /** Duży tekst w czerwieni marki — ≥ 3:1. */
   title: string;
   /** Ozdobniki: kropki, punktory, paski. */
   decor: string;
@@ -59,187 +51,54 @@ export interface ThemePalette {
   light?: boolean;
 }
 
+// Czerwień marki #E73748 (brand book) zostaje na tytułach i ozdobnikach; przycisk
+// #D62E40 jest o ton głębszy, bo biały tekst na #E73748 ma 4,2:1 (próg 4,5:1).
 export const CAREER_THEMES: Record<CareerThemeId, ThemePalette> = {
+  grafit: {
+    label: "Grafit B2B",
+    role: "Domyślny: architekt, data, infrastruktura, security",
+    bg: "#141414",
+    text: "#F5F4EC",
+    heading: "#FFFFFF",
+    muted: "#AAB4BF",
+    para: "#D9D6CC",
+    accent: "#F05A69",
+    title: "#E73748",
+    decor: "#E73748",
+    line: "#2A2A2A",
+    btn: "#D62E40",
+    btnText: "#FFFFFF",
+  },
   terminal: {
     label: "Terminal",
-    role: "Programista",
-    bg: OG_COLORS.bg,
-    text: OG_COLORS.text,
-    heading: OG_COLORS.white,
-    muted: OG_COLORS.gray,
-    para: "#A5A5A5",
-    accent: OG_COLORS.red,
-    title: OG_COLORS.title,
-    decor: OG_COLORS.bordo,
-    line: OG_COLORS.line,
-    btn: OG_COLORS.bordo,
-    btnText: OG_COLORS.white,
-  },
-  sekwencja: {
-    label: "Diagram sekwencji",
-    role: "Analityk systemowy",
-    bg: "#0F1222",
-    text: "#EEF1FF",
+    role: "Programista, tester, DevOps",
+    bg: "#161514",
+    text: "#F1EEE6",
     heading: "#FFFFFF",
-    muted: "#9CA3C8",
-    para: "#CBD0EE",
-    accent: "#A78BFA",
-    title: "#A78BFA",
-    decor: "#A78BFA",
-    line: "#22284A",
-    btn: "#A78BFA",
-    btnText: "#0F1222",
+    muted: "#A8A39A",
+    para: "#CFCAC0",
+    accent: "#F05A69",
+    title: "#E73748",
+    decor: "#E73748",
+    line: "#2C2A27",
+    btn: "#D62E40",
+    btnText: "#FFFFFF",
   },
-  glitch: {
-    label: "Glitch",
-    role: "Tester automatyzujący",
-    bg: "#0A0A0A",
-    text: "#FAFAFA",
-    heading: "#FFFFFF",
-    muted: "#9A9A9A",
-    para: "#C8C8C8",
-    accent: "#00E1FF",
-    title: "#00E1FF",
-    decor: "#FF4D6A",
-    line: "#1E1E1E",
-    btn: "#00E1FF",
-    btnText: "#0A0A0A",
-  },
-  konstelacja: {
-    label: "Konstelacja",
-    role: "Data / AI",
-    bg: "#070A1A",
-    text: "#EEF0FF",
-    heading: "#FFFFFF",
-    muted: "#9AA0C4",
-    para: "#C9CDEA",
-    accent: "#F4D58D",
-    title: "#F4D58D",
-    decor: "#A9B4FF",
-    line: "#1A1F3D",
-    btn: "#F4D58D",
-    btnText: "#070A1A",
-  },
-  c4: {
-    label: "Architektura C4",
-    role: "Architekt",
-    bg: "#0B0F14",
-    text: "#E8EEF4",
-    heading: "#FFFFFF",
-    muted: "#9AA7B4",
-    para: "#C8D2DC",
-    accent: "#FF8A65",
-    title: "#FF8A65",
-    decor: "#93C5FD",
-    line: "#1A232D",
-    btn: "#FF8A65",
-    btnText: "#0B0F14",
-  },
-  topologia: {
-    label: "Topologia sieci",
-    role: "DevOps / Cloud",
-    bg: "#0A0E14",
-    text: "#F1F5F9",
-    heading: "#FFFFFF",
-    muted: "#94A3B8",
-    para: "#C3CDD9",
-    accent: "#FFA94D",
-    title: "#FFA94D",
-    decor: "#6CB8FF",
-    line: "#1C2633",
-    btn: "#FFA94D",
-    btnText: "#0A0E14",
-  },
-  tablica: {
-    label: "Tablica warsztatowa",
-    role: "Analityk biznesowy",
-    bg: "#13110E",
-    text: "#F7F3EC",
-    heading: "#FFFFFF",
-    muted: "#B3AA9C",
-    para: "#DDD5C8",
-    accent: "#FFC857",
-    title: "#FFC857",
-    decor: "#7BDFF2",
-    line: "#2A251E",
-    btn: "#FFC857",
-    btnText: "#13110E",
-  },
-  plan: {
-    label: "Plan",
-    role: "Project Manager, Scrum, PMO",
-    bg: "#0B2A4A",
-    text: "#FFFFFF",
-    heading: "#FFFFFF",
-    muted: "#A9C4E0",
-    para: "#D3E3F3",
-    accent: "#9CD3FF",
-    title: "#9CD3FF",
-    decor: "#FFD27A",
-    line: "#24507E",
-    btn: "#FFD27A",
-    btnText: "#0B2A4A",
-  },
-  papier: {
-    label: "Papier",
-    role: "Tester manualny",
-    bg: "#F5F3EE",
-    text: "#1A1A1A",
-    heading: "#1A1A1A",
-    muted: "#5E5A52",
-    para: "#3B3832",
-    accent: "#C8102E",
-    title: "#C8102E",
-    decor: "#1F5FAD",
-    line: "#DDD6C8",
-    btn: "#C8102E",
+  jasny: {
+    label: "Jasny B2B",
+    role: "Project manager, analityk, delivery",
+    bg: "#F5F4EC",
+    text: "#141414",
+    heading: "#141414",
+    muted: "#4A5056",
+    para: "#2E3236",
+    accent: "#C42536",
+    title: "#C42536",
+    decor: "#E73748",
+    line: "#E1E1E1",
+    btn: "#D62E40",
     btnText: "#FFFFFF",
     light: true,
-  },
-  radar: {
-    label: "Radar",
-    role: "Security",
-    bg: "#04120F",
-    text: "#E6FFF6",
-    heading: "#FFFFFF",
-    muted: "#8DB5A8",
-    para: "#BFDCD2",
-    accent: "#43F5B5",
-    title: "#43F5B5",
-    decor: "#F5C451",
-    line: "#123A31",
-    btn: "#43F5B5",
-    btnText: "#04120F",
-  },
-  horyzont: {
-    label: "Horyzont",
-    role: "Frontend, fullstack",
-    bg: "#0A0614",
-    text: "#F5F0FF",
-    heading: "#FFFFFF",
-    muted: "#A99BC4",
-    para: "#D2C8E6",
-    accent: "#FF6AD5",
-    title: "#FF6AD5",
-    decor: "#5EE7FF",
-    line: "#22163A",
-    btn: "#FF6AD5",
-    btnText: "#0A0614",
-  },
-  szafa: {
-    label: "Szafa serwerowa",
-    role: "Administrator",
-    bg: "#0A0C0F",
-    text: "#E6EBF0",
-    heading: "#FFFFFF",
-    muted: "#8B97A5",
-    para: "#C3CCD6",
-    accent: "#60A5FA",
-    title: "#60A5FA",
-    decor: "#34D399",
-    line: "#1A2029",
-    btn: "#60A5FA",
-    btnText: "#0A0C0F",
   },
 };
 
@@ -247,7 +106,12 @@ export function isCareerThemeId(value: unknown): value is CareerThemeId {
   return typeof value === "string" && (CAREER_THEME_IDS as readonly string[]).includes(value);
 }
 
-/** Nieznany albo pusty identyfikator = Terminal (strona nigdy bez wyglądu). */
+/** Identyfikator szablonu albo Grafit dla nieznanego (np. jednej z 12 dawnych scen). */
+export function careerThemeId(id: string | null | undefined): CareerThemeId {
+  return isCareerThemeId(id) ? id : DEFAULT_CAREER_THEME;
+}
+
+/** Nieznany albo pusty identyfikator = Grafit (strona nigdy bez wyglądu). */
 export function careerTheme(id: string | null | undefined): ThemePalette {
   return CAREER_THEMES[isCareerThemeId(id) ? id : DEFAULT_CAREER_THEME];
 }
@@ -269,12 +133,11 @@ export function mixHex(a: string, b: string, t: number): string {
 }
 
 /**
- * Zmienne `--kr-*` szablonu. Terminal zwraca pusty obiekt — zostają wartości
- * z `career.css` (dzisiejszy wygląd bez żadnej zmiany).
+ * Zmienne `--kr-*` szablonu. Każdy szablon (także Terminal od 28.10.2026)
+ * nadpisuje czarne wartości z `career.css`; nieznany identyfikator = Grafit.
  */
 export function themeTokens(id: string | null | undefined): Record<string, string> {
-  if (!isCareerThemeId(id) || id === DEFAULT_CAREER_THEME) return {};
-  const p = CAREER_THEMES[id];
+  const p = careerTheme(id);
   return {
     "--kr-bg": p.bg,
     "--kr-grid": mixHex(p.bg, p.text, 0.04),
@@ -306,8 +169,7 @@ export function themeTokens(id: string | null | undefined): Record<string, strin
 
 /** Kolory grafiki OG w kształcie `OG_COLORS` — ten sam rysunek ramki. */
 export function ogColors(id: string | null | undefined): Record<keyof typeof OG_COLORS, string> {
-  if (!isCareerThemeId(id) || id === DEFAULT_CAREER_THEME) return { ...OG_COLORS };
-  const p = CAREER_THEMES[id];
+  const p = careerTheme(id);
   return {
     bg: p.bg,
     grid: mixHex(p.bg, p.text, 0.05),

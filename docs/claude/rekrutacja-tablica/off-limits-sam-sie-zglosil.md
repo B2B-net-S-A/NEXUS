@@ -53,9 +53,15 @@ https://claude.ai/artifact/1HLNAApCydpeY1nT8fzLre):
   okna — same „Nie” idą nagłówkiem, przycisk mówi „Pomiń te osoby”, a serwer
   wpisuje je do `skipped` i dodaje resztę (audyt 22.10.2026).
   Sposoby zgłoszenia: `lib/off-limits.ts` ↔ `HOW_LABELS` w serwisie.
-- **Wtyczka LinkedIn** (`POST /api/candidates/from-linkedin`, `fetch` bez
-  okna) nie dostaje 409: osoba się zapisuje, przypisanie jest pomijane
-  z `assignment_skipped_reason` („dodaj ją do rekrutacji w NEXUSIE
-  i potwierdź…”) — jak przy wecie managera.
+- **Panel boczny wtyczki LinkedIn** używa `POST /api/extension/candidates`
+  oraz `POST /api/extension/candidates/{id}/jobs`, z kluczem wtyczki.
+  Przy przypisaniu do rekrutacji brak potwierdzenia off-limits daje
+  `409 off_limits_confirmation_required`; całe żądanie jest wycofywane,
+  także nowo tworzona osoba. Panel pyta, jak osoba się zgłosiła, i ponawia
+  zapis z `off_limits_how` w **ciele żądania** (osoba może jeszcze nie mieć
+  identyfikatora). Serwer przenosi tę odpowiedź do tego samego kontekstu
+  potwierdzeń co nagłówek. `skip` („Nie, to my”) oznacza zapis tylko do bazy,
+  bez nowej rekrutacji. Pozostałe odmowy przypisania, np. weto managera,
+  trafiają do `skipped` z powodem.
 - Potwierdzenie to deklaracja człowieka (z nazwiskiem i datą), nie zabezpieczenie
   — nagłówek da się wysłać ręcznie; dlatego zostaje ślad przy procesie.

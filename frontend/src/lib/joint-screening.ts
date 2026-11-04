@@ -38,7 +38,13 @@ import {
 } from "@/lib/screening-form";
 
 /** Warunki o samej osobie — wpisywane raz dla wszystkich rekrutacji. */
-export const SHARED_TERMS_KEYS = ["availability", "work_mode", "location", "nationality", "english"] as const;
+export const SHARED_TERMS_KEYS = ["availability", "location", "nationality", "english"] as const;
+/**
+ * Warunki per rekrutacja, w sekcji „Warunki” obok wspólnych: tryb pracy bywa
+ * inny w każdym projekcie (1 dzień z biura w jednym, 2 w drugim — zgłoszenie
+ * rekrutera 29.10.2026). Do tej daty był wspólny.
+ */
+export const PER_JOB_TERMS_KEYS = ["work_mode"] as const;
 /** Pole o osobie w ocenie — wspólne (makieta B3: „Red flags są wspólne”). */
 export const SHARED_ASSESSMENT_KEYS = ["red_flags"] as const;
 /** Pole o kliencie — jedno na klienta, nie na rekrutację. */
@@ -63,6 +69,10 @@ export interface JointPair {
   /** Rekrutacja, z której otwarto panel. */
   anchor: boolean;
   state: ScreeningFormState;
+  /** Bliźniak kotwicy (0614) — stawka w budżecie, tryb pracy przy stawce. */
+  twin?: boolean;
+  /** „zdalnie”, „2 dni z biura”… — ten sam tryb = ta sama stawka. */
+  workMode?: string;
 }
 
 export interface JointGroupMember {
@@ -466,4 +476,32 @@ export function noteFillPatches(
     }
   }
   return patches;
+}
+
+/**
+ * Bliźniaki (0614, decyzja Artura 28.10.2026): stawka jedna, inna tylko przy
+ * innym trybie pracy. Grupy rekrutacji o tym samym trybie, kotwica pierwsza.
+ */
+export function workModeGroups(pairs: readonly JointPair[]): JointPair[][] {
+  const groups = new Map<string, JointPair[]>();
+  const ordered = [...pairs].sort((a, b) => Number(b.anchor) - Number(a.anchor));
+  for (const pair of ordered) {
+    const key = pair.workMode ?? "";
+    groups.set(key, [...(groups.get(key) ?? []), pair]);
+  }
+  return [...groups.values()];
+}
+
+/** Rozmowa z bliźniakiem: stawka ponad budżet którejś rekrutacji nie przejdzie. */
+export function twinRateBlockers(
+  pairs: readonly JointPair[],
+  rateOf: (pair: JointPair) => FormRate | null,
+): Array<{ title: string; items: string[] }> {
+  if (!pairs.some((p) => p.twin)) return [];
+  return pairs.flatMap((pair) => {
+    const verdict = budgetVerdict(rateOf(pair), pair.budgetHourly);
+    return verdict.tone === "over"
+      ? [{ title: pair.title, items: [`stawka ${verdict.label} — najwyżej ${pair.budgetHourly} zł/h`] }]
+      : [];
+  });
 }

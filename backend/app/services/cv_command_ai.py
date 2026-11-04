@@ -180,6 +180,26 @@ def _amounts(text: str) -> set[str]:
 # Operacje, po których wiersze znikają z CV.
 _REMOVING = frozenset({"remove", "remove_role", "remove_section"})
 
+TAILOR_PRESET = "tailor"
+# Materiał dla „Dopasuj”: oryginalne CV i rozmowa, dłuższy niż dla zwykłego polecenia.
+TAILOR_MATERIAL_MAX = 24_000
+QUOTE_MAX = 300
+TAILOR_TYPES = frozenset({"replace", "add"})
+# Wpis bez opisu nie dowodzi niczego (101 ze 153 wpisów od 12.10.2026).
+_BARE_CONFIRMATION = re.compile(
+    r"^\s*Potwierdzone z kandydatem:[^—\n]*(?:—[\s.]*)?$", re.MULTILINE
+)
+# Notatka z samego „tak”: treść cytatu to pytanie rekrutera, nie słowa kandydata.
+_QUESTION_ECHO = re.compile(r"potwierdza pytanie", re.IGNORECASE)
+# Para stawek z notatki o wysyłce: „150/100-110” (kwoty do klienta, rekruter ich nie widzi).
+_RATE_PAIR = re.compile(r"\b\d{2,4}\s*/\s*\d{2,4}\b")
+# Prototyp pisał do CV klienta „brak potwierdzonego doświadczenia”.
+_ABOUT_A_GAP = re.compile(
+    r"\b(?:brak\w*|nie potwierdz\w*|niepotwierdz\w*|no experience|not confirmed|"
+    r"lack\w*|nie ma doświadczenia)\b",
+    re.IGNORECASE,
+)
+
 PRESETS = {
     "shorten": (
         "Skróć CV do około dwóch stron: usuń ogólniki i powtórzenia, połącz punkty "
@@ -203,6 +223,20 @@ PRESETS = {
         "wymagań, które nie są jeszcze pogrubione (**x**), ustaw pasujące punkty "
         "wyżej i przeredaguj punkty tak, żeby nazwy wymagań były widoczne. Nie "
         "dopisuj faktów."
+    ),
+    # „Dopasuj pod rekrutację” (02.11.2026): to, co rekruterzy robili w czacie poza
+    # NEXUSEM. Operacji nie nakłada się od razu; rekruter wybiera je z listy.
+    TAILOR_PRESET: (
+        "Dopasuj CV pod wymagania klienta tak, jak robi to rekruter przed wysyłką. "
+        "Zaproponuj do 7 najważniejszych zmian, tylko typu replace albo add: punkt "
+        "„Dlaczego nasz kandydat” jako jedno pełne zdanie do 30 słów pod konkretne "
+        "wymaganie, wymaganie nazwane w punkcie roli, której dotyczy, fakt z "
+        "oryginalnego CV pominięty w tym CV, konkret z odpowiedzi kandydata. Do każdej "
+        "operacji dodaj pole cytat: fragment przepisany znak po znaku z "
+        "candidate_material, który potwierdza tę zmianę. Bez cytatu nie proponuj. "
+        "Pytanie rekrutera i wpis „Potwierdzone z kandydatem: X” bez opisu nie są "
+        "dowodem. Fakt do punktu roli tylko wtedy, gdy materiał mówi, że dotyczy tej "
+        "roli. Nie pisz o brakach kandydata i nie dopisuj faktów spoza materiału."
     ),
     "proofread": (
         "Popraw język i styl w całym CV: literówki, interpunkcja, pisownia nazw "
@@ -808,6 +842,107 @@ def verify_plan(
 # ── Wywołanie modelu ─────────────────────────────────────────────────────────
 
 
+def _quote_key(text: str) -> str:
+    return re.sub(
+        r"\W+", " ", unicodedata.normalize("NFC", text or "").casefold()
+    ).strip()
+
+
+def _rate_like(text: str) -> bool:
+    """Kwota albo para „150/100-110” z notatek o wysyłce do klienta."""
+    return has_amount(text) or bool(_RATE_PAIR.search(text))
+
+
+def _other_role_quote(key: str, role: Optional[int], lines: list[Line]) -> bool:
+    """Cytat nazywa inną firmę niż ta, w której roli stanie nowy tekst."""
+    if role is None:
+        return False
+    named: dict[int, str] = {}
+    for item in lines:
+        if item.kind == "employer" and item.role is not None:
+            name = _quote_key(cv_selection_ai.plain(item.text).split("·", 1)[0])
+            if len(name) >= 4:
+                named[item.role] = name
+    if named.get(role, "\0") in key:
+        return False
+    return any(name in key for other, name in named.items() if other != role)
+
+
+def verify_tailor(
+    raw: str,
+    lines: list[Line],
+    requirements: tuple[Requirement, ...],
+    original: str,
+    conversation: str = "",
+) -> dict:
+    """„Dopasuj”: te same kontrole co plan, a do tego cytat ze źródła.
+
+    Źródłem jest oryginalne CV i rozmowa tej rekrutacji bez stawek, nigdy pełne
+    notatki osoby. Wpis „Potwierdzone” bez treści niczego tu nie otwiera: ani
+    cytatu, ani kontroli faktów. Cytat ma stać w źródłach, a powód i cytat nie
+    mogą nieść pieniędzy, bo rekruter nie widzi części tych kwot. Model tylko
+    proponuje: rekruter wybiera, a edytor nakłada wybrane operacje.
+    """
+    data = _json_object(raw)
+    proposed = data.get("operations")
+    proposed = proposed if isinstance(proposed, list) else []
+    sources = _BARE_CONFIRMATION.sub("", f"{original}\n{conversation}")
+    grounds = _quote_key(sources)
+    heard = _quote_key(_BARE_CONFIRMATION.sub("", conversation))
+    plan = _Plan(lines, tuple(requirements), sources)
+    by_id = {item.id: item for item in lines}
+    operations: list[dict] = []
+    dropped: list[dict] = []
+
+    def refuse(item: Any, reason: str) -> None:
+        kind = item.get("type") if isinstance(item, dict) else None
+        dropped.append(
+            {
+                "type": kind if kind in OPERATION_TYPES else None,
+                "reason": reason,
+                "problem": None,
+            }
+        )
+
+    for item in proposed[:OPERATIONS_MAX]:
+        if not isinstance(item, dict) or item.get("type") not in TAILOR_TYPES:
+            refuse(item, "bad_type")
+            continue
+        quote = " ".join(str(item.get("cytat") or "").split())[:QUOTE_MAX]
+        key = _quote_key(quote)
+        # Cytat z dwóch słów stoi w każdym CV i niczego nie potwierdza.
+        if len(key.split()) < 3 or key not in grounds or _QUESTION_ECHO.search(quote):
+            refuse(item, "no_quote")
+            continue
+        if _rate_like(quote) or _rate_like(str(item.get("why") or "")):
+            refuse(item, "amount")
+            continue
+        if _ABOUT_A_GAP.search(str(item.get("text") or "")):
+            refuse(item, "about_a_gap")
+            continue
+        try:
+            accepted = plan.accept(item)
+        except _Dropped as refusal:
+            refuse(item, refusal.reason)
+            continue
+        if accepted.get("ask"):
+            refuse(item, "needs_question")
+            continue
+        target = by_id.get((accepted.get("lines") or [None])[0])
+        if _other_role_quote(key, target.role if target else None, lines):
+            refuse(item, "other_role")
+            continue
+        operations.append(
+            {
+                "id": len(operations),
+                **accepted,
+                "quote": quote,
+                "source": "rozmowa" if key in heard else "oryginal",
+            }
+        )
+    return {"operations": operations, "dropped": dropped, "truncated": False}
+
+
 def _unavailable(message: str = MSG_UNAVAILABLE, status: str = "unavailable") -> dict:
     return {"status": status, "operations": [], "dropped": [], "message": message}
 
@@ -848,7 +983,12 @@ def _focus(payload: dict, lines: list[Line]) -> list[int]:
 
 
 def build_prompt(
-    payload: dict, lines: list[Line], requirements: tuple, material: str = ""
+    payload: dict,
+    lines: list[Line],
+    requirements: tuple,
+    material: str = "",
+    *,
+    material_max: int = MATERIAL_MAX,
 ) -> str:
     """Prompt z danymi w znacznikach, których nie da się zamknąć od środka."""
     rows = [
@@ -875,7 +1015,7 @@ def build_prompt(
         ),
         lines=fence("cv_lines", json_for_prompt(rows)),
         material=fence(
-            "candidate_material", _visible(material)[:MATERIAL_MAX] or "(brak)"
+            "candidate_material", _visible(material)[:material_max] or "(brak)"
         ),
     )
 
@@ -975,6 +1115,19 @@ async def _sources(db: AsyncSession, stage: CandidateStage) -> str:
     return f"{original}\n{notes}".strip()
 
 
+async def _original_text(db: AsyncSession, stage: CandidateStage) -> str:
+    """Samo oryginalne CV pary: „Dopasuj” nie czyta pełnych notatek osoby."""
+    try:
+        async with db.begin_nested():
+            src = await cv_qc._load_sources(db, stage)
+            return src.original.get("text") or ""
+    except Exception:  # noqa: BLE001 — źródło to podpowiedź, nie warunek
+        logger.warning(
+            "[cv_command_ai] stage=%s: oryginał niedostępny", stage.id, exc_info=True
+        )
+        return ""
+
+
 async def _material(db: AsyncSession, stage: CandidateStage, job: Optional[Job]) -> str:
     """Odpowiedzi ze screeningu i notatki tej rekrutacji — to, co czyta generator.
 
@@ -1040,16 +1193,35 @@ async def propose_plan(
             )
             if part
         )
-        prompt = build_prompt(payload, lines, requirements, material)
+        tailor = payload.get("preset") == TAILOR_PRESET
+        heard = screening_text_without_questions(material)
+        original = await _original_text(db, stage) if tailor else ""
+        prompt = build_prompt(
+            payload,
+            lines,
+            requirements,
+            f"{original}\n{heard}"[:TAILOR_MATERIAL_MAX] if tailor else material,
+            material_max=TAILOR_MATERIAL_MAX if tailor else MATERIAL_MAX,
+        )
         system = CV_EDITOR_COMMAND.system_prompt or ""
         async with ai_feature(db, FEATURE, user_id=user_id):
             # Licznik AI zapisuje wiersz w tej sesji — commit PRZED modelem,
             # żeby żądanie nie trzymało połączenia przez cały round-trip.
             await db.commit()
             raw = await run_in_threadpool(_call_model, system, prompt, chain)
-        checked = await run_in_threadpool(
-            verify_plan, raw, lines, requirements, sources
-        )
+        if tailor:
+            checked = await run_in_threadpool(
+                verify_tailor,
+                raw,
+                lines,
+                requirements,
+                original,
+                heard,
+            )
+        else:
+            checked = await run_in_threadpool(
+                verify_plan, raw, lines, requirements, sources
+            )
     except Exception as exc:  # noqa: BLE001 — AI to podpowiedź, nigdy bramka
         logger.warning(
             "[cv_command_ai] stage=%s failed (%s)", stage.id, type(exc).__name__

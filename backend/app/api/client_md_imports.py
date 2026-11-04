@@ -27,6 +27,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.client_order_groups import (
     _assert_multi_client,
     _can_see_finance,
@@ -500,7 +501,7 @@ def export_filename(client_name: Optional[str], period_month: str) -> str:
     return f"Import_MD_{ascii_slug(client_name) or 'Klient'}_{period_month}.xlsx"
 
 
-@router.get("/{client_id}/md-imports/{import_id}/export")
+@router.get("/{client_id}/md-imports/{import_id}/export", dependencies=NOT_READ_ONLY)
 async def export_client_md_import(
     client_id: int,
     import_id: int,

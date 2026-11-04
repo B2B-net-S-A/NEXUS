@@ -10,6 +10,7 @@
  * żadnych reguł, które serwer musiałby powtórzyć.
  */
 
+import { callTone, callWhen, type CallTone } from "@/lib/screening-call";
 import { boardCardBadge } from "@/lib/recommendation-card";
 import { agreementBadge } from "@/lib/b2b-agreement";
 import type { KanbanItem } from "@/components/v2/pages/kanban-shared";
@@ -35,7 +36,8 @@ export type CardBadgeTone =
   | "info"
   | "neutral"
   | "rate"
-  | "champion";
+  | "champion"
+  | "call_today";
 
 export interface CardBadge {
   key: string;
@@ -83,6 +85,8 @@ export const CARD_BADGE_TONE_CLASS: Record<CardBadgeTone, string> = {
   rate: "bg-muted text-foreground tabular-nums",
   // Championi (D3, 15.10.2026): ten sam złoty kolor co status w nagłówku.
   champion: "bg-medal-gold text-medal-gold-foreground",
+  // Umówiony telefon na dziś: jedyna pełna plakietka, bo to sprawa na teraz.
+  call_today: "bg-primary text-primary-foreground",
 };
 
 const RATE_UNIT_LABEL: Record<string, string> = {
@@ -518,6 +522,20 @@ export function autofillDecisionBadge(meta: KanbanItem["entry_autofill"]): CardB
   };
 }
 
+/**
+ * Ostrzeżenia osoby od systemu (27.10.2026): „+18% budżetu”, „Biuro: 1 z 3 dni”,
+ * „Tylko zdalnie”, „Inne miasto: Kraków” — system to wiedział i dał ją za
+ * resztą. Napis i dymek liczy serwer.
+ */
+export function autofillCautionBadges(meta: KanbanItem["entry_autofill"]): CardBadge[] {
+  return (meta?.cautions ?? []).map((c) => ({
+    key: `autofill_caution_${c.key}`,
+    label: c.label,
+    tone: "wait",
+    title: c.title,
+  }));
+}
+
 function sourceBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge | null {
   switch (item.entry_source) {
     case "system":
@@ -617,6 +635,24 @@ function claimBadge(item: KanbanItem, ctx: CardBadgeContext): CardBadge {
   };
 }
 
+const CALL_TONE: Record<CallTone, CardBadgeTone> = {
+  overdue: "urgent",
+  today: "call_today",
+  later: "own",
+};
+
+function bookedCallBadge(item: KanbanItem, now: Date): CardBadge | null {
+  const call = item.booked_call;
+  if (!call) return null;
+  const when = callWhen(call.start_time, now);
+  return {
+    key: "booked_call",
+    label: when,
+    tone: CALL_TONE[callTone(call.start_time, now)],
+    title: call.owner_name ? `Umówiony telefon: ${when}, dzwoni ${call.owner_name}.` : `Umówiony telefon: ${when}.`,
+  };
+}
+
 export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[] {
   const out: CardBadge[] = [];
   const column = ctx.column;
@@ -651,6 +687,8 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
   const preContract = preContractCardBadge(item.pre_contract);
   if (preContract) out.push(preContract);
   if (column === "new" || column === "screening") {
+    const call = bookedCallBadge(item, ctx.now);
+    if (call) out.push(call);
     const link = linkOwnerBadge(item, ctx);
     if (link) out.push(link);
     const reapplied = reappliedViaLinkBadge(item, ctx);
@@ -665,6 +703,7 @@ export function cardBadges(item: KanbanItem, ctx: CardBadgeContext): CardBadge[]
       const due = autofillDecisionBadge(item.entry_autofill);
       if (due) out.push(due);
     }
+    out.push(...autofillCautionBadges(item.entry_autofill));
   }
   // Przegląd DL (Rekrutacja v5): osoby w „QC CV" poza Nordeą — Delivery Lead
   // sprawdza CV, wpisuje stawkę do klienta i wysyła.
@@ -820,11 +859,13 @@ export const COMPACT_BADGE_KEYS: ReadonlySet<string> = new Set([
   "source",
   "claim",
   "recommendation_card",
+  "booked_call",
 ]);
 
 export function compactCardBadge(badge: CardBadge): CompactCardBadge | null {
   if (!COMPACT_BADGE_KEYS.has(badge.key)) return null;
   const full = badge.title ? `${badge.label} — ${badge.title}` : badge.label;
+  if (badge.key === "booked_call") return { short: badge.label, full };
   if (badge.key === "claim") {
     // „Twój · 11 h” → „11 h” (kolor mówi „mój”); cudza blokada zostaje
     // z imieniem („Anna · 3 h”); „Wolny” → sama ikona.
@@ -1060,7 +1101,7 @@ const BEFORE_VERIFIED_COLUMNS: ReadonlySet<BoardColumnKey> = new Set(["new", "sc
 export interface CardOwner {
   /** Pełne imię i nazwisko; `null` = brak zapisanej osoby. */
   name: string | null;
-  role: "verified" | "added" | "assigned";
+  role: "verified" | "added" | "assigned" | "taken";
 }
 
 /**
@@ -1070,14 +1111,22 @@ export interface CardOwner {
  * weryfikowała osobę dodaną przez kogoś innego, a karta dalej pokazywała
  * dodającego. Filtr „Kto dodał” i kolejka panelu liczą po dodającym (D5).
  * Osoba przypisana „Prowadzi” przez admina albo HoR (25.10.2026) wygrywa
- * w każdej kolumnie.
+ * w każdej kolumnie. W „Nowych” i „Screeningu” osoba, która kliknęła
+ * „Biorę”, wygrywa z dodającą (27.10.2026), także po 12 h blokady.
  */
 export function cardOwner(
-  item: Pick<KanbanItem, "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name">,
+  item: Pick<
+    KanbanItem,
+    "added_to_job_by_name" | "verified_by_name" | "entry_source" | "owner_name" | "taken_by_name"
+  >,
   column: BoardColumnKey | null
 ): CardOwner {
   const assigned = item.owner_name?.trim();
   if (assigned) return { name: assigned, role: "assigned" };
+  const taker = item.taken_by_name?.trim();
+  if (taker && (column == null || BEFORE_VERIFIED_COLUMNS.has(column))) {
+    return { name: taker, role: "taken" };
+  }
   const verifier = item.verified_by_name?.trim();
   if (verifier && column != null && !BEFORE_VERIFIED_COLUMNS.has(column)) {
     return { name: verifier, role: "verified" };
@@ -1133,17 +1182,34 @@ export function shortStepLabel(label: string): string {
 
 /**
  * Ruch po naszej stronie (rekruter / przegląd): czyj? Blokada „Biorę" w Nowych
- * wygrywa z rekruterem karty; bez obu albo gdy to patrzący — „Twój ruch".
- * Bez `viewerId` (harness, starszy kontekst) zostaje „Twój ruch", jak dawne „Ty".
+ * wygrywa z rekruterem karty, a w „Nowych” i „Screeningu” także osoba, która
+ * wzięła „Biorę” przed upływem 12 h (27.10.2026); bez nich albo gdy to
+ * patrzący — „Twój ruch". Bez `viewerId` (harness, starszy kontekst) zostaje
+ * „Twój ruch", jak dawne „Ty".
  */
 function recruiterSideWho(
   item: KanbanItem,
   owner: string,
   viewerId: number | null | undefined,
+  column: BoardColumnKey | null,
 ): { who: string; mine: boolean } {
   const claimActive = owner === "review" && item.claim_user_id != null;
-  const personId = claimActive ? item.claim_user_id : (item.recruiter_id ?? null);
-  const personName = claimActive ? item.claim_user_name : item.recruiter_name;
+  const taken =
+    !claimActive &&
+    item.owner_user_id == null &&
+    item.taken_by_user_id != null &&
+    column != null &&
+    BEFORE_VERIFIED_COLUMNS.has(column);
+  const personId = claimActive
+    ? item.claim_user_id
+    : taken
+      ? item.taken_by_user_id
+      : (item.recruiter_id ?? null);
+  const personName = claimActive
+    ? item.claim_user_name
+    : taken
+      ? item.taken_by_name
+      : item.recruiter_name;
   if (personId == null || viewerId == null || personId === viewerId) {
     return { who: MY_MOVE_LABEL, mine: true };
   }
@@ -1170,7 +1236,7 @@ export function cardNextStep(
     viewerOwnsDlReview?: boolean;
   },
 ): CardNextStep | null {
-  const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId);
+  const recruiter = () => recruiterSideWho(item, "recruiter", ctx.viewerId, ctx.column);
   if (ctx.column === "cv_qc") {
     if (item.qc?.status === "failed") {
       return { ...recruiter(), label: "Popraw CV wg QC" };
@@ -1195,5 +1261,8 @@ export function cardNextStep(
   if (action.kind === "none" || action.owner === "none" || !action.label) return null;
   const role = ROLE_WHO[action.owner];
   if (role) return { who: role, mine: false, label: action.label };
-  return { ...recruiterSideWho(item, action.owner, ctx.viewerId), label: action.label };
+  return {
+    ...recruiterSideWho(item, action.owner, ctx.viewerId, ctx.column),
+    label: action.label,
+  };
 }

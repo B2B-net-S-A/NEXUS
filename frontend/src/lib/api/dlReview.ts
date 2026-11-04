@@ -40,6 +40,11 @@ export interface DlReviewRequirement {
   /** „profil”, „CV”, „notatka”, „rozmowa”. */
   sources: string[];
   candidate_value: string | null;
+  /**
+   * Rok ostatniego użycia, gdy technologia stoi tylko w profilu i CV i jest
+   * sprzed ponad 3 lat (27.10.2026) — wtedy `status = "unknown"`.
+   */
+  last_used_year?: number | null;
 }
 
 export interface DlReviewAssessment {

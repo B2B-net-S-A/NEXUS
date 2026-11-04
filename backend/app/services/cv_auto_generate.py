@@ -563,7 +563,9 @@ async def attach_as_stage_draft(
     activity_action: str = ATTACH_ACTION,
 ) -> bool:
     """Podepnij gotowe auto-CV jako SZKIC brandowanego CV etapu — tylko gdy etap
-    nie ma jeszcze żadnego szkicu (``branded_status == "none"``).
+    nie ma jeszcze żadnego szkicu (``branded_status == "none"``). Wyjątek od
+    29.10.2026: generacja zlecona po nowym CV kandydata zastępuje nietknięty
+    szkic (`new_cv_company_cv.replace_after_regeneration`).
 
     To ta sama operacja co „Zastąp szkic i otwórz edytor" w warsztacie wysyłki
     CV (`apply_generated_to_stage_cv`): wynik to ``draft``, NIGDY zatwierdzenie —
@@ -589,6 +591,25 @@ async def attach_as_stage_draft(
             )
             generated = await db.get(CvGeneratedDocument, generated_id)
             if (
+                csv is not None
+                and generated is not None
+                and csv.branded_status != "none"
+                and generated.status == "ready"
+                and generated.render_payload
+                and generated.candidate_id == csv.candidate_id
+                and generated.job_id == csv.job_id
+            ):
+                # 29.10.2026: generacja po nowym CV kandydata zastępuje szkic,
+                # którego od zlecenia nikt nie ruszał (`new_cv_company_cv`).
+                from app.services.new_cv_company_cv import replace_after_regeneration
+
+                if not await replace_after_regeneration(
+                    db, csv, generated, user_id=user_id
+                ):
+                    return False
+                await db.commit()
+                attached = True
+            elif (
                 csv is None
                 or generated is None
                 or csv.branded_status != "none"
@@ -598,15 +619,16 @@ async def attach_as_stage_draft(
                 or generated.job_id != csv.job_id
             ):
                 return False
-            await apply_generated_to_stage_cv(
-                db,
-                csv,
-                generated,
-                user_id=user_id,
-                activity_action=activity_action,
-            )
-            await db.commit()
-            attached = True
+            else:
+                await apply_generated_to_stage_cv(
+                    db,
+                    csv,
+                    generated,
+                    user_id=user_id,
+                    activity_action=activity_action,
+                )
+                await db.commit()
+                attached = True
     except Exception as exc:  # noqa: BLE001 — dokument i tak jest na liście
         logger.warning(
             "[cv_auto] stage=%s draft not attached: %s", stage_id, type(exc).__name__

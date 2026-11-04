@@ -63,6 +63,7 @@ import {
   documentStatusLabel,
   isAnnexTypeKey,
   intentOpensWizard,
+  intentValueKeys,
   parseDocumentsIntent,
   readDocumentError,
   redownloadNeedsInput,
@@ -96,6 +97,8 @@ export interface WizardState {
   parentId: number | null;
   contractId: number | null;
   editId: number | null;
+  /** Wartości startowe z adresu (np. daty z okna „Zakończ współpracę”). */
+  values?: Record<string, string | boolean>;
 }
 
 export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) {
@@ -126,9 +129,12 @@ export function DocumentsTab({ canGenerate = true }: { canGenerate?: boolean }) 
       parentId: intent.parentId,
       contractId: intent.contractId,
       editId: null,
+      values: intent.values,
     });
     const params = new URLSearchParams(searchParams?.toString() ?? "");
-    for (const key of DOCUMENTS_INTENT_KEYS) params.delete(key);
+    for (const key of [...DOCUMENTS_INTENT_KEYS, ...intentValueKeys(params)]) {
+      params.delete(key);
+    }
     const query = params.toString();
     replaceUrl(query ? `${pathname ?? ""}?${query}` : (pathname ?? ""));
     // Tylko wartości parametrów — `searchParams` zmienia tożsamość przy
@@ -207,6 +213,7 @@ export function DocumentsTabContent({
           initialType={wizard.type}
           initialParentId={wizard.parentId}
           initialContractId={wizard.contractId}
+          initialValues={wizard.values}
           editDocumentId={wizard.editId}
           onClose={onCloseWizard}
         />

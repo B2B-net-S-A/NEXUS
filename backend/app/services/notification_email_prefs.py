@@ -40,7 +40,7 @@ from app.models.user import User, UserRole
 from app.services.action_permissions import (
     ProductAction,
     has_permission,
-    reads_board_money,
+    receives_company_results,
 )
 from app.services.hr.modules import load_modules, module_open_for
 from app.services.hr_foundation_schema import HR_MODULE_KEYS
@@ -60,6 +60,10 @@ from app.services.notification_delivery import (
     JOB_AD_KIND,
     HR_BONUS_KIND,
     HR_MAIL_KIND,
+    DEPARTED_CARE_KIND,
+    JOB_CLOSED_KIND,
+    ANNOUNCEMENT_KIND,
+    JOB_IDLE_KIND,
     JOB_P0_KIND,
     REQUIRED_KINDS,
     RESUMED_KEY,
@@ -194,6 +198,15 @@ def _data_access_alert(user: User, _: _Context) -> bool:
     return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
 
 
+def _new_person(user: User, _: _Context) -> bool:
+    return user.has_any_role(UserRole.admin, UserRole.head_of_recruitment)
+
+
+def _announcement(user: User, _: _Context) -> bool:
+    # Ogłoszenie może trafić do każdej roli (odbiorców wybiera autor).
+    return user_may_receive_type(user, NotificationType.announcement_important)
+
+
 def _chat_unread(user: User, _: _Context) -> bool:
     # Lustro zapytania `chat_email_fallback`: rola z dostępem do kandydatów,
     # bez Finansów i roli podglądu wśród ról. Nadawca patrzy na rolę główną;
@@ -272,8 +285,10 @@ def _hire_documents(user: User, _: _Context) -> bool:
 
 
 def _board_monthly(user: User, _: _Context) -> bool:
-    # Lustro odbiorców `kpi_email_reports._board_readers` (rola Rada też).
-    return reads_board_money(user) and _section_read(user, ProductSection.insights)
+    # Lustro odbiorców `kpi_email_reports._board_readers`.
+    return receives_company_results(user) and _section_read(
+        user, ProductSection.insights
+    )
 
 
 def _board_placement(user: User, _: _Context) -> bool:
@@ -299,10 +314,15 @@ APPLIES: dict[str, Callable[[User, _Context], bool]] = {
     "signature_request": _signature_request,
     "system_failure": _system_failure,
     "data_access_alert": _data_access_alert,
+    "new_person": _new_person,
+    ANNOUNCEMENT_KIND: _announcement,
     "client_interview": _candidate_bell(NotificationType.interview_slot_confirmed),
     "prep_change": _candidate_bell(NotificationType.prep_changed_yours),
     "client_accepted": _candidate_bell(NotificationType.client_accepted),
     JOB_P0_KIND: _candidate_bell(NotificationType.job_p0_set),
+    JOB_CLOSED_KIND: _candidate_bell(NotificationType.job_closed_people_waiting),
+    DEPARTED_CARE_KIND: _candidate_bell(NotificationType.departed_pairs_care),
+    JOB_IDLE_KIND: _candidate_bell(NotificationType.job_idle_reminder),
     "pre_contract": _candidate_bell(NotificationType.pre_contract),
     "team_task": _candidate_bell(NotificationType.note_reply),
     "hire_documents": _hire_documents,

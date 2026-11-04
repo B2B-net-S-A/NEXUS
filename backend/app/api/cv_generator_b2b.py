@@ -94,8 +94,9 @@ from app.services.ai_quota import (
     check_and_increment,
     declared_call,
 )
+from app.services import cv_consent_check as consent_check
 from app.services import cv_consent_gate as consent_gate
-from app.services.cv_download_log import log_cv_download
+from app.services.cv_download_log import DOWNLOAD_INTENT, log_cv_download
 from app.services.cv_generator_b2b import consent_binding
 from app.services.cv_generator_b2b.upload_preflight import (
     MAX_UPLOAD_BYTES,
@@ -195,6 +196,11 @@ class RecruitmentOption(BaseModel):
     # Klient wyprowadzony z oferty — w tym trybie NIE jest wybierany ręcznie.
     client_id: Optional[int] = None
     client_name: Optional[str] = None
+    # Stanowisko do nagłówka CV i nazwy pliku; pusty napis = trzeba je wpisać,
+    # bo nazwa od klienta to przedmiot usługi, a Champion nie ma roli.
+    cv_position: str = ""
+    job_working_title: Optional[str] = None
+    job_client_reference: Optional[str] = None
     # Czy wołający może przypiąć do tej rekrutacji wydarzenie w kalendarzu
     # (członkostwo — ta sama bramka co zapis wydarzenia). Picker kalendarza
     # auto-wybiera i udostępnia tylko takie rekrutacje; generator CV pola
@@ -1675,6 +1681,7 @@ class ClientCvRuleForGeneration(BaseModel):
     require_position: bool = False
     require_champion: bool = False
     filename_pattern: Optional[str] = None
+    spaces_to_underscores: bool = False
     filename_preview: Optional[str] = None
     # Baner pokazuje rekruterowi, czym model kształtował dokument.
     notes: Optional[str] = None
@@ -1741,6 +1748,7 @@ async def client_rule_for_generation(
         require_position=bool(rule.require_position),
         require_champion=bool(rule.require_champion),
         filename_pattern=rule.filename_pattern,
+        spaces_to_underscores=bool(rule.spaces_to_underscores),
         filename_preview=_preview(rule),
         notes=rule.notes if sees_client_knowledge else None,
         generator_instructions=(
@@ -1813,6 +1821,19 @@ async def list_candidate_recruitments(
         except HTTPException:
             schedulable[r.job_id] = False
 
+    # Stanowisko i nazwy tylko dla formularza generatora, stąd poza gotowością.
+    from app.services.job_working_title import cv_position_for_form
+
+    names: dict[int, dict[str, Optional[str]]] = {}
+    for job_id in {r.job_id for r in readiness}:
+        job = await db.get(Job, job_id)
+        if job is not None:
+            names[job_id] = {
+                "cv_position": await cv_position_for_form(db, job),
+                "job_working_title": job.working_title,
+                "job_client_reference": job.client_reference,
+            }
+
     return [
         RecruitmentOption(
             stage_id=r.stage_id,
@@ -1831,6 +1852,7 @@ async def list_candidate_recruitments(
             client_id=r.client_id,
             client_name=r.client_name,
             can_schedule=schedulable.get(r.job_id, False),
+            **names.get(r.job_id, {}),
         )
         for r in readiness
     ]
@@ -1896,9 +1918,14 @@ def _consent_image_readable(content: bytes) -> bool:
 
 
 class ConsentScreenshotResponse(BaseModel):
-    storage_key: str
+    # Puste, gdy zrzut nie pasuje do kandydata albo rekrutacji, a rekruter nie
+    # podał powodu (27.10.2026) — wtedy obraz nie trafia do magazynu.
+    storage_key: Optional[str] = None
     filename: str
-    consent_token: str
+    consent_token: Optional[str] = None
+    # Wynik `cv_consent_check`: status ok | mismatch | unavailable, zdania
+    # `problems` i `passed`, a po „zapisz mimo to” także `override`.
+    check: Optional[dict] = None
 
 
 @router.post("/consent-screenshot", response_model=ConsentScreenshotResponse)
@@ -1916,6 +1943,9 @@ async def upload_consent_screenshot(
     # Generator v3: zgoda dla GOTOWEGO CV (dołączenie albo wymiana po
     # generacji) — pokwitowanie dla `POST /generated/{id}/consent`.
     generated_id: Annotated[Optional[int], Form(ge=1, le=_INT32_MAX)] = None,
+    # „Zapisz mimo to” (27.10.2026): powód, dla którego zrzut, który nie pasuje
+    # do rekrutacji, ma jednak trafić pod CV. Widzi go Delivery Lead w QC CV.
+    override_reason: str = Form("", max_length=400),
     db: AsyncSession = Depends(get_db),
 ) -> ConsentScreenshotResponse:
     """Wgraj zrzut zgody i podpisz przypisanie do źródła i klienta.
@@ -1931,6 +1961,9 @@ async def upload_consent_screenshot(
     + ``client_id`` (kandydat bez procesu, generator v3).
     """
     stage_bound = False
+    # Z kim i z jaką rekrutacją porównać zrzut (`cv_consent_check`).
+    check_candidate_id = candidate_id
+    check_job = None
     if generated_id is not None:
         if cv_sha256 or candidate_id is not None or stage_id is not None:
             raise HTTPException(
@@ -1941,6 +1974,8 @@ async def upload_consent_screenshot(
 
         row = await _load_generated_document(db, generated_id, current_user)
         _job, primary, _rows = await members(db, row)
+        check_candidate_id = primary.candidate_id
+        check_job = await db.get(Job, primary.job_id) if primary.job_id else None
         if not consent_gate.consent_required(primary):
             raise HTTPException(
                 status_code=409,
@@ -1984,6 +2019,7 @@ async def upload_consent_screenshot(
         # Bez członkostwa w zespole rekrutacji: zrzut zgody jest krokiem
         # generacji, a generować CV może każdy (decyzja 10.09.2026).
         job = await db.get(Job, stage.job_id)
+        check_job = job
         if job is None or (client_id is not None and job.client_id != client_id):
             raise HTTPException(
                 status_code=422,
@@ -2008,9 +2044,12 @@ async def upload_consent_screenshot(
             binding_job = (
                 await db.get(Job, binding_stage.job_id) if binding_stage else None
             )
+            if binding_stage is not None:
+                check_candidate_id = binding_stage.candidate_id
             if not binding_job or binding_job.client_id != client_id:
                 raise HTTPException(422, "Zgoda dotyczy innej rekrutacji lub klienta.")
         if binding_job is not None:
+            check_job = binding_job
             # Ten sam numer projektu, który wyprowadzi generacja (PKO BP: numer
             # ZOB z rekrutacji, gdy pole jest puste) — inaczej pokwitowanie
             # wystawione na pusty numer nie pasowałoby do generacji.
@@ -2050,6 +2089,29 @@ async def upload_consent_screenshot(
                 "Zrób zrzut ekranu jeszcze raz i wgraj go ponownie."
             ),
         )
+    filename = file.filename or "zgoda.png"
+    try:
+        subject = await _consent_subject(db, context, check_candidate_id, check_job)
+    except Exception:  # noqa: BLE001 — sprawdzenie to dodatek, zgoda przechodzi
+        logger.warning("[cv_b2b] consent check subject unavailable", exc_info=True)
+        subject = None
+    check = (
+        await consent_check.check_screenshot(
+            db, image=content, mime=sniffed, subject=subject, user_id=current_user.id
+        )
+        if subject is not None
+        else consent_check.assess(None, consent_check.Subject.unknown())
+    )
+    if check["status"] == "mismatch":
+        try:
+            reason = consent_check.clean_override_reason(override_reason)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        if reason is None:
+            # Wariant A (decyzja Artura 27.10.2026): zrzut, który nie pasuje,
+            # nie trafia sam pod CV — rekruter wgrywa inny albo podaje powód.
+            return ConsentScreenshotResponse(filename=filename, check=check)
+        check = consent_check.with_override(check, reason, current_user.id)
     if not object_storage.is_available():
         raise HTTPException(
             status_code=503,
@@ -2059,7 +2121,6 @@ async def upload_consent_screenshot(
             ),
         )
 
-    filename = file.filename or "zgoda.png"
     key = await run_in_threadpool(
         # Typ ROZPOZNANY, nie deklarowany przez klienta — inaczej magazyn
         # serwowałby plik z `Content-Type`, którego nikt nie zweryfikował.
@@ -2071,7 +2132,37 @@ async def upload_consent_screenshot(
     return ConsentScreenshotResponse(
         storage_key=key,
         filename=filename,
-        consent_token=consent_binding.issue(key, current_user.id, context),
+        consent_token=consent_binding.issue(key, current_user.id, context, check),
+        check=check,
+    )
+
+
+async def _consent_subject(
+    db: AsyncSession, context: dict, candidate_id: Optional[int], job: Optional[Job]
+) -> "consent_check.Subject":
+    """Kandydat, klient i rekrutacja, z którymi porównujemy zrzut zgody.
+
+    Numer ZOB ten sam, który wiąże pokwitowanie (``project_ref`` z kontekstu),
+    a bez niego — numer zapytania z rekrutacji (`pko_job_reference`).
+    """
+    from zoneinfo import ZoneInfo
+
+    from app.core.scheduling import DEFAULT_TZ
+    from app.services.cv_packages import pko_job_reference, project_number
+
+    candidate = await db.get(Candidate, candidate_id) if candidate_id else None
+    client_id = context.get("client_id") or (job.client_id if job else None)
+    client = await db.get(Client, client_id) if client_id else None
+    ref = project_number(context.get("project_ref") or pko_job_reference(job) or "")
+    opened = (job.opened_at or job.created_at) if job is not None else None
+    return consent_check.Subject(
+        candidate_id=candidate.id if candidate else None,
+        first_name=candidate.name if candidate else "",
+        last_name=candidate.lastname if candidate else "",
+        emails=(candidate.email,) if candidate and candidate.email else (),
+        client_name=client.name if client else "",
+        expected_zob=ref if ref.isdigit() else None,
+        opened_on=opened.astimezone(ZoneInfo(DEFAULT_TZ)).date() if opened else None,
     )
 
 
@@ -2932,7 +3023,9 @@ async def generate_from_upload(
                 else None
             )
         if job is not None:
-            position = job.title or position
+            from app.services.job_working_title import cv_role_title_for_job
+
+            position = await cv_role_title_for_job(db, job) or position
 
     gen_payload = UploadGenerationInput(
         cv_bytes=cv_bytes,
@@ -3402,6 +3495,23 @@ async def _log_generated_download(
     )
 
 
+async def _with_client_panel_frame(
+    db: AsyncSession, row: CvGeneratedDocument, docx: bytes, intent: Optional[str]
+) -> bytes:
+    """Plik do klienta niesie ramkę panelu rekrutacji; podgląd w NEXUSIE nie."""
+    if intent != DOWNLOAD_INTENT:
+        return docx
+    from app.services.client_panel import stamp_for_download
+
+    return await stamp_for_download(
+        db,
+        job_id=row.job_id,
+        candidate_id=row.candidate_id,
+        docx=docx,
+        language=row.language,
+    )
+
+
 @router.get("/generated/{generated_id}/docx")
 async def download_generated_cv(
     generated_id: int,
@@ -3433,7 +3543,7 @@ async def download_generated_cv(
             db, generated_id, current_user, intent, surface, "docx", "generated"
         )
         return _build_docx_response(
-            docx_bytes=stored,
+            docx_bytes=await _with_client_panel_frame(db, row, stored, intent),
             filename=row.filename,
             candidate_name=row.candidate_name,
             warnings=[],
@@ -3461,7 +3571,7 @@ async def download_generated_cv(
         db, generated_id, current_user, intent, surface, "docx", "generated"
     )
     return _build_docx_response(
-        docx_bytes=docx_bytes,
+        docx_bytes=await _with_client_panel_frame(db, row, docx_bytes, intent),
         filename=row.filename,
         candidate_name=row.candidate_name,
         warnings=[],

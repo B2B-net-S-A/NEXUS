@@ -47,7 +47,7 @@ export function TodoCard({
   }
   if (withTimesheets && (month.isError || history.isError)) {
     failures.push({
-      label: "timesheetów",
+      label: "raportów godzin",
       retry: () => {
         void month.refetch();
         void history.refetch();

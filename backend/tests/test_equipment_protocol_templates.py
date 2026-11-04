@@ -284,6 +284,23 @@ def test_uploaded_template_fills_with_protocol_data() -> None:
     assert "1. Laptop przykładowy 14 cali (TEST0001) 1234,56" in text_value
 
 
+def test_uploaded_template_may_print_signature_notes() -> None:
+    content = docx_bytes(
+        *DEPOSIT_PARAGRAPHS,
+        "Odbierający: {{ holder_signature }}",
+        "Recepcja: {{ issuer_signature }}",
+    )
+    fields = tpl.check_upload("kaucja-podpis.docx", content, "wydanie")
+    assert {"holder_signature", "issuer_signature"} <= set(fields)
+    context = {
+        **tpl._sample_context("wydanie"),
+        "holder_signature": "Potwierdzono elektronicznie linkiem z NEXUSA",
+    }
+    assert "Odbierający: Potwierdzono elektronicznie linkiem z NEXUSA" in document_text(
+        tpl.render_uploaded(content, context)
+    )
+
+
 # ── Trasy i wybór wzoru w protokole (baza) ────────────────────────────────────
 
 

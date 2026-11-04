@@ -4,6 +4,10 @@
  * Jedna krótka plakietka, bo nagłówek przy 1280 px ucinał pełną etykietę
  * i chował drugą („Poza hit ratio”) pod zakładkami; grupa w dymku razem
  * z pełnym powodem i uzasadnieniem.
+ *
+ * Gdy obok stoi już status requestu „Zamknięta” (`statusShown`), plakietka
+ * mówi sam powód — „Zamknięta” dwa razy zostawiało tytułowi 6rem przy
+ * 1280 px (28.10.2026).
  */
 
 import { Badge } from "@/components/ui/badge";
@@ -27,17 +31,24 @@ const SHORT: Partial<Record<JobCloseReason, string>> = {
   paused: "wstrzymana",
   client_ghosted: "klient milczy",
   no_match: "bez kandydata",
+  no_activity: "28 dni bez ruchu",
 };
 
 export function JobCloseReasonBadge({
   reason,
   notes,
+  statusShown = false,
 }: {
   reason: JobCloseReason | null | undefined;
   notes?: string | null;
+  /** Obok widać status „Zamknięta” — bez powtórzenia go w plakietce. */
+  statusShown?: boolean;
 }) {
   const group = closeReasonGroup(reason);
   const short = (reason && SHORT[reason]) || "powód do przejrzenia";
+  const text = statusShown
+    ? short.charAt(0).toUpperCase() + short.slice(1)
+    : `Zamknięta · ${short}`;
   const title = [
     closeReasonLabel(reason),
     group ? GROUP_NOTE[group] : "Liczy się jak przegrana, dopóki ktoś nie wybierze powodu.",
@@ -49,10 +60,12 @@ export function JobCloseReasonBadge({
     <Badge
       variant={group ? VARIANT[group] : "warning"}
       title={title}
-      className="whitespace-nowrap"
+      // W wąskiej kolumnie nagłówka skraca się z wielokropkiem (pełny powód
+      // w dymku), zamiast wychodzić pod zakładki (28.10.2026).
+      className="max-w-full whitespace-nowrap"
       data-testid="job-close-reason-badge"
     >
-      Zamknięta · {short}
+      <span className="min-w-0 truncate">{text}</span>
     </Badge>
   );
 }

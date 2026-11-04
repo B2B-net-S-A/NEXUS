@@ -36,7 +36,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { ArrowRight, CheckCircle2, ExternalLink, Loader2, RefreshCw } from "lucide-react";
 
@@ -44,6 +44,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/Toast";
+import { useCapability } from "@/hooks/useCapability";
+import { candidateStageCvApi } from "@/lib/api";
 import { QcOverrideDialog } from "@/components/v2/recruitment/QcOverrideDialog";
 import {
   AiFixesView,
@@ -52,6 +54,7 @@ import {
   DismissedSection,
   MutedChecks,
   PassedChecks,
+  QcWordFileNote,
   SECTION_TITLE,
   TaskCard,
   qcDismissedEntries,
@@ -59,6 +62,7 @@ import {
 } from "@/components/v2/recruitment/cv-qc-cards";
 import { apiErrorMessage } from "@/lib/api-error";
 import {
+  cvQcQueryKey,
   invalidateAfterQcChange,
   useCvQc,
   useCvQcFixes,
@@ -441,6 +445,7 @@ export function CvQcBody({
           showError(apiErrorMessage(error, "Nie udało się zapisać potwierdzenia. Spróbuj ponownie.")),
       }),
     confirming: confirm.isPending,
+    confirmRoles: data?.confirm_roles ?? [],
     requestAiFixes: () => {
       if (typeof document !== "undefined") {
         document.getElementById(`qc-ai-${stageId}`)?.scrollIntoView?.({ block: "nearest" });
@@ -561,6 +566,53 @@ const MOVE_BLOCKED_HINT = "Najpierw popraw rzeczy z listy „Do poprawy przed wy
 const MOVE_ADVISORY_HINT = "Popraw rzeczy z listy albo użyj „Przesuń mimo uwag…”.";
 
 /** Okno bez zapytania o wynik — `CvQcDialog` i harness `/preview/cv-qc`. */
+/**
+ * Z którego pliku QC czyta oryginał. Rekruter może patrzeć na nowsze CV w profilu
+ * i widzieć technologię, której w kopii tej rekrutacji nie ma.
+ */
+function QcOriginalNote({ data, stageId }: { data: QcResult; stageId: number }) {
+  const queryClient = useQueryClient();
+  const { showSuccess, showError } = useToast();
+  const canRefresh = useCapability("candidate.document.manage");
+  const refresh = useMutation({
+    mutationFn: () => candidateStageCvApi.original.refresh(stageId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cv-original", stageId] });
+      void queryClient.invalidateQueries({ queryKey: cvQcQueryKey(stageId) });
+      showSuccess("CV z profilu jest teraz CV tej rekrutacji.");
+    },
+    onError: (error) => showError(apiErrorMessage(error, "Nie udało się podmienić CV w tej rekrutacji.")),
+  });
+  const { filename, snapshot_at: snapshotAt, newer_profile_cv: newer } = data.original_cv;
+  if (!filename) return null;
+  return (
+    <>
+      <p data-testid="qc-original-file" className="mt-0.5 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        Oryginał, w którym szukam: <span className="font-medium text-foreground">{filename}</span>
+        {snapshotAt ? ` · ${formatDate(snapshotAt)}` : ""}
+      </p>
+      {newer ? (
+        <p
+          data-testid="qc-newer-cv"
+          className="mt-1 rounded-md border border-warning/30 bg-warning-muted px-2 py-1 text-xs text-warning-muted-foreground [overflow-wrap:anywhere]"
+        >
+          W profilu jest nowsze CV: {newer.filename} · {formatDate(newer.uploaded_at)}. QC sprawdza starsze.{" "}
+          {canRefresh ? (
+            <button
+              type="button"
+              className="font-medium underline"
+              disabled={refresh.isPending}
+              onClick={() => refresh.mutate()}
+            >
+              Użyj w tej rekrutacji
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export function CvQcDialogView({
   stageId,
   open,
@@ -619,6 +671,8 @@ export function CvQcDialogView({
                   ? "Brak CV firmowego"
                   : "Sprawdzenia CV firmowego przed „CV wysłane” i Cpro."}
             </DialogDescription>
+            <QcWordFileNote cv={data?.cv} />
+            {data && stageId != null ? <QcOriginalNote data={data} stageId={stageId} /> : null}
           </div>
           {data ? (
             <div className="flex items-center gap-2">

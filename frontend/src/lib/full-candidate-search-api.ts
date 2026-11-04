@@ -39,7 +39,9 @@ export interface CandidateSearchRow {
     matched: string[];
     stale?: boolean;
     candidate_updated_at: string;
-    evidence_basis?: "profile_signal" | "no_evidence" | "reviewed";
+    evidence_basis?: "profile_signal" | "text_mention" | "stale_profile_signal" | "no_evidence" | "reviewed";
+    /** Rok ostatniego użycia, gdy technologia jest starsza niż 3 lata — wtedy „?” (27.10.2026). */
+    last_used_year?: number | null;
     verified_at?: string | null;
     candidate_evidence?: string | null;
     usage_context?: string | null;

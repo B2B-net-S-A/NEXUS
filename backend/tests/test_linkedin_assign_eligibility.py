@@ -1,17 +1,4 @@
-"""Bramka dopuszczalności na ścieżce „Dodaj z LinkedIn".
-
-`POST /api/candidates/from-linkedin` zapisuje `CandidateStage` dla kandydata,
-którego dedup znalazł w bazie — a sprawdzała TYLKO weto hiring managera, więc
-osoba, którą kanban odrzuca z 409, wchodziła do pipeline'u jednym kliknięciem
-z wtyczki. Ścieżka woła teraz tę samą bramkę co kanban.
-
-Od 17.09.2026 konflikt z klientem (czarna lista klienta / NDA / konkurent) jest
-OSTRZEŻENIEM — kanban go przepuszcza, więc wtyczka też. Twardy powód, który
-został, to globalna czarna lista: test asertuje OBIE strony — brak
-`CandidateStage` ORAZ obecność powodu w `assignment_skipped_reason` (wtyczka
-nie ma jak obsłużyć twardego 409, więc kontrakt degradacji jest tu tym samym co
-przy wecie managera).
-"""
+"""Eligibility remains enforced by the supported extension-key assignment API."""
 
 from __future__ import annotations
 
@@ -23,38 +10,27 @@ import pytest_asyncio
 from httpx import AsyncClient
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.candidate import Candidate
 from app.models.candidate_conflict import CandidateConflict, ConflictType
 from app.models.client import Client
 from app.models.job import Job, JobStatus
-from app.models.linkedin_snapshot import LinkedinSyncStatus
 from app.models.recruitment_pipeline import CandidateStage
 
 
-@pytest.fixture(autouse=True)
-def patch_linkedin_sync(monkeypatch):
-    """Bez sieci i bez klucza Proxycurl — jak w test_candidates_from_linkedin."""
-
-    async def _fake_sync(db, candidate, *, client=None):  # noqa: ARG001
-        class _Result:
-            candidate_id = candidate.id
-            status = LinkedinSyncStatus.ok
-            change_kind = None
-            snapshot_id = None
-            error = None
-
-        return _Result()
-
-    from app.services import proxycurl as _proxycurl_pkg
-    from app.services.proxycurl import sync as _proxycurl_sync
-
-    monkeypatch.setattr(_proxycurl_pkg, "sync_candidate_linkedin", _fake_sync)
-    monkeypatch.setattr(_proxycurl_sync, "sync_candidate_linkedin", _fake_sync)
-    monkeypatch.setattr(
-        "app.api.candidates.sync_candidate_linkedin", _fake_sync, raising=False
+@pytest_asyncio.fixture
+async def extension_headers(app_client, app_auth_headers, monkeypatch):
+    extension_id = "abcdefghijklmnopabcdefghijklmnop"
+    monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_IDS", extension_id)
+    monkeypatch.setattr(settings, "LINKEDIN_EXTENSION_ENABLED", True)
+    response = await app_client.post(
+        "/api/extension/connect",
+        headers=app_auth_headers,
+        json={"extension_id": extension_id, "extension_version": "1.0.0"},
     )
-    yield
+    assert response.status_code == 200, response.text
+    return {"X-Extension-Key": response.json()["key"]}
 
 
 @pytest_asyncio.fixture
@@ -67,6 +43,7 @@ async def job_with_client(app_auth_headers) -> tuple[int, int]:  # noqa: ARG001
         job = Job(
             title=f"Elig Engineer {time.time_ns()}",
             status=JobStatus.published,
+            is_open=True,
             client_id=cli.id,
         )
         db.add(job)
@@ -103,13 +80,11 @@ async def _stage_for(candidate_id: int, job_id: int) -> Optional[CandidateStage]
 @pytest.mark.asyncio
 async def test_nda_conflict_does_not_block_the_linkedin_assignment(
     app_client: AsyncClient,
-    app_auth_headers: dict[str, str],
-    job_with_client: tuple[int, int],
+    extension_headers,
+    job_with_client,
 ) -> None:
     job_id, client_id = job_with_client
-    slug = f"nda-blocked-{time.time_ns()}"
-    candidate_id = await _seed_existing_candidate(slug)
-
+    candidate_id = await _seed_existing_candidate(f"nda-allowed-{time.time_ns()}")
     async with AsyncSessionLocal() as db:
         db.add(
             CandidateConflict(
@@ -121,80 +96,56 @@ async def test_nda_conflict_does_not_block_the_linkedin_assignment(
             )
         )
         await db.commit()
-
-    resp = await app_client.post(
-        "/api/candidates/from-linkedin",
-        headers=app_auth_headers,
-        json={
-            "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
-            "job_id": job_id,
-            "stage": "screening",
-        },
+    response = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/jobs",
+        headers=extension_headers,
+        json={"job_ids": [job_id]},
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["action"] == "existing"
-    assert body["candidate_id"] == candidate_id
-    # 17.09.2026: NDA to ostrzeżenie — przypisanie jest, powodu pominięcia brak.
-    assert body["assignment_skipped_reason"] is None
-    assert body["assigned_to_job_id"] == job_id
+    assert response.status_code == 200, response.text
+    assert response.json()["assigned_job_ids"] == [job_id]
+    assert response.json()["skipped"] == []
     assert await _stage_for(candidate_id, job_id) is not None
 
 
 @pytest.mark.asyncio
 async def test_global_blacklist_blocks_the_linkedin_assignment(
     app_client: AsyncClient,
-    app_auth_headers: dict[str, str],
-    job_with_client: tuple[int, int],
+    extension_headers,
+    job_with_client,
 ) -> None:
     job_id, _client_id = job_with_client
-    slug = f"elig-blacklisted-{time.time_ns()}"
-    candidate_id = await _seed_existing_candidate(slug, status="blacklisted")
-
-    resp = await app_client.post(
-        "/api/candidates/from-linkedin",
-        headers=app_auth_headers,
-        json={
-            "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
-            "job_id": job_id,
-            "stage": "screening",
-        },
+    candidate_id = await _seed_existing_candidate(
+        f"global-blacklist-{time.time_ns()}",
+        status="blacklisted",
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["candidate_id"] == candidate_id
-    # Przypisania NIE MA…
-    assert body["assigned_to_job_id"] is None
-    assert await _stage_for(candidate_id, job_id) is None, (
-        "kandydat z globalnej czarnej listy wszedł do pipeline'u z pominięciem bramki"
+    response = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/jobs",
+        headers=extension_headers,
+        json={"job_ids": [job_id]},
     )
-    # …a rekruter dostaje powód po polsku, nie ciszę.
-    reason = body["assignment_skipped_reason"]
-    assert reason, "brak powodu — pominięte przypisanie wygląda jak udane"
-    assert "czarnej liście" in reason
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["assigned_job_ids"] == []
+    assert len(body["skipped"]) == 1
+    assert body["skipped"][0]["job_id"] == job_id
+    assert "czarnej liście" in body["skipped"][0]["reason"]
+    assert await _stage_for(candidate_id, job_id) is None
 
 
 @pytest.mark.asyncio
 async def test_clean_candidate_is_still_assigned(
     app_client: AsyncClient,
-    app_auth_headers: dict[str, str],
-    job_with_client: tuple[int, int],
+    extension_headers,
+    job_with_client,
 ) -> None:
-    """Kontrola negatywna: bramka nie może blokować zwykłego przypadku."""
     job_id, _client_id = job_with_client
-    slug = f"elig-clean-{time.time_ns()}"
-    candidate_id = await _seed_existing_candidate(slug)
-
-    resp = await app_client.post(
-        "/api/candidates/from-linkedin",
-        headers=app_auth_headers,
-        json={
-            "linkedin_url": f"https://www.linkedin.com/in/{slug}/",
-            "job_id": job_id,
-        },
+    candidate_id = await _seed_existing_candidate(f"clean-{time.time_ns()}")
+    response = await app_client.post(
+        f"/api/extension/candidates/{candidate_id}/jobs",
+        headers=extension_headers,
+        json={"job_ids": [job_id]},
     )
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["assignment_skipped_reason"] is None
-    assert body["assigned_to_job_id"] == job_id
+    assert response.status_code == 200, response.text
+    assert response.json()["assigned_job_ids"] == [job_id]
+    assert response.json()["skipped"] == []
     assert await _stage_for(candidate_id, job_id) is not None

@@ -227,7 +227,7 @@ async def test_manager_loop_and_dates_are_validated(app_client, modules_on) -> N
         headers=_headers(admin),
     )
     assert loop.status_code == 422
-    assert "pętlę przełożonych" in loop.json()["detail"]
+    assert "pętlę koordynatorów" in loop.json()["detail"]
 
     self_manager = await app_client.patch(
         f"/api/hr/admin/profiles/{first.id}",

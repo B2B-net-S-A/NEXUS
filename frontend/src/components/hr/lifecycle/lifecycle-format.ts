@@ -109,7 +109,7 @@ export function reportsSummary(rows: readonly ReportsRowLike[]): string | null {
   if (!row.receiver_name) {
     return `Osoby w zespole: ${peopleCount(row.count)}. Wskaż, kto zostanie ich koordynatorem — bez tego przekazanie nie przejdzie, a konto nie wyłączy się samo.`;
   }
-  return `Osoby w zespole: ${peopleCount(row.count)}. Po przekazaniu ich koordynatorem będzie ${row.receiver_name} — od tej chwili wnioski i timesheety idą do tej osoby.`;
+  return `Osoby w zespole: ${peopleCount(row.count)}. Po przekazaniu ich koordynatorem będzie ${row.receiver_name} — od tej chwili wnioski i raporty godzin idą do tej osoby.`;
 }
 
 const CONDITION_FORM_LABELS: Record<string, string> = {

@@ -107,10 +107,52 @@ def _by_key(checks: list[dict]) -> dict[str, dict]:
             False,
         ),
         ("Rozwój usług w Java i Spring.", False),
+        # Zdania z przecinkami z pomiaru 02.11.2026, w fikcyjnej formie.
+        (
+            "Developed software for control units in C/C++, using ARM chips "
+            "and CAN, I2C, SPI, UART communication",
+            False,
+        ),
+        ("Managed Microsoft Azure, Microsoft Entra ID, and Microsoft Intune", False),
+        ("Supported financial crime, KYC, and AML projects for large banks", False),
+        ("Used CMake, Conan, Docker, and Compose to deliver C++ solutions", False),
+        ("Managed containerized applications (Docker, ECS, Kubernetes)", False),
+        ("Zarządzanie stosem danych: Apache Spark, Airflow, dbt", False),
+        ("Zarządzanie platformami Azure, Entra ID i Intune", False),
+        # Prawdziwe listy zostają listami: nawias i „of”, „on” w nazwie.
+        ("Spring Framework (2.x to 5.x), Hibernate, JSP, SAML, Maven", True),
+        ("Segregation of Duties (SoD), Active Directory, PowerShell", True),
+        ("Ruby on Rails, PostgreSQL, Redis, Docker", True),
     ],
 )
 def test_tech_list_heuristic(text: str, tech_list: bool) -> None:
     assert qc.is_tech_list(text) is tech_list
+
+
+def test_sentence_with_commas_describes_the_term_in_the_role() -> None:
+    """„To nieprawda” z 02.11.2026: zdanie o pracy z przecinkami brane było za
+    listę technologii i QC kazało dopisać zdanie, które w CV już stało."""
+    req = _reqs("Entra ID")[0]
+    role = _blocks(
+        "<ul><li>Managed Microsoft Azure, Microsoft Entra ID, "
+        "and Microsoft Intune platforms</li></ul>"
+    )
+    assert qc.described_in_blocks(req, role)
+
+
+def test_single_letter_language_is_not_in_the_original_role_with_cpp() -> None:
+    """„C” przy „C++ Software Engineer”: oryginał opisuje C++, nie C."""
+    role = dz.Role(
+        label="C++ Software Engineer · Acme",
+        company="Acme",
+        text="",
+        title="C++ Software Engineer",
+        desc="Rozwijał narzędzie C++ do przetwarzania danych.",
+        technologies=("C++", "STL"),
+        detail=True,
+    )
+    assert qc.role_evidence(role, _reqs("C")[0]) == (None, None)
+    assert qc.role_evidence(role, _reqs("C++")[0])[0] == "description"
 
 
 def test_term_only_in_a_technology_tail_is_not_a_description() -> None:
@@ -880,6 +922,23 @@ async def test_letterless_header_does_not_confirm_itself(monkeypatch) -> None:
     titles = await qc.expected_titles(None, src, {"presentation_position": "(43020)"})
     # 26.10.2026 (D4): kod stanowiska Nordei „_TP#…” i „PL_” też schodzą.
     assert titles == ("IT Developer expert",)
+
+
+async def test_service_title_header_does_not_confirm_itself() -> None:
+    """02.11.2026: CV „usługi programistyczne – …” przechodziło QC, bo nagłówek
+    z payloadu potwierdzał sam siebie. Oczekujemy roli z Championa."""
+    src = SimpleNamespace(
+        job=SimpleNamespace(
+            title="ZOB-3103 usługi programistyczne - .Net",
+            client_reference="ZOB-3103",
+            client_id=None,
+            champion_profile={"basics": {"role_name": "Senior .NET Developer"}},
+        )
+    )
+    titles = await qc.expected_titles(
+        None, src, {"presentation_position": "usługi programistyczne - .Net"}
+    )
+    assert titles == ("Senior .NET Developer",)
 
 
 @pytest.mark.parametrize(
@@ -2195,6 +2254,55 @@ def test_qc_reports_the_draft_version_it_was_computed_on() -> None:
     # CV z generatora bez szkicu na etapie nie ma jeszcze wersji do porównania.
     src.generated = {"source": "generated", "generated_document_id": 3}
     assert qc._cv_payload(src)["edit_revision"] is None
+
+
+class _OneRow:
+    def __init__(self, row):
+        self.row = row
+
+    def scalar_one_or_none(self):
+        return self.row
+
+
+@pytest.mark.parametrize(
+    ("metadata", "expected"),
+    [
+        (
+            {
+                "source": "document",
+                "origin": {"kind": "upload", "label": "CV_kandydatki.docx"},
+            },
+            (True, "CV_kandydatki.docx"),
+        ),
+        ({"source": "document", "origin": None}, (True, None)),
+        ({"source": "generator"}, (False, None)),
+        (None, (False, None)),
+    ],
+    ids=["plik-z-dysku", "plik-bez-nazwy", "generator", "bez-metadanych"],
+)
+async def test_qc_marks_a_draft_read_from_a_word_file(metadata, expected) -> None:
+    """29.10.2026: CV kandydatki wgrane z dysku weszło do klienta 1:1, a okno
+    QC nie mówiło, że układ przyszedł z pliku, a nie z generatora."""
+    row = SimpleNamespace(
+        branded_status="draft",
+        branded_render_metadata=metadata,
+        candidate_stage_id=5,
+        generated_document_id=None,
+        branded_finalized_at=None,
+        branded_updated_at=None,
+        edit_revision=2,
+        branded_draft_html="<p>CV</p>",
+    )
+
+    class _Db:
+        async def execute(self, _query):
+            return _OneRow(row)
+
+    generated = await dz._generated_cv(_Db(), 1, 2)
+    src = SimpleNamespace(generated=generated, bold_known=True, blocks=[])
+    payload = qc._cv_payload(src)
+
+    assert (payload["from_word_file"], payload["filename"]) == expected
 
 
 def test_fix_never_rewrites_the_consent_clause() -> None:
@@ -4122,6 +4230,19 @@ async def test_confirmed_with_candidate_becomes_a_note_and_clears_the_item(
         assert unknown.status_code == 422
         assert unknown.json()["detail"]["code"] == "CV_QC_CONFIRM_FAILED"
 
+        # Samo kliknięcie nic nie dowodzi (02.11.2026): bez słów kandydata 422.
+        with hydrated_taxonomy():
+            bare = await api_client.post(
+                f"{qc_url}/confirm", headers=rec, json={"term": "spring"}
+            )
+            short = await api_client.post(
+                f"{qc_url}/confirm",
+                headers=rec,
+                json={"term": "spring", "text": "potwierdził"},
+            )
+        assert bare.status_code == 422 and short.status_code == 422
+        assert "co dokładnie powiedział" in bare.json()["detail"]["message"]
+
         with hydrated_taxonomy():
             ok = await api_client.post(
                 f"{qc_url}/confirm",
@@ -4613,6 +4734,120 @@ async def test_qc_quality_panel_is_for_admins_and_mutes_a_warning(
                 delete(AppSetting).where(AppSetting.key == qc_quality.SETTING_KEY)
             )
             await db.commit()
+
+
+# ── Pod inną nazwą zamiast „nie ma w oryginale” (02.11.2026) ─────────────
+
+
+@pytest.mark.parametrize(
+    ("term", "original", "found"),
+    [
+        ("Git", "Narzędzia: GitHub, Jira", "GitHub"),
+        ("SQL", "Bazy: MySQL, Oracle", "MySQL"),
+        ("AML/CTF", "doświadczenie w KYC i AML w banku", "AML"),
+        ("Data Pipelines", "tworzyłem testy i pipeline’y GitHub Actions", "pipeline"),
+        ("Kotlin Multiplatform", "Język: Kotlin, Compose", "Kotlin"),
+    ],
+)
+def test_similar_in_original_finds_related_word(term, original, found):
+    similar = qc.similar_in_original(term, original)
+    assert similar is not None
+    assert similar["term"] == found
+    assert similar["quote"] in " ".join(original.split())
+
+
+@pytest.mark.parametrize(
+    ("term", "original"),
+    [
+        ("Kubernetes", "Docker, Linux"),
+        ("Java", "JavaScript, TypeScript"),
+        ("C#", "C++, Python"),
+        ("Go", "Google Cloud"),
+        ("MS Project", "Senior Project Manager"),
+        ("access control", "cooperation with contractors"),
+        ("product analytics", "Senior Product Designer"),
+        ("event-driven architecture", "Cloud Native, Event, Domain"),
+        ("SQL", "NoSQL, MongoDB"),
+        ("Git", ""),
+    ],
+)
+def test_similar_in_original_stays_quiet_without_evidence(term, original):
+    assert qc.similar_in_original(term, original) is None
+
+
+def test_similar_quote_starts_and_ends_on_whole_words():
+    original = "raporty z danymi źródłowymi; tworzyłem testy i pipeline’y GitHub Actions, potem kolejne wdrożenia."
+    quote = qc.similar_in_original("Data Pipelines", original)["quote"]
+    assert quote in original
+    assert original[original.index(quote) - 1].isspace() or original.startswith(quote)
+    after = original.index(quote) + len(quote)
+    assert after == len(original) or original[after].isspace()
+
+
+def test_no_unsupported_item_asks_instead_of_saying_it_is_not_there():
+    html = "<h1>CV</h1><ul><li><p>Budowa Data Pipelines w Python.</p></li></ul>"
+    data = _qc_input(
+        html,
+        must=_reqs("Data Pipelines"),
+        original_text="Tworzyłem pipeline’y w Python.",
+    )
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert item["similar"]["term"] == "pipeline"
+    assert "sprawdź, czy to ta sama rzecz" in item["detail"]
+    assert "nie ma tego w oryginale" not in item["detail"]
+
+
+def test_no_unsupported_without_similar_word_keeps_todays_sentence():
+    html = "<h1>CV</h1><ul><li><p>Praca z Kubernetes.</p></li></ul>"
+    data = _qc_input(html, must=_reqs("Kubernetes"), original_text="Docker i Linux.")
+    item = _by_key(qc.compute_checks(data))["no_unsupported"]["items"][0]
+    assert "similar" not in item
+    assert "nie ma tego w oryginale" in item["detail"]
+
+
+def test_gap_uses_only_name_families_not_word_stems():
+    html = "<h1>CV</h1><ul><li><p>Praca z Linux.</p></li></ul>"
+    data = _qc_input(
+        html, must=_reqs("Spring Boot"), original_text="Spring Framework, Linux."
+    )
+    info = _by_key(qc.compute_checks(data))["must_in_cv"]["info"][0]
+    assert info["fix"] == "ask_candidate" and "Luka kandydata" in info["detail"]
+
+
+def test_gap_with_related_word_is_not_counted_as_candidate_gap():
+    html = "<h1>CV</h1><ul><li><p>Praca z Linux.</p></li></ul>"
+    data = _qc_input(html, must=_reqs("Git"), original_text="Narzędzia: GitHub, Linux.")
+    info = _by_key(qc.compute_checks(data))["must_in_cv"]["info"][0]
+    assert info["fix"] is None
+    assert "GitHub" in info["detail"]
+
+
+def test_partial_read_of_original_does_not_claim_absence():
+    html = "<h1>CV</h1><ul><li><p>Praca z Kubernetes.</p></li></ul>"
+    data = _qc_input(
+        html, must=_reqs("Kubernetes"), original_text="Skan CV", original_partial=True
+    )
+    check = _by_key(qc.compute_checks(data))["no_unsupported"]
+    assert (
+        check["status"] == "manual" and "odczytano tylko 7 znaków" in check["summary"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("term", "source"),
+    [
+        ("REST APIs", "REST API testing, Swagger"),
+        ("analiza systemowa", "System analysis covering requirements"),
+        ("Testy regresyjne", "Functional Testing, Regression Testing"),
+        ("UX Research", "UX Researcher w Santander"),
+    ],
+)
+def test_confirmed_other_names_count_as_support(term, source):
+    from app.services.dz_review import Requirement, found_in
+
+    assert found_in(
+        source, Requirement(label=term, alternatives=(term,)), mode="support"
+    )
 
 
 # ── Kolejność stanowisk (16.10.2026, decyzje Artura D1–D7) ──────────────────
@@ -5319,3 +5554,329 @@ def test_abbreviation_at_sentence_end_does_not_glue_the_rate_sentence() -> None:
         "<p>Java 17. Stawka min. 140 zł/h. Spring.</p>", None, None
     )
     assert "140" not in out and "Java 17." in out and "Spring." in out
+
+
+# Miniatura zrzutu zgody przy uwadze `consent_matches` (27.10.2026).
+_CONSENT_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+
+
+@pytest.mark.asyncio
+async def test_consent_screenshot_is_served_to_qc_readers_only(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    dl_id, dl_creds = await _seed_user(UserRole.delivery_lead)
+    trainee_id, trainee_creds = await _seed_user(UserRole.trainee)
+    hor = await _login(api_client, hor_creds)
+    dl = await _login(api_client, dl_creds)
+    trainee = await _login(api_client, trainee_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    url = f"/api/pipeline/stages/{stage_id}/qc/consent-screenshot"
+    try:
+        empty = await api_client.get(url, headers=dl)
+        assert empty.status_code == 404, empty.text
+
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_consent_content = _CONSENT_PNG
+            await db.commit()
+
+        shown = await api_client.get(url, headers=dl)
+        assert shown.status_code == 200, shown.text
+        assert shown.content == _CONSENT_PNG
+        assert shown.headers["content-type"] == "image/png"
+        assert shown.headers["cache-control"] == "private, no-store"
+        assert shown.headers["x-content-type-options"] == "nosniff"
+
+        refused = await api_client.get(url, headers=trainee)
+        assert refused.status_code == 403, refused.text
+
+        # Token OAuth (scraper, n8n) ma rolę operacyjną — obraz z adresem
+        # e-mail kandydata i tak nie jest dla niego.
+        monkeypatch.setattr("app.api.cv_qc.is_integration_request", lambda _r: True)
+        integration = await api_client.get(url, headers=dl)
+        assert integration.status_code == 403, integration.text
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id, dl_id, trainee_id])
+
+
+@pytest.mark.asyncio
+async def test_consent_screenshot_that_is_not_an_image_is_not_served(
+    api_client: AsyncClient,
+) -> None:
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    hor = await _login(api_client, hor_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    try:
+        async with AsyncSessionLocal() as db:
+            csv = await db.scalar(
+                select(CandidateStageCV).where(
+                    CandidateStageCV.candidate_stage_id == stage_id
+                )
+            )
+            csv.branded_consent_content = b"<svg onload=alert(1)>"
+            await db.commit()
+        resp = await api_client.get(
+            f"/api/pipeline/stages/{stage_id}/qc/consent-screenshot", headers=hor
+        )
+        assert resp.status_code == 404, resp.text
+    finally:
+        await _cleanup_qc(world, stage_id)
+        await _cleanup(world, [hor_id])
+
+
+def test_public_cv_link_never_carries_the_consent_screenshot() -> None:
+    from app.services.cv_generator_b2b.public_view import build_public_payload
+
+    public = build_public_payload(
+        {
+            "full_name": "Anna P.",
+            "consent_screenshot": {"storage_key": "cv/zgoda.png", "_bytes": b"x"},
+        }
+    )
+    assert "consent" not in json.dumps(public, default=str)
+
+
+# ── Potwierdzenie z treścią i rolą (02.11.2026) ─────────────────────────────
+
+
+def _role_src(experience: list[dict]) -> SimpleNamespace:
+    return SimpleNamespace(
+        candidate=SimpleNamespace(
+            experience=experience, cv_extracted_data=None, has_rich_profile=False
+        ),
+        original={"text": ""},
+    )
+
+
+@pytest.mark.parametrize(
+    "text", [None, "", "   ", "potwierdził", "ma doświadczenie"[:14]]
+)
+def test_confirmation_needs_the_candidates_words(text) -> None:
+    with pytest.raises(qc.ApplyError, match="co dokładnie powiedział"):
+        qc.check_confirmation_text(text)
+
+
+def test_confirmation_counts_words_not_whitespace() -> None:
+    with pytest.raises(qc.ApplyError):
+        qc.check_confirmation_text("  a     b     c     d   \n  e   ")
+    qc.check_confirmation_text("Używał Kafki w projekcie płatności")
+
+
+def test_confirm_roles_are_the_candidates_companies_once() -> None:
+    src = _role_src(
+        [
+            {"company": "Firma A", "position": "Dev"},
+            {"company": "firma a", "position": "Senior Dev"},
+            {"company": "  Firma   B ", "position": "Dev"},
+            {"company": "", "position": "Bez firmy"},
+        ]
+    )
+    assert qc.confirm_roles(src) == ["Firma A", "Firma B"]
+
+
+def test_confirm_roles_skip_a_field_that_is_a_list_of_companies() -> None:
+    # Staging 02.11.2026: odczyt CV dał jedną „firmę” z dziesięcioma nazwami.
+    src = _role_src(
+        [
+            {
+                "company": "1. Marcel 2. Capco 3. 360 Code Lab 4. Avra",
+                "position": "Dev",
+            },
+            {"company": "Firma " + "x" * 90, "position": "Dev"},
+            {"company": "3M", "position": "Dev"},
+        ]
+    )
+    assert qc.confirm_roles(src) == ["3M"]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Samego Customer 360 nie, podobne: moduły w Salesforce.",
+        "Customer 360 not used, only similar tools.",
+        "Bez Customer 360, tylko inne moduły.",
+    ],
+)
+def test_denied_requirement_is_not_a_fact_from_the_conversation(answer: str) -> None:
+    assert qc._sentence_denies(answer, "Customer 360")
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        "Pracowałem z Customer 360 od 2020. Nie znam Iceberga.",
+        "Customer 360 używam od 2021. Iceberg? Nie.",
+    ],
+)
+def test_sentence_about_the_requirement_stays_a_fact(answer: str) -> None:
+    assert not qc._sentence_denies(answer, "Customer 360")
+
+
+def test_quote_stays_inside_one_answer() -> None:
+    answers = (
+        "Kilka lat w innej firmie.\nBudowałem kolejki na Kafce w projekcie płatności."
+    )
+    quote = qc._answer_quote(answers, "Kafce")
+    assert quote and "płatności" in quote and "innej firmie" not in quote
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [
+        "Znam Kafkę 150/120",
+        "Kafka, oczekuję 150 zł/h",
+        "Kafka 800 za dzień",
+        "Samej Kafki nie",
+    ],
+)
+def test_quote_never_carries_money_or_a_denial(answers: str) -> None:
+    assert qc._answer_quote(answers, "Kaf") is None
+
+
+def test_checked_role_accepts_only_the_candidates_company() -> None:
+    src = _role_src([{"company": "Firma A", "position": "Dev"}])
+    assert qc.checked_role(src, None) is None
+    assert qc.checked_role(src, "   ") is None
+    assert qc.checked_role(src, "firma a") == "Firma A"
+    with pytest.raises(qc.ApplyError, match="historii kandydata"):
+        qc.checked_role(src, "Obca Firma")
+
+
+async def test_role_fact_comes_from_the_answer_and_lands_in_a_named_role(
+    api_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Słowo tylko w pytaniu nie jest faktem; odpowiedź z wymaganiem spoza
+    oryginału jest, a po wskazaniu roli zostaje notatką z nazwą firmy."""
+    from app.models.candidate import Candidate
+    from app.models.job import Job
+    from app.models.note import Note
+    from app.models.recruitment_pipeline import CandidateStage
+    from app.services import note_kinds
+
+    monkeypatch.setenv("NORDEA_ORDER_NUMBER_CLIENT_IDS", "")
+    world = await _seed_world()
+    hor_id, hor_creds = await _seed_user(UserRole.head_of_recruitment)
+    rec_id, rec_creds = await _seed_user(UserRole.recruiter)
+    hor = await _login(api_client, hor_creds)
+    rec = await _login(api_client, rec_creds)
+    stage_id = await _seed_review(world, hor, api_client)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.must_skills = ["RabbitMQ", "Redis", "Terraform"]
+        candidate = await db.get(Candidate, world["candidate_id"])
+        candidate.experience = [{"company": "Firma Testowa", "position": "Dev"}]
+        stage = await db.get(CandidateStage, stage_id)
+        stage.screening_answers = {
+            "answers": [
+                {
+                    "question_id": "q1",
+                    "question_text": "Czy znasz Terraform?",
+                    "response": "Pracowałem z RabbitMQ i Redis od 2023 w projekcie płatności.",
+                }
+            ]
+        }
+        await db.commit()
+    url = f"/api/pipeline/stages/{stage_id}/qc/role-facts"
+    try:
+        with hydrated_taxonomy():
+            body = (await api_client.get(url, headers=rec)).json()
+        assert [fact["term"] for fact in body["facts"]] == ["RabbitMQ", "Redis"]
+        assert "projekcie płatności" in body["facts"][0]["quote"]
+        assert body["roles"] == ["Firma Testowa"]
+
+        with hydrated_taxonomy():
+            refused = await api_client.post(
+                url, headers=rec, json={"term": "RabbitMQ", "role": "Obca Firma"}
+            )
+            ghost = await api_client.post(
+                url, headers=rec, json={"term": "Terraform", "role": "Firma Testowa"}
+            )
+        assert refused.status_code == 422 and ghost.status_code == 422
+
+        with hydrated_taxonomy():
+            ok = await api_client.post(
+                url, headers=rec, json={"term": "RabbitMQ", "role": "Firma Testowa"}
+            )
+        assert ok.status_code == 200, ok.text
+        # Cytat notatki wymienia też Redis, ale potwierdzono tylko RabbitMQ.
+        assert [fact["term"] for fact in ok.json()["facts"]] == ["Redis"]
+        async with AsyncSessionLocal() as db:
+            note = await db.scalar(
+                select(Note).where(
+                    Note.candidate_id == world["candidate_id"],
+                    Note.external_source == note_kinds.QC_CONFIRM_SOURCE,
+                )
+            )
+        assert note.content.startswith(
+            "Potwierdzone z kandydatem: RabbitMQ (Firma Testowa) — "
+        )
+        assert note.author_id == rec_id
+    finally:
+        await _cleanup_advisory(world, stage_id, [hor_id, rec_id])
+
+
+# ── Daty stanowisk jak w oryginale (02.11.2026) ─────────────────────────
+
+ROLE_DATES_HTML = (
+    '<h2 data-cv-section="experience">Doświadczenie</h2>'
+    '<p data-cv-section="role"><b>Senior Developer</b> 03.2021 – obecnie</p>'
+    '<p data-cv-section="employer">Acme Bank</p>'
+    "<ul><li><p>Mikroserwisy płatności w Java.</p></li></ul>"
+)
+ROLE_DATES_ORIGINAL = "Senior Developer, Acme Bank 03.2021 – 05.2026. Java."
+
+
+def _role_dates(html: str, original: str) -> dict:
+    data = _qc_input(html, must=_reqs("Java"), original_text=original)
+    return _by_key(qc.compute_checks(data))["role_dates"]
+
+
+def test_role_dates_warns_when_cv_says_ongoing_and_original_has_an_end():
+    check = _role_dates(ROLE_DATES_HTML, ROLE_DATES_ORIGINAL)
+    assert check["status"] == "fail" and check["severity"] == "warning"
+    item = check["items"][0]
+    assert (item["fix"], item["role_index"]) == ("restore_dates", 0)
+    assert "05.2026" in item["detail"] and "obecnie" in item["detail"]
+    assert item["key"].startswith("role_dates|")
+
+
+def test_role_dates_passes_and_skips():
+    assert _role_dates(ROLE_DATES_HTML, "Senior Developer, Acme Bank 03.2021 – obecnie")["status"] == "pass"
+    assert _role_dates(ROLE_DATES_HTML, "")["status"] == "skip"
+    # Bez znaczników stanowisk role są zgadywane: nie zgłaszamy nic.
+    pasted = "<p>Senior Developer 03.2021 – obecnie</p><p>Acme Bank</p>"
+    assert _role_dates(pasted, ROLE_DATES_ORIGINAL)["status"] == "skip"
+
+
+def test_role_dates_warning_does_not_block_sending():
+    data = _qc_input(ROLE_DATES_HTML, must=_reqs("Java"), original_text=ROLE_DATES_ORIGINAL)
+    assert "role_dates" not in qc.BLOCKING_KEYS
+    assert "role_dates" in {c["key"] for c in qc.compute_checks(data)}
+
+
+def test_restore_dates_action_is_applied_alone_and_not_in_bulk():
+    def run(*, bulk: bool):
+        return qc.transform_html(
+            ROLE_DATES_HTML,
+            [{"action": "restore_dates", "role_index": 0}],
+            must=[],
+            nice=[],
+            fixes={},
+            experience=[],
+            bulk=bulk,
+            original_text=ROLE_DATES_ORIGINAL,
+        )
+
+    out, applied, skipped = run(bulk=False)
+    assert "03.2021 - 05.2026" in out and applied and not skipped
+    out, applied, skipped = run(bulk=True)
+    assert out == ROLE_DATES_HTML and not applied and skipped[0]["code"] == "not_in_bulk"
+

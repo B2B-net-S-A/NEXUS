@@ -14,6 +14,9 @@ Kontrakty:
   „Propozycje" z dowodami bez tekstu z CV (bez limitu, 07.10.2026); nowszy,
   kompletny przegląd wygasza (`expired`) propozycje, których już nie ma;
   awaria publikacji nie psuje przeglądu i jest domykana później;
+- najlepsze 40 (28.10.2026): mniej osób od progu = dopełnienie najlepszymi
+  spod progu do `AUTO_FULL_REVIEW_MIN_COUNT`; dzwonek i liczniki liczą tylko
+  osoby od progu, a dopełnieni nie wygasają, dopóki są w najlepszych N;
 - wyłącznik OFF = pętla nie robi nic.
 
 Baza testowa jest wspólna i nieczyszczona: asercje dotyczą własnych wierszy,
@@ -42,7 +45,17 @@ from app.models.scoring_weight_profile import ScoringWeightProfile
 from app.models.user import User, UserRole
 from app.services import auto_full_review as afr
 from app.services import candidate_search_store as store
+from app.services import request_matching_context, scoring_service
+from app.services.request_matching_context import build_request_context
+from app.services.scoring_service import resolve_active_profile
 from app.tasks import candidate_search_retention as retention
+
+
+@pytest.fixture(autouse=True)
+def _threshold_only(monkeypatch):
+    """Testy progu sprzed 28.10.2026 bez dopełniania spod progu — najlepsze N
+    mają własne testy niżej (ustawiają `AUTO_FULL_REVIEW_MIN_COUNT` same)."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 0)
 
 
 @pytest.fixture(autouse=True)
@@ -1036,6 +1049,130 @@ async def test_newer_complete_review_expires_people_it_no_longer_proposes(monkey
     assert statuses[leaves] == "proposed" and statuses[stays] == "proposed"
 
 
+async def test_best_n_tops_up_below_the_threshold_and_counts_only_from_it(
+    monkeypatch,
+):
+    """Najlepsze N (28.10.2026): mniej osób od progu → dopełnienie najlepszymi
+    spod progu; reguła „musi mieć” i pominięcia dalej obowiązują, a liczniki,
+    kafel i dzwonek liczą wyłącznie osoby od progu."""
+    from app.services import job_proposals as proposals
+
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 3)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=6)
+    top, near, lower, lowest, gap, dismissed = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        await proposals.upsert_proposals(
+            db, world["job_id"], [{"candidate_id": dismissed, "score": 50}], "full_base"
+        )
+        await proposals.dismiss(
+            db, job_id=world["job_id"], candidate_id=dismissed, user_id=owner_id
+        )
+        await db.commit()
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {top: 90, dismissed: 69, near: 66, lower: 61, lowest: 55},
+    )
+    async with AsyncSessionLocal() as db:
+        db.add(_result(run_id, gap, 68, met=False))
+        await db.commit()
+    await _publish(run_id)
+
+    # Od progu: 1 osoba; dopełnienie do 3 bez pominiętej i bez braku „musi mieć”.
+    assert await _statuses(world["job_id"]) == {
+        top: "proposed",
+        near: "proposed",
+        lower: "proposed",
+        dismissed: "dismissed",
+    }
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert run.metrics[afr.PROPOSALS_METRIC] == 3
+        rows, total = await proposals.list_for_job(db, job_id=world["job_id"])
+        counts = await proposals.open_counts_for_jobs(db, [world["job_id"]])
+        split = await proposals.open_split_counts(
+            db,
+            job_id=world["job_id"],
+            since=datetime.now(timezone.utc) - timedelta(days=7),
+        )
+        fresh = await proposals.fresh_open_pairs(
+            db,
+            since=datetime.now(timezone.utc) - timedelta(hours=1),
+            sources=("full_base", "new_cv"),
+            job_ids_subquery=[world["job_id"]],
+        )
+        top_open = await proposals.top_open_by_job(db, [world["job_id"]])
+    assert total == 3
+    assert [(r.candidate_id, r.below_threshold) for r in rows] == [
+        (top, False),
+        (near, True),
+        (lower, True),
+    ]
+    assert counts == {world["job_id"]: 1}
+    assert split == {"postings_recent": 0, "base": 1, "below_threshold": 2}
+    assert fresh == [(world["job_id"], top)]
+    assert [p.candidate_id for p in top_open] == [top]
+
+
+async def test_best_n_never_cuts_people_from_the_threshold(monkeypatch):
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=4)
+    first, second, third, below = world["candidate_ids"]
+    run_id = await _run_with(
+        world, owner_id, {first: 90, second: 85, third: 80, below: 69}
+    )
+    await _publish(run_id)
+    assert await _statuses(world["job_id"]) == {
+        first: "proposed",
+        second: "proposed",
+        third: "proposed",
+    }
+
+
+async def test_person_below_the_threshold_stays_while_in_the_best_n(monkeypatch):
+    """`expire_full_base` gasi osobę spod progu dopiero wtedy, gdy wypadła
+    z najlepszych N — nie za to, że jest poniżej progu."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_COUNT", 2)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=4)
+    top, near, newcomer, other = world["candidate_ids"]
+    now = datetime.now(timezone.utc)
+    first = await _run_with(
+        world,
+        owner_id,
+        {top: 90, near: 65, other: 50},
+        created_at=now - timedelta(days=2),
+    )
+    await _publish(first)
+    assert await _statuses(world["job_id"]) == {top: "proposed", near: "proposed"}
+
+    second = await _run_with(
+        world,
+        owner_id,
+        {top: 91, near: 64, other: 50},
+        created_at=now - timedelta(days=1),
+    )
+    await _publish(second)
+    assert await _statuses(world["job_id"]) == {top: "proposed", near: "proposed"}
+
+    # Nowa osoba od progu wypycha dopełnienie z najlepszych 2.
+    third = await _run_with(
+        world, owner_id, {top: 91, newcomer: 75, near: 64, other: 50}, created_at=now
+    )
+    await _publish(third)
+    assert await _statuses(world["job_id"]) == {
+        top: "proposed",
+        newcomer: "proposed",
+        near: "expired",
+    }
+
+
 async def test_incomplete_review_does_not_expire(monkeypatch):
     monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
     owner_id, _ = await _user()
@@ -1444,9 +1581,16 @@ async def test_third_incomplete_review_with_same_fingerprint_closes_the_topic(
         ] == "n" * 64
 
 
+async def _current_fingerprint(db, job_id: int) -> str:
+    job = await db.get(Job, job_id)
+    profile = await resolve_active_profile(db, user_id=None, client_id=job.client_id)
+    return build_request_context(job, profile).fingerprint
+
+
 async def _auto_run_at(
     world: dict, owner_id: int, created_at: datetime, versions: dict
 ) -> None:
+    """Przegląd sprzed `created_at` z dzisiejszym odciskiem: request bez zmian."""
     async with AsyncSessionLocal() as db:
         db.add(
             CandidateSearchRun(
@@ -1455,7 +1599,7 @@ async def _auto_run_at(
                 client_id=world["client_id"],
                 job_id=world["job_id"],
                 state="complete",
-                request_fingerprint=uuid.uuid4().hex * 2,
+                request_fingerprint=await _current_fingerprint(db, world["job_id"]),
                 request_context={},
                 version_trace={"origin": "auto", **versions},
                 population_size=0,
@@ -1500,3 +1644,324 @@ async def test_review_without_version_stamp_is_not_treated_as_stale():
     async with AsyncSessionLocal() as db:
         due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
     assert due.index(older["job_id"]) < due.index(unstamped["job_id"])
+
+
+async def test_request_changed_without_event_goes_first():
+    """Pomiar 02.11.2026: 8 ze 187 rekrutacji miało inny odcisk niż ostatni
+    przegląd i żadnego zdarzenia. Zapis pola spoza list zdarzeń (w 676343 kontakt
+    `hiring_manager_contact_id`) nie dawał pierwszeństwa, więc rekrutacja czekała
+    do 4 nocy na miejsce w limicie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    # Niezmieniona czeka dłużej, więc bez sprawdzenia odcisku byłaby pierwsza.
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_request_changed_after_retention_of_the_run_goes_first():
+    """Retencja kasuje przegląd po 2 dniach, odcisk zostaje we wpisie „Praca
+    w tle”. Tak było ze wszystkimi 8 rekrutacjami z pomiaru."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    async with AsyncSessionLocal() as db:
+        db.add(
+            Activity(
+                entity_type=afr.ACTIVITY_ENTITY,
+                entity_id=changed["job_id"],
+                action="auto_full_review_finished",
+                details={
+                    "run_created_at": yesterday.isoformat(),
+                    "fingerprint": await _current_fingerprint(db, changed["job_id"]),
+                },
+            )
+        )
+        job = await db.get(Job, changed["job_id"])
+        job.description = "Zmieniony opis bez zdarzenia"
+        await db.commit()
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_dictionary_edit_without_touching_the_job_goes_first():
+    """Nowy alias zmienia etykiety wymagań bez zapisu w rekrutacji: tak 28.10
+    wpis SailPoint zmienił krytyczne 789171, a pula zgadzała się potem z pełnym
+    przeglądem w 20% top 20. Żadne zdarzenie rekrutacji tego nie złapie."""
+    owner_id, _ = await _user()
+    untouched = await _job(owner_id=owner_id, event=False)
+    changed = await _job(owner_id=owner_id, event=False)
+    tag = uuid.uuid4().hex[:8]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, changed["job_id"])
+        job.must_skills = [{"name": f"Skrot{tag}", "level": None}]
+        job.champion_profile = {
+            "stack": {"must": [{"name": f"Skrot{tag}"}], "critical": [f"Skrot{tag}"]}
+        }
+        await db.commit()
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(untouched, owner_id, yesterday - timedelta(hours=20), {})
+    await _auto_run_at(changed, owner_id, yesterday, {})
+    aliases = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({**aliases, f"skrot{tag}": f"pelna nazwa {tag}"})
+    try:
+        async with AsyncSessionLocal() as db:
+            due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    finally:
+        scoring_service.set_alias_map(aliases)
+    assert due.index(changed["job_id"]) < due.index(untouched["job_id"])
+
+
+async def test_broken_request_context_does_not_stop_the_queue(monkeypatch):
+    """Rekrutacja, której kontekstu nie da się policzyć, nie blokuje nocy:
+    `start_for_job` zapisze jej awarię, a kolejka idzie dalej."""
+    owner_id, _ = await _user()
+    broken = await _job(owner_id=owner_id, event=False)
+    other = await _job(owner_id=owner_id, event=False)
+    yesterday = _at(2) - timedelta(days=1)
+    await _auto_run_at(broken, owner_id, yesterday, {})
+    await _auto_run_at(other, owner_id, yesterday, {})
+
+    def _boom(job, profile):
+        if job.id == broken["job_id"]:
+            raise ValueError("zepsuty request")
+        return build_request_context(job, profile)
+
+    monkeypatch.setattr(request_matching_context, "build_request_context", _boom)
+    async with AsyncSessionLocal() as db:
+        due = await afr.pending_job_ids(db, now=_tonight_at(2), limit=10_000)
+    assert broken["job_id"] in due and other["job_id"] in due
+
+
+# ── Inna rola niż rekrutacja (27.10.2026) ──────────────────────────────────
+
+
+def _role_result(run_id, cid, score, *, met: int, total: int):
+    return CandidateSearchResult(
+        run_id=run_id,
+        candidate_id=cid,
+        candidate_version="v",
+        state="evaluated",
+        eligible=True,
+        fit_score=score,
+        measurement="measured",
+        evidence={
+            "requirements": [
+                {
+                    "id": f"req-{i}",
+                    "level": "must",
+                    "status": "met" if i < met else "unknown",
+                    "any_of": [f"Skill {i}"],
+                }
+                for i in range(total)
+            ],
+        },
+        exclusion_reasons=[],
+    )
+
+
+async def test_tester_is_not_proposed_for_a_developer_job(monkeypatch):
+    """Zgłoszenie DL-a: Senior QA Automation z 77% przy „Full Stack Developer”.
+    Tester bez większości „musi mieć” nie trafia do propozycji; tester z 8/10
+    zostaje propozycją z oznaczeniem. Do puli dopełniania „Nowych” inna rola nie
+    wchodzi wcale (29.10.2026): karta stamtąd ląduje na tablicy bez człowieka."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 70.0)
+    monkeypatch.setattr(settings, "AUTO_MATCH_REQUIRE_MUST", True)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=3)
+    developer, weak_tester, strong_tester = world["candidate_ids"]
+    positions = {
+        developer: "Full Stack Developer",
+        weak_tester: "Senior QA Automation Engineer",
+        strong_tester: "QA Engineer",
+    }
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"Full Stack Developer (Java, Angular) {uuid.uuid4().hex[:6]}"
+        for cid, position in positions.items():
+            (await db.get(Candidate, cid)).cv_extracted_data = {
+                "current_position": position
+            }
+        await db.commit()
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [
+            lambda r: _role_result(r, developer, 81, met=6, total=10),
+            lambda r: _role_result(r, weak_tester, 77, met=5, total=10),
+            lambda r: _role_result(r, strong_tester, 75, met=8, total=10),
+        ],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        await afr.publish_run_proposals(db, run)
+        await afr.refresh_autofill_pool(db, run)
+        await db.commit()
+
+    proposed = {p.candidate_id for p in await _proposals(world["job_id"])}
+    assert proposed == {developer, strong_tester}
+    pooled = {p.candidate_id for p in await _pool(world["job_id"])}
+    assert pooled == {developer}
+
+
+async def test_analyst_with_a_tool_list_is_not_pooled_for_devsecops(monkeypatch):
+    """Zgłoszenie rekrutera 29.10.2026: analityk systemowy z 20-letnim stażem
+    w „Nowych” rekrutacji „DevSecOps - inżynier” z 68% — lista technologii
+    architekta dała 7 z 8 „musi mieć”. Słowo „DevSecOps” nie było rozpoznane
+    jako DevOps, więc nic nie porównywało roli, a wyjątek 80% i tak by go
+    przepuścił."""
+    monkeypatch.setattr(settings, "AUTO_FULL_REVIEW_MIN_SCORE", 60.0)
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=2)
+    devops, analyst = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"DevSecOps - inżynier (ZOB-{uuid.uuid4().hex[:6]})"
+        (await db.get(Candidate, devops)).cv_extracted_data = {
+            "current_position": "DevOps Engineer"
+        }
+        (await db.get(Candidate, analyst)).cv_extracted_data = {
+            "current_position": "Analityk Systemowy"
+        }
+        await db.commit()
+    run_id = await _auto_run_with_rows(
+        world,
+        owner_id,
+        [
+            lambda r: _role_result(r, devops, 74, met=7, total=8),
+            lambda r: _role_result(r, analyst, 68, met=7, total=8),
+        ],
+    )
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        await afr.refresh_autofill_pool(db, run)
+        await db.commit()
+
+    pooled = {p.candidate_id for p in await _pool(world["job_id"])}
+    assert pooled == {devops}
+
+
+async def _developer_job_with_ranked_roles(owner_id, positions: list[str]) -> tuple:
+    """Rekrutacja programistyczna i przegląd: pierwsza pozycja ma najlepszy wynik."""
+    world = await _job(owner_id=owner_id, event=False, people=len(positions))
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.title = f"Python Developer {uuid.uuid4().hex[:6]}"
+        for cid, position in zip(world["candidate_ids"], positions):
+            (await db.get(Candidate, cid)).cv_extracted_data = {
+                "current_position": position
+            }
+        await db.commit()
+    run_id = await _run_with(
+        world,
+        owner_id,
+        {cid: 90 - i for i, cid in enumerate(world["candidate_ids"])},
+    )
+    return world, run_id
+
+
+async def test_pool_keeps_filling_past_people_from_another_role(monkeypatch):
+    """Pomiar 02.11.2026: w „Python Developer” czołówkę zajęli testerzy
+    automatyzujący i z 65 tys. ocenionych osób w puli zostało 13, więc silnik
+    nie miał z czego utrzymać 20 kart. Pula dobiera dalej, aż ma komplet po
+    odrzuceniu innej roli — dalej nikogo z innej roli nie wpuszcza."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Test Automation Engineer",
+            "Python Developer",
+            "Senior QA Engineer",
+            "Software Engineer",
+            "Software Tester",
+            "Backend Developer",
+            "Full Stack Developer",
+        ],
+    )
+    _, _, first, _, second, _, third, _ = world["candidate_ids"]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 3
+        await db.commit()
+
+    pool = await _pool(world["job_id"])
+    assert [p.candidate_id for p in pool] == [first, second, third]
+
+
+async def test_pool_stops_at_the_scan_limit_with_what_it_found(monkeypatch):
+    """Górny limit przeglądanych wierszy: rekrutacja bez dość osób z tej roli
+    nie czyta całej bazy w transakcji kończącej przegląd."""
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SIZE", 3)
+    monkeypatch.setattr(afr, "_POOL_PAGE", 2)
+    monkeypatch.setattr(afr, "AUTOFILL_POOL_SCAN_LIMIT", 4)
+    owner_id, _ = await _user()
+    world, run_id = await _developer_job_with_ranked_roles(
+        owner_id,
+        [
+            "QA Engineer",
+            "Python Developer",
+            "Test Automation Engineer",
+            "Senior QA Engineer",
+            "Software Engineer",
+        ],
+    )
+    within_limit = world["candidate_ids"][1]
+
+    async with AsyncSessionLocal() as db:
+        run = await db.get(CandidateSearchRun, run_id)
+        assert await afr.refresh_autofill_pool(db, run) == 1
+        await db.commit()
+
+    assert [p.candidate_id for p in await _pool(world["job_id"])] == [within_limit]
+
+
+async def test_role_history_skips_cards_the_engine_placed_itself():
+    """Karty „Nowych” wstawione przez system (`entry_source = "system"`) to nie
+    decyzja człowieka — jak karty scrapera nie mówią, kim osoba jest. Bez tego
+    silnik utwierdzałby się we własnych wyborach."""
+    from app.models.recruitment_process import RecruitmentProcess
+    from app.services.role_family import history_titles
+
+    owner_id, _ = await _user()
+    world = await _job(owner_id=owner_id, event=False, people=1)
+    (candidate_id,) = world["candidate_ids"]
+    async with AsyncSessionLocal() as db:
+        jobs = []
+        for title, source in (
+            ("Analityk Systemowy (ZOB-1)", "proposal"),
+            ("Tester (ZOB-2)", "system"),
+            ("Tester (ZOB-3)", "auto_match"),
+        ):
+            job = Job(
+                title=title,
+                client_id=world["client_id"],
+                status=JobStatus.published,
+                recruiter_id=owner_id,
+            )
+            db.add(job)
+            await db.flush()
+            jobs.append(job)
+            db.add(
+                RecruitmentProcess(
+                    candidate_id=candidate_id, job_id=job.id, entry_source=source
+                )
+            )
+        await db.commit()
+        titles = await history_titles(db, [candidate_id])
+
+    assert titles == {candidate_id: ["Analityk Systemowy (ZOB-1)"]}

@@ -24,6 +24,7 @@ import pytest
 
 from app.models.m365 import M365SyncStatus
 from app.services.m365 import sync as sync_mod
+from app.services.m365.access import CANDIDATE_SCOPE
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,7 +119,7 @@ def _three_pages() -> list[dict]:
 
 
 def _upsert_failing_on(bad_ids: set[str]):
-    async def _fake_upsert(db, gc, conn, msg, folder):  # noqa: ANN001 - atrapa
+    async def _fake_upsert(db, gc, conn, msg, folder, **_kwargs):  # noqa: ANN001 - atrapa
         if msg["id"] in bad_ids:
             raise RuntimeError(f"cannot ingest {msg['id']}")
         return SimpleNamespace(id=msg["id"])
@@ -254,7 +255,7 @@ def _event_pages() -> list[dict]:
 
 
 def _upsert_event_failing_on(bad_ids: set[str]):
-    async def _fake_upsert(db, conn, ev):  # noqa: ANN001 - atrapa
+    async def _fake_upsert(db, conn, ev, **_kwargs):  # noqa: ANN001 - atrapa
         if ev["id"] in bad_ids:
             raise RuntimeError(f"cannot ingest {ev['id']}")
         return True
@@ -289,7 +290,7 @@ async def test_clean_events_run_advances_events_cursor(monkeypatch):
 
 
 class _NoopGraphClient:
-    def __init__(self, conn, db):  # noqa: D107 — atrapa
+    def __init__(self, conn, db, **_kwargs):  # noqa: D107 — atrapa
         pass
 
     async def __aenter__(self):
@@ -305,13 +306,13 @@ def _bare_sync_connection(monkeypatch):
     `test_m365_sync_single_flight.py`."""
     monkeypatch.setattr(sync_mod, "_sync_locks", {})
 
-    async def _eligible(_db, _conn):
-        return True
+    async def _scope(_db, _conn):
+        return CANDIDATE_SCOPE
 
-    monkeypatch.setattr(sync_mod, "connection_owner_is_eligible", _eligible)
+    monkeypatch.setattr(sync_mod, "connection_mailbox_scope", _scope)
     monkeypatch.setattr(sync_mod, "GraphClient", _NoopGraphClient)
 
-    async def _noop_events(db, gc, conn, result):
+    async def _noop_events(db, gc, conn, result, **_kwargs):
         return None
 
     monkeypatch.setattr(sync_mod, "_sync_events", _noop_events)
@@ -320,7 +321,7 @@ def _bare_sync_connection(monkeypatch):
 async def test_run_with_import_errors_ends_in_error_status(
     _bare_sync_connection, monkeypatch
 ):
-    async def _messages_with_errors(db, gc, conn, result):
+    async def _messages_with_errors(db, gc, conn, result, **_kwargs):
         result.messages_ingested += 4
         result.errors += 3
         result.error_samples.append("msg: RuntimeError('cannot ingest m-3')")
@@ -342,7 +343,7 @@ async def test_run_with_import_errors_ends_in_error_status(
 
 
 async def test_clean_run_ends_in_idle_status(_bare_sync_connection, monkeypatch):
-    async def _clean_messages(db, gc, conn, result):
+    async def _clean_messages(db, gc, conn, result, **_kwargs):
         result.messages_ingested += 4
 
     monkeypatch.setattr(sync_mod, "_sync_messages", _clean_messages)

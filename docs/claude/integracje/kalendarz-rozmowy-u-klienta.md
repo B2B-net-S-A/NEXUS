@@ -78,3 +78,18 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   20.10.2026): `candidate_phone` obok `candidate_email` w `PairInfo`, za tą
   samą bramką odczytu kandydatów; numer = `tel:`, e-mail = `mailto:`,
   „Kopiuj oba”. Bez obu linii nie ma (`CandidateContactLine`).
+- **Twórca wydarzenia zostaje jego właścicielem** także wtedy, gdy otwarte
+  wydarzenie ma innego `operational_owner_id` (`user_owns_event`). DL zakłada
+  rozmowę u klienta z rekruterem jako właścicielem i poprawia termin, gdy
+  klient go przesunie; od #1390 do 29.10.2026 edycja kończyła się 404
+  „Wydarzenie nie znalezione”, choć lista pokazywała DL-owi ten wpis.
+  Zastępca widzi tylko otwarte wydarzenia osoby, którą zastępuje — to bez zmian.
+- **Dwa wpisy rozmowy o tej samej godzinie to jedna runda** (zgłoszenie
+  03.11.2026): rozmowa wpisana przy ruchu karty, a chwilę później wniosek o ten
+  sam termin dawały parze dwa wiersze `client_interview`. Do startu ekran był
+  poprawny, a po starcie Prep i Prep 2 świeciły „pominięte”, bo „poprzednia
+  runda” kończyła się o tej samej godzinie. Granice rundy liczą
+  `interview_cycle.preps_of_round` i `late_preps_of_round` (ekran i API integracji),
+  a potwierdzenie wniosku odwołuje wpis o tej samej godzinie
+  (`interview_slots._cancel_same_hour_entries`). Spotkania z Outlooka
+  z uczestnikami zostają, jak przy przełożeniu (`replaceable_interviews`).

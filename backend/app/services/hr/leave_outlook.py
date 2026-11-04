@@ -89,7 +89,7 @@ def note_for(start: date, end: date, *, reported: bool) -> str:
     if reported:
         return (
             f"Wykryte z autoodpowiedzi w Outlooku ({span}) — zgłoszenie przyjęte; "
-            "jeśli się nie zgadza, anuluje je osoba albo Kadry."
+            "jeśli się nie zgadza, anuluje je osoba albo Administracja współpracy."
         )
     return (
         f"Wykryte z autoodpowiedzi w Outlooku ({span}) — sprawdź i zatwierdź "

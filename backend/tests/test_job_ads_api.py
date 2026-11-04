@@ -500,6 +500,45 @@ async def test_edit_rejects_too_many_items_instead_of_trimming(
         headers=headers,
     )
     assert resp.status_code == 422
+    assert "najwyżej 6" in resp.json()["detail"]
+
+
+async def test_pasted_offer_list_keeps_only_the_own_points(
+    api: AsyncClient, monkeypatch
+):
+    """Zgłoszenie 28.10.2026: wklejona cała lista z karty (warunki + stały blok
+    + własny punkt) dawała 422 po angielsku. Kopie tego, co ogłoszenie dokłada
+    samo, nie liczą się do limitu i nie zapisują się drugi raz."""
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    blocks = fixed_blocks.DEFAULTS
+    card = next(
+        f
+        for f in (
+            await api.get(f"/api/jobs/{job_id}/portal-ad", headers=headers)
+        ).json()["rendered"]["pracuj"]["fields"]
+        if f["key"] == "offer"
+    )
+    pasted = [*card["items"], "praca przy dużym projekcie"]
+    assert len(pasted) > 6
+    resp = await api.put(
+        f"/api/jobs/{job_id}/portal-ad",
+        json={
+            "content": {
+                **ad["content"],
+                "offer": pasted,
+                "offer_hidden": [blocks.pl.offer[0]],
+            },
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["ad"]["content"]["offer"] == ["praca przy dużym projekcie"]
+    offer = next(f for f in body["rendered"]["pracuj"]["fields"] if f["key"] == "offer")
+    assert offer["hidden_fixed"] == [blocks.pl.offer[0]]
+    assert blocks.pl.offer[0] not in offer["items"]
 
 
 # ── Oznaczenie publikacji (0432) ────────────────────────────────────────────
@@ -746,6 +785,9 @@ async def test_publish_career_page_from_the_ad_goes_live_with_own_link(
         "Czym się zajmiesz: rozwój mikroserwisów w Javie; przeglądy kodu."
         in job["about"]
     )
+    # „Wymagane” = punkty ogłoszenia, nie słowa do szukania (29.10.2026).
+    assert job["must"] == [{"name": _MODEL_REPLY["requirements"][0], "note": None}]
+    assert job["nice"] == _MODEL_REPLY["nice_to_have"]
 
     # Opis w oknie „Udostępnij” to ta sama treść — zatwierdzona.
     profile = await api.get(f"/api/jobs/{job_id}/public-profile", headers=headers)
@@ -787,6 +829,54 @@ async def test_changed_ad_marks_the_career_page_outdated_until_republished(
     assert again.json()["career"]["url"] == url
     page = await api.get(f"/api/public/career/r/{slug}")
     assert page.json()["job"]["subtitle"] == "Nowy wstęp do ogłoszenia"
+
+
+async def test_changed_ad_requirements_mark_the_career_page_outdated(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    published = await api.post(f"{base}/career", json={}, headers=headers)
+    slug = published.json()["career"]["url"].rstrip("/").rsplit("/", 1)[-1]
+
+    point = "Doświadczenie w zarządzaniu projektami w sektorze bankowym"
+    edited = await api.put(
+        base,
+        json={
+            "content": {**ad["content"], "requirements": [point]},
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    assert edited.json()["career"]["status"] == "outdated"
+
+    again = await api.post(f"{base}/career", json={}, headers=headers)
+    assert again.json()["career"]["status"] == "live"
+    page = await api.get(f"/api/public/career/r/{slug}")
+    assert page.json()["job"]["must"] == [{"name": point, "note": None}]
+
+
+async def test_career_page_refuses_internal_code_in_ad_requirements(
+    api: AsyncClient, monkeypatch
+):
+    _, headers, job_id = await _owner_with_job(api)
+    ad = await _generated(api, headers, job_id, monkeypatch)
+    base = f"/api/jobs/{job_id}/portal-ad"
+    await api.put(
+        base,
+        json={
+            "content": {
+                **ad["content"],
+                "requirements": ["Doświadczenie z RITM0866775"],
+            },
+            "tech": ad["tech"],
+        },
+        headers=headers,
+    )
+    internal = await api.post(f"{base}/career", json={}, headers=headers)
+    assert internal.status_code == 422, internal.text
+    assert internal.json()["detail"]["code"] == "PUBLIC_PROFILE_FINDINGS"
 
 
 async def test_career_page_refuses_blocked_stale_or_internal_content(

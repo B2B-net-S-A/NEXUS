@@ -34,19 +34,35 @@ import {
   SIGNATURE_LABELS,
   formatPln,
 } from "./equipment-format";
+import { ProtocolCorrectionDialog } from "./ProtocolCorrectionDialog";
 import { ProtocolDownloads } from "./ProtocolDownloads";
 import { ProtocolLinkBox } from "./ProtocolLinkBox";
+import { useProtocolQuickActions } from "./useProtocolQuickActions";
 
 type PaperMethod = "papier" | "profil_zaufany";
 
-/** Protokół: pozycje, link do podpisu, skan podpisanego pliku i potwierdzenie przez człowieka. */
-export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; onClose: () => void }) {
+/**
+ * Protokół: pozycje, link do podpisu, skan podpisanego pliku i potwierdzenie przez człowieka.
+ * Przed podpisem „Popraw” (z anulowaniem w stopce), podpisany — „Anuluj protokół…”
+ * (decyzja 28.10.2026). `startCorrecting` otwiera poprawkę od razu (⋯ na liście).
+ */
+export function ProtocolDialog({
+  protocolId,
+  onClose,
+  startCorrecting = false,
+}: {
+  protocolId: number;
+  onClose: () => void;
+  startCorrecting?: boolean;
+}) {
   const { showToast } = useToast();
   const detail = useProtocol(protocolId);
   const link = useCreateProtocolLink();
   const upload = useUploadSignedProtocol();
   const confirm = useConfirmProtocol();
   const { askConfirm, confirmDialog } = useConfirmV2();
+  const quick = useProtocolQuickActions();
+  const [correcting, setCorrecting] = useState(startCorrecting);
   const [linkUrl, setLinkUrl] = useState<string | null>(null);
   const [method, setMethod] = useState<PaperMethod>("papier");
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +120,25 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
     );
   };
 
+  const afterCorrection = ({ linkRevoked }: { linkRevoked: boolean }) => {
+    setCorrecting(false);
+    showToast("Poprawki zapisane", "success");
+    if (!protocol || !linkRevoked) return;
+    // Stary link przestał działać — nowy od razu, recepcja wysyła go ponownie.
+    link.mutate(protocol.id, {
+      onSuccess: (data) => setLinkUrl(data.url),
+      onError: fail("Poprawki zapisane, ale nowego linku nie udało się utworzyć."),
+    });
+  };
+
+  const cancelThis = () => {
+    if (!protocol) return;
+    void quick.cancelProtocol(protocol, () => {
+      setCorrecting(false);
+      setLinkUrl(null);
+    });
+  };
+
   const downloadSigned = async () => {
     if (!protocol) return;
     try {
@@ -126,7 +161,21 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
           : undefined
       }
       size="lg"
-      footer={<Button onClick={onClose}>Zamknij</Button>}
+      footer={
+        <>
+          {protocol?.status === "podpisany" ? (
+            <Button
+              variant="ghost"
+              className="text-destructive hover:bg-destructive/10 sm:mr-auto"
+              onClick={cancelThis}
+              disabled={quick.busy}
+            >
+              Anuluj protokół…
+            </Button>
+          ) : null}
+          <Button onClick={onClose}>Zamknij</Button>
+        </>
+      }
     >
       {state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
@@ -147,7 +196,23 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
               {protocol.signed_at ? ` · ${formatIsoDatePl(protocol.signed_at)}` : ""}
             </span>
             <span className="text-xs text-muted-foreground">Wydał(a): {protocol.issuer_name}</span>
+            {protocol.status === "oczekuje" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="ml-auto"
+                onClick={() => setCorrecting(true)}
+              >
+                Popraw
+              </Button>
+            ) : null}
           </div>
+          {protocol.status === "anulowany" && protocol.cancel_reason ? (
+            <p className="text-xs text-muted-foreground">
+              Anulowany
+              {protocol.cancelled_at ? ` ${formatIsoDatePl(protocol.cancelled_at)}` : ""}: {protocol.cancel_reason}
+            </p>
+          ) : null}
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground">
               <tr>
@@ -255,6 +320,15 @@ export function ProtocolDialog({ protocolId, onClose }: { protocolId: number; on
         </div>
       )}
       {confirmDialog}
+      {quick.dialogs}
+      {correcting && protocol?.status === "oczekuje" ? (
+        <ProtocolCorrectionDialog
+          protocol={protocol}
+          onClose={() => setCorrecting(false)}
+          onSaved={afterCorrection}
+          onCancelProtocol={cancelThis}
+        />
+      ) : null}
     </AppModal>
   );
 }

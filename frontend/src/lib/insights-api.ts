@@ -245,6 +245,36 @@ export interface InviteLinkChannel {
   last_used_at: string | null;
 }
 
+/** Linki na osobę: `visits` w okresie (zapis dzienny), `visits_total` od początku. */
+export interface LinkPeopleRow {
+  user_id: number;
+  name: string;
+  general_link: boolean;
+  job_links: number;
+  visits: number;
+  visits_total: number;
+  applications_general: number;
+  applications_job: number;
+  new_candidates: number;
+  in_process: number;
+  cv_sent: number;
+  hired: number;
+}
+
+export interface LinkPeopleResponse {
+  period: InsightsPeriod;
+  rows: LinkPeopleRow[];
+  totals: {
+    links: number;
+    links_without_visits: number;
+    visits_total: number;
+    visits: number;
+    applications: number;
+  };
+  /** Pierwszy dzień z zapisanymi wejściami; starszych dat nie ma. */
+  visits_tracked_from: string | null;
+}
+
 export interface InviteLinksResponse {
   period: InsightsPeriod;
   channels: InviteLinkChannel[];
@@ -307,6 +337,79 @@ export interface InsightsHiringManagersResponse {
 export interface AvailablePeriodsResponse {
   granularity: "week" | "month" | "quarter";
   periods: Array<{ start: string; milestones: number }>;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zakładka „Źródła” — `/api/insights/sources*` (decyzja Artura 03.11.2026).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type SourceMetric =
+  | "people"
+  | "applications"
+  | "fresh"
+  | "known"
+  | "in_process"
+  | "verified"
+  | "cv_sent"
+  | "hired";
+
+export type SourceCounts = Record<SourceMetric, number>;
+
+export type SourceKey = "pracuj" | "jjit" | "link_general" | "link_job";
+
+export interface SourceRow extends SourceCounts {
+  source: SourceKey;
+  label: string;
+}
+
+export interface SourcesResponse {
+  period: InsightsPeriod;
+  /** Początek liczenia: okno przycięte do 12.10.2026. */
+  counted_from: string;
+  portals: SourceRow[];
+  portals_total: SourceCounts;
+  career: SourceRow[];
+  career_total: SourceCounts;
+  new_candidates_total: number;
+  new_candidates_without_source: number;
+}
+
+export interface SourceOffersResponse {
+  total: number;
+  rows: Array<SourceCounts & { offer: string }>;
+}
+
+export interface SourceLinksResponse {
+  rows: Array<SourceCounts & { key: number | null; label: string }>;
+}
+
+export interface SourcePeopleFilter {
+  source: SourceKey;
+  metric: SourceMetric;
+  offer?: string;
+  owner_id?: number;
+  job_id?: number;
+}
+
+export interface SourcePerson {
+  candidate_id: number;
+  name: string;
+  applied_at: string;
+  applications: number;
+  offer: string | null;
+  link_owner: string | null;
+  link_job_id: number | null;
+  link_job_title: string | null;
+  stage: string | null;
+  job_id: number | null;
+  job_title: string | null;
+}
+
+export interface SourcePeopleResponse {
+  total: number;
+  /** Zgłoszenia osób z listy: na portalu jedna osoba ma ich kilka. */
+  total_applications: number;
+  rows: SourcePerson[];
 }
 
 function periodQuery(p: InsightsPeriodParams): Record<string, string | number> {
@@ -517,6 +620,40 @@ export const insightsApi = {
           ...periodQuery(p),
           ...(p.limit ? { limit: p.limit } : {}),
         },
+      })
+      .then((r) => r.data),
+
+  /** Kto co przyniósł z linków. Trasa dla admina, Head of Recruitment i Delivery Leada. */
+  sources: (p: InsightsPeriodParams) =>
+    api
+      .get<SourcesResponse>("/api/insights/sources", { params: periodQuery(p) })
+      .then((r) => r.data),
+
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    api
+      .get<SourceOffersResponse>("/api/insights/sources/offers", {
+        params: { ...periodQuery(p), source, limit },
+      })
+      .then((r) => r.data),
+
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    api
+      .get<SourceLinksResponse>("/api/insights/sources/links", {
+        params: { ...periodQuery(p), source },
+      })
+      .then((r) => r.data),
+
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    api
+      .get<SourcePeopleResponse>("/api/insights/sources/people", {
+        params: { ...periodQuery(p), ...filter, limit },
+      })
+      .then((r) => r.data),
+
+  linkPeople: (p: InsightsPeriodParams) =>
+    api
+      .get<LinkPeopleResponse>("/api/insights/recruitment/link-people", {
+        params: periodQuery(p),
       })
       .then((r) => r.data),
 
@@ -1069,6 +1206,15 @@ export const insightsQueryKeys = {
     ["insights", "recruitment", "team-activity", p, limit ?? null] as const,
   inviteLinks: (p: InsightsPeriodParams) =>
     ["insights", "recruitment", "invite-links", p] as const,
+  linkPeople: (p: InsightsPeriodParams) =>
+    ["insights", "recruitment", "link-people", p] as const,
+  sources: (p: InsightsPeriodParams) => ["insights", "sources", p] as const,
+  sourceOffers: (p: InsightsPeriodParams, source: SourceKey, limit: number) =>
+    ["insights", "sources", "offers", p, source, limit] as const,
+  sourceLinks: (p: InsightsPeriodParams, source: SourceKey) =>
+    ["insights", "sources", "links", p, source] as const,
+  sourcePeople: (p: InsightsPeriodParams, filter: SourcePeopleFilter, limit: number) =>
+    ["insights", "sources", "people", p, filter, limit] as const,
   hiringManagers: (p: InsightsPeriodParams) =>
     ["insights", "clients", "hiring-managers", p] as const,
   // Siatka rok-do-roku NIE zależy od paska okresu — patrzy na pełne lata

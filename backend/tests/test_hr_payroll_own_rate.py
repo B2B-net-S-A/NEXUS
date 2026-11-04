@@ -22,7 +22,7 @@ def test_own_rate_is_refused_for_payroll_without_admin() -> None:
         ensure_not_own_rate(7, actor_id=7, actor_is_admin=False)
     assert refused.value.status_code == 403
     assert refused.value.message == OWN_RATE_SET_DETAIL
-    assert "druga osoba z Płac albo administrator" in OWN_RATE_SET_DETAIL
+    assert "druga osoba z Rozliczeń albo administrator" in OWN_RATE_SET_DETAIL
 
 
 def test_own_rate_delete_has_its_own_sentence() -> None:

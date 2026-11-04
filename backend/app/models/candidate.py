@@ -120,7 +120,7 @@ class Candidate(Base, TimestampMixin):
     linkedin: Mapped[Optional[str]] = mapped_column(String(500))
     # PG-side STORED generated column (migration 0106). Indexed for fast
     # O(log n) dedup in `find_candidate_duplicates` and the Chrome extension's
-    # `POST /api/candidates/from-linkedin` endpoint. App code is READ-ONLY —
+    # `POST /api/extension/candidates` endpoint. App code is READ-ONLY —
     # SQLAlchemy must NEVER emit linkedin_slug in INSERT/UPDATE statements
     # (PG raises `cannot insert a non-DEFAULT value into column`). We achieve
     # that by combining: (a) Computed() so Alembic-aware tooling treats it as

@@ -47,17 +47,17 @@ type State = (typeof STATE_KEYS)[number];
 const STATES = [
   { key: "b2b", label: "B2B: do faktury" },
   { key: "mandate", label: "Zlecenie: rozliczenie" },
-  { key: "queue", label: "Płace: kolejka" },
-  { key: "mismatch", label: "Płace: rozbieżność", href: "?state=mismatch&settlement=5003" },
-  { key: "billing", label: "Kadry: dane do rozliczeń" },
+  { key: "queue", label: "Rozliczenia: kolejka" },
+  { key: "mismatch", label: "Rozliczenia: rozbieżność", href: "?state=mismatch&settlement=5003" },
+  { key: "billing", label: "Administracja współpracy: dane do rozliczeń" },
 ] as const;
 
 const NOTES: Record<State, string> = {
   b2b: "Dane fikcyjne, bez zapytań. Ogląda Ola na B2B — faktura zgodna, czeka na termin.",
   mandate: "Dane fikcyjne, bez zapytań. Ogląda Ewa na zleceniu — rozliczenie z potwierdzenia godzin.",
-  queue: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Płace.",
-  mismatch: "Dane fikcyjne, bez zapytań. Faktura wyższa o 120,00 zł — decyzja Płac z drugą osobą.",
-  billing: "Dane fikcyjne, bez zapytań. Ogląda Kadry; przełożony i zespół tej sekcji nie widzą.",
+  queue: "Dane fikcyjne, bez zapytań. Ogląda Finanse z uprawnieniem Rozliczenia.",
+  mismatch: "Dane fikcyjne, bez zapytań. Faktura wyższa o 120,00 zł — decyzja Rozliczeń z drugą osobą.",
+  billing: "Dane fikcyjne, bez zapytań. Ogląda Administracja współpracy; koordynator i zespół tej sekcji nie widzą.",
 };
 
 function settlementsConfig(me: Partial<HrConfig["me"]> = {}): HrConfig {

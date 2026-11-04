@@ -174,6 +174,14 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     znika razem z odpowiedzią (`evidence_note_text`, słownik
     `_NEGATIVE_ANSWER_RE`; „podstawy”, „słabo” to wciąż znajomość). Ten sam
     tekst czytają statystyki podpowiedzi (`critical_skills.compute_stats`).
+  - 28.10.2026 (zgłoszenie DL-a: „✓ angular” u osoby, która go nie zna):
+    w karcie i faktach ze screeningu odpada też każde zdanie albo jego część
+    po „ale / natomiast / za to / but” (`drop_negative_sentences`), która
+    przeczy albo mówi o chęci nauki („open to learning”, „chce się nauczyć”),
+    a z nagłówka „Frontend (React / Angular)” zostają tylko pozycje, które
+    wymienia treść pod nim (`_prune_heading_lists`). Zwykłe notatki bez zmian.
+    Staging 22.10: 338 z 79 242 par notatka × must przestaje być dowodem
+    (228 z 16 034 kart), 86 wraca (tekst zamiast znaczników HTML).
   - „Tylko zdalnie” z notatek ukrywa wyłącznie przy pracy stacjonarnej, od
     4 dni w biurze albo przy jawnym `exclude_remote_only`
     (`DealbreakerInputs.remote_only_hides`); przy hybrydzie wiersz niesie
@@ -210,3 +218,44 @@ wysłał do klienta, budżet — 32%, dni w biurze — 8%. Decyzje Artura 30.09.
     płatności robiła), i angielskiego rdzenia zamiast liczby mnogiej: „payment*”, nie
     „payments”. Walidacja słów przepuszcza oba bez zmian w kodzie; wiersze sprzed v12
     poprawia DL w Profilu Championa.
+
+## Statystyki podpowiedzi bez rozmowy wewnętrznej (decyzja Artura 02.11.2026)
+
+„Wysłani” w `compute_stats` to `cv_sent`, `client_interview`, `acceptance`, `hired`,
+ten sam zbiór co `SENT_TO_CLIENT_STAGES` w `api/jobs.py` (pilnuje test). Etap `interview`
+to rozmowa wewnętrzna przed wysyłką; widok `analytics_first_milestones` go niesie, bo
+czytają go Insights, więc nie wracaj do niego w tej statystyce.
+
+Pomiar na kopii z 02.11: 245 z 22 610 par miało tylko `interview`, 124 z nich odrzucono,
+żadna nie doszła do klienta. Próg 90% przekroczyły dwie technologie: Angular
+z 90,29% na 89,95% (wypada), BPMN z 89,31% na 91,27% (wchodzi). Podpowiedź zmieniła się
+w 5 z 98 otwartych rekrutacji bez decyzji Delivery Leada, wysłani ukryci: 0 przed i po.
+Rekrutacja z Angularem w tytule bez wyboru DL-a nie ma już na nim bramki, a Angular
+jest 0,05 pkt pod progiem: to skutek przyjęty przy decyzji, nie błąd do naprawy progiem.
+Nowe liczby wchodzą przy cotygodniowym przeliczeniu, `STATS_VERSION` bez zmian.
+
+## Ocena „musi mieć” a bramka (02.11.2026)
+
+Bramka ukrywa tylko po krytycznych, ale ocena („musi mieć X/Y”, warstwa umiejętności)
+czyta wszystkie wiersze. Analiza 198 wysłanych osób: gdy silnik mówił „brak”, model
+czytający CV znajdował to w 31% przypadków.
+
+- **Każdy wiersz „musi mieć” liczy swoje warianty** (`critical_skills.must_evidence_options`).
+  Wymaganie spoza słownika szuka samego siebie („Agile”, „Change management”).
+- **Bramka tego nie czyta:** w `dealbreaker_inputs_for_job` etykiety z `must` mają
+  wyłącznie swoje słowa. Podpowiedź z historii dalej nie dostaje słów wiersza.
+- **Zamrożone żądanie niesie te słowa poza odciskiem**
+  (`request_matching_context`, `job_data["must_evidence_options"]`, dopisane po
+  policzeniu odcisku). Profil w żądaniu nie ma `stack.rows`, więc bez tego ocena na
+  karcie i pełny przegląd liczyły samą etykietę, inaczej niż ekran Championa. Inny
+  wariant słowa nie jest zmianą wymagań: odcisk zostaje, gotowy przegląd nie dostaje
+  409 i pokazuje stare wyniki do następnego przeliczenia. Słowa krytycznych z wyboru DL
+  dalej są w odcisku (`critical_effective["options"]`), bo zmieniają, kogo bramka ukrywa.
+- **Chipy zamiast zdań** (`scoring_service.job_skill_requirements`): kolumna
+  `must_skills` z wymaganiem od `PROSE_REQUIREMENT_WORDS` słów i Champion z `stack.must`
+  = liczą się chipy. Nie dotyczy `requirements_reviewed` ani zapisanego kontraktu.
+- **Pomiar przed i po** z flagami produkcji, na wysłanych i próbce puli: fałszywe
+  braki z 29,3% do 23,3%, fałszywe „jest” bez zmian (20,5% i 20,8%), bramka ukrywa
+  tyle samo (10 wysłanych, 7 z puli), top 20 wysłanych bez zmian (31,5%). To poprawa
+  odczytu, nie kolejności.
+

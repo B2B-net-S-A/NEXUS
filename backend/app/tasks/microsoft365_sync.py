@@ -145,7 +145,7 @@ async def _tick(interval: int) -> None:
         # execution session below to close the role-change race.
         eligible_connections: list[M365Connection] = []
         for connection in connections:
-            if await connection_owner_is_eligible(db, connection):
+            if await connection_owner_is_eligible(db, connection, sales_ok=True):
                 eligible_connections.append(connection)
         connections = eligible_connections
 
@@ -160,7 +160,7 @@ async def _tick(interval: int) -> None:
                 fresh = await db.get(M365Connection, conn_id)
                 if fresh is None or not fresh.is_active:
                     continue
-                if not await connection_owner_is_eligible(db, fresh):
+                if not await connection_owner_is_eligible(db, fresh, sales_ok=True):
                     logger.warning(
                         "m365 scheduled sync refused for ineligible connection_id=%s",
                         conn_id,
@@ -480,7 +480,7 @@ async def _renewal_tick(db: AsyncSession) -> None:
                 await db.delete(sub)
             await db.commit()
             continue
-        if not await connection_owner_is_eligible(db, conn):
+        if not await connection_owner_is_eligible(db, conn, sales_ok=True):
             logger.warning(
                 "subscription renewal refused for ineligible connection_id=%s",
                 conn_id,
@@ -488,7 +488,7 @@ async def _renewal_tick(db: AsyncSession) -> None:
             continue
 
         try:
-            async with GraphClient(conn, db) as gc:
+            async with GraphClient(conn, db, sales_ok=True) as gc:
                 for sub in subs:
                     try:
                         await m365_webhooks.renew(db, gc, sub)
@@ -530,7 +530,7 @@ async def _backfill_missing_subscriptions(db: AsyncSession) -> None:
         return
 
     for conn in connections:
-        if not await connection_owner_is_eligible(db, conn):
+        if not await connection_owner_is_eligible(db, conn, sales_ok=True):
             continue
         existing_result = await db.execute(
             select(GraphSubscription.resource).where(

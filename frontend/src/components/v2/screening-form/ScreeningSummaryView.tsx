@@ -19,7 +19,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, Copy, Loader2, Lock, PencilLine } from "lucide-react";
+import { AlertTriangle, ChevronRight, Copy, History, Loader2, Lock, PencilLine } from "lucide-react";
 
 import { useToast } from "@/components/Toast";
 import { Badge } from "@/components/ui/badge";
@@ -28,7 +28,7 @@ import { ScreeningAnswersList } from "@/components/v2/screening/ScreeningAnswers
 import { useRecommendationCard } from "@/lib/api/recommendationCards";
 import { useScreeningFormState, type ScreeningFormState } from "@/lib/api/screeningForm";
 import { copyTextToClipboard } from "@/lib/clipboard";
-import { cardFieldSource, cardFieldValue } from "@/lib/recommendation-card";
+import { cardFieldSource, cardFieldValue, previousAttemptLabel } from "@/lib/recommendation-card";
 import { SCREENING_FIT_LABEL, SCREENING_FIT_VARIANT } from "@/lib/screening-conversations";
 import {
   cardAssessmentKeys,
@@ -102,12 +102,16 @@ export function ScreeningSummaryView({
           title={cardFieldSource(field) ?? undefined}
         >
           {value || (hint ? `brak — ostatnio: ${hint}` : "brak")}
+          {value && field?.previous_attempt ? (
+            <span className="ml-1 font-normal text-muted-foreground">· {previousAttemptLabel(field)}</span>
+          ) : null}
         </dd>
       </div>
     );
   };
 
   const rateText = state.rate ? formatFormRate(state.rate) : (state.rate_text?.trim() ?? "");
+  const fromPreviousAttempt = Object.values(fields).some((field) => field?.previous_attempt);
 
   return (
     <div className={cn("space-y-4 text-[13px]", className)} data-testid="screening-form-readonly">
@@ -142,6 +146,18 @@ export function ScreeningSummaryView({
         >
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           {warning}
+        </p>
+      ) : null}
+
+      {fromPreviousAttempt ? (
+        <p
+          role="note"
+          data-testid="screening-summary-previous-attempt"
+          className="flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"
+        >
+          <History className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          Osoba wróciła do tej rekrutacji. Warunki i ocena z poprzedniej próby przeszły z nią, tak jak odpowiedzi na
+          pytania — zmienisz je w formularzu.
         </p>
       ) : null}
 

@@ -33,6 +33,11 @@ const PAGES = [
   "/preview/candidate-profile?tab=documents",
   "/preview/candidate-profile?tab=documents&role=recruiter",
   "/preview/career-share",
+  "/preview/client-panel",
+  "/preview/client-panel?c=fikc-anna",
+  "/preview/client-panel?manage=1",
+  "/preview/sales",
+  "/preview/sales?view=list",
   "/preview/champion-profile",
   "/preview/chat-notifications",
   "/preview/topbar-topics",
@@ -614,6 +619,9 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
   // zostawały 92 px; przy otwartej sprawie zmiany stawki przyciski i pole
   // notatki wypadały poza okno. Teraz w miejscu stoi tylko pasek osoby i pole
   // notatki, reszta przewija się razem — pomiar po zmianie: 393 px.
+  // 27.10.2026 (#2732): Tablica czyta rekrutację z zasianego `["job", id]`, więc
+  // harness zna budżet 95 zł/h i Bartek (125 zł/h) ma pigułkę „Ponad budżet”,
+  // jak na produkcji: rząd pigułek +16 px, 343,5 px to najwyższy pasek osoby.
   test("/preview/job-detail: wąski dok osoby przewija się w całości", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 650 });
     await page.goto("/preview/job-detail");
@@ -628,7 +636,7 @@ test.describe("panel osoby — duży podgląd po lewej na laptopie", () => {
       await expect(scroll.getByTestId("dock-facts")).toBeVisible();
       await expect(scroll.getByTestId("dock-sections")).toBeAttached();
       const area = await scroll.boundingBox();
-      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(350);
+      expect(area?.height ?? 0, `przewijany obszar doku: ${name}`).toBeGreaterThanOrEqual(340);
       const note = await panel.locator('[data-help="jobs.person.note"]').boundingBox();
       expect((note?.y ?? 0) + (note?.height ?? 0), `pole notatki w oknie: ${name}`).toBeLessThanOrEqual(650);
       expect(await pageOverflowPx(page), `poziomy scroll strony: ${name}`).toBeLessThanOrEqual(1);
@@ -784,9 +792,18 @@ test.describe("pulpit — filtr „Requesty i obłożenie” nie przewija strony
     await priority.scrollIntoViewIfNeeded();
     const before = await priority.boundingBox();
 
-    await priority.selectOption("p1");
+    // Od #2692 pole to przycisk z oknem zaznaczeń, nie `<select>`. Okno zostaje
+    // otwarte przy zaznaczaniu, Esc zwraca fokus na przycisk.
+    await priority.click();
+    const p1 = page.getByRole("checkbox", { name: "P1 Pilne", exact: true });
+    await p1.click();
     await expect(page).toHaveURL(/rb_prio=p1/);
-    await expect(priority).toHaveValue("p1");
+    await page.keyboard.press("Escape");
+    await expect(p1).toBeHidden();
+    // Radix oddaje fokus przyciskowi chwilę po zniknięciu okna. Pisanie przed tą
+    // chwilą oddałoby litery przyciskowi (człowiek nie zdąży, robot tak).
+    await expect(priority).toBeFocused();
+    await expect(priority).toHaveText("P1 Pilne");
     // Wartość pola idzie przez adres — szybkie pisanie nie może gubić liter.
     const position = tile.getByLabel("Stanowisko", { exact: true });
     await position.pressSequentially("Java Developer", { delay: 30 });
@@ -822,6 +839,26 @@ test.describe("górny pasek — licznik celów", () => {
         const bar = strip.getByTestId("topbar-replica");
         const overflow = await bar.evaluate((el) => el.scrollWidth - el.clientWidth);
         expect(overflow, `pasek bez przelewu: ${label}`).toBe(0);
+        // 28.10.2026: stałe okruszki (178 px) wychodziły z 93-pikselowego pudełka
+        // pod wyszukiwarkę. Widoczne okruszki kończą się przed nią, a nazwa
+        // na końcu ścieżki zostaje (ustępują całe okruszki od początku) —
+        // o ile ścieżka ma jakiekolwiek miejsce: najciaśniejszy pasek przy
+        // 1280 px zostawia jej 0 px.
+        const crumbs = await strip.getByRole("navigation", { name: "Ścieżka" }).evaluate((nav) => {
+          const top = nav.getBoundingClientRect().top;
+          const items = [...nav.querySelectorAll<HTMLElement>("[data-crumb]")];
+          const visible = items.filter((item) => {
+            const box = item.getBoundingClientRect();
+            return box.width > 0 && Math.abs(box.top - top) < 4;
+          });
+          return {
+            right: Math.max(nav.getBoundingClientRect().left, ...visible.map((i) => i.getBoundingClientRect().right)),
+            nameShownOrNoRoom:
+              nav.getBoundingClientRect().width < 1 || visible.includes(items[items.length - 1]),
+          };
+        });
+        expect(crumbs.right, `okruszki przed wyszukiwarką: ${label}`).toBeLessThanOrEqual((search?.x ?? 0) + 0.5);
+        expect(crumbs.nameShownOrNoRoom, `nazwa na końcu ścieżki widoczna: ${label}`).toBe(true);
         // Co najmniej jeden cały segment zostaje w pierwszym (widocznym) wierszu.
         const visible = await strip
           .getByRole("button", { name: /^(Twoje cele|Cele zespołu|Cel portfela)/ })

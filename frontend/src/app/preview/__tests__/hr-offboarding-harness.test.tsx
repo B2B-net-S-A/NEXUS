@@ -63,7 +63,7 @@ describe("/preview/hr-offboarding", () => {
     expect(within(work).getByText(/^z nimi idą: karty w procesie 11/)).toBeInTheDocument();
     // Rodzaje z zerem zwinięte do pigułek.
     expect(within(work).getByText("Nic do przekazania:")).toBeInTheDocument();
-    expect(within(work).getByText("podwładni · 0")).toBeInTheDocument();
+    expect(within(work).getByText("osoby w zespole · 0")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Zadania" })).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Zadania: 2 z 6" })).toBeInTheDocument();
     expect(within(work).getByText("poza przekazaniem")).toBeInTheDocument();

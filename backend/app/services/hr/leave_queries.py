@@ -136,6 +136,7 @@ async def serialize(
         db,
         {r.user_id for r in requests}
         | {r.substitute_user_id for r in requests if r.substitute_user_id}
+        | {r.cpro_substitute_user_id for r in requests if r.cpro_substitute_user_id}
         | {r.decided_by for r in requests if r.decided_by}
         | {c.actor_user_id for c in conflicts.values() if c.actor_user_id},
     )
@@ -173,6 +174,9 @@ async def serialize(
                 "substitute_user_id": r.substitute_user_id,
                 "substitute_name": names.get(r.substitute_user_id)
                 if r.substitute_user_id
+                else None,
+                "cpro_substitute_name": names.get(r.cpro_substitute_user_id)
+                if r.cpro_substitute_user_id
                 else None,
                 "forward_mail_consent": r.forward_mail_consent,
                 "oof_internal_message": r.oof_internal_message if own else None,

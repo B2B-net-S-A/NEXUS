@@ -74,6 +74,8 @@ async def _run_callback(monkeypatch, user: User, bundle: TokenBundle | Exception
     monkeypatch.setattr(
         microsoft365.m365_oauth, "consume_state", AsyncMock(return_value=True)
     )
+    # Polityka uprawnień z bazy (skrzynka handlowca, 28.10.2026) — atrapa bazy.
+    monkeypatch.setattr(microsoft365, "resolve_effective_section_access", AsyncMock())
     exchange = (
         AsyncMock(side_effect=bundle)
         if isinstance(bundle, Exception)
@@ -181,6 +183,7 @@ async def test_callback_rejects_state_used_twice(monkeypatch) -> None:
     monkeypatch.setattr(
         microsoft365.m365_oauth, "consume_state", AsyncMock(return_value=False)
     )
+    monkeypatch.setattr(microsoft365, "resolve_effective_section_access", AsyncMock())
     exchange = AsyncMock()
     monkeypatch.setattr(microsoft365.m365_oauth, "exchange_code", exchange)
 

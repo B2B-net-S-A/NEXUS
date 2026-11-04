@@ -70,9 +70,15 @@ export default async function B2BSignPage({ params }: PageProps) {
         Umowa przenosi autorskie prawa majątkowe, dlatego prawo wymaga{" "}
         <strong>kwalifikowanego podpisu elektronicznego</strong>. Zwykły podpis, zaawansowany
         ani profil zaufany nie wystarczą.
-        {expires ? ` Link ważny do ${expires}.` : ""}
+        {expires && view.status === "waiting" ? ` Link ważny do ${expires}.` : ""}
       </p>
-      <B2BSignForm token={token} initialState={view.status} signedPdfUntil={signedPdfUntil} />
+      <B2BSignForm
+        token={token}
+        initialState={view.status}
+        signedPdfUntil={signedPdfUntil}
+        expiredOn={view.status === "expired" ? expires : null}
+        renewalRequestedOn={view.renewal_requested_at ? dayPl(view.renewal_requested_at) : null}
+      />
     </div>
   );
 }

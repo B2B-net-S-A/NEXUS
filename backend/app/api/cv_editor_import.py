@@ -5,7 +5,9 @@ plik Word z dysku na HTML edytora i NICZEGO nie zapisuje: szkic, numer
 rewizji, wersje i historia zdarzeń zostają bez zmian. Treść przyjmuje edytor
 jedną cofalną zmianą, a utrwala ją zwykły autozapis (`PATCH …/cv/branded`).
 Zapis pliku od razu jako szkicu to inna funkcja: `…/cv/branded/upload`
-(„Użyj innego CV”), która odłącza CV od generatora.
+(„Użyj innego CV”), która odłącza CV od generatora. Okno „Użyj innego CV”
+woła tę trasę PRZED zapisem i patrzy na `b2b_template` — plik bez układu
+szablonu B2B to zwykle CV kandydata, o które trzeba zapytać (29.10.2026).
 
 Plik przechodzi dokładnie tę drogę co przy `…/upload`: odczyt z limitem,
 konwersja z kontrolą archiwum i sanitizerem (`cv_docx_import`), te same
@@ -66,4 +68,8 @@ async def preview_stage_cv_import(
     imported = await word_to_editor_html(content)
     if len(imported.html) > CV_CONTENT_HTML_MAX:
         raise HTTPException(status_code=422, detail=MSG_CONTENT_TOO_LONG)
-    return CVImportPreview(content_html=imported.html, filename=filename)
+    return CVImportPreview(
+        content_html=imported.html,
+        filename=filename,
+        b2b_template=imported.b2b_template,
+    )

@@ -21,9 +21,14 @@ export const P0_REASON_MIN = 3;
 export const P0_REASON_MAX = 300;
 
 export const P0_LABEL = "P0 Teraz — ultrapilne";
+// 28.10.2026 (propozycje Olafa): pulpit i górny pasek pokazują P0 tylko
+// zespołowi rekrutacji; lista rekrutacji i Daily — wszystkim, jak dotąd.
 export const P0_HINT =
-  "Na górze u wszystkich: górny pasek, pierwsza pozycja na pulpicie każdej osoby i na liście. Po terminie znika samo, priorytet zostaje.";
-export const P0_SET_BY_HINT = "P0 ustawia Head of Recruitment albo administrator.";
+  "Na górze listy rekrutacji i Daily, a w górnym pasku i na pulpicie u rekruterów i Delivery Leada tej rekrutacji. Po terminie znika samo, priorytet zostaje.";
+export const P0_SET_BY_HINT =
+  "P0 ustawia Head of Recruitment albo administrator; Delivery Lead rekrutacji może o nie poprosić.";
+export const P0_REQUEST_HINT =
+  "Head of Recruitment dostanie dzwonek i mail. P0 zacznie obowiązywać po zatwierdzeniu.";
 
 /** Pola P0 rekrutacji albo requestu (`GET /api/jobs`, `/api/request-board`). */
 export interface P0Source {

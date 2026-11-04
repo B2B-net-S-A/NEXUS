@@ -116,8 +116,13 @@ def _patch_state(monkeypatch, state: CproSenderState, active: set[int]) -> None:
     async def active_ids(db, ids):
         return {i for i in ids if i in active}
 
+    async def no_leave(db, sender_id, today):
+        return None
+
     monkeypatch.setattr(cpro_sender, "load_state", load)
     monkeypatch.setattr(cpro_sender, "active_user_ids", active_ids)
+    # Urlop osoby od Cpro (29.10.2026) to też odczyt z bazy — tu go nie ma.
+    monkeypatch.setattr(cpro_sender, "leave_cover", no_leave)
 
 
 @pytest.mark.asyncio

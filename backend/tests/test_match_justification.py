@@ -7,6 +7,8 @@ caching / quota gating is covered by the integration suite.
 
 from __future__ import annotations
 
+import json
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -308,7 +310,6 @@ async def test_generate_prose_raises_on_unusable_output(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_json_format_retry_is_bounded_and_preserves_budget(monkeypatch):
-    import json
     from unittest.mock import AsyncMock
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
@@ -334,6 +335,54 @@ async def test_json_format_retry_is_bounded_and_preserves_budget(monkeypatch):
         call.call_args_list[1].kwargs["total_timeout"]
         <= call.call_args_list[0].kwargs["total_timeout"]
     )
+
+
+# Najgęstszy tekst z produkcji (147 par odpowiedź–zapisany wiersz, 30 dni do
+# 02.11.2026): polska proza z JSON-em daje 1,82–2,19 znaku na token.
+_WORST_CHARS_PER_TOKEN = 1.82
+
+
+def _provider_that_honours_max_tokens(body: str):
+    """Fałszywy provider, który tnie odpowiedź jak prawdziwy: na ``max_tokens``."""
+    from unittest.mock import AsyncMock
+
+    needed = math.ceil(len(body) / _WORST_CHARS_PER_TOKEN)
+
+    async def respond(_fn, **kwargs):
+        limit = kwargs["max_tokens"]
+        if needed > limit:
+            cut = int(limit * _WORST_CHARS_PER_TOKEN)
+            return SimpleNamespace(
+                content=[SimpleNamespace(text=body[:cut])], stop_reason="max_tokens"
+            )
+        return SimpleNamespace(
+            content=[SimpleNamespace(text=body)], stop_reason="end_turn"
+        )
+
+    return AsyncMock(side_effect=respond)
+
+
+@pytest.mark.asyncio
+async def test_longest_output_we_keep_is_not_truncated(monkeypatch):
+    """Limit tokenów nie może ciąć tego, co ``_sanitize_llm_output`` i tak przepuszcza.
+
+    Przy 1500 tokenach 11% pierwszych odpowiedzi (18 ze 164) kończyło się na
+    limicie: płatne wywołanie do kosza, drugie po „Keep it concise”, a gdy i ono
+    nie zmieściło się w limicie, 502 u rekrutera.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "synthetic-test-key")
+    longest = {
+        "summary": "ą" * mjs._MAX_SUMMARY_CHARS,
+        "pros": ["ą" * mjs._MAX_BULLET_CHARS] * mjs._MAX_BULLETS,
+        "watchouts": ["ą" * mjs._MAX_BULLET_CHARS] * mjs._MAX_BULLETS,
+    }
+    call = _provider_that_honours_max_tokens(json.dumps(longest, ensure_ascii=False))
+    monkeypatch.setattr(mjs, "run_in_threadpool", call)
+
+    result = await mjs.generate_prose(make_candidate(), make_job(), make_breakdown())
+
+    assert result == longest
+    assert call.await_count == 1
 
 
 @pytest.mark.asyncio

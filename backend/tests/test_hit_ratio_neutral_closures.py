@@ -48,9 +48,11 @@ def test_every_close_reason_has_exactly_one_group() -> None:
         assert group <= known
 
 
-def test_only_competitor_is_a_loss() -> None:
-    assert HIT_RATIO_LOST_CLOSE_REASONS == {"competitor"}
+def test_only_competitor_and_nexus_close_are_a_loss() -> None:
+    # `no_activity` (28.10.2026): NEXUS zamknął po 28 dniach bez ruchu DL.
+    assert HIT_RATIO_LOST_CLOSE_REASONS == {"competitor", "no_activity"}
     assert close_reason_group(JobCloseReason.competitor) == "lost"
+    assert close_reason_group(JobCloseReason.no_activity) == "lost"
     assert close_reason_group(JobCloseReason.filled_by_us) == "won"
     for reason in (
         JobCloseReason.duplicate,

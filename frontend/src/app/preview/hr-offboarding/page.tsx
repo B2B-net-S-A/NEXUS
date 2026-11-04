@@ -102,7 +102,7 @@ export default function HrOffboardingPreviewPage() {
     <HrHarnessShell
       client={ready.client}
       title="Ludzie → Odejście"
-      note="Dane fikcyjne, bez zapytań. Prowadzą Kadry; ostatni dzień pracy w przyszłym miesiącu."
+      note="Dane fikcyjne, bez zapytań. Prowadzą Administracja współpracy; ostatni dzień pracy w przyszłym miesiącu."
       states={STATES}
       current={state}
     >

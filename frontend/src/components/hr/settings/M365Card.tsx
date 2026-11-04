@@ -12,6 +12,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   M365_KIND_LABELS,
   M365_MODE_LABELS,
+  M365_OUT_OF_SCOPE_ERROR,
   m365Day,
   m365ProfileSyncView,
   m365ReasonLabel,
@@ -20,6 +21,7 @@ import {
   useM365Operations,
   useM365Status,
   useRetryM365Operation,
+  useSetM365ScopeExempt,
   type M365Mode,
   type M365Operation,
   type M365QueueTab,
@@ -41,7 +43,7 @@ const MODE_NOTE: Record<M365Mode, string> = {
   off: "Nic nie wychodzi do Microsoft 365. Operacje czekają w kolejce.",
   simulate:
     "Żądania są zapisywane, ale nie trafiają do skrzynek. Podgląd w zakładce „Zasymulowane”.",
-  live: "Autoodpowiedzi, wydarzenia i przekierowania trafiają do skrzynek.",
+  live: "Autoodpowiedzi, wydarzenia i reguły kopii poczty trafiają do skrzynek.",
 };
 
 const EMPTY_TEXT: Record<M365QueueTab, string> = {
@@ -160,7 +162,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
         {secret.days_left === 0
           ? `Sekret aplikacji wygasa dziś (${day}).`
           : `Sekret aplikacji wygasł ${day}.`}{" "}
-        Autoodpowiedzi, przekierowania i czytnik administracja@ przestają działać — potrzebny
+        Autoodpowiedzi, kopie poczty i czytnik administracja@ przestają działać — potrzebny
         nowy sekret.
       </p>
     );
@@ -170,7 +172,7 @@ function SecretWarning({ secret }: { secret: M365Secret }) {
     return (
       <p role="status" className="rounded-md bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground">
         Sekret aplikacji wygasa {when} ({day}). Po tym terminie staną autoodpowiedzi,
-        przekierowania i czytnik administracja@ — admin ustawia nowy sekret i datę przez
+        kopie poczty i czytnik administracja@ — admin ustawia nowy sekret i datę przez
         „Coolify set env”.
       </p>
     );
@@ -306,6 +308,26 @@ function OperationsTable({ tab }: { tab: M365QueueTab }) {
 }
 
 function MailboxLists({ status }: { status: M365Status }) {
+  const { showToast } = useToast();
+  const scopeExempt = useSetM365ScopeExempt();
+
+  function decide(userId: number, exempt: boolean) {
+    scopeExempt.mutate(
+      { userId, exempt },
+      {
+        onSuccess: () =>
+          showToast(
+            exempt
+              ? "NEXUS nie będzie już zgłaszać tej skrzynki"
+              : "Skrzynka wraca do alarmu o osobach poza grupą",
+            "success",
+          ),
+        onError: (err) =>
+          showToast(apiErrorMessage(err, "Nie udało się zapisać decyzji."), "error"),
+      },
+    );
+  }
+
   if (!status.custom_oof_mailboxes.length && !status.mailbox_errors.length) return null;
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -315,7 +337,7 @@ function MailboxLists({ status }: { status: M365Status }) {
             Własna autoodpowiedź osoby
           </h3>
           <p className="text-xs text-muted-foreground">
-            NEXUS jej nie nadpisał. Z datami — dni bez wniosku trafiają do Akceptacji jako
+            NEXUS jej nie nadpisał. Z datami — dni bez wniosku trafiają do listy „Do potwierdzenia” jako
             wniosek „Z Outlooka”; bez dat — sprawdź z osobą, czy obejmuje nieobecność.
           </p>
           <ul className="mt-1 space-y-0.5 text-sm">
@@ -326,18 +348,44 @@ function MailboxLists({ status }: { status: M365Status }) {
         </section>
       ) : null}
       {status.mailbox_errors.length ? (
-        <section aria-labelledby="m365-mailbox-errors">
+        <section
+          aria-labelledby="m365-mailbox-errors"
+          className={status.custom_oof_mailboxes.length ? undefined : "sm:col-span-2"}
+        >
           <h3 id="m365-mailbox-errors" className="text-sm font-medium text-foreground">
             Skrzynki z błędem
           </h3>
-          <ul className="mt-1 space-y-0.5 text-sm">
+          <ul className="mt-1 space-y-1 text-sm">
             {status.mailbox_errors.map((row) => (
-              <li key={row.user_id}>
-                {row.name}
-                <span className="text-muted-foreground">
-                  {" · "}
-                  {m365ReasonLabel(row.last_error)}
+              <li key={row.user_id} className="flex items-start justify-between gap-3">
+                <span>
+                  {row.name}
+                  <span className="text-muted-foreground">
+                    {" · "}
+                    {row.scope_exempt ? "poza grupą świadomie" : m365ReasonLabel(row.last_error)}
+                  </span>
                 </span>
+                {row.scope_exempt ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={scopeExempt.isPending}
+                    onClick={() => decide(row.user_id, false)}
+                  >
+                    Cofnij
+                  </Button>
+                ) : row.last_error === M365_OUT_OF_SCOPE_ERROR ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0"
+                    disabled={scopeExempt.isPending}
+                    onClick={() => decide(row.user_id, true)}
+                  >
+                    Zostaw poza grupą
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -366,7 +414,7 @@ export function M365Card() {
         <div className="min-w-0">
           <h2 className="text-base font-semibold text-foreground">Microsoft 365 — urlopy</h2>
           <p className="text-sm text-muted-foreground">
-            Autoodpowiedź, wydarzenie „Poza biurem” i przekierowanie poczty do zastępcy.
+            Autoodpowiedź, wydarzenie „Poza biurem” i kopia poczty do zastępcy.
             Uzgadnianie ze skrzynkami codziennie o 7:00.
           </p>
         </div>

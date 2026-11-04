@@ -246,3 +246,39 @@ describe("extractErrorMsg — limit zapytań (429)", () => {
     spy.mockRestore();
   });
 });
+
+describe("apiErrorMessage — za długa lista albo tekst (422 too_long)", () => {
+  it("mówi po polsku, ile pozycji wolno, zamiast surowego komunikatu Pydantica", () => {
+    const msg = apiErrorMessage(
+      axiosErrorWith(422, {
+        detail: [
+          {
+            type: "too_long",
+            loc: ["body", "content", "offer"],
+            msg: "List should have at most 6 items after validation, not 7",
+            ctx: { field_type: "List", max_length: 6, actual_length: 7 },
+          },
+        ],
+      }),
+      "fallback",
+    );
+    expect(msg).toBe("Za dużo pozycji na liście: najwyżej 6, jest 7.");
+  });
+
+  it("za długi tekst podaje limit znaków", () => {
+    const msg = apiErrorMessage(
+      axiosErrorWith(422, {
+        detail: [
+          {
+            type: "string_too_long",
+            loc: ["body", "content", "title"],
+            msg: "String should have at most 120 characters",
+            ctx: { max_length: 120 },
+          },
+        ],
+      }),
+      "fallback",
+    );
+    expect(msg).toBe("Tekst jest za długi: najwyżej 120 znaków.");
+  });
+});

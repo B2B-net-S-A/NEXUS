@@ -193,7 +193,7 @@ export function PaymentSettingsCard() {
                 }
                 aria-label="Paczka przelewów do banku"
               />
-              Płace pobierają paczkę przelewów faktur B2B do banku
+              Rozliczenia pobierają paczkę przelewów faktur B2B do banku
             </label>
             {current.transfer_batch.enabled ? (
               <div className="grid gap-3 md:grid-cols-3">
@@ -270,7 +270,7 @@ export function PaymentSettingsCard() {
                 }
                 aria-label="Eksport zwolnień lekarskich"
               />
-              Płace nie pobierają e-ZLA z PUE ZUS — dołączaj L4 do pliku zdarzeń
+              Rozliczenia nie pobierają e-ZLA z PUE ZUS — dołączaj L4 do pliku zdarzeń
             </label>
             <div className="grid gap-3 md:grid-cols-3">
               <FormField label="Zdarzenie nadgodzin">

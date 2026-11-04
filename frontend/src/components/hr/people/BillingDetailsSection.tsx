@@ -215,7 +215,7 @@ function BillingForm({
         <Fact label="Rachunek">{accountLabel(data.account_last4, data.account_source)}</Fact>
         {data.needs_second_person ? (
           <p className="text-xs text-muted-foreground">
-            Na B2B rachunek spoza białej listy VAT — zapłata wymaga drugiej osoby z Płac.
+            Na B2B rachunek spoza białej listy VAT — zapłata wymaga drugiej osoby z Rozliczeń.
           </p>
         ) : null}
         <FormField
@@ -293,7 +293,7 @@ function BillingReadOnly({ data }: { data: BillingDetails }) {
         <Fact label="Termin płatności">{data.payment_terms_days} dni</Fact>
       </div>
       <p className="mt-2 text-xs text-muted-foreground lg:col-span-2">
-        Zmianę rachunku albo NIP-u zgłoś Kadrom — numer „mailem” nie przechodzi bez sprawdzenia.
+        Zmianę rachunku albo NIP-u zgłoś Administracji współpracy — numer „mailem” nie przechodzi bez sprawdzenia.
       </p>
     </div>
   );
@@ -325,7 +325,7 @@ export function BillingDetailsSection({ userId, enabled }: { userId: number; ena
         >
           Dane do rozliczeń
         </h2>
-        <span className="text-xs text-muted-foreground">widzą tylko osoba, Kadry i Płace</span>
+        <span className="text-xs text-muted-foreground">widzą tylko osoba, Administracja współpracy i Rozliczenia</span>
       </div>
       {state === "loading" ? (
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>

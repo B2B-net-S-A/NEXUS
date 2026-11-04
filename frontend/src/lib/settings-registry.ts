@@ -48,6 +48,10 @@ export type SettingsItemId =
   | "ranking"
   | "prep-review"
   | "kpi-targets"
+  | "twin-rules"
+  | "cpro"
+  | "novelties"
+  | "cv-generator-quality"
   | "mail"
   | "skills"
   | "skills-review"
@@ -61,6 +65,7 @@ export type SettingsItemId =
   | "ai"
   | "qc-quality"
   | "api-keys"
+  | "linkedin-extension"
   | "traffit"
   | "job-boards"
   | "teams-prep"
@@ -153,8 +158,24 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
   {
     // „Ludzie w NEXUSIE” (16.10.2026): dni wolne firmy (Kadry) i przełączniki
     // modułów (admin) — trasy `/api/hr/admin/*` stoją za uprawnieniem Kadry.
-    id: "hr", area: "team", title: "Kadry", group: "Ludzie w NEXUSIE",
-    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (urlopy, czas pracy, płace, sprzęt).",
+    id: "novelties", area: "team", title: "Nowości — kto już umie", group: "Zespół rekrutacji",
+    description: "Kto przeklikał albo używa nowych funkcji NEXUSA, a komu przypomnieć.",
+    keywords: "nowosci co nowego wdrozenia przeklikanie adopcja przypomnij funkcje",
+    route: "/settings/nowosci",
+    // Lustro `HeadOfRecruitmentPlus` w `api/novelties.py` (decyzja Artura 28.10.2026).
+    gate: { roles: ["admin", "head_of_recruitment"] },
+  },
+  {
+    id: "cv-generator-quality", area: "team", title: "Jakość generatora CV", group: "Zespół rekrutacji",
+    description: "Co rekruterzy zgłaszają, gdy pobierają oryginał CV po złym wyniku generatora.",
+    keywords: "generator cv jakosc powody feedback pobieranie oryginal uwagi",
+    route: "/settings/jakosc-generatora",
+    // Lustro `HeadOfRecruitmentPlus` w `api/cv_generator_feedback.py` (decyzja Artura 02.11.2026).
+    gate: { roles: ["admin", "head_of_recruitment"] },
+  },
+  {
+    id: "hr", area: "team", title: "Administracja współpracy", group: "Ludzie w NEXUSIE",
+    description: "Dni wolne firmy i moduły „Ludzi w NEXUSIE” (przerwy, raporty godzin, rozliczenia, sprzęt).",
     keywords: "kadry hr urlopy dni wolne swieta moduly ludzie kartoteka",
     route: "/settings/hr",
     gate: { permission: "people_admin", hrProgram: true },
@@ -163,7 +184,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Reguły premii (17.10.2026) — `/api/hr/payroll/rules` stoi za uprawnieniem
     // „Płace” (Finanse z roli, admin zawsze). Do 17.10 karta była w „Kadrach”,
     // których osoba z samymi „Płacami” nie widziała.
-    id: "payroll", area: "team", title: "Płace", group: "Ludzie w NEXUSIE",
+    id: "payroll", area: "team", title: "Rozliczenia", group: "Ludzie w NEXUSIE",
     description: "Reguły premii z placementów i z Ligi Mistrzów: progi marży, premia Delivery Leada, dodatkowe premie.",
     keywords: "place premie premia placementy liga mistrzow progi marza wynagrodzenia wyplaty bonus",
     route: "/settings/payroll",
@@ -174,7 +195,7 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Kadry i admin, zapis tylko admin (`/api/hr/admin/import`).
     id: "hr-import", area: "team", title: "Import z Compassa", group: "Ludzie w NEXUSIE",
     description: "Paczka eksportu Compassa: sprawdzenie na sucho, zapis wybranych modułów i historia partii.",
-    keywords: "import compass paczka kadry urlopy timesheety place migracja przelaczenie na sucho",
+    keywords: "import compass paczka kadry urlopy raporty godzin place migracja przelaczenie na sucho",
     route: "/settings/hr-import",
     wide: true,
     gate: { permission: "people_admin", hrProgram: true },
@@ -236,6 +257,30 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     // Publikuje HoR i admin (`can_edit` z serwera). W menu bez rekrutera —
     // jego Ustawienia to samo „Moje konto”; stronę otwiera linkiem „Jak
     // liczona jest ocena” z oceny prepu (middleware i `ConfigReader` go wpuszczają).
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
+      required: "read",
+    },
+  },
+  {
+    id: "twin-rules", area: "rec", title: "Zasady bliźniaków", group: "Proces",
+    description: "Kiedy dwie rekrutacje są bliźniakami: podobieństwo, krytyczne, lokalizacja, budżet.",
+    keywords: "bliźniak bliźniaki twin podobne rekrutacje zasady krytyczne lokalizacja budżet tryb pracy",
+    route: "/settings/twin-rules",
+    // Odczyt DL, HoR, admin w sekcji Pipeline; zapis (HoR, admin) — serwer.
+    gate: {
+      roles: ["admin", "delivery_lead", "head_of_recruitment"],
+      section: "pipeline",
+      required: "read",
+    },
+  },
+  {
+    id: "cpro", area: "rec", title: "CPro (Nordea)", group: "Proces",
+    description: "Zmiany z maili CPro: dziennik, sprawy do ręcznego i wyłączniki automatu.",
+    keywords: "cpro cipro nordea onevms maile zamknięcie odrzucenie automat dziennik",
+    route: "/settings/cpro",
+    // Odczyt DL, HoR, admin w sekcji Pipeline; wyłączniki (HoR, admin) — serwer.
     gate: {
       roles: ["admin", "delivery_lead", "head_of_recruitment"],
       section: "pipeline",
@@ -376,6 +421,15 @@ export const SETTINGS_ITEMS: readonly SettingsItem[] = [
     route: "/settings/api-keys",
     // `/api/settings/service-accounts` = `AdminUser`; middleware jak `/settings/api-integration`.
     // Z menu od 21.10.2026 — wejście przez „Integracje → Zarządzaj”.
+    hidden: true,
+    gate: { roles: ["admin"], section: "system_admin" },
+  },
+  {
+    id: "linkedin-extension", area: "sys", title: "Wtyczka LinkedIn", group: "Integracje",
+    description: "Kto połączył wtyczkę NEXUSA na LinkedInie, ile dziś z niej korzysta, odłączanie.",
+    keywords: "wtyczka linkedin recruiter chrome rozszerzenie extension panel polaczenie odlacz limit",
+    route: "/settings/linkedin-extension",
+    // Wejście przez „Integracje → Zarządzaj”, jak „Klucze API”.
     hidden: true,
     gate: { roles: ["admin"], section: "system_admin" },
   },

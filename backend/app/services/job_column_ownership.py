@@ -89,6 +89,9 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "work_state",
         "work_state_changed_at",
         "work_state_changed_by",
+        # 0617: „Jeszcze trwa” przy rekrutacji bez ruchu — decyzja DL w NEXUSIE.
+        "idle_snoozed_at",
+        "idle_snoozed_by",
         # 0406: godzina terminu — Traffit zna tylko datę.
         "deadline_time",
         "needs_sourcing",
@@ -109,6 +112,11 @@ NEXUS_OWNED: frozenset[str] = frozenset(
         "p0_reason",
         "p0_set_at",
         "p0_set_by",
+        # 0610: prośba Delivery Leada o P0.
+        "p0_request_reason",
+        "p0_request_duration",
+        "p0_requested_at",
+        "p0_requested_by",
         "recruitment_type",
         "portals",
         "must_skills",

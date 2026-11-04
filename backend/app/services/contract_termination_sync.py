@@ -538,7 +538,7 @@ async def sync_generator_after_contract_ended(
             # kto je zainicjował. Tryb, strona i data podpisu są już na wierszu.
             snapshot = _snapshot(row, contract, without_marker=True)
             row.contract_status = "closed"
-            ended_on = contract.terminated_at or project_end
+            ended_on = project_end
             # Runda 7 (R7-V4-1): dokument podpisany przy zaplanowanym końcu
             # projektu rozwiązuje umowę PÓŹNIEJ niż kończy się projekt —
             # umowa kończy się ostatnim dniem z dokumentu, a „Cofnij
@@ -675,6 +675,54 @@ async def close_dissolved_row(
         details=details,
     )
     return True
+
+
+async def close_rows_after_recorded_termination(
+    db: AsyncSession,
+    contract: Contract,
+    termination: AgreementTermination,
+    *,
+    actor_id: Optional[int],
+) -> int:
+    """Rozwiązanie umowy dopisane do kontraktu już zakończonego (29.10.2026).
+
+    Porozumienie albo wypowiedzenie podpisane poza NEXUSEM zapisuje się na
+    kontrakcie po fakcie. Umowa, którą zakończenie TEGO kontraktu przeniosło do
+    „Umów bez projektu”, przechodzi do „Zakończonych” z ostatnim dniem umowy.
+    Migawka z zawieszenia zostaje, więc „Cofnij zakończenie” wraca do stanu
+    sprzed zakończenia projektu (i czyści rozwiązanie na kontrakcie). Umowy bez
+    migawki tego kontraktu zamyka potem ``sync_generator_after_contract_ended``
+    (wołający), tak jak przy oknie z rozwiązaniem. Kontrakt „Kończący się” nie rusza Generatora — zrobi to nocna zmiana na
+    „Zakończony”, która czyta rozwiązanie z kontraktu.
+    """
+    if contract.status != ContractStatus.ended:
+        return 0
+    rows = await _rows_for_contract(db, contract)
+    details = termination_details(contract, termination)
+    changed = 0
+    for row in rows:
+        restore = row.termination_restore or {}
+        if (
+            row.contract_status != "suspended"
+            or restore.get("contract_id") != contract.id
+        ):
+            continue
+        old_status = row.contract_status
+        row.contract_status = "closed"
+        row.closure_date = termination.last_day
+        row.termination_mode = termination.mode
+        row.termination_party = termination.party
+        row.termination_signed_on = termination.signed_on
+        _record(
+            db,
+            row,
+            old_status=old_status,
+            actor_id=actor_id,
+            action="agreement_termination_recorded",
+            details=details,
+        )
+        changed += 1
+    return changed
 
 
 def _parse_day(value: object) -> Optional[date]:

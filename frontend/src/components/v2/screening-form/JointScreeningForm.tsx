@@ -62,10 +62,13 @@ import {
   screeningFormQueryKey,
   useScreeningQuestionGroups,
   type JointContextPair,
+  type JointWorkMode,
   type ScreeningFormState,
 } from "@/lib/api/screeningForm";
+import { workModeLabel } from "@/lib/job-twins-api";
 import {
   CLIENT_KEY,
+  PER_JOB_TERMS_KEYS,
   SHARED_ASSESSMENT_KEYS,
   SHARED_TERMS_KEYS,
   budgetVerdict,
@@ -80,6 +83,8 @@ import {
   originHolds,
   projectPair,
   questionOf,
+  twinRateBlockers,
+  workModeGroups,
   type JointDirty,
   type JointOrigin,
   type JointGroup,
@@ -116,6 +121,8 @@ export interface JointScreeningFormProps {
     clientName: string | null;
     budgetHourly: number | null;
     verifiedStageDefId: number | null;
+    /** Tryb pracy kotwicy (0614) — przy stawce w rozmowie z bliźniakiem. */
+    workMode?: JointWorkMode;
   };
   others: JointContextPair[];
   onMoved?: () => void;
@@ -132,6 +139,8 @@ export interface JointScreeningFormProps {
   /** Odznaczone rekrutacje z wpisami w pamięci — zapis ich nie obejmie (D2 A). */
   pendingMemory?: readonly PendingMemoryItem[];
   onReselect?: (jobId: number) => void;
+  /** Bliźniaki pominięte w tej rozmowie (rekrutacja → kod powodu) — do `/move`. */
+  twinSkips?: Record<string, string>;
 }
 
 type ResultKind = "saved" | "unchanged" | "moved" | "save_failed" | "move_refused" | "deal_breaker" | "no_stage";
@@ -224,6 +233,12 @@ export function JointScreeningForm(props: JointScreeningFormProps) {
       verifiedStageDefId: other ? other.verified_stage_def_id : anchor.verifiedStageDefId,
       anchor: !other,
       state: states[i].data as ScreeningFormState,
+      twin: other?.twin === true,
+      workMode: workModeLabel({
+        remote_policy: (other ?? anchor.workMode)?.remote_policy ?? null,
+        onsite_days_per_week: (other ?? anchor.workMode)?.onsite_days_per_week ?? null,
+        onsite_days_per_month: (other ?? anchor.workMode)?.onsite_days_per_month ?? null,
+      }),
     };
   });
   return (
@@ -247,6 +262,7 @@ function JointFormBody({
   memory,
   pendingMemory = [],
   onReselect,
+  twinSkips,
 }: JointScreeningFormProps & { pairs: JointPair[]; groups: JointGroup[] }) {
   const queryClient = useQueryClient();
   // 22.10.2026: Delivery Lead przekazuje dalej bez kompletu pól (serwer też;
@@ -444,6 +460,7 @@ function JointFormBody({
           ? { expected_rate_value: rate.amount, expected_rate_unit: rate.unit, expected_rate_currency: rate.currency }
           : {}),
         ...(acknowledgeEligibility ? { acknowledge_eligibility: true } : {}),
+        ...(twinSkips ? { twin_skips: twinSkips } : {}),
       },
       { silent: true, candidateName, eligibilitySubject: pair.title },
     );
@@ -466,6 +483,16 @@ function JointFormBody({
         const fresh = { ...pair, state: latest(pair) };
         return { pair: fresh, projected: projectPair(values, fresh, groups, dirty, origins) };
       });
+    // Bliźniaki (0614): stawka ponad budżet którejś rekrutacji nie zapisze się
+    // na serwerze — mówimy to przed zapisem, przy każdym przycisku.
+    const overBudget = twinRateBlockers(
+      plans.map((p) => p.pair),
+      (pair) => rateFromValues(plans.find((p) => p.pair.jobId === pair.jobId)!.projected),
+    );
+    if (overBudget.length > 0) {
+      setBlockers(overBudget);
+      return;
+    }
     if (forward && !skipsFillGates) {
       const missing = plans
         .map(({ pair, projected }) => ({ title: pair.title, items: forwardBlockers(pair, projected) }))
@@ -476,6 +503,9 @@ function JointFormBody({
     setBusy(forward ? "forward" : "save");
     onSessionChange?.(true);
     const out: PairResult[] = [];
+    // Bliźniaki (0614): najpierw zapis wszystkich par, potem ruchy — bramka
+    // „Zweryfikowany” kotwicy sprawdza screening zapisany w bliźniaku.
+    const toMove: Array<{ pair: JointPair; projected: (typeof plans)[number]["projected"]; version: number }> = [];
     // Jedna notatka na rozmowę: zakłada ją pierwszy zapis, następne ją wskazują.
     let noteImport: NoteImport | null = note;
     try {
@@ -500,6 +530,9 @@ function JointFormBody({
           out.push({ jobId: pair.jobId, title: pair.title, kind: plan.hasChanges ? "saved" : "unchanged" });
           continue;
         }
+        toMove.push({ pair, projected, version });
+      }
+      for (const { pair, projected, version } of toMove) {
         const rate = rateFromValues(projected);
         if (dealBreakerHit(pair, projected)) {
           out.push({
@@ -640,6 +673,9 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
   const sameRate = methods.watch("shared.same_rate");
   const anchor = pairs.find((p) => p.anchor) ?? pairs[0];
   const sharedKeys = SHARED_TERMS_KEYS.filter((key) => methods.getValues(`shared.card.${key}`) !== undefined);
+  const perJobKeys = PER_JOB_TERMS_KEYS.filter((key) =>
+    pairs.some((p) => methods.getValues(`jobs.${jobKey(p.jobId)}.card.${key}`) !== undefined),
+  );
   const clients = new Map<string, JointPair>();
   for (const pair of pairs) {
     if (editableCardKeys(pair.state).includes(CLIENT_KEY) && !clients.has(clientKey(pair.clientId))) {
@@ -653,10 +689,15 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
         <h3 id="joint-terms" className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
           Warunki · wspólne dla {pairs.length} rekrutacji
         </h3>
-        <p className="text-xs text-muted-foreground">Wpisujesz raz — zapis trafia do każdej zaznaczonej rekrutacji.</p>
+        <p className="text-xs text-muted-foreground">
+          Wpisujesz raz — zapis trafia do każdej zaznaczonej rekrutacji.
+          {perJobKeys.length > 0 ? " Tryb pracy — osobno dla każdej." : ""}
+        </p>
       </div>
 
-      {canEditRate ? (
+      {canEditRate && pairs.some((p) => p.twin) ? (
+        <TwinRateTable methods={methods} pairs={pairs} />
+      ) : canEditRate ? (
         <div className="space-y-2 rounded-lg border border-border p-3">
           <p className="text-sm font-medium text-foreground">Stawka kandydata</p>
           {sameRate ? (
@@ -700,6 +741,15 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
           <SharedField key={key} methods={methods} name={`shared.card.${key}`} label={formFieldLabel(anchor.state, key)} pairs={pairs} cardKey={key} />
         ))}
       </div>
+      {perJobKeys.map((key) => (
+        <div key={key} className="grid gap-3 @md:grid-cols-2">
+          {pairs
+            .filter((pair) => methods.getValues(`jobs.${jobKey(pair.jobId)}.card.${key}`) !== undefined)
+            .map((pair) => (
+              <JobTermField key={pair.jobId} methods={methods} pair={pair} cardKey={key} />
+            ))}
+        </div>
+      ))}
       {[...clients.entries()].map(([key, pair]) => (
         <SharedField
           key={key}
@@ -711,6 +761,119 @@ function TermsSection({ methods, pairs }: { methods: UseFormReturn<JointValues>;
         />
       ))}
     </section>
+  );
+}
+
+/**
+ * Stawka w rozmowie z bliźniakiem — wariant A z makiet (decyzja Artura
+ * 28.10.2026): jedno pole, pod nim wiersz na każdą rekrutację z trybem pracy,
+ * budżetem i stawką. Inna stawka tylko przy innym trybie pracy — wtedy pole
+ * stoi w wierszu pierwszej rekrutacji tego trybu i pisze do całej grupy.
+ * Stawka ponad budżet nie przejdzie (`twinRateBlockers`, serwer: 422).
+ */
+function TwinRateTable({ methods, pairs }: { methods: UseFormReturn<JointValues>; pairs: JointPair[] }) {
+  const groups = workModeGroups(pairs);
+  const split = groups.length > 1;
+  useEffect(() => {
+    if (methods.getValues("shared.same_rate") === split) {
+      methods.setValue("shared.same_rate", !split, { shouldDirty: true });
+    }
+  }, [methods, split]);
+  const values = methods.watch();
+  const rateOf = (pair: JointPair) => rateFromValues(split ? values.jobs?.[jobKey(pair.jobId)] ?? {} : values.shared);
+  return (
+    <div className="space-y-2 rounded-lg border border-border p-3" data-testid="twin-rate-table">
+      <p className="text-sm font-medium text-foreground">Stawka kandydata</p>
+      <p className="text-xs text-muted-foreground">
+        {split
+          ? "Bliźniaki mają inny tryb pracy — stawka osobno dla każdego trybu, zawsze w budżecie rekrutacji."
+          : "Ten sam tryb pracy — jedna stawka dla wszystkich, w budżecie każdej rekrutacji."}
+      </p>
+      {split ? null : <RateInputs methods={methods} prefix="shared" />}
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[380px] text-xs">
+          <thead>
+            <tr className="text-left text-muted-foreground">
+              <th className="py-1 pr-2 font-semibold">Rekrutacja</th>
+              <th className="py-1 pr-2 font-semibold">Tryb pracy</th>
+              <th className="py-1 pr-2 font-semibold">Budżet</th>
+              <th className="py-1 font-semibold">Stawka</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.flatMap((group) =>
+              group.map((pair, index) => {
+                const verdict = budgetVerdict(rateOf(pair), pair.budgetHourly);
+                return (
+                  <tr key={pair.jobId} className="border-t border-border align-middle" data-testid={`twin-rate-row-${pair.jobId}`}>
+                    <td className="py-1.5 pr-2 font-medium text-foreground">{pair.title}</td>
+                    <td className="py-1.5 pr-2">{pair.workMode}</td>
+                    <td className="py-1.5 pr-2 tabular-nums">
+                      {pair.budgetHourly != null ? `do ${pair.budgetHourly} zł/h` : "brak budżetu"}
+                    </td>
+                    <td className="py-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {split && index === 0 ? <GroupRateInput methods={methods} group={group} /> : null}
+                        {split && index > 0 ? <span className="text-muted-foreground">jak wyżej</span> : null}
+                        <span
+                          className={cn(
+                            "rounded px-1.5 py-0.5 font-medium",
+                            verdict.tone === "ok" && "bg-success-muted text-success-muted-foreground",
+                            verdict.tone === "over" && "bg-destructive-muted text-destructive-muted-foreground",
+                            verdict.tone === "unknown" && "bg-muted text-muted-foreground",
+                          )}
+                        >
+                          {verdict.tone === "over" && pair.budgetHourly != null
+                            ? `najwyżej ${pair.budgetHourly} zł/h`
+                            : verdict.tone === "ok"
+                              ? "w budżecie"
+                              : verdict.label}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }),
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** Pole stawki grupy o jednym trybie pracy — wpis trafia do każdej jej rekrutacji. */
+function GroupRateInput({ methods, group }: { methods: UseFormReturn<JointValues>; group: JointPair[] }) {
+  const first = `jobs.${jobKey(group[0].jobId)}` as const;
+  const amount = methods.watch(`${first}.rate_amount` as "shared.rate_amount");
+  const unit = methods.watch(`${first}.rate_unit` as "shared.rate_unit");
+  const write = (field: "rate_amount" | "rate_unit", value: string) => {
+    for (const pair of group) {
+      methods.setValue(`jobs.${jobKey(pair.jobId)}.${field}` as "shared.rate_amount", value as never, {
+        shouldDirty: true,
+      });
+    }
+  };
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Input
+        aria-label={`Stawka — ${group[0].workMode}`}
+        inputMode="decimal"
+        className="h-7 w-20 px-2 text-xs"
+        value={amount ?? ""}
+        onChange={(e) => write("rate_amount", e.target.value)}
+      />
+      <select
+        aria-label={`Jednostka stawki — ${group[0].workMode}`}
+        className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+        value={unit ?? "hourly"}
+        onChange={(e) => write("rate_unit", e.target.value)}
+      >
+        <option value="hourly">zł/h</option>
+        <option value="daily">zł/dzień</option>
+        <option value="monthly">zł/mies.</option>
+      </select>
+    </span>
   );
 }
 
@@ -768,6 +931,24 @@ function SharedField({
           W {pair.title}: {saved}
         </p>
       ))}
+    </div>
+  );
+}
+
+/** Warunek tej jednej rekrutacji (tryb pracy) — pod polem tryb z rekrutacji, gdy jest podany. */
+function JobTermField({ methods, pair, cardKey }: { methods: UseFormReturn<JointValues>; pair: JointPair; cardKey: string }) {
+  const path = `jobs.${jobKey(pair.jobId)}.card.${cardKey}`;
+  const id = `joint-${jobKey(pair.jobId)}-${cardKey}`;
+  const known = cardKey === "work_mode" && pair.workMode && pair.workMode !== "tryb pracy nie podany" ? pair.workMode : null;
+  return (
+    <div>
+      <label htmlFor={id} className="mb-1 block text-xs font-medium text-foreground">
+        {formFieldLabel(pair.state, cardKey)}
+        <span className="font-normal text-muted-foreground"> · {pair.title}</span>
+      </label>
+      <Input id={id} {...methods.register(path as "answers")} />
+      <OriginLine path={path} methods={methods} />
+      {known ? <p className="mt-0.5 text-[11px] text-muted-foreground">W rekrutacji: {known}</p> : null}
     </div>
   );
 }
@@ -1054,7 +1235,8 @@ function AssessmentSection({
 }) {
   const active = pairs.find((p) => p.jobId === tab) ?? pairs[0];
   const key = jobKey(active.jobId);
-  const ownKeys = Object.keys(methods.getValues(`jobs.${key}.card`) ?? {});
+  const perJobTerms: ReadonlySet<string> = new Set(PER_JOB_TERMS_KEYS);
+  const ownKeys = Object.keys(methods.getValues(`jobs.${key}.card`) ?? {}).filter((k) => !perJobTerms.has(k));
   const sharedAssessment = SHARED_ASSESSMENT_KEYS.filter((k) => methods.getValues(`shared.card.${k}`) !== undefined);
   return (
     <section aria-labelledby="joint-assessment" className="space-y-3">
@@ -1083,7 +1265,10 @@ function AssessmentSection({
           );
         })}
       </div>
-      <div role="tabpanel" className="space-y-3">
+      {/* Klucz = rekrutacja: bez niego zakładka zostawiała to samo pole tekstowe
+          pod nową nazwą, RHF nie przepisywał wartości i tekst jednej rekrutacji
+          stał w drugiej (zgłoszenie rekrutera 29.10.2026). */}
+      <div key={active.jobId} role="tabpanel" className="space-y-3">
         <fieldset>
           <legend className="mb-1 text-xs font-medium text-foreground">Ogólna ocena dopasowania</legend>
           <div className="grid grid-cols-3 gap-1.5">

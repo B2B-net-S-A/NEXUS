@@ -33,3 +33,6 @@ export const ACADEMY_POLL_MS = 2 * 60_000;
 
 /** P0 — ultrapilne rekrutacje (górny pasek i pulpit u każdego, 27.10.2026). */
 export const P0_JOBS_POLL_MS = 5 * 60_000;
+
+/** Ogłoszenia na pulpicie u każdego (28.10.2026). */
+export const ANNOUNCEMENTS_POLL_MS = 5 * 60_000;

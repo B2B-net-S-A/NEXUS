@@ -13,6 +13,7 @@ import {
   PersonPanelSideProvider,
   PersonPanelSideSection,
   PersonPanelSideZone,
+  usePersonPanelConversationMode,
   usePersonPreviewCollapse,
 } from "@/components/v2/person/PersonPanelSide";
 import { useAuthStore } from "@/store/auth";
@@ -249,6 +250,8 @@ describe("układ podglądu (zwijanie CV i wymagań, 13.10.2026)", () => {
     expect(JSON.parse(window.localStorage.getItem("nexus:person-preview-layout:7") ?? "null")).toEqual({
       cvCollapsed: true,
       infoCollapsed: false,
+      columnWidth: null,
+      compact: false,
     });
     unmount();
 
@@ -269,5 +272,162 @@ describe("układ podglądu (zwijanie CV i wymagań, 13.10.2026)", () => {
       useAuthStore.setState({ user: { id: 8 } as never });
     });
     expect(screen.getByTestId("layout")).toHaveTextContent("cv:false info:false");
+  });
+});
+
+/** Tryb rozmowy widziany z wnętrza kolumny (dok osoby, „Screening dla”). */
+function ModeProbe() {
+  const mode = usePersonPanelConversationMode();
+  if (!mode) return <p>bez trybu rozmowy</p>;
+  return (
+    <button type="button" aria-pressed={mode.on} onClick={mode.toggle}>
+      Tryb rozmowy
+    </button>
+  );
+}
+
+function AdjustablePanel({ split = true }: { split?: boolean }) {
+  return (
+    <PersonPanelSideProvider>
+      <PersonPanelSideZone hidden={!split} />
+      <PersonPanelColumn split={split}>
+        <LayoutProbe />
+        <ModeProbe />
+      </PersonPanelColumn>
+    </PersonPanelSideProvider>
+  );
+}
+
+/** jsdom nie liczy układu: panel 1280 px, kolumna w swojej bieżącej szerokości. */
+function mockPanelBox(panelWidth = 1280) {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const el = this as HTMLElement;
+    const columnWidth = Number.parseInt(el.style?.width?.match(/min\((\d+)px/)?.[1] ?? "460", 10);
+    const width = el.dataset?.testid === "person-panel-column" ? columnWidth : panelWidth;
+    return { x: 0, y: 0, top: 0, left: 0, bottom: 720, right: width, width, height: 720, toJSON: () => ({}) } as DOMRect;
+  });
+}
+
+function savedLayout(): Record<string, unknown> | null {
+  return JSON.parse(window.localStorage.getItem("nexus:person-preview-layout:7") ?? "null");
+}
+
+describe("szerokość kolumny i tryb rozmowy (29.10.2026)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uchwyt krawędzi stoi tylko w rozwiniętym panelu przy widocznym CV", () => {
+    mockViewport(true);
+    const { unmount } = render(<AdjustablePanel />);
+    expect(screen.getByRole("separator", { name: "Szerokość panelu osoby" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "CV" }));
+    // Zwinięte CV: kolumna zostaje regułą D2 (połowa ekranu), bez uchwytu.
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+    expect(screen.getByTestId("person-panel-column").className).toContain("lg:w-[calc((100%-2.75rem)/2)]");
+    unmount();
+
+    render(<AdjustablePanel split={false} />);
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+  });
+
+  it("w wąskim oknie nie ma ani uchwytu, ani trybu rozmowy", () => {
+    mockViewport(false);
+    render(<AdjustablePanel />);
+    expect(screen.queryByRole("separator")).not.toBeInTheDocument();
+    expect(screen.getByText("bez trybu rozmowy")).toBeInTheDocument();
+  });
+
+  it("przeciągnięcie krawędzi poszerza kolumnę, pamięta szerokość i zostawia CV co najmniej 360 px", () => {
+    mockViewport(true);
+    mockPanelBox();
+    render(<AdjustablePanel />);
+    const handle = screen.getByRole("separator", { name: "Szerokość panelu osoby" });
+
+    fireEvent.pointerDown(handle, { clientX: 820 });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 640 }));
+    });
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.style.width).toMatch(/^min\(640px, (calc\()?100% - 360px\)?\)$/);
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 100 }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
+    // 1280 − 360 px na CV = najszerzej 920 px.
+    expect(column.style.width).toMatch(/^min\(920px, (calc\()?100% - 360px\)?\)$/);
+    expect(column.className).not.toContain("lg:w-[460px]");
+    expect(savedLayout()).toMatchObject({ columnWidth: 920 });
+  });
+
+  it("nie da się zwęzić poniżej 400 px; dwuklik wraca do domyślnej szerokości", () => {
+    mockViewport(true);
+    mockPanelBox();
+    render(<AdjustablePanel />);
+    const handle = screen.getByRole("separator", { name: "Szerokość panelu osoby" });
+
+    fireEvent.pointerDown(handle, { clientX: 820 });
+    act(() => {
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 1200 }));
+      window.dispatchEvent(new MouseEvent("pointerup"));
+    });
+    expect(savedLayout()).toMatchObject({ columnWidth: 400 });
+
+    fireEvent.doubleClick(handle);
+    const column = screen.getByTestId("person-panel-column");
+    expect(column.style.width).toBe("");
+    expect(column.className).toContain("lg:w-[460px]");
+    expect(savedLayout()).toMatchObject({ columnWidth: null });
+  });
+
+  it("strzałki zmieniają szerokość o 40 px, Home wraca do domyślnej", () => {
+    mockViewport(true);
+    mockPanelBox();
+    render(<AdjustablePanel />);
+    const handle = screen.getByRole("separator", { name: "Szerokość panelu osoby" });
+
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(handle).toHaveAttribute("aria-valuenow", "500");
+    fireEvent.keyDown(handle, { key: "ArrowLeft" });
+    expect(handle).toHaveAttribute("aria-valuenow", "540");
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
+    expect(handle).toHaveAttribute("aria-valuenow", "500");
+    fireEvent.keyDown(handle, { key: "Home" });
+    expect(handle).not.toHaveAttribute("aria-valuenow");
+    expect(handle).toHaveAttribute("aria-valuetext", "domyślna");
+  });
+
+  it("zapamiętana szerokość wraca po ponownym otwarciu panelu", () => {
+    mockViewport(true);
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ columnWidth: 700 }));
+    render(<AdjustablePanel />);
+    expect(screen.getByTestId("person-panel-column").style.width).toMatch(/^min\(700px, (calc\()?100% - 360px\)?\)$/);
+  });
+
+  it("tryb rozmowy jest domyślnie wyłączony, przełącznik ustawia data-compact i pamięta wybór", () => {
+    mockViewport(true);
+    const { unmount } = render(<AdjustablePanel />);
+    const toggle = screen.getByRole("button", { name: "Tryb rozmowy" });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("person-panel-column")).not.toHaveAttribute("data-compact");
+
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Tryb rozmowy" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("person-panel-column")).toHaveAttribute("data-compact", "");
+    expect(savedLayout()).toMatchObject({ compact: true });
+    unmount();
+
+    render(<AdjustablePanel />);
+    expect(screen.getByTestId("person-panel-column")).toHaveAttribute("data-compact", "");
+  });
+
+  it("dok (panel nie jest dzielony) nie ma trybu rozmowy, nawet zapamiętanego", () => {
+    mockViewport(true);
+    window.localStorage.setItem("nexus:person-preview-layout:7", JSON.stringify({ compact: true, columnWidth: 700 }));
+    render(<AdjustablePanel split={false} />);
+    expect(screen.getByText("bez trybu rozmowy")).toBeInTheDocument();
+    const column = screen.getByTestId("person-panel-column");
+    expect(column).not.toHaveAttribute("data-compact");
+    expect(column.style.width).toBe("");
   });
 });

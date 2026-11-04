@@ -25,13 +25,14 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/procedures": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/procedures/{id_or_slug}": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "POST /api/procedures": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/procedures/{procedure_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

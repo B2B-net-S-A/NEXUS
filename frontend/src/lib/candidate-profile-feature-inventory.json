@@ -146,6 +146,13 @@
    "home": "Pasek osoby, akcje"
   },
   {
+   "id": "c.add_cv",
+   "opis": "Dodaj CV — nowe CV od kandydata do profilu i do rekrutacji w toku (29.10.2026)",
+   "file": "components/v2/candidate-profile/ProfileHeader.tsx",
+   "marker": "Dodaj CV",
+   "home": "Pasek osoby, akcje"
+  },
+  {
    "id": "m.email",
    "opis": "Napisz maila",
    "file": "components/v2/candidate-profile/ProfileHeader.tsx",

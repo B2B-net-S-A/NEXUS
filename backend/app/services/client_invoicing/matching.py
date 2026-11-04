@@ -19,7 +19,9 @@ Kolejność, od najpewniejszego:
 
 Wszystko inne zostaje Finansom z powodem (``REASON_LABELS``) — system nie
 zgaduje. Korekta idzie za fakturą pierwotną (te same zamówienia). Ręczne
-przypisanie Finansów nie jest nadpisywane przez kolejne przebiegi.
+przypisanie Finansów nie jest nadpisywane przez kolejne przebiegi. Finanse mogą
+przy przypisaniu dopisać numer nabywcy do klienta (``save_buyer_number``): wtedy
+pozostałe faktury tego nabywcy dopasowują się od razu.
 """
 
 from __future__ import annotations
@@ -28,17 +30,19 @@ import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any, Optional
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.app_setting import AppSetting
 from app.models.client_order import ClientOrder
 from app.models.client_order_group import ClientOrderGroup
 from app.models.client_sales_invoice import ClientSalesInvoice, ClientSalesInvoiceLink
 from app.services.client_invoicing import billing, clients
-from app.services.client_invoicing.billing import BillingRow, OrderRef
+from app.services.client_invoicing.billing import BillingLine, BillingRow, OrderRef
 
 MIN_NUMBER_LENGTH = 3
 _DIGITS = re.compile(r"\d+")
@@ -72,6 +76,8 @@ RETRY_REASONS: frozenset[str] = frozenset(
         "original_missing",
     }
 )
+#: Ostatnia faktura po kolei w ``rematch_pending`` (``{"after_id": …}``).
+REMATCH_CURSOR_KEY = "client_sales_rematch_cursor"
 
 
 @dataclass(frozen=True)
@@ -130,6 +136,51 @@ def numbers_found(texts: Iterable[str], refs: Sequence[OrderRef]) -> set[str]:
     return hits
 
 
+def _item_price(item: dict[str, Any]) -> Optional[Decimal]:
+    try:
+        return Decimal(str(item.get("unit_price")))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _named_in(line: BillingLine, item_name: str) -> bool:
+    parts = line.consultant.split()
+    return len(parts) >= 2 and all(_pattern(part).search(item_name) for part in parts)
+
+
+def _person_and_price(
+    candidates: Sequence[BillingRow], items: Sequence[dict[str, Any]]
+) -> Optional[Target]:
+    """Osoba z pozycji faktury i jej cena jednostkowa, gdy godziny są inne niż w NEXUSIE.
+
+    Faktura rozliczana godzinowo ma rzeczywiste godziny, a NEXUS szacunkowe, więc
+    kwota nie będzie równa. Wiąże tylko pewne wskazanie: pełne imię i nazwisko
+    prowadzi do jednej pozycji zamówień tego miesiąca, a cena jest równa co do
+    grosza. Różnicę kwoty widzą Finanse, jak przy numerze zamówienia.
+    """
+
+    lines = [line for row in candidates for line in row.lines if line.unit_price]
+    current = [
+        item
+        for item in items
+        if isinstance(item, dict) and not item.get("before_correction")
+    ]
+    named = [
+        (line, item)
+        for line in lines
+        for item in current
+        if _named_in(line, str(item.get("name") or ""))
+    ]
+    if len({id(line) for line, _item in named}) != 1:
+        return None
+    line = named[0][0]
+    if line.order_id is None:
+        return None
+    if not any(_item_price(item) == line.unit_price for _line, item in named):
+        return None
+    return Target(order_id=line.order_id)
+
+
 def decide(
     *,
     net: Decimal,
@@ -137,6 +188,7 @@ def decide(
     texts: Iterable[str],
     rows: Sequence[BillingRow],
     refs: Sequence[OrderRef],
+    items: Sequence[dict[str, Any]] = (),
 ) -> Decision:
     """Dopasowanie faktury do zamówień klienta w miesiącu (czysta funkcja)."""
 
@@ -190,6 +242,9 @@ def decide(
         return Decision((Target(order_id=equal_people[0].order_id),), "amount")
     if len(equal_people) > 1:
         return Decision(reason="amount_ambiguous")
+    person = _person_and_price(candidates, items)
+    if person is not None:
+        return Decision((person,), "person")
     # Kosztowe nie czeka na zużycie MD — jego kwoty NEXUS nie liczy wcale.
     if any(row.expected_net is None and row.budget is None for row in candidates):
         return Decision(reason="expected_unknown")
@@ -301,7 +356,9 @@ async def auto_match(
         return Decision(reason=invoice.match_reason)
     registry = registry or await clients.nip_registry(db)
     if invoice.client_id is None:
-        client_id, reason = registry.resolve(invoice.buyer_nip)
+        client_id, reason = registry.resolve(
+            invoice.buyer_nip or invoice.buyer_foreign_id
+        )
         invoice.client_id = client_id
         if client_id is None:
             invoice.match_status = "unmatched"
@@ -333,6 +390,7 @@ async def auto_match(
         texts=invoice_texts(invoice),
         rows=rows,
         refs=refs,
+        items=invoice.items or [],
     )
     if decision.matched:
         await _replace_links(db, invoice, decision.targets, period, None)
@@ -460,20 +518,9 @@ async def reopen(
     await propagate_to_corrections(db, invoice)
 
 
-async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, int]:
-    """Kolejna próba dla faktur czekających z powodu, który mógł zniknąć."""
-
-    pending = list(
-        await db.scalars(
-            select(ClientSalesInvoice)
-            .where(
-                ClientSalesInvoice.match_status == "unmatched",
-                ClientSalesInvoice.match_reason.in_(sorted(RETRY_REASONS)),
-            )
-            .order_by(ClientSalesInvoice.issue_date.desc(), ClientSalesInvoice.id)
-            .limit(limit)
-        )
-    )
+async def _retry(
+    db: AsyncSession, pending: Sequence[ClientSalesInvoice]
+) -> dict[str, int]:
     registry = await clients.nip_registry(db) if pending else None
     matched = 0
     for invoice in pending:
@@ -485,13 +532,136 @@ async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, in
     return {"retried": len(pending), "matched": matched}
 
 
+async def _rematch_batch(db: AsyncSession, after_id: int, limit: int) -> list[int]:
+    """Kolejne ``limit`` czekających po ``after_id``, po końcu kolejki od jej początku."""
+
+    waiting = (
+        select(ClientSalesInvoice.id)
+        .where(
+            ClientSalesInvoice.match_status == "unmatched",
+            ClientSalesInvoice.match_reason.in_(sorted(RETRY_REASONS)),
+        )
+        .order_by(ClientSalesInvoice.id)
+    )
+    batch = list(
+        await db.scalars(waiting.where(ClientSalesInvoice.id > after_id).limit(limit))
+    )
+    if len(batch) < limit:
+        batch += list(
+            await db.scalars(
+                waiting.where(ClientSalesInvoice.id <= after_id).limit(
+                    limit - len(batch)
+                )
+            )
+        )
+    return batch
+
+
+async def rematch_pending(db: AsyncSession, *, limit: int = 200) -> dict[str, int]:
+    """Kolejna próba dla faktur czekających z powodu, który mógł zniknąć.
+
+    ``limit`` to budżet przebiegu (``billing_rows`` liczy się na każdą fakturę),
+    a kolejka bywa dłuższa, więc przebiegi idą po niej po kolei. Kursor zapisujemy
+    przed próbami: wycofany przebieg nie wraca na tę samą paczkę, bo jedna
+    wadliwa faktura zatrzymałaby wtedy całą kolejkę.
+    """
+
+    cursor = await db.scalar(
+        select(AppSetting.value).where(AppSetting.key == REMATCH_CURSOR_KEY)
+    )
+    after_id = int(cursor.get("after_id") or 0) if isinstance(cursor, dict) else 0
+    batch = await _rematch_batch(db, after_id, limit)
+    if not batch:
+        return await _retry(db, [])
+    statement = insert(AppSetting).values(
+        key=REMATCH_CURSOR_KEY, value={"after_id": batch[-1]}
+    )
+    await db.execute(
+        statement.on_conflict_do_update(
+            index_elements=[AppSetting.key], set_={"value": statement.excluded.value}
+        )
+    )
+    await db.commit()
+    pending = list(
+        await db.scalars(
+            select(ClientSalesInvoice)
+            .where(ClientSalesInvoice.id.in_(batch))
+            .order_by(ClientSalesInvoice.id)
+        )
+    )
+    return await _retry(db, pending)
+
+
+def buyer_number(invoice: ClientSalesInvoice) -> Optional[str]:
+    return invoice.buyer_nip or invoice.buyer_foreign_id
+
+
+def _waiting_for_number(number: str) -> list[Any]:
+    return [
+        ClientSalesInvoice.match_status == "unmatched",
+        ClientSalesInvoice.match_reason == "unknown_buyer",
+        or_(
+            ClientSalesInvoice.buyer_nip == number,
+            ClientSalesInvoice.buyer_foreign_id == number,
+        ),
+    ]
+
+
+async def waiting_for_number(db: AsyncSession, number: str) -> int:
+    """Ile faktur czeka na ten numer u klienta."""
+
+    return int(
+        await db.scalar(
+            select(func.count())
+            .select_from(ClientSalesInvoice)
+            .where(*_waiting_for_number(number))
+        )
+        or 0
+    )
+
+
+async def save_buyer_number(
+    db: AsyncSession, invoice: ClientSalesInvoice, *, client_id: Optional[int] = None
+) -> dict[str, Any]:
+    """Numer nabywcy u klienta z faktury i od razu reszta faktur tego nabywcy.
+
+    Nie czekamy na ``rematch_pending``: idzie po kolejce paczkami, więc starsze
+    faktury tego nabywcy doszłyby do niego dopiero po kilku przebiegach.
+    """
+
+    check = await clients.add_buyer_number(
+        db, invoice.client_id or client_id, buyer_number(invoice)
+    )
+    result: dict[str, Any] = {
+        "state": check.state,
+        "number": check.number,
+        "client_id": check.client_id,
+        "saved": check.state == "add",
+        "retried": 0,
+        "matched": 0,
+    }
+    if check.state == "add":
+        pending = list(
+            await db.scalars(
+                select(ClientSalesInvoice)
+                .where(*_waiting_for_number(check.number))
+                .order_by(ClientSalesInvoice.issue_date, ClientSalesInvoice.id)
+                .with_for_update()
+            )
+        )
+        result.update(await _retry(db, pending))
+    return result
+
+
 __all__ = [
     "Decision",
     "MatchingError",
     "REASON_LABELS",
+    "REMATCH_CURSOR_KEY",
     "Target",
     "assign",
     "auto_match",
+    "buyer_number",
     "decide",
     "ignore",
     "invoice_texts",
@@ -499,4 +669,6 @@ __all__ = [
     "propagate_to_corrections",
     "rematch_pending",
     "reopen",
+    "save_buyer_number",
+    "waiting_for_number",
 ]

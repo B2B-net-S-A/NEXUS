@@ -39,13 +39,13 @@ afterEach(() => {
 const closingLabel = () => monthTitlePl(payrollScene());
 
 describe("/preview/hr-payroll", () => {
-  it("Płace: poprzedni miesiąc ze stawkami, ostrzeżeniem i premiami z placementów i Ligi", async () => {
+  it("Rozliczenia: poprzedni miesiąc ze stawkami, ostrzeżeniem i premiami z placementów i Ligi", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-payroll");
     render(<HrPayrollPreviewPage />);
 
     expect(
-      await screen.findByRole("heading", { name: `Płace · ${closingLabel()}` }),
+      await screen.findByRole("heading", { name: `Rozliczenia · ${closingLabel()}` }),
     ).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Stawka /h" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Kamil Testowy" })).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("/preview/hr-payroll", () => {
     // Stepper: premie z miesiąca czekają na decyzję, więc „Zamknij miesiąc” jeszcze nieaktywne.
     const steps = screen.getByRole("list", { name: "Kroki zamknięcia miesiąca" });
     expect(within(steps).getByText(/^Premie/).closest("li")).toHaveAttribute("aria-current", "step");
-    expect(screen.getAllByText(/2 os\. bez zatwierdzonego timesheetu/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/2 os\. bez zatwierdzonego raportu godzin/).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Zamknij miesiąc/ })).toBeDisabled();
     expect(screen.getByRole("region", { name: "Premie do decyzji" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Razem do wypłaty" })).toBeInTheDocument();
@@ -73,12 +73,12 @@ describe("/preview/hr-payroll", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("przełożona (D2): godziny i premie zespołu bez stawek, eksportu i zamknięcia", async () => {
+  it("koordynatorka (D2): godziny i premie zespołu bez stawek, eksportu i zamknięcia", async () => {
     window.history.replaceState({}, "", "/preview/hr-payroll?state=team");
     render(<HrPayrollPreviewPage />);
 
     expect(
-      await screen.findByRole("heading", { name: `Płace · ${closingLabel()}` }),
+      await screen.findByRole("heading", { name: `Rozliczenia · ${closingLabel()}` }),
     ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Ola Przykładowa" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Kamil Testowy" })).toBeNull();

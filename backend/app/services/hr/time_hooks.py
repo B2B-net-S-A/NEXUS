@@ -3,8 +3,10 @@
 * ``on_leave_approved`` — zatwierdzenie wniosku kasuje godziny pracy wpisane
   wcześniej na PEŁNE dni urlopu (także w zaakceptowanym timesheecie — wtedy
   z nową sumą kontrolną i śladem HR), a płatne dni B2B
-  z puli dostają auto-wpis ``leave_paid``. Połówek dnia nie ruszamy: drugą
-  połowę wolno przepracować (jak w Compassie).
+  z puli dostają auto-wpis ``leave_paid``. Drugą połowę dnia wolno
+  przepracować (jak w Compassie), ale najwyżej 4 h: ręczne wpisy dnia z połową
+  urlopu skracamy od najpóźniej dodanego (decyzja Artura z 28.10.2026 —
+  wpis 8 h sprzed wniosku dawał akceptującemu 12 h); nadgodzin nie ruszamy.
 * ``on_leave_cancelled`` — anulowanie/odrzucenie zdejmuje auto-wpisy
   ``leave_paid`` z dni, których urlop już nie obejmuje.
 * ``sent_months`` — miesiące dni z raportem godzin wysłanym albo przyjętym:
@@ -23,12 +25,13 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date
+from decimal import Decimal
 from typing import Any, Optional
 
 from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.hr_time import Timesheet
+from app.models.hr_time import Timesheet, TimesheetEntry
 
 from app.services.hr import audit, people, time_retention
 from app.services.hr.time_calendar import month_range
@@ -39,6 +42,7 @@ from app.services.hr.time_entries import (
     recompute_hash_if_set,
     remove_hours_on_full_leave_days,
     sync_leave_paid,
+    trim_hours_on_half_leave_days,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +103,31 @@ def _retained(timesheet: Timesheet, employment_type: Optional[str]) -> bool:
     return True
 
 
+def _hours_text(value: Decimal) -> str:
+    return format(value.normalize(), "f") if value else "0"
+
+
+def _trimmed_days(
+    trimmed: list[tuple[TimesheetEntry, Decimal, Decimal]],
+) -> list[dict[str, str]]:
+    """Dzień → suma skróconych wpisów przed i po (ślad dla Płac i koordynatora)."""
+
+    totals: dict[date, list[Decimal]] = defaultdict(
+        lambda: [Decimal("0"), Decimal("0")]
+    )
+    for entry, before, after in trimmed:
+        totals[entry.work_date][0] += before
+        totals[entry.work_date][1] += after
+    return [
+        {
+            "day": day.isoformat(),
+            "hours_before": _hours_text(before),
+            "hours_after": _hours_text(after),
+        }
+        for day, (before, after) in sorted(totals.items())
+    ]
+
+
 async def on_leave_approved(
     db: AsyncSession, user_id: int, days: Iterable[date]
 ) -> dict[str, Any]:
@@ -106,6 +135,7 @@ async def on_leave_approved(
     employment_type = profile.employment_type if profile else None
     result: dict[str, Any] = {
         "removed_entries": 0,
+        "trimmed_entries": 0,
         "timesheets_touched": 0,
         "locked_conflicts": [],
         "sent_changed": [],
@@ -132,6 +162,17 @@ async def on_leave_approved(
         removed = await remove_hours_on_full_leave_days(
             db, timesheet=timesheet, days=full_days
         )
+        # Przed ``sync_leave_paid``: połowa puli B2B dostaje auto-wpis 4 h
+        # tylko wtedy, gdy ręczne godziny dnia mieszczą się już w 4 h.
+        trimmed = await trim_hours_on_half_leave_days(
+            db,
+            timesheet=timesheet,
+            caps={
+                day: leave.manual_cap
+                for day in month_days
+                if (leave := leaves.get(day)) is not None and not leave.leave.is_full
+            },
+        )
         changed = await sync_leave_paid(
             db, timesheet=timesheet, employment_type=employment_type
         )
@@ -151,11 +192,28 @@ async def on_leave_approved(
                     "entries": len(removed),
                 },
             )
-        if removed or changed:
+        if trimmed:
+            await recompute_hash_if_set(db, timesheet)
+            audit.record(
+                db,
+                actor_user_id=None,
+                subject_user_id=user_id,
+                entity_type="timesheet",
+                entity_id=timesheet.id,
+                action="leave_hours_trimmed",
+                details={
+                    "status": timesheet.status,
+                    "days": _trimmed_days(trimmed),
+                    "entries": len(trimmed),
+                    "removed": sum(1 for _, _, after in trimmed if after <= 0),
+                },
+            )
+        if removed or trimmed or changed:
             result["timesheets_touched"] += 1
             if timesheet.status in SENT_STATUSES:
                 result["sent_changed"].append(f"{year}-{month:02d}")
         result["removed_entries"] += len(removed)
+        result["trimmed_entries"] += len(trimmed)
     return result
 
 

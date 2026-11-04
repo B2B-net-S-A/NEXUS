@@ -30,7 +30,12 @@ from app.models.activity import Activity
 from app.models.cv_document_version import CvDocumentVersion
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.user import User, UserRole
-from app.services import cv_approval_review, object_storage, storage_service
+from app.services import (
+    cv_approval_review,
+    cv_consent_check,
+    object_storage,
+    storage_service,
+)
 from tests.test_stage_cv_pick_from_profile import (
     _base,
     _csv,
@@ -39,6 +44,15 @@ from tests.test_stage_cv_pick_from_profile import (
     _seed,
     consent_client,
 )
+
+
+@pytest.fixture(autouse=True)
+def _consent_reuse_not_checked(monkeypatch):
+    """Te testy wgrywają ten sam obrazek dla wielu kandydatów w jednej bazie;
+    kontrolę „ten sam plik u innego kandydata” sprawdza `test_cv_consent_check`."""
+    monkeypatch.setattr(
+        cv_consent_check, "used_for_other_candidate", AsyncMock(return_value=False)
+    )
 
 
 def _png(color: str = "white") -> bytes:

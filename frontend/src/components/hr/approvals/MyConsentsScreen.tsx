@@ -151,7 +151,7 @@ function Detail({ row, onEdit }: { row: ApprovalRequestRow; onEdit: () => void }
       {row.status === "approved" && !row.settlement ? (
         <p className="border-t border-border/60 pt-3 text-sm text-foreground">
           {row.kind === "bonus"
-            ? "Wynagrodzenie dodatkowe jest w Płacach jako przyznane."
+            ? "Wynagrodzenie dodatkowe jest w Rozliczeniach jako przyznane."
             : `Możesz kupić albo zapłacić${row.decided_amount ? ` — do ${moneyPl(row.decided_amount, row.currency)}` : ""}.`}
         </p>
       ) : null}

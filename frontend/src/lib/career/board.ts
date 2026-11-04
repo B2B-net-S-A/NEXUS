@@ -6,16 +6,16 @@
 import type { CareerBoardCategory, CareerBoardJob, RemotePolicy } from "./api";
 
 export const BOARD_CATEGORIES: readonly { id: CareerBoardCategory; label: string }[] = [
-  { id: "development", label: "development" },
-  { id: "infra", label: "infra & data" },
-  { id: "qa", label: "qa" },
-  { id: "management", label: "management & delivery" },
+  { id: "development", label: "Development" },
+  { id: "infra", label: "Infra & data" },
+  { id: "qa", label: "QA" },
+  { id: "management", label: "Management & delivery" },
 ];
 
 export const BOARD_MODES: readonly { id: RemotePolicy; label: string }[] = [
-  { id: "remote", label: "zdalnie" },
-  { id: "hybrid", label: "hybryda" },
-  { id: "onsite", label: "stacjonarnie" },
+  { id: "remote", label: "Zdalnie" },
+  { id: "hybrid", label: "Hybryda" },
+  { id: "onsite", label: "Stacjonarnie" },
 ];
 
 /** Ile kart na start i po każdym „pokaż kolejne”. */
@@ -106,9 +106,9 @@ export function openCountLabel(n: number): string {
   return `${n} otwartych`;
 }
 
-/** Linia pod kartą: „[warszawa · hybryda]”, „[zdalnie]”. */
+/** Linia pod kartą: „Warszawa · Hybryda”, „Zdalnie” (od 29.10.2026 w pisowni marki, nie terminala). */
 export function boardTagLine(job: Pick<CareerBoardJob, "city" | "remote_policy">): string {
   const mode = BOARD_MODES.find((m) => m.id === job.remote_policy)?.label ?? null;
-  const city = job.remote_policy === "remote" ? null : job.city?.trim().toLocaleLowerCase("pl-PL");
+  const city = job.remote_policy === "remote" ? null : job.city?.trim();
   return [city, mode].filter(Boolean).join(" · ");
 }

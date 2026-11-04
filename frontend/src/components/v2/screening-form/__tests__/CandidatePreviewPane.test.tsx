@@ -83,6 +83,8 @@ vi.mock("@/components/v2/modals/CVBrandedEditModal", () => ({
 }));
 
 vi.mock("@/components/v2/files/FilePreviewModal", () => ({
+  previewKind: (doc: { filename?: string }) =>
+    /\.(pdf|docx)$/i.test(doc.filename ?? "") ? "pdf" : "unsupported",
   FilePreviewContent: ({
     doc,
     searchRequest,
@@ -901,6 +903,8 @@ describe("CandidatePreviewPane — zwijanie CV i wymagań", () => {
     expect(JSON.parse(window.localStorage.getItem("nexus:person-preview-layout:7") ?? "null")).toEqual({
       cvCollapsed: false,
       infoCollapsed: false,
+      columnWidth: null,
+      compact: false,
     });
   });
 
@@ -1303,6 +1307,21 @@ describe("CandidatePreviewPane — Pobierz CV (D1–D5)", () => {
     await screen.findByTestId("stage-cv-preview");
     expect(screen.getByRole("button", { name: "Pobierz Word" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Pobierz PDF" })).toBeDisabled();
+  });
+
+  it("sama rola rekrutera nie ma „Pobierz CV” przy oryginale, rola dodatkowa ma", async () => {
+    useAuthStore.setState({ user: { id: 7, role: "recruiter", roles: ["recruiter"] } as never, hydrated: true });
+    mountPane();
+    await screen.findByTestId("file-preview");
+    expect(screen.queryByTestId("preview-cv-download")).toBeNull();
+    cleanup();
+
+    useAuthStore.setState({
+      user: { id: 7, role: "recruiter", roles: ["recruiter", "delivery_lead"] } as never,
+      hydrated: true,
+    });
+    mountPane();
+    expect(await screen.findByTestId("preview-cv-download")).toBeInTheDocument();
   });
 
   it("bez CV firmowego nie ma czego pobrać", async () => {

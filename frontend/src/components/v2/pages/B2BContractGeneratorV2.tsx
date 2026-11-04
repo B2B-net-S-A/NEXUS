@@ -3056,7 +3056,9 @@ export function GeneratedContractsTab({
                           ) : r.esign || r.can_send_esign ? (
                             <div className="flex flex-col items-start gap-1.5">
                               {r.esign ? <EsignRowStatus row={r} /> : null}
-                              {r.can_send_esign ? (
+                              {/* Po terminie „Wyślij nowy link” (ten sam PDF)
+                                  zastępuje nową wysyłkę z nowym PDF-em. */}
+                              {r.can_send_esign && !r.can_relink_esign ? (
                                 <Button
                                   type="button"
                                   variant="outline"

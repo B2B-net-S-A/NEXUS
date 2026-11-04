@@ -69,6 +69,14 @@
    "v3_home": "okno Historia i czat"
   },
   {
+   "id": "person.booked-call",
+   "area": "panel",
+   "opis": "Umów telefon: termin screeningu z przypomnieniem, plakietka na karcie, Przełóż i Odwołaj",
+   "file": "components/v2/recruitment/ScreeningCallControl.tsx",
+   "marker": "ScreeningCallControl",
+   "v3_home": "panel osoby → obok „Nie odebrał”"
+  },
+  {
    "id": "list.dock",
    "area": "lista",
    "opis": "Dock podglądu rekrutacji",
@@ -453,6 +461,14 @@
    "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
    "marker": "menu-files",
    "v3_home": "menu „⋯” → Pliki"
+  },
+  {
+   "id": "header.menu-client-panel",
+   "area": "naglowek",
+   "opis": "Panel klienta pod linkiem z CV: włącznik, link, dowody, sprawy od klienta (menu „⋯”)",
+   "file": "components/v2/jobs/JobDetailCompactHeader.tsx",
+   "marker": "menu-client-panel",
+   "v3_home": "menu „⋯” → Panel klienta"
   },
   {
    "id": "questions.bank",
@@ -1288,10 +1304,26 @@
   {
    "id": "cv.use-other-upload",
    "area": "cv",
-   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”",
+   "opis": "Wgranie pliku Word z dysku jako szkicu CV do klienta (bez AI, plik nie trafia do plików kandydata); wysyłka dopiero po „Użyj tego pliku”. Od 29.10.2026 sekcja nazywa się „Gotowe CV do klienta z dysku (bez AI)”",
    "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
-   "marker": "Wgraj plik CV z dysku",
+   "marker": "Wgraj gotowe CV do klienta (bez AI)",
    "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV”"
+  },
+  {
+   "id": "cv.use-other-upload-candidate-cv-question",
+   "area": "cv",
+   "opis": "Plik bez układu szablonu B2B (brak „Dlaczego nasz kandydat?” i „Nazwa firmy:/Stanowisko:”) zatrzymuje się na pytaniu: „Wygeneruj z tego pliku” (CV kandydata + panel generowania) albo „Użyj tak, jak jest” (29.10.2026)",
+   "file": "components/v2/recruitment/UseOtherCvDialog.tsx",
+   "marker": "Wygeneruj z tego pliku",
+   "v3_home": "panel → CV → karta „CV do klienta” → „Użyj innego CV” → plik z dysku"
+  },
+  {
+   "id": "cv.qc-word-file-badge",
+   "area": "cv",
+   "opis": "Znacznik „z pliku Word” w oknie QC CV i w panelu „Do poprawy” edytora, gdy szkic etapu wczytano z pliku Word bez AI (29.10.2026)",
+   "file": "components/v2/recruitment/cv-qc-cards.tsx",
+   "marker": "qc-cv-word-file",
+   "v3_home": "okno QC CV z Tablicy; edytor CV → „Do poprawy”"
   },
   {
    "id": "cv.stage-copy-from-other-job",
@@ -1706,6 +1738,14 @@
    "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · nowa rekrutacja → 2 · Wymagania"
   },
   {
+   "id": "champ.sent-gap",
+   "area": "zlecenie",
+   "opis": "Ostrzeżenie pod wierszem „musi mieć”, którego nie ma nikt z co najmniej 3 osób wysłanych do klienta: „Do rozmowy”, „Zostaw” i „Podpowiedz słowa” (model czyta CV wysłanych, słowa z liczbą złapanych osób i osób w bazie); ten sam powód w „Propozycji uporządkowania wymagań” i na pulpicie Delivery Leada (02.11.2026)",
+   "file": "components/champion/RequirementRowCallouts.tsx",
+   "marker": "SentGapCallout",
+   "v3_home": "Profil Championa → „Edytuj” przy „Czego szukamy” · pulpit → Wymagania do poprawy"
+  },
+  {
    "id": "champ.talk-search-word",
    "area": "zlecenie",
    "opis": "„To słowo do szukania?” pod listą „Rekruter sprawdza w rozmowie”: pozycja, którą serwer czyta jako technologię albo słowo do szukania, a której nie ma w wierszach wymagań, dostaje liczbę osób w bazie i „Dodaj do słów do szukania” (pozycja z poziomem albo komentarzem zostaje na liście) albo „Przenieś do słów do szukania” (27.10.2026)",
@@ -2054,6 +2094,14 @@
    "v3_home": "Profil Championa → Brief (na górze)"
   },
   {
+   "id": "champion.client-questions-all",
+   "area": "zlecenie",
+   "opis": "Pytania klienta: domyślnie zadane w tej rekrutacji, w zakładce wszystkie pytania klienta po rekrutacjach z wyszukiwarką i archiwum po roli",
+   "file": "components/ChampionClientQuestionsPanel.tsx",
+   "marker": "AllClientQuestions",
+   "v3_home": "Profil Championa → Klient i historia → Pytania klienta"
+  },
+  {
    "id": "champion.client-tab",
    "area": "zlecenie",
    "opis": "Klient i historia: opis klienta, karta klienta i branże, pytania klienta z rozmów, wiedza z rozmów, wcześniejsze zapytania",
@@ -2200,7 +2248,7 @@
   {
    "id": "cv.editor-fullscreen",
    "area": "cv",
-   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
+   "opis": "Edytor CV na cały ekran: kartka w układzie szablonu Worda, nagłówek w jednym rzędzie (Zamknij, pasek, „Edycja | Jak u klienta”, stan zapisu, „Pokaż oryginał”, „Pobierz Word”), jedna kolumna obok kartki (Edytor CV 3, 14.10.2026)",
    "file": "components/v2/modals/CVBrandedEditModal.tsx",
    "marker": "Edytor CV do klienta",
    "v3_home": "karta „CV do klienta” → Otwórz i popraw"
@@ -2224,10 +2272,10 @@
   {
    "id": "cv.editor-sources",
    "area": "cv",
-   "opis": "Źródła obok edytora: oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
+   "opis": "Źródła po lewej od kartki, na przycisk (03.11.2026): oryginalne CV i pliki kandydata, wymagania klienta, „Po ludzku”, notatki z rekrutacji",
    "file": "components/v2/cv-editor/CvEditorSourcesPane.tsx",
    "marker": "Notatki",
-   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Oryginał"
+   "v3_home": "karta „CV do klienta” → Otwórz i popraw → Pokaż oryginał"
   },
   {
    "id": "cv.editor-pages-preview",
@@ -2666,6 +2714,38 @@
    "v3_home": "Lista rekrutacji → „Strona kariery · N” → /jobs/strona-kariery"
   },
   {
+   "id": "ad.channel-reminders",
+   "area": "zlecenie",
+   "opis": "Przypomnienia o ogłoszeniach (27.10.2026): przy każdym kanale okna „Ogłoszenie” kto robi brak, „Nie publikujemy tu” z powodem i „Cofnij” (DL, HoR, admin)",
+   "file": "components/v2/job-ad/AdReminderControls.tsx",
+   "marker": "Nie publikujemy tu",
+   "v3_home": "nagłówek → Ogłoszenie → kolumna „Gdzie publikujesz” → linia pod kanałem"
+  },
+  {
+   "id": "ad.remind-recruiters",
+   "area": "zlecenie",
+   "opis": "„Przypomnij: <rekruter>” — DL prosi rekrutera o stronę kariery, mail od razu (27.10.2026)",
+   "file": "components/v2/job-ad/AdChannels.tsx",
+   "marker": "ad-remind-recruiters",
+   "v3_home": "nagłówek → Ogłoszenie → Strona kariery → Przypomnij"
+  },
+  {
+   "id": "ad.mail-entry",
+   "area": "zlecenie",
+   "opis": "Wejście z maila przypomnienia: ?ogloszenie=kariera|pracuj|jjit|pomin i &przypomnij=rekruter otwierają okno ogłoszenia z krokami dla kanału (27.10.2026)",
+   "file": "lib/job-ad-mail-intent.ts",
+   "marker": "readAdMailIntent",
+   "v3_home": "mail „Wstaw ogłoszenia” → przycisk → rekrutacja z otwartym oknem"
+  },
+  {
+   "id": "ad.missing-queue",
+   "area": "lista",
+   "opis": "Ogłoszenia do nadrobienia (27.10.2026): rekrutacje bez strony kariery, Pracuj.pl albo JustJoin.IT, „Do zrobienia przeze mnie / Także pilnowane”, okno ogłoszenia na pierwszym brakującym kanale",
+   "file": "components/v2/job-ad/MissingAdsQueue.tsx",
+   "marker": "Do zrobienia przeze mnie",
+   "v3_home": "mail zbiorczy „Nadrabiaj po kolei” → /jobs/ogloszenia"
+  },
+  {
    "id": "list.career-queue-link",
    "area": "lista",
    "opis": "Przycisk „Strona kariery · N” na liście rekrutacji: ile otwartych rekrutacji osoby nie wisi na stronie kariery",
@@ -2700,7 +2780,7 @@
   {
    "id": "panel.notes-earlier",
    "area": "panel",
-   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem; licznik notatek ludzi na zakładce",
+   "opis": "„Wcześniej u nas”: notatki osoby z innych rekrutacji i bez rekrutacji, pogrupowane po rekrutacji z jej wynikiem i powodem, także zakończone rekrutacje bez notatek; licznik notatek ludzi na zakładce",
    "file": "components/v2/person/PersonNotesHistory.tsx",
    "marker": "Wcześniej u nas",
    "v3_home": "Tablica → panel osoby → Rozwiń → Notatki i historia"
@@ -2772,7 +2852,7 @@
   {
    "id": "screening.before-call-earlier",
    "area": "panel",
-   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”)",
+   "opis": "Blok „Co już wiemy” nad formularzem: „Warunki — co już wiemy” (ostatnio podana stawka z datą, dostępność, tryb pracy) i „Wcześniej u nas” (ostatnia zakończona rekrutacja z wynikiem, wcześniejsze notatki z „Pokaż”); wynik i powód widać też po zwinięciu",
    "file": "components/v2/screening-form/BeforeCallProfile.tsx",
    "marker": "Warunki — co już wiemy",
    "v3_home": "Tablica → panel osoby → Screening → blok „Co już wiemy” nad formularzem"
@@ -2848,6 +2928,14 @@
    "file": "components/v2/screening-form/CandidatePreviewPane.tsx",
    "marker": "preview-cv-upload-input",
    "v3_home": "panel osoby → lewa strefa → CV"
+  },
+  {
+   "id": "cv-to-client.original-after-generator",
+   "area": "CV do klienta",
+   "opis": "„Generator źle zrobił CV? Pobierz oryginał” dla samej roli rekrutera: okno z powodami, potem plik",
+   "file": "components/v2/recruitment/CvToClientCard.tsx",
+   "marker": "cv-original-after-generator",
+   "v3_home": "panel osoby → CV → CV do klienta"
   },
   {
    "id": "screening-form.preview-cv-download",
@@ -2978,12 +3066,68 @@
    "v3_home": "okno „Kandydaci do dodania” → Szukaj ręcznie"
   },
   {
+   "id": "board.sources-ai-assess",
+   "area": "pozyskiwanie",
+   "opis": "„✦ Oceń z AI” na zaznaczonych osobach (do 30) w „Szukaj ręcznie” i w propozycjach — zamiast pobierania CV do prywatnego czatu (makieta C, 28.10.2026)",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "assess-with-ai",
+   "v3_home": "okno „Kandydaci do dodania” → zaznacz osoby → pasek akcji"
+  },
+  {
+   "id": "board.sources-ai-panel",
+   "area": "pozyskiwanie",
+   "opis": "Panel „Ocena AI · N zaznaczonych osób”: kolejność dzwonienia Dzwoń / Może / Nie pasuje, 1–2 powody z cytatem z CV albo notatki, „AI nie oceniło” przy braku CV albo awarii",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-panel",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI”"
+  },
+  {
+   "id": "board.sources-ai-add-calls",
+   "area": "pozyskiwanie",
+   "opis": "„Dodaj K „Dzwoń” do Nowych w tej kolejności” — ta sama droga co „Dodaj N do Nowych” zakładki",
+   "file": "components/v2/recruitment/AiAssessmentPanel.tsx",
+   "marker": "ai-assessment-add-calls",
+   "v3_home": "okno „Kandydaci do dodania” → „Oceń z AI” → stopka panelu"
+  },
+  {
+   "id": "board.sources-ai-latest",
+   "area": "pozyskiwanie",
+   "opis": "„Ostatnia ocena AI · Otwórz” nad wynikami „Szukaj ręcznie” — zapisana ocena (≤ 7 dni) bez ponownego wywołania modelu",
+   "file": "components/v2/recruitment/ManualSearchPanel.tsx",
+   "marker": "ai-assessment-latest",
+   "v3_home": "okno „Kandydaci do dodania” → „Szukaj ręcznie” → nad wynikami"
+  },
+  {
    "id": "board.sources-auto-score",
    "area": "pozyskiwanie",
    "opis": "Dopasowanie liczy się samo dla widocznych wierszy (bez „Policz dopasowanie”, D1 14.10.2026)",
    "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
    "marker": "onRowVisible",
    "v3_home": "okno „Kandydaci do dodania”"
+  },
+  {
+   "id": "board.sources-below-threshold",
+   "area": "pozyskiwanie",
+   "opis": "„Propozycje z bazy” kończą się separatorem „Poniżej 70% · N osób” z najlepszymi spod progu (nocny przegląd publikuje łącznie do 40); zakładka, kafel i dzwonek liczą tylko od progu (28.10.2026)",
+   "file": "components/v2/recruitment/AddCandidatesPanel.tsx",
+   "marker": "proposals-below-threshold",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy"
+  },
+  {
+   "id": "board.sources-hidden-by-critical",
+   "area": "pozyskiwanie",
+   "opis": "Sekcja „Ukryci przez »musi mieć«, choć w CV jest coś bliskiego · N” pod propozycjami: cytat z CV, wynik „?”, Dodaj/Pomiń/podgląd, zwinięta do 3 (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-by-critical",
+   "v3_home": "okno „Kandydaci do dodania” → Propozycje z bazy → pod listą"
+  },
+  {
+   "id": "board.sources-critical-variant",
+   "area": "pozyskiwanie",
+   "opis": "Przycisk „„SailPoint” = SailPoint IIQ” w sekcji ukrytych — dopisuje wariant do wiersza krytycznej zapisem Championa (rekruter, DL), przegląd od następnej nocy (28.10.2026)",
+   "file": "components/v2/recruitment/HiddenByCriticalSection.tsx",
+   "marker": "hidden-variant-add",
+   "v3_home": "okno „Kandydaci do dodania” → sekcja ukrytych → nagłówek"
   },
   {
    "id": "screening.use-all-answers",
@@ -3280,6 +3424,22 @@
    "file": "components/v2/request-board/RequestBoard.tsx",
    "marker": "request-row-set-p0",
    "v3_home": "Daily → wiersz requestu"
+  },
+  {
+   "id": "dl-review.cover-sheet",
+   "area": "przegląd DL",
+   "opis": "„Karta przed CV” (Credit Agricole, 29.10.2026): pigułka „Karta do klienta” u klienta z wzorem karty w regule CV — kartka jak w Wordzie, źródło przy każdym polu, poziom do sprawdzenia, wynagrodzenie za MD na żywo ze stawki do klienta, „Word”; linia „Karta przed CV gotowa” nad decyzją",
+   "file": "components/v2/recruitment/DlReviewPanel.tsx",
+   "marker": "<ClientCoverSheet",
+   "v3_home": "Pulpit → przegląd DL → Przejrzyj"
+  },
+  {
+   "id": "panel.cover-sheet-download",
+   "area": "panel",
+   "opis": "„Karta (Word)” przy „Do klienta” w panelu osoby — karta przed CV po wysyłce, tylko u klienta z wzorem karty i dla ról ze stawką do klienta (29.10.2026)",
+   "file": "components/v2/jobs/PipelineCandidateDock.tsx",
+   "marker": "dock-cover-sheet-download",
+   "v3_home": "panel → Do klienta → Karta (Word)"
   }
  ]
 }

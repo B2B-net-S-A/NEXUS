@@ -25,11 +25,12 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -168,17 +168,17 @@ describe("pasek godzin miesiąca", () => {
     expect(full.statusLabel).toBe("do akceptacji");
   });
 
-  it("bez timesheetu albo bez modułu czasu — bez paska", () => {
+  it("bez raportu godzin albo bez modułu czasu — bez paska", () => {
     expect(monthProgress(person({ month: null, timesheet_required: false }), team())).toMatchObject({
       hours: null,
-      text: "bez timesheetu",
+      text: "bez raportu godzin",
     });
     expect(monthProgress(person({ month: null }), team())?.text).toBe("—");
     expect(monthProgress(person(), team({ month: null }))).toBeNull();
   });
 });
 
-describe("karty „Do Twojej decyzji”", () => {
+describe("karty „Do potwierdzenia”", () => {
   const julia = person({
     user_id: 2,
     name: "Julia Próbna",
@@ -228,7 +228,7 @@ describe("karty „Do Twojej decyzji”", () => {
     },
   });
 
-  it("wniosek, timesheet i premia do wiadomości — w tej kolejności", () => {
+  it("wniosek, raport godzin i premia do wiadomości — w tej kolejności", () => {
     const cards = decisionCards(team({ people: [ola, julia, tomasz] }));
     expect(cards.map((card) => card.kind)).toEqual(["leave", "timesheet", "bonus"]);
     const [leave, timesheet, bonus] = cards;
@@ -245,7 +245,7 @@ describe("karty „Do Twojej decyzji”", () => {
     });
     // Sama propozycja (bez przyznanej premii) — decydują Płace.
     expect(bonus.title).toBe("Ola Przykładowa · 2000,00 zł");
-    expect(bonus.detail).toBe("1 propozycja premii — decydują Płace");
+    expect(bonus.detail).toBe("1 propozycja premii — decydują Rozliczenia");
     expect(decisionCount(cards)).toBe(2);
   });
 

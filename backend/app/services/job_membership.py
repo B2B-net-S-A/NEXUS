@@ -149,6 +149,7 @@ async def list_job_member_ids(
     *,
     include_category_participants: bool = True,
     include_parked: bool = True,
+    include_admins: bool = True,
 ) -> list[int]:
     """Zwraca unikalną listę user_id członków projektu (z adminami).
 
@@ -163,6 +164,10 @@ async def list_job_member_ids(
     zejście z P1 albo zamknięcie) — też tylko producenci dzwonków: osoba nad
     rekrutacją nie pracuje, ale czat, wzmianki i dostęp ją znają. Delivery
     Lead i TAC rekrutacji zostają zawsze.
+
+    ``include_admins=False`` pomija adminów spoza zespołu — tylko ruch na
+    Tablicy na żywo (``pipeline_realtime``, 27.10.2026): każdy admin dostawał
+    każdy ruch karty w firmie i odświeżał po nim swoje kolejki.
     """
     job = await db.get(Job, job_id)
     if job is None:
@@ -225,14 +230,15 @@ async def list_job_member_ids(
         asleep = (await load_parked(db, [job_id])).get(job_id, set())
         member_ids -= asleep - {job.delivery_lead_id, job.tac_id}
 
-    # Wszyscy admini systemu (małych liczb użytkowników — OK)
-    admins = await db.execute(
-        select(User.id)
-        .where(User.role == UserRole.admin)
-        .where(User.is_active.is_(True))
-    )
-    for (uid,) in admins.all():
-        member_ids.add(uid)
+    if include_admins:
+        # Wszyscy admini systemu (małych liczb użytkowników — OK)
+        admins = await db.execute(
+            select(User.id)
+            .where(User.role == UserRole.admin)
+            .where(User.is_active.is_(True))
+        )
+        for (uid,) in admins.all():
+            member_ids.add(uid)
 
     if availability_enabled():
         context = await workforce_context(db)

@@ -178,7 +178,10 @@ function inboxItem(i: number): ProposalInboxItem {
     evidence: {
       requirements: [
         { name: "Java 17", level: "must", status: "met" },
-        { name: "Spring Boot", level: "must", status: i % 4 === 0 ? "unknown" : "met" },
+        // Technologia sprzed ponad 3 lat: „?” z rokiem ostatniego użycia (27.10.2026).
+        i % 4 === 0
+          ? { name: "Spring Boot", level: "must", status: "unknown", last_used_year: 2021 }
+          : { name: "Spring Boot", level: "must", status: "met" },
         { name: "Kafka", level: "must", status: i % 3 === 0 ? "not_met" : "met" },
         { name: "AWS", level: "nice", status: "unknown" },
       ],

@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # produkcji bez wyjścia na świat — pętle w tle domyślnie stoją, a HTTP idzie
     # tylko do hostów z listy (`app/core/staging.py`).
     NEXUS_ENV: str = "production"
+    # Pętle w tle tylko w procesie z blokadą doradczą (`core/background_leader.py`).
+    BACKGROUND_LEADER_LOCK_ENABLED: bool = True
     # Hosty spoza sieci lokalnej dozwolone na stagingu obok dostawców AI
     # (po przecinku). Na produkcji bez znaczenia.
     STAGING_EXTRA_ALLOWED_HOSTS: str = ""
@@ -213,9 +215,12 @@ class Settings(BaseSettings):
     # Podniesienie do 1000 jest bezpieczne dopiero po zbatchowaniu zapytań
     # per-para w scoringu (`build_job_scoring_context`) — bez tego zimna pula
     # 1000 to ~2000 round-tripów do bazy na jedno żądanie.
-    # 30.09.2026 (decyzja Artura, audyt wyszukiwania): 3000 — przy pomiarze
-    # pula 2000 obcinała osoby wysłane do klienta w szerokich rolach.
-    MATCH_POOL_SIZE: int = 3000
+    # 2000 = wartość z produkcji, ustawiona po pomiarze z 18.08.2026. Domyślne
+    # 3000 z audytu 30.09 porównywało pulę z 1000, a produkcja miała już 2000.
+    # Pomiar 03.11.2026 (decyzja Artura), 621 wysłanych ze 164 rekrutacji:
+    # 3000 daje w puli 90,8% zamiast 87,8%, ale w top 20 tylko 287 osób zamiast
+    # 286, a `/recommendations` i `/ai-matches` są o 30–40% wolniejsze.
+    MATCH_POOL_SIZE: int = 2000
     # Warstwa bez sygnału jest USUWANA z budżetu zamiast dostawać stałą liczbę
     # punktów. Zmierzone na prodzie 2026-08-10, dlaczego to nie jest kosmetyka:
     #   * 90% ofert nie ma `nice_skills` → stara reguła dawała tam WSZYSTKIM 0/10,
@@ -317,7 +322,7 @@ class Settings(BaseSettings):
     # i mapowanie błędów — `services/llm_providers.py`.
     OPENAI_API_KEY: str = ""
     DEEPSEEK_API_KEY: str = ""
-    CLAUDE_MODEL_CV: str = "claude-sonnet-5"
+    CLAUDE_MODEL_CV: str = "claude-sonnet-5-5"
     # Fala 3: model dla biegu MASOWEGO. Osobny od CLAUDE_MODEL_CV, żeby zmiana
     # ekonomiki backfillu nie degradowała po cichu interaktywnej ścieżki
     # rekrutera (upload CV → profil). Do 16.09.2026 Haiku (~$0,004/CV); badanie
@@ -556,7 +561,10 @@ class Settings(BaseSettings):
     # wolumen. 30.09.2026 (decyzja Artura): co noc wszystkie rekrutacje w pracy
     # (~18) — dysk trzyma retencja zastąpionych przeglądów automatycznych
     # (jeden na rekrutację, ~75 MB; `candidate_search_retention`).
-    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 25
+    # 02.11.2026 (decyzja Artura): 48, bo w pracy jest 187 rekrutacji, a 66 pul
+    # miało ponad 6 dni. Przegląd trwa ok. 5 min, więc okno 01–05 więcej nie
+    # zmieści; pełne pokrycie wymaga przeglądu przyrostowego.
+    AUTO_FULL_REVIEW_MAX_PER_NIGHT: int = 48
     # NIEUŻYWANE od 07.10.2026 (decyzja Artura: propozycje bez limitu, tylko
     # próg). Zostaje, bo czytają je skrypty audytów w `docs/audits/`.
     AUTO_FULL_REVIEW_TOP_K: int = 60
@@ -564,6 +572,12 @@ class Settings(BaseSettings):
     # kanonicznym fitem z profilem bez użytkownika); osobne pokrętła zostają,
     # bo nocny przegląd i nowe CV stroi się niezależnie.
     AUTO_FULL_REVIEW_MIN_SCORE: float = 70.0
+    # Najlepsze N zamiast sztywnego progu (decyzja Artura 28.10.2026): gdy od
+    # progu jest mniej osób, nocny przegląd dopełnia propozycje najlepszymi
+    # dopuszczonymi spod progu do łącznie tylu. Nikogo od progu nie obcina.
+    # Na 38 rekrutacjach 61% osób dodanych ręcznie miało 50–70%, a z 60–70%
+    # wyszło więcej wysłanych CV niż z ≥ 70%. 0 = sam próg (stan sprzed zmiany).
+    AUTO_FULL_REVIEW_MIN_COUNT: int = 40
     # Znani zespołowi wyżej w „Propozycjach z bazy” (badanie 06.10.2026,
     # decyzja Artura 07.10.2026; `services/known_people_signal.py`). Procent
     # dopasowania bez zmian — punkty historii wpływają WYŁĄCZNIE na kolejność.
@@ -588,6 +602,10 @@ class Settings(BaseSettings):
     # Bezpiecznik: najwyżej tyle dodań na tick (każde = odczyt CV z magazynu
     # i zapis kopii). Pierwszy przebieg (~2–3 tys. osób) rozkłada się w czasie.
     NEW_COLUMN_AUTOFILL_MAX_PER_TICK: int = 100
+    # Nowi w bazie najpierw (decyzja Artura z 03.11.2026): osoba do 14 dni w bazie,
+    # od progu i bez uwag wchodzi do „Nowych” także ponad 20 i stoi na początku
+    # kolejki. False = „Nowi” i „Propozycje z bazy” jak przed tą zmianą.
+    NEW_COLUMN_FRESH_FIRST_ENABLED: bool = True
     # Odbiorcy raportu poniedziałkowego „Jakość podpowiedzi systemu”
     # (`services/autofill_quality.py`): adresy kont po przecinku. Puste =
     # aktywni admini.
@@ -924,6 +942,18 @@ class Settings(BaseSettings):
     # Limit tempa dla wywołań uwierzytelnianych kluczem API (slowapi, klucz = IP).
     SERVICE_ACCOUNT_RATE_LIMIT: str = "60/minute"
 
+    # ── Wtyczka LinkedIn (nagłówek X-Extension-Key, migracja 0608) ───────────
+    # Odcięcie wszystkich wtyczek naraz jednym env-em. Ważność połączenia:
+    # po tym czasie rekruter łączy wtyczkę ponownie jednym kliknięciem.
+    # Limit to odczyty stron LinkedIna na osobę dziennie (profil albo strona
+    # wyników = 1) — chroni konta Recruiter przed wyglądem automatu.
+    LINKEDIN_EXTENSION_ENABLED: bool = True
+    LINKEDIN_EXTENSION_TTL_DAYS: int = 180
+    LINKEDIN_EXTENSION_DAILY_READ_LIMIT: int = 150
+    # Id wtyczki z Chrome Web Store (niepubliczna) i id wersji deweloperskich,
+    # po przecinku. Strona „Połącz wtyczkę” przekazuje klucz tylko do nich.
+    LINKEDIN_EXTENSION_IDS: str = ""
+
     # API integracyjne v1 (`/api/integrations/v1`, 0443): limit per KONTO
     # serwisowe i trasę (nie per IP — automatyzacje z jednej chmury dzielą IP).
     # Odczyt ze stronicowaniem do 500 wierszy mieści się w 120/min z zapasem;
@@ -1003,6 +1033,14 @@ class Settings(BaseSettings):
     # bramkowany przez SMTP_ENABLED. Progi jako dni.
     JOB_DEADLINE_ALERTS_ENABLED: bool = True
     JOB_DEADLINE_ALERT_THRESHOLDS_DAYS: tuple[int, ...] = (7, 3, 1)
+    # Rekrutacje bez ruchu (28.10.2026, `services/job_idle.py`): przypomnienia
+    # po 14 i 21 dniach, zamknięcie po 28. Kill-switch całości bez redeploya.
+    JOB_IDLE_ENABLED: bool = True
+    # Maile CPro od Nordei (02.11.2026, `services/cpro_mail.py`): zamknięcia,
+    # odrzucenia i dzwonki. Kill-switch całości bez redeploya; pojedyncze reguły
+    # wyłącza się w Ustawieniach → CPro. Maile starsze niż data nie są czytane.
+    CPRO_MAIL_ENABLED: bool = True
+    CPRO_MAIL_SINCE: str = "2026-10-12"
 
     # ── Maile do zespołu (07.10.2026) ────────────────────────────────────────
     # Wyłączniki awaryjne pętli; o tym, CO wychodzi, decyduje admin
@@ -1269,6 +1307,9 @@ class Settings(BaseSettings):
     TEAMS_PREP_SPOKEN_LANGUAGE: str = "pl-PL"
     # Pętla pobierająca transkrypty (kill-switch — OFF kończy ją przed pętlą).
     TEAMS_PREP_TRANSCRIPTS_ENABLED: bool = False
+    # Transkrypty spotkań handlowców (0628). OFF do czasu konfiguracji Microsoft
+    # z ``docs/teams-prep-setup.md``; bez niej Graph odpowiadałby 403.
+    SALES_TEAMS_TRANSCRIPTS_ENABLED: bool = False
     TEAMS_PREP_POLL_MINUTES: int = 10
     # Od kiedy po końcu spotkania pytamy o transkrypt i jak długo czekamy,
     # zanim prep dostanie stan „bez nagrania”.
@@ -1575,6 +1616,14 @@ class Settings(BaseSettings):
     # Microsoft 365 dla urlopów: off = nic nie wychodzi; simulate = dokładne
     # żądania lądują w `hr_m365_operations.simulated_request`; live = Graph.
     HR_M365_MODE: str = "off"
+    # Portal konsultanta (02.11.2026). Wyłącznik jest w `app_settings`, tu tylko to,
+    # czego nie ma bez konfiguracji po stronie M365 i dostawcy SMS. Puste = odmowa.
+    # Konto wsparcie@: nadawca linków i organizator rozmów.
+    CONSULTANT_PORTAL_MAILBOX: str = ""
+    # Skrzynka rozliczenia@ czytana przez Graph (dokumenty konsultantów).
+    CONSULTANT_PORTAL_SETTLEMENTS_MAILBOX: str = ""
+    # `disabled` albo `log` (tylko NEXUS_ENV=staging i testy; patrz consultant_portal/sms.py).
+    CONSULTANT_PORTAL_SMS_PROVIDER: str = "disabled"
     # Lista UPN (po przecinku), którym wolno zapisać skrzynkę w trybie live —
     # pusta = wszystkim. Pierwsze przełączenie idzie na jedną skrzynkę testową.
     HR_M365_MAILBOX_ALLOWLIST: str = ""
@@ -1630,6 +1679,15 @@ class Settings(BaseSettings):
     # off = bez zapytań (domyślnie), simulate = fikcyjne wpisy lokalnie,
     # test = wl-test.mf.gov.pl, live = wl-api.mf.gov.pl.
     WHITE_LIST_MODE: str = "off"
+    # EBI24 (obieg dokumentów Finansów, `app/services/ebi24/`) — tylko odczyt.
+    # off = nic nie wychodzi (domyślnie), uat = test-api.ebi24.pl, prod = api.ebi24.pl.
+    # Klucz komunikacji i sekret dają dostęp do danych konta — tylko przez workflow
+    # „Coolify set env”, nigdy w logach. Pusty któryś z czterech = wyłączone.
+    EBI24_MODE: str = "off"
+    EBI24_USER_UUID: str = ""
+    EBI24_ACCOUNT_UUID: str = ""
+    EBI24_COMMUNICATION_KEY: str = ""
+    EBI24_SECRET_PHRASE: str = ""
 
     COMPASS_WORKDAYS_ENABLED: bool = False
     COMPASS_WORKDAYS_URL: str = ""
@@ -2140,6 +2198,13 @@ class Settings(BaseSettings):
     # zostaje globalny i bezwzględny („mało MD" ma znaczyć to samo u każdego
     # klienta), a ten jest wczesnym ostrzeżeniem dla klientów z listy wyżej.
     DL_ALERT_MD_BASE_USAGE_PERCENT: float = 80.0
+
+    # ── Licznik użycia obszarów (przegląd najmniejszych dostępów) ───────────
+    # Zbieranie osoba × obszar × dzień. Domyślnie WYŁĄCZONE: to dane o aktywności
+    # pracowników, więc włącza je wyłącznie decyzja Artura (workflow „Coolify set
+    # env”). `docs/claude/uprawnienia/licznik-uzycia-obszarow.md`.
+    ACCESS_USAGE_COUNTER_ENABLED: bool = False
+    ACCESS_USAGE_RETENTION_DAYS: int = 90
 
     # ── Finanse → Zmiany w zamówieniach: Braki ──────────────────────────────
     # Kill-switch detektora braków (zamówienie zakończone bez następcy):

@@ -10,6 +10,8 @@ Kontrakty:
 - osoby dodane przez zespół też się liczą; pełna kolumna = nic;
 - system nie dodaje: kogoś, kto był w tej rekrutacji, pominiętej propozycji,
   zatrudnionego, zgłoszenia z portalu, osoby na czarnej liście ani off-limits;
+- osoba z inną rolą niż rekrutacja nie dostaje karty także wtedy, gdy ma otwartą
+  propozycję i ≥ 80% „musi mieć” (propozycja zostaje, decyduje rekruter);
 - rekrutacja poza pracą nie dostaje nikogo; rytm: dni robocze 7–19, pełny
   przebieg co 15 min, a między nimi rekrutacje z ruchem karty.
 
@@ -17,6 +19,7 @@ Baza testowa jest wspólna i nieczyszczona: asercje dotyczą własnych wierszy.
 """
 
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -30,13 +33,15 @@ from app.core.security import hash_password
 from app.models.activity import Activity
 from app.models.candidate import Candidate
 from app.models.client import Client
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobStatus, RemotePolicy
 from app.models.job_autofill_pool import JobAutofillPool
 from app.models.job_proposal import JobProposal
 from app.models.recruitment_pipeline import CandidateStage, PipelineStage
 from app.models.recruitment_process import RecruitmentProcess
 from app.models.user import User, UserRole
 from app.services import new_column_autofill as autofill
+from app.services import process_entry_meta
+from app.services.location_utils import location_tokens
 
 _WARSAW = ZoneInfo("Europe/Warsaw")
 # Środa 21.10.2026, 10:00 w Warszawie — dzień roboczy w godzinach pracy.
@@ -58,14 +63,16 @@ async def _user() -> int:
         return user.id
 
 
-async def _world(people: int, *, work_state: str = "searching") -> dict:
+async def _world(
+    people: int, *, work_state: str = "searching", title: str | None = None
+) -> dict:
     tag = uuid.uuid4().hex[:8]
     async with AsyncSessionLocal() as db:
         client = Client(name=f"NCF client {tag}")
         db.add(client)
         await db.flush()
         job = Job(
-            title=f"NCF job {tag}",
+            title=title or f"NCF job {tag}",
             client_id=client.id,
             status=JobStatus.published,
             work_state=work_state,
@@ -170,6 +177,80 @@ async def test_fills_missing_places_with_the_best_of_the_pool(monkeypatch):
     assert event.details["count"] == 2 and event.details["had"] == 0
 
 
+def _pick(cid: int, score: float, cautions: tuple = ()) -> autofill.Pick:
+    return autofill.Pick(
+        candidate_id=cid,
+        score=score,
+        run_id=None,
+        matched_must=(),
+        missing_must=(),
+        cautions=cautions,
+    )
+
+
+def _ids(picks: list[autofill.Pick]) -> list[int]:
+    return [p.candidate_id for p in picks]
+
+
+def test_every_fifth_place_goes_to_the_best_person_without_a_process():
+    picks = [_pick(i, 100 - i) for i in range(1, 12)]
+    assert _ids(autofill.with_fresh_slots(picks, {9, 11})) == [
+        1,
+        2,
+        3,
+        4,
+        9,
+        5,
+        6,
+        7,
+        8,
+        11,
+        10,
+    ]
+
+
+def test_fresh_slot_counts_places_already_taken_in_the_column():
+    picks = [_pick(i, 100 - i) for i in range(1, 7)]
+    assert _ids(autofill.with_fresh_slots(picks, {6}, start=4))[0] == 6
+    assert _ids(autofill.with_fresh_slots(picks, {6}, start=3)) == [1, 6, 2, 3, 4, 5]
+
+
+def test_fresh_slot_takes_the_highest_score_not_the_queue_value():
+    # Kolejność z punktami „znamy”: 2 przed 3, choć 3 ma wyższy wynik.
+    picks = [
+        _pick(1, 90),
+        _pick(4, 89),
+        _pick(5, 88),
+        _pick(6, 87),
+        _pick(2, 60),
+        _pick(3, 70),
+    ]
+    assert _ids(autofill.with_fresh_slots(picks, {2, 3}))[4] == 3
+
+
+def test_person_with_a_caution_never_jumps_into_a_fresh_slot():
+    caution = ({"key": "budget"},)
+    picks = [_pick(i, 100 - i) for i in range(1, 6)] + [_pick(6, 50, caution)]
+    assert _ids(autofill.with_fresh_slots(picks, {6})) == [1, 2, 3, 4, 5, 6]
+
+
+def test_without_fresh_people_the_order_stays():
+    picks = [_pick(i, 100 - i) for i in range(1, 7)]
+    assert autofill.with_fresh_slots(picks, set()) == picks
+
+
+async def test_column_gets_a_person_without_a_process_on_the_fifth_place(monkeypatch):
+    monkeypatch.setattr(autofill, "TARGET", 5)
+    world = await _world(6)
+    other = await _world(0)
+    *known, fresh = world["ids"]
+    await _pool(world["job_id"], {cid: 90 - i for i, cid in enumerate(world["ids"])})
+    for cid in known:
+        await _stage(cid, other["job_id"], PipelineStage.rejected, None)
+
+    assert await _fill(world["job_id"]) == [*known[:4], fresh]
+
+
 async def test_people_added_by_the_team_count_and_a_full_column_gets_nothing(
     monkeypatch,
 ):
@@ -267,6 +348,127 @@ async def test_open_proposals_from_new_cvs_join_the_pool(monkeypatch):
     assert await _fill(world["job_id"]) == [from_cv, from_pool]
     processes = await _processes(world["job_id"])
     assert processes[from_cv].entry_meta["matched_must"] == ["Kotlin"]
+
+
+async def _titles(titles: dict[int, dict]) -> None:
+    async with AsyncSessionLocal() as db:
+        for cid, values in titles.items():
+            candidate = await db.get(Candidate, cid)
+            for name, value in values.items():
+                setattr(candidate, name, value)
+        await db.commit()
+
+
+def _proposal(job_id: int, cid: int, score: str, *, evidence=None) -> JobProposal:
+    return JobProposal(
+        job_id=job_id,
+        candidate_id=cid,
+        source="full_base",
+        score=Decimal(score),
+        status="proposed",
+        evidence=evidence or {},
+    )
+
+
+async def test_other_role_from_an_open_proposal_gets_no_card(monkeypatch):
+    """Propozycja z ≥ 80% „musi mieć” zostaje w oknie, ale karty bez człowieka
+    nie dostaje: pula odrzuca każdą inną rolę, propozycje szły obok niej."""
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    world = await _world(3, title="Tester manualny")
+    developer, tester, unknown = world["ids"]
+    await _titles(
+        {
+            developer: {"cv_extracted_data": {"current_position": "Pega Developer"}},
+            tester: {"cv_extracted_data": {"current_position": "Manual QA Engineer"}},
+            unknown: {"cv_extracted_data": {"current_position": "Konsultant"}},
+        }
+    )
+    all_met = {
+        "matched_must": ["SQL"],
+        "requirements": [{"name": "SQL", "level": "must", "status": "met"}],
+    }
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _proposal(world["job_id"], developer, "95", evidence=all_met),
+                _proposal(world["job_id"], tester, "70"),
+                _proposal(world["job_id"], unknown, "60"),
+            ]
+        )
+        await db.commit()
+
+    assert await _fill(world["job_id"]) == [tester, unknown]
+    async with AsyncSessionLocal() as db:
+        kept = await db.scalar(
+            select(JobProposal.status).where(
+                JobProposal.job_id == world["job_id"],
+                JobProposal.candidate_id == developer,
+            )
+        )
+    assert kept == "proposed"
+
+
+async def test_other_role_is_read_from_every_title_source(monkeypatch):
+    """Te same źródła tytułu co plakietka w oknie, bez pełnego wiersza osoby."""
+    world = await _world(4, title="Tester manualny")
+    from_linkedin, from_experience, from_cv, tester = world["ids"]
+    await _titles(
+        {
+            from_linkedin: {"linkedin_current_title": "Java Developer"},
+            from_experience: {"experience": [{"role": "Backend Developer"}]},
+            # Odczyt CV wygrywa z tytułem z LinkedIna, tak jak `current_position`.
+            from_cv: {
+                "cv_extracted_data": {"current_position": "Software Engineer"},
+                "linkedin_current_title": "QA Engineer",
+            },
+            tester: {
+                "cv_extracted_data": {"current_position": "QA Engineer"},
+                "linkedin_current_title": "Java Developer",
+            },
+        }
+    )
+    await _pool(
+        world["job_id"],
+        {from_linkedin: 90, from_experience: 85, from_cv: 80, tester: 50},
+    )
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=10)
+    assert [p.candidate_id for p in picks] == [tester]
+
+
+async def test_other_role_does_not_take_a_place_in_the_window():
+    """Limit liczy osoby, które system może dodać; inaczej czołówka z inną rolą
+    zjadłaby okno i zabrakłoby kogo dodać."""
+    world = await _world(5, title="Tester manualny")
+    developers, testers = world["ids"][:3], world["ids"][3:]
+    await _titles(
+        {
+            **{c: {"linkedin_current_title": "Java Developer"} for c in developers},
+            **{c: {"linkedin_current_title": "QA Engineer"} for c in testers},
+        }
+    )
+    async with AsyncSessionLocal() as db:
+        db.add_all(
+            [
+                _proposal(world["job_id"], cid, str(95 - i))
+                for i, cid in enumerate(developers)
+            ]
+        )
+        await db.commit()
+    await _pool(world["job_id"], {testers[0]: 60, testers[1]: 50})
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=2)
+    assert [p.candidate_id for p in picks] == testers
+
+
+async def test_role_is_not_compared_when_the_recruitment_has_no_family():
+    world = await _world(1, title="Konsultant SAP")
+    person = world["ids"][0]
+    await _titles({person: {"linkedin_current_title": "Java Developer"}})
+    await _pool(world["job_id"], {person: 70})
+    async with AsyncSessionLocal() as db:
+        picks = await autofill.ranked_picks(db, world["job_id"], limit=5)
+    assert [p.candidate_id for p in picks] == [person]
 
 
 async def test_job_out_of_work_gets_nobody(monkeypatch):
@@ -380,9 +582,9 @@ async def _rates(job_id: int, budget: float | None, rates: dict[int, float]) -> 
 
 
 async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
-    """Ponad 25% nad budżetem = nie dodaje; 0–25% nad budżetem = za osobami
-    w budżecie i z nieznaną stawką. Stawka poniżej 20 zł/h to błąd odczytu,
-    nie stawka — liczy się jak nieznana."""
+    """Ponad 15% nad budżetem = nie dodaje (do 27.10.2026: 25%); 0–15% nad
+    budżetem = za osobami w budżecie i z nieznaną stawką. Stawka poniżej
+    20 zł/h to błąd odczytu, nie stawka — liczy się jak nieznana."""
     monkeypatch.setattr(autofill, "TARGET", 5)
     world = await _world(6)
     far, slight, fits, unknown, garbage, consents = world["ids"]
@@ -393,7 +595,7 @@ async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
     await _rates(
         world["job_id"],
         100,
-        {far: 126, slight: 125, fits: 100, garbage: 0.6, consents: 200},
+        {far: 116, slight: 115, fits: 100, garbage: 0.6, consents: 200},
     )
     async with AsyncSessionLocal() as db:
         # Zgoda z rozmowy na ofertę poniżej minimum — stawka nie przeszkadza.
@@ -401,6 +603,107 @@ async def test_budget_skips_far_above_and_puts_slightly_above_last(monkeypatch):
         await db.commit()
 
     assert await _fill(world["job_id"]) == [consents, fits, unknown, garbage, slight]
+    processes = await _processes(world["job_id"])
+    assert processes[slight].entry_meta["cautions"] == [
+        {"key": "budget", "over_pct": 15, "rate": 115.0, "budget": 100.0}
+    ]
+    assert processes[fits].entry_meta["cautions"] == []
+
+
+async def test_office_and_city_cautions_go_last_with_a_note(monkeypatch):
+    """Mniej dni w biurze, niż chce klient, „tylko zdalnie” albo miasto
+    50–100 km od biura przy pracy z biurem = za resztą, z ostrzeżeniem
+    w migawce (27.10.2026, km od 29.10.2026). Zgoda na więcej dni w biurze
+    znosi ostrzeżenie o dniach, miasto bliżej niż 50 km — o mieście."""
+    monkeypatch.setattr(autofill, "TARGET", 6)
+    world = await _world(6)
+    fewer, remote, elblag, consents, ok, rumia = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.onsite_days_per_week = 3
+        job.location = "Gdynia"
+        (await db.get(Candidate, fewer)).max_onsite_days_per_week = 1
+        (await db.get(Candidate, remote)).preferences = {"remote_modes": ["remote"]}
+        (await db.get(Candidate, elblag)).city = "Elbląg"
+        (await db.get(Candidate, rumia)).city = "Rumia"
+        person = await db.get(Candidate, consents)
+        person.max_onsite_days_per_week = 1
+        person.accepts_more_office_days = True
+        await db.commit()
+    await _pool(
+        world["job_id"],
+        {fewer: 95, remote: 90, elblag: 85, consents: 80, ok: 50, rumia: 40},
+    )
+
+    assert await _fill(world["job_id"]) == [consents, ok, rumia, fewer, remote, elblag]
+    processes = await _processes(world["job_id"])
+    assert processes[fewer].entry_meta["cautions"] == [
+        {"key": "office_days", "candidate_days": 1, "required_days": 3}
+    ]
+    assert processes[remote].entry_meta["cautions"] == [
+        {"key": "remote_only", "required_days": 3}
+    ]
+    assert processes[elblag].entry_meta["cautions"] == [
+        {
+            "key": "office_city",
+            "city": "Elbląg",
+            "office": "Gdynia",
+            "required_days": 3,
+            "km": 70,
+        }
+    ]
+    assert processes[consents].entry_meta["cautions"] == []
+    assert processes[rumia].entry_meta["cautions"] == []
+
+
+async def test_skips_people_living_far_from_every_office(monkeypatch):
+    """Miasto dalej niż 100 km od każdego biura rekrutacji = system nie dodaje
+    (decyzja Artura 29.10.2026: 23–29.10 takich osób było 102 w 115
+    rekrutacjach z biurem w Warszawie). Liczy się najbliższe biuro; osoba,
+    która sama wskazała miasto biura (notatki, relokacja), wchodzi; rekrutacja
+    zdalna i miasto spoza słownika — bez zmian."""
+    monkeypatch.setattr(autofill, "TARGET", 6)
+    world = await _world(6)
+    krakow, gdansk, moving, abroad, unknown, siedlce = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        # Hybryda bez liczby dni — reguła km i tak działa.
+        job.remote_policy = RemotePolicy.hybrid
+        job.location = "Warszawa, Gdańsk"
+        (await db.get(Candidate, krakow)).city = "Kraków"
+        (await db.get(Candidate, gdansk)).city = "Sopot"
+        person = await db.get(Candidate, moving)
+        person.city = "Wrocław"
+        person.cv_extracted_data = {
+            "_notes_insights": {
+                "relocation": {"willing": True, "targets": ["Warszawa"]}
+            }
+        }
+        (await db.get(Candidate, abroad)).city = "Bucharest"
+        (await db.get(Candidate, siedlce)).city = "Siedlce"
+        await db.commit()
+    await _pool(
+        world["job_id"],
+        {krakow: 95, gdansk: 90, moving: 85, abroad: 80, unknown: 70, siedlce: 60},
+    )
+
+    assert await _fill(world["job_id"]) == [gdansk, moving, abroad, unknown, siedlce]
+
+
+async def test_far_rule_needs_an_office(monkeypatch):
+    """Rekrutacja zdalna — miasto nie ma znaczenia."""
+    monkeypatch.setattr(autofill, "TARGET", 2)
+    world = await _world(2)
+    krakow, ok = world["ids"]
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, world["job_id"])
+        job.location = "Warszawa"
+        job.remote_policy = RemotePolicy.remote
+        (await db.get(Candidate, krakow)).city = "Kraków"
+        await db.commit()
+    await _pool(world["job_id"], {krakow: 90, ok: 50})
+
+    assert await _fill(world["job_id"]) == [krakow, ok]
 
 
 async def test_budget_rules_need_a_budget(monkeypatch):
@@ -462,3 +765,498 @@ async def test_never_readds_people_removed_from_the_recruitment(monkeypatch):
     await _pool(world["job_id"], {removed: 90, ok: 60})
 
     assert await _fill(world["job_id"]) == [ok]
+
+
+# ── Ostrzeżenia osoby od systemu (27.10.2026) — bez bazy ────────────────────
+# Osoby 15–25% nad budżetem szły dalej tak rzadko jak te ponad 25% (12% wobec
+# 15%), więc próg twardy spada do 15%. Mniej dni w biurze, niż chce klient,
+# „tylko zdalnie” albo inne miasto przy pracy z biurem = dalej o połowę
+# rzadziej (18% wobec 36%) — osoba za resztą, migawka mówi, co system wiedział.
+
+_GDYNIA = frozenset(location_tokens("Gdynia"))
+
+
+def _person(**kw):
+    base = {
+        "max_onsite_days_per_week": None,
+        "accepts_more_office_days": None,
+        "preferences": None,
+        "location": None,
+        "city": None,
+        "cv_extracted_data": None,
+    }
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def test_hard_budget_cut_is_15_percent():
+    tier = autofill._rate_tier
+    assert tier(Decimal("115"), "PLN", consents=False, budget_hourly=100) == 1
+    assert tier(Decimal("116"), "PLN", consents=False, budget_hourly=100) is None
+
+
+def test_budget_caution_names_the_percent_over():
+    assert autofill.budget_caution(Decimal("112"), "PLN", budget_hourly=95) == {
+        "key": "budget",
+        "over_pct": 18,
+        "rate": 112.0,
+        "budget": 95.0,
+    }
+    assert autofill.budget_caution(Decimal("95"), "PLN", budget_hourly=95) is None
+    assert autofill.budget_caution(None, None, budget_hourly=95) is None
+    assert autofill.budget_caution(Decimal("130"), "EUR", budget_hourly=95) is None
+
+
+def test_fewer_office_days_than_the_client_wants():
+    person = _person(max_onsite_days_per_week=1)
+    assert autofill.office_cautions(
+        person, office_days=3, office_tokens=_GDYNIA, office_label="Gdynia"
+    ) == [{"key": "office_days", "candidate_days": 1, "required_days": 3}]
+
+
+def test_consent_to_more_office_days_is_no_caution():
+    person = _person(max_onsite_days_per_week=1, accepts_more_office_days=True)
+    assert (
+        autofill.office_cautions(
+            person, office_days=3, office_tokens=_GDYNIA, office_label="Gdynia"
+        )
+        == []
+    )
+
+
+def test_remote_only_profile():
+    person = _person(preferences={"remote_modes": ["remote"]})
+    assert autofill.office_cautions(
+        person, office_days=2, office_tokens=_GDYNIA, office_label="Gdynia"
+    ) == [{"key": "remote_only", "required_days": 2}]
+
+
+def test_other_city_with_office_days():
+    person = _person(city="Kraków")
+    assert autofill.office_cautions(
+        person, office_days=3, office_tokens=_GDYNIA, office_label="Gdynia"
+    ) == [
+        {"key": "office_city", "city": "Kraków", "office": "Gdynia", "required_days": 3}
+    ]
+
+
+def test_office_km_counts_to_the_nearest_office():
+    offices = frozenset(location_tokens("Warszawa (priorytet), Gdynia, Gdańsk"))
+    assert autofill.office_km(_person(city="Wrocław"), offices) == 302
+    assert autofill.office_km(_person(city="Siedlce"), offices) == 87
+    assert autofill.office_km(_person(location="Lodz, PL"), offices) == 117
+    assert autofill.office_km(_person(city="Sopot"), offices) == 9
+    # Trójmiasto to trzy miasta — Sopot jest w nim, nie „9 km od Gdańska”.
+    trojmiasto = frozenset(location_tokens("Trójmiasto"))
+    assert autofill.office_km(_person(city="Sopot"), trojmiasto) is None
+    assert autofill.office_km(_person(city="Elbląg"), trojmiasto) == 54
+
+
+def test_office_km_is_unknown_without_a_place_or_when_the_person_names_the_office():
+    warsaw = frozenset(location_tokens("Warszawa, ul. Chmielna 89"))
+    assert autofill.office_km(_person(), warsaw) is None
+    assert autofill.office_km(_person(city="Bucharest"), warsaw) is None
+    assert autofill.office_km(_person(city="Kraków"), frozenset()) is None
+    notes = {"_notes_insights": {"preferences": {"locations": ["Warszawa"]}}}
+    assert (
+        autofill.office_km(_person(city="Kraków", cv_extracted_data=notes), warsaw)
+        is None
+    )
+    assert (
+        autofill.office_km(
+            _person(city="Kraków", preferences={"office_cities": ["Warszawa"]}), warsaw
+        )
+        is None
+    )
+
+
+def test_city_caution_carries_km_and_skips_near_towns():
+    warsaw = frozenset(location_tokens("Warszawa"))
+    assert autofill.office_cautions(
+        _person(city="Płock"),
+        office_days=None,
+        office_tokens=warsaw,
+        office_label="Warszawa",
+        km=95,
+    ) == [
+        {
+            "key": "office_city",
+            "city": "Płock",
+            "office": "Warszawa",
+            "required_days": None,
+            "km": 95,
+        }
+    ]
+    assert (
+        autofill.office_cautions(
+            _person(city="Pruszków"),
+            office_days=2,
+            office_tokens=warsaw,
+            office_label="Warszawa",
+            km=15,
+        )
+        == []
+    )
+
+
+def test_unknown_or_remote_job_is_no_caution():
+    assert (
+        autofill.office_cautions(
+            _person(), office_days=3, office_tokens=_GDYNIA, office_label="Gdynia"
+        )
+        == []
+    )
+    assert (
+        autofill.office_cautions(
+            _person(city="Kraków", max_onsite_days_per_week=0),
+            office_days=0,
+            office_tokens=_GDYNIA,
+            office_label="Gdynia",
+        )
+        == []
+    )
+
+
+def _meta(cautions):
+    return {
+        "kind": "autofill",
+        "score": 71.3,
+        "matched_must": ["Java"],
+        "missing_must": [],
+        "rate_from_hourly": 112.0,
+        "availability_date": None,
+        "cautions": cautions,
+    }
+
+
+def test_badge_turns_cautions_into_labels():
+    badge = process_entry_meta.autofill_badge(
+        _meta(
+            [
+                {"key": "budget", "over_pct": 18, "rate": 112.0, "budget": 95.0},
+                {"key": "office_days", "candidate_days": 1, "required_days": 2},
+                {"key": "remote_only", "required_days": 3},
+                {
+                    "key": "office_city",
+                    "city": "Kraków",
+                    "office": "Warszawa",
+                    "required_days": 2,
+                },
+            ]
+        ),
+        waiting_days=None,
+    )
+    assert badge["cautions"] == [
+        {
+            "key": "budget",
+            "label": "+18% budżetu",
+            "title": "„Stawka od” 112 zł/h, budżet 95 zł/h.",
+        },
+        {
+            "key": "office_days",
+            "label": "Biuro: 1 z 2 dni",
+            "title": "Według profilu przyjmie 1 dzień w biurze w tygodniu, klient chce 2 dni.",
+        },
+        {
+            "key": "remote_only",
+            "label": "Tylko zdalnie",
+            "title": "Według profilu albo notatek chce pracować wyłącznie zdalnie, klient chce 3 dni w biurze w tygodniu.",
+        },
+        {
+            "key": "office_city",
+            "label": "Inne miasto: Kraków",
+            "title": "Mieszka: Kraków. Biuro klienta: Warszawa, 2 dni w tygodniu.",
+        },
+    ]
+
+
+def test_badge_city_with_km():
+    badge = process_entry_meta.autofill_badge(
+        _meta(
+            [
+                {
+                    "key": "office_city",
+                    "city": "Płock",
+                    "office": "Warszawa",
+                    "required_days": None,
+                    "km": 95,
+                },
+                {
+                    "key": "office_city",
+                    "city": "Elbląg",
+                    "office": "Gdynia",
+                    "required_days": 3,
+                    "km": 70,
+                },
+            ]
+        ),
+        waiting_days=None,
+    )
+    assert badge["cautions"] == [
+        {
+            "key": "office_city",
+            "label": "Płock · 95 km",
+            "title": "Mieszka: Płock, ok. 95 km od najbliższego biura. Biuro klienta: Warszawa.",
+        },
+        {
+            "key": "office_city",
+            "label": "Elbląg · 70 km",
+            "title": "Mieszka: Elbląg, ok. 70 km od najbliższego biura. Biuro klienta: Gdynia, 3 dni w tygodniu.",
+        },
+    ]
+
+
+def test_badge_skips_unknown_or_broken_cautions():
+    badge = process_entry_meta.autofill_badge(
+        _meta([{"key": "nowy"}, "zle", {"key": "budget", "over_pct": "x"}]),
+        waiting_days=None,
+    )
+    assert badge["cautions"] == []
+    assert (
+        process_entry_meta.autofill_badge(_meta(None), waiting_days=None)["cautions"]
+        == []
+    )
+
+
+# ── Nowi w bazie najpierw (decyzja Artura z 03.11.2026) ─────────────────────
+
+
+async def _added(cid: int, days: int, **fields) -> None:
+    async with AsyncSessionLocal() as db:
+        person = await db.get(Candidate, cid)
+        person.created_at = _WORKDAY - timedelta(days=days)
+        for name, value in fields.items():
+            setattr(person, name, value)
+        await db.commit()
+
+
+async def _full_column(job_id: int, people: list[int]) -> None:
+    for cid in people:
+        await _stage(cid, job_id, PipelineStage.new, None)
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_enters_full_column_old_person_waits():
+    """Pełne „Nowe” nie zatrzymują osoby świeżo dodanej do bazy."""
+    world = await _world(23)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    fresh, old = ids[20], ids[21]
+    await _added(fresh, 3)
+    await _added(old, 300)
+    await _pool(job_id, {fresh: 71.0, old: 95.0})
+
+    assert await _fill(job_id) == [fresh]
+
+    async with AsyncSessionLocal() as db:
+        process = await db.scalar(
+            select(RecruitmentProcess).where(
+                RecruitmentProcess.job_id == job_id,
+                RecruitmentProcess.candidate_id == fresh,
+            )
+        )
+    assert process.entry_meta["fresh_first"] is True
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_goes_before_higher_score_when_one_place_left():
+    world = await _world(21)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:19])
+    fresh, old = ids[19], ids[20]
+    await _added(fresh, 14)
+    await _added(old, 300)
+    await _pool(job_id, {fresh: 70.0, old: 95.0})
+
+    assert await _fill(job_id) == [fresh]
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_stops_at_five_over_target():
+    world = await _world(29)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:22])
+    waiting = ids[22:]
+    for cid in waiting:
+        await _added(cid, 1)
+    await _pool(job_id, {cid: 80.0 - n for n, cid in enumerate(waiting)})
+
+    assert await _fill(job_id) == waiting[:3]
+    assert await _fill(job_id) == []
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_counts_against_tick_limit():
+    world = await _world(25)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    waiting = ids[20:]
+    for cid in waiting:
+        await _added(cid, 1)
+    await _pool(job_id, {cid: 80.0 - n for n, cid in enumerate(waiting)})
+
+    async with AsyncSessionLocal() as db:
+        assert await autofill.fill_job(db, job_id, now=_WORKDAY, limit=2) == waiting[:2]
+        await db.commit()
+
+
+@pytest.mark.asyncio
+async def test_full_column_refuses_what_does_not_meet_requirements():
+    """Pierwszeństwo tylko od progu, w 14 dniach, z dokładną datą i bez uwag."""
+    world = await _world(25)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    low, late, imported, caution, future = ids[20:]
+    await _added(low, 1)
+    await _added(late, 15)
+    await _added(imported, 1, external_source="traffit")
+    await _added(caution, 1, max_onsite_days_per_week=1)
+    await _added(future, -3)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(Job, job_id)
+        job.onsite_days_per_week = 3
+        job.location = "Gdynia"
+        await db.commit()
+    await _pool(
+        job_id,
+        {low: 69.0, late: 90.0, imported: 90.0, caution: 90.0, future: 90.0},
+    )
+
+    assert await _fill(job_id) == []
+
+
+@pytest.mark.asyncio
+async def test_source_date_decides_new_in_base():
+    world = await _world(22)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    from_source, added_long_ago = ids[20], ids[21]
+    await _added(
+        from_source,
+        1,
+        external_source="traffit",
+        source_created_at=_WORKDAY - timedelta(days=2),
+    )
+    await _added(
+        added_long_ago,
+        1,
+        external_source="traffit",
+        source_created_at=_WORKDAY - timedelta(days=400),
+    )
+    await _pool(job_id, {from_source: 75.0, added_long_ago: 90.0})
+
+    assert await _fill(job_id) == [from_source]
+
+
+@pytest.mark.asyncio
+async def test_panel_threshold_decides_new_in_base(monkeypatch):
+    world = await _world(21)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    await _added(ids[20], 1)
+    await _pool(job_id, {ids[20]: 72.0})
+
+    async def _threshold(db, min_score=None):
+        return 75.0
+
+    monkeypatch.setattr(autofill, "proposal_threshold", _threshold)
+    assert await _fill(job_id) == []
+
+
+@pytest.mark.asyncio
+async def test_switch_off_restores_full_column_rule(monkeypatch):
+    world = await _world(21)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:20])
+    await _added(ids[20], 1)
+    await _pool(job_id, {ids[20]: 90.0})
+
+    monkeypatch.setattr(autofill.settings, "NEW_COLUMN_FRESH_FIRST_ENABLED", False)
+    assert await _fill(job_id) == []
+
+
+def _added_to_base(at: datetime, *, exact: bool = True):
+    from app.services.candidate_added_date import AddedToBase
+
+    return AddedToBase(at=at, exact=exact)
+
+
+@pytest.mark.parametrize(
+    "days,expected", [(0, True), (14, True), (15, False), (-1, False)]
+)
+def test_new_in_base_counts_company_calendar_days(days, expected):
+    from app.services.candidate_added_date import is_new_in_base
+
+    # 23:30 w Warszawie to już następny dzień kalendarzowy w UTC+1, nie doba.
+    now = datetime(2026, 11, 3, 23, 30, tzinfo=_WARSAW)
+    added = _added_to_base(
+        datetime(2026, 11, 3, 0, 5, tzinfo=_WARSAW) - timedelta(days=days)
+    )
+    assert is_new_in_base(added, now) is expected
+
+
+def test_card_fresh_first_needs_exact_date_threshold_and_no_cautions():
+    meta = {"score": 70.0, "cautions": []}
+    added = _added_to_base(_WORKDAY - timedelta(days=2))
+    kwargs = {"threshold": 70.0, "now": _WORKDAY}
+
+    assert autofill.has_fresh_first(meta, added, **kwargs) is True
+    assert autofill.has_fresh_first({"score": 69.9}, added, **kwargs) is False
+    assert (
+        autofill.has_fresh_first(
+            {"score": 80, "cautions": [{"key": "budget"}]}, added, **kwargs
+        )
+        is False
+    )
+    assert (
+        autofill.has_fresh_first(
+            meta, _added_to_base(_WORKDAY - timedelta(days=2), exact=False), **kwargs
+        )
+        is False
+    )
+    assert autofill.has_fresh_first(None, added, **kwargs) is False
+
+
+def test_card_fresh_first_respects_switch(monkeypatch):
+    monkeypatch.setattr(autofill.settings, "NEW_COLUMN_FRESH_FIRST_ENABLED", False)
+    assert (
+        autofill.has_fresh_first(
+            {"score": 90, "cautions": []},
+            _added_to_base(_WORKDAY - timedelta(days=1)),
+            threshold=70.0,
+            now=_WORKDAY,
+        )
+        is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_new_in_base_goes_before_the_fifth_place_without_process():
+    """Nowi w bazie wchodzą pierwsi, a miejsce osoby bez procesu liczy się za nimi."""
+    world = await _world(9)
+    job_id, ids = world["job_id"], world["ids"]
+    await _full_column(job_id, ids[:3])
+    fresh, *older = ids[3:]
+    await _added(fresh, 1)
+    for cid in older:
+        await _added(cid, 300)
+    other = await _world(1)
+    for cid in older[:-1]:
+        await _stage(cid, other["job_id"], PipelineStage.new, None)
+    no_process = older[-1]
+    await _pool(
+        job_id,
+        {
+            fresh: 71.0,
+            older[0]: 95.0,
+            older[1]: 94.0,
+            older[2]: 93.0,
+            older[3]: 92.0,
+            no_process: 60.0,
+        },
+    )
+
+    added = await _fill(job_id)
+
+    # 3 karty + nowa w bazie = 4 zajęte, więc następna idzie na 5. miejsce.
+    assert added[:2] == [fresh, no_process]

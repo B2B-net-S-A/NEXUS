@@ -12,10 +12,13 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.core.database import AsyncSessionLocal
+from app.models.hr_time import Timesheet, TimesheetEntry
+from app.services.hr import time_description_rewrite as rewrite
 from app.services.hr import time_fill
-from app.services.hr.time_entries import TimeError
+from app.services.hr.time_entries import TimeError, standard_description
 from tests.test_hr_time_support import (  # noqa: F401 — fikstury
     add_leave,
     headers,
@@ -35,6 +38,15 @@ def test_fill_hours_default_and_limits():
             time_fill.fill_hours(bad)
     with pytest.raises(TimeError, match="nadgodziny"):
         time_fill.fill_hours(Decimal("9"))
+
+
+def test_standard_description_follows_employment_form():
+    # Prośba Artura 28.10.2026: raport godzin B2B i zlecenia nie brzmi jak etat.
+    services = "Realizacja usług zgodnie z umową"
+    assert standard_description("b2b") == services
+    assert standard_description("zlecenie") == services
+    assert standard_description("uop") == "Praca standardowa"
+    assert standard_description(None) == "Praca standardowa"
 
 
 async def _worker(**profile):
@@ -206,9 +218,11 @@ async def test_paid_half_day_of_b2b_pool_leaves_four_hours_to_fill(app_client) -
         assert filled.status_code == 200, filled.text
         day = (await _days(app_client, worker))["2031-03-05"]
         assert day["hours"] == 8
-        assert sorted(entry["source"] for entry in day["entries"]) == [
-            "leave_paid",
-            "template",
+        assert sorted(
+            (entry["source"], entry["description"]) for entry in day["entries"]
+        ) == [
+            ("leave_paid", "Realizacja usług zgodnie z umową"),
+            ("template", "Realizacja usług zgodnie z umową"),
         ]
 
 
@@ -254,3 +268,72 @@ async def test_role_default_patch_with_nulls_and_retired_role(app_client) -> Non
         f"/api/hr/time/role-defaults/{created.json()['id']}", headers=h
     )
     assert removed.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_rewrite_only_drafts_of_report_forms_in_the_month() -> None:
+    # Decyzja Artura 28.10.2026: przepisać tylko szkice bieżącego miesiąca.
+    # Raport z pdf_hash, UoP, inny miesiąc i własny opis zostają bez zmian.
+    # Okres 2041-11 nie występuje w innych testach godzin (liczby są dokładne).
+    year, month = 2041, 11
+    old, new = "Praca standardowa", "Realizacja usług zgodnie z umową"
+
+    async def sheet(db, form: str, **values) -> Timesheet:
+        user = await make_user(db, "employee", employment_type=form)
+        values.setdefault("year", year)
+        values.setdefault("month", month)
+        timesheet = Timesheet(user_id=user.id, **values)
+        db.add(timesheet)
+        await db.flush()
+        for day, description in ((3, old), (4, old), (5, "Wdrożenie u klienta")):
+            db.add(
+                TimesheetEntry(
+                    timesheet_id=timesheet.id,
+                    work_date=date(values["year"], values["month"], day),
+                    hours=Decimal("8"),
+                    description=description,
+                    source="template",
+                )
+            )
+        await db.flush()
+        return timesheet
+
+    async with AsyncSessionLocal() as db:
+        b2b = await sheet(db, "b2b")
+        zlecenie = await sheet(db, "zlecenie")
+        uop = await sheet(db, "uop")
+        hashed = await sheet(db, "b2b", status="submitted", pdf_hash="a" * 64)
+        locked = await sheet(db, "b2b", payroll_locked=True)
+        other_month = await sheet(db, "b2b", month=10)
+        await db.commit()
+
+    async with AsyncSessionLocal() as db:
+        planned = await rewrite.plan(db, year=year, month=month)
+        assert [(r.form, r.timesheets, r.entries) for r in planned] == [
+            ("b2b", 1, 2),
+            ("zlecenie", 1, 2),
+        ]
+        done = await rewrite.apply(db, year=year, month=month)
+        await db.commit()
+    assert done == planned
+
+    async with AsyncSessionLocal() as db:
+        rows = (
+            await db.execute(
+                select(TimesheetEntry.timesheet_id, TimesheetEntry.description).where(
+                    TimesheetEntry.timesheet_id.in_(
+                        [
+                            t.id
+                            for t in (b2b, zlecenie, uop, hashed, locked, other_month)
+                        ]
+                    )
+                )
+            )
+        ).all()
+    by_sheet: dict[int, list[str]] = {}
+    for timesheet_id, description in rows:
+        by_sheet.setdefault(timesheet_id, []).append(description)
+    for changed in (b2b, zlecenie):
+        assert sorted(by_sheet[changed.id]) == sorted([new, new, "Wdrożenie u klienta"])
+    for kept in (uop, hashed, locked, other_month):
+        assert sorted(by_sheet[kept.id]) == sorted([old, old, "Wdrożenie u klienta"])

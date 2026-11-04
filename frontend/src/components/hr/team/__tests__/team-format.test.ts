@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { bonusCell, leaveCell } from "../team-format";
 
-describe("„Mój zespół” — komórki", () => {
+describe("„Koordynacja” — komórki", () => {
   it("nieobecności: pula tylko u osób z pulą, reszta — zaplanowane dni", () => {
     expect(
       leaveCell({ has_pool: true, has_paid_pool: true, remaining_days: "11.5", planned_days: "3.0", pending_days: "0.0" }),
@@ -41,7 +41,7 @@ describe("„Mój zespół” — komórki", () => {
     });
     // Kwota jak w całej aplikacji (`@/lib/money`): dwa miejsca po przecinku.
     expect(cell.text).toBe("2 · 3000,00\u00a0zł");
-    expect(cell.sub).toBe("1 propozycja — decydują Płace");
+    expect(cell.sub).toBe("1 propozycja — decydują Rozliczenia");
     expect(bonusCell(null).text).toBe("—");
     expect(bonusCell({ count: 0, proposals: 0, totals: [], items: [] }).text).toBe("—");
   });
@@ -49,9 +49,9 @@ describe("„Mój zespół” — komórki", () => {
   it("propozycje odmieniane po polsku (było „5 propozycje”)", () => {
     const sub = (proposals: number) =>
       bonusCell({ count: 6, proposals, totals: [{ currency: "PLN", amount: "100.00" }], items: [] }).sub;
-    expect(sub(2)).toBe("2 propozycje — decydują Płace");
-    expect(sub(5)).toBe("5 propozycji — decydują Płace");
-    expect(sub(12)).toBe("12 propozycji — decydują Płace");
-    expect(sub(22)).toBe("22 propozycje — decydują Płace");
+    expect(sub(2)).toBe("2 propozycje — decydują Rozliczenia");
+    expect(sub(5)).toBe("5 propozycji — decydują Rozliczenia");
+    expect(sub(12)).toBe("12 propozycji — decydują Rozliczenia");
+    expect(sub(22)).toBe("22 propozycje — decydują Rozliczenia");
   });
 });

@@ -437,3 +437,65 @@ async def test_leave_owner_without_profile_still_gets_reconciled() -> None:
     assert counts["mailboxes"] == 1
     assert "skipped_exited" not in counts
     assert [op.kind for op in ops] == ["set_oof"]
+
+
+async def test_error_of_mailbox_not_read_anymore_is_cleared() -> None:
+    # Prod 02.11.2026: karta pokazywała 18 „skrzynek z błędem”, z czego 11 to
+    # osoby po odejściu i konto bez kartoteki — tych skrzynek nikt już nie czyta,
+    # więc ich błąd nie miał jak zniknąć i zasłaniał 7 prawdziwych.
+    fake = FakeMailboxOps()
+    fake.fail_always("get_auto_replies", 403)
+    fake.fail_always("list_rules", 403)
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        leaver = await _leaver(db, active=False, profile=True)
+        no_profile = await make_user(db, profile=False)
+        staff = await make_user(db)
+        await db.commit()
+        ids = [leaver.id, no_profile.id, staff.id]
+        for user_id in ids:
+            await executor.save_mailbox_state(db, user_id, last_error="forbidden (403)")
+        await db.commit()
+        counts = await reconcile.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 11, 3), 8), user_ids=ids
+        )
+
+    async with AsyncSessionLocal() as db:
+        states = {uid: await db.get(HrM365MailboxState, uid) for uid in ids}
+
+    assert counts["mailboxes"] == 1
+    assert counts["stale_errors_cleared"] == 2
+    assert states[leaver.id].last_error is None
+    assert states[no_profile.id].last_error is None
+    # Skrzynka czytana w tym przebiegu: 403 zostaje, bo jest aktualny.
+    assert states[staff.id].last_error == "forbidden (403)"
+
+
+async def test_stale_error_stays_outside_narrowed_pass_and_in_simulation() -> None:
+    fake = FakeMailboxOps()
+    async with AsyncSessionLocal() as db:
+        await reset_reconcile_runs(db)
+        leaver = await _leaver(db, active=False, profile=True)
+        other_leaver = await _leaver(db, active=False, profile=True)
+        await db.commit()
+        for user_id in (leaver.id, other_leaver.id):
+            await executor.save_mailbox_state(db, user_id, last_error="forbidden (403)")
+        await db.commit()
+        await reconcile.run_once(
+            db,
+            mode="simulate",
+            now=at(D(2026, 11, 3), 8),
+            user_ids=[leaver.id, other_leaver.id],
+        )
+        await reset_reconcile_runs(db)
+        await reconcile.run_once(
+            db, ops=fake, mode="live", now=at(D(2026, 11, 4), 8), user_ids=[leaver.id]
+        )
+
+    async with AsyncSessionLocal() as db:
+        cleared = await db.get(HrM365MailboxState, leaver.id)
+        untouched = await db.get(HrM365MailboxState, other_leaver.id)
+
+    assert cleared.last_error is None
+    # Przebieg zawężony nie rusza skrzynek spoza zawężenia, a symulacja stanu.
+    assert untouched.last_error == "forbidden (403)"

@@ -308,12 +308,14 @@ def lint_public_texts(
 
 
 # Numery zgłoszeń i zamówień klientów: BNP (RITM, REQ, SCTASK), PKO (ZOB),
-# Orlen (PKN), Energa (EITE). Kandydat nie ma z nich pożytku, a numer
-# pozwala zgadnąć klienta.
+# Orlen (PKN), Energa (EITE), Nordea (TP#). Kandydat nie ma z nich pożytku,
+# a numer pozwala zgadnąć klienta.
 _INTERNAL_CODE = re.compile(
     # „RITM0866775”, „ZOB-3003”, a także „PKN/5/000177/26” (Orlen).
-    r"(?<![A-Za-z0-9])(?:RITM|REQ|SCTASK|ZOB|PKN|EITE)"
-    r"(?:[-_/ ]?\d{4,}|/\d{1,3}/\d{3,})",
+    r"(?<![A-Za-z0-9])(?:(?:RITM|REQ|SCTASK|ZOB|PKN|EITE)"
+    r"(?:[-_/ ]?\d{4,}|/\d{1,3}/\d{3,})"
+    # „TP#41745”, „TP ID 40942” (29.10.2026).
+    r"|TP\s?(?:#|ID)\s?\d{4,})",
     re.IGNORECASE,
 )
 _MIN_REFERENCE = 4

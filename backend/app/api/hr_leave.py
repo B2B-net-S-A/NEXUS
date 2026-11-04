@@ -15,7 +15,7 @@ przełącznik modułu w ``app_settings['hr_modules']``.
   z powodem (``POST /approvals/{id}/forward-off``),
 * zgłoszenia z B2B i zlecenia (D5, 17.10.2026): wchodzą od razu, koordynator
   widzi je „do wiadomości” obok kolejki (``reported`` w ``/approvals/pending``)
-  i może zgłosić kolizję (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
+  i może zgłosić uwagę (``POST /{id}/conflict``) — bez akceptacji i odrzucenia,
 * załącznik do wniosku (potwierdzenie nieobecności w e-teczce, ``leave_proofs``):
   osoba dołącza, pobiera i usuwa własny plik (``/requests/{id}/proofs``),
   Kadry pobierają (``/approvals/{id}/proofs/{doc}/file``, bramka
@@ -70,15 +70,16 @@ from app.services.hr.leave_context import candidate_payload, substitute_candidat
 from app.services.hr.leave_policy import LeavePolicyError
 from app.services.hr.leave_queries import history_counts, mask_for_viewer
 from app.services.hr.modules import HrModule, load_modules, module_open_for
-from app.services.hr.recipients import division_charges
 from app.services.hr_leave_schema import LEAVE_STATUSES
 from app.services.permission_denial import ensure_any_permission
 
 router = APIRouter()
 
 MODULE = HrModule.leave
-APPROVER_DETAIL = "Akceptacje widzą przełożeni i Kadry."
-INTERNAL_DETAIL = "Nieobecności widzą pracownicy firmy."
+APPROVER_DETAIL = (
+    "Listę „Do potwierdzenia” widzą koordynatorzy i Administracja współpracy."
+)
+INTERNAL_DETAIL = "Nieobecności widzą osoby z kartoteką."
 #: Konta, które nie są ludźmi zatrudnionymi w firmie (jak w „Dodaj osobę”).
 _NOT_STAFF = {UserRole.automation, UserRole.user, UserRole.board}
 _MAX_BADGE_USERS = 300
@@ -93,16 +94,7 @@ def require_hr_leave_approver():
         db: AsyncSession = Depends(get_db),
     ) -> User:
         await ensure_module(db, current_user, MODULE)
-        if service.actor_of(current_user).sees_everyone:
-            return current_user
-        if await people.direct_report_ids(db, current_user.id):
-            return current_user
-        if await leave_substitute.covered_reports(
-            db, current_user.id, business_today()
-        ):
-            return current_user
-        # Head pionu prowadzi osoby swojego pionu bez żywego przełożonego.
-        if await division_charges(db, current_user.id):
+        if await service.is_leave_approver(db, current_user):
             return current_user
         raise HTTPException(status.HTTP_403_FORBIDDEN, APPROVER_DETAIL)
 
@@ -158,6 +150,8 @@ class LeaveFields(BaseModel):
     half_day: Optional[HalfDay] = None
     note: Optional[str] = Field(default=None, max_length=2000)
     substitute_user_id: Optional[int] = None
+    # Kto wrzuca do Cpro w tym czasie — tylko wniosek osoby od Cpro (29.10.2026).
+    cpro_substitute_user_id: Optional[int] = None
 
 
 class LeaveIn(LeaveFields):
@@ -187,6 +181,13 @@ class DecisionIn(BaseModel):
 
 class RejectIn(BaseModel):
     note: str = Field(min_length=1, max_length=2000)
+
+
+class LeaveCancelIn(BaseModel):
+    """Powód cofnięcia — wymagany od pierwszego dnia (3–500 znaków, polskie
+    komunikaty z ``leave_policy.approver_cancel_refusal``)."""
+
+    reason: Optional[str] = Field(default=None, max_length=2000)
 
 
 class ConsentIn(BaseModel):
@@ -222,6 +223,7 @@ def _input(payload: LeaveFields) -> service.LeaveInput:
         half_day=payload.half_day,
         note=payload.note,
         substitute_user_id=payload.substitute_user_id,
+        cpro_substitute_user_id=payload.cpro_substitute_user_id,
         forward_mail_consent=getattr(payload, "forward_mail_consent", False),
         oof_internal_message=getattr(payload, "oof_internal_message", None),
         oof_external_message=getattr(payload, "oof_external_message", None),
@@ -680,11 +682,16 @@ async def reject_request(
 async def cancel_team_request(
     request_id: uuid.UUID,
     current_user: LeaveApprover,
+    payload: Optional[LeaveCancelIn] = None,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     try:
         outcome = await service.cancel_as_approver(
-            db, actor=current_user, request_id=request_id, today=business_today()
+            db,
+            actor=current_user,
+            request_id=request_id,
+            today=business_today(),
+            reason=payload.reason if payload else None,
         )
     except _HANDLED as exc:
         await db.rollback()

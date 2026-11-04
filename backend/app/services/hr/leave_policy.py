@@ -157,9 +157,9 @@ def validate_shape(
     if leave_type not in allowed_types(employment_type):
         label = "B2B" if employment_type == "b2b" else "umowie zlecenie"
         raise LeavePolicyError(
-            f"Na {label} można wnioskować wyłącznie o urlop wypoczynkowy."
+            f"Na {label} można zgłosić wyłącznie przerwę."
             if for_self
-            else f"Osobie na {label} można wpisać wyłącznie urlop wypoczynkowy."
+            else f"Osobie na {label} można wpisać wyłącznie przerwę."
         )
     if leave_type == "holiday_in_lieu" and employment_type != "uop":
         raise LeavePolicyError(
@@ -470,7 +470,7 @@ assert SUBSTITUTE_VISIBLE_TYPES <= set(LEAVE_TYPES)
 assert not SUBSTITUTE_VISIBLE_TYPES & HEALTH_TYPES
 
 SUBSTITUTE_ACK_ONLY = (
-    "O tej nieobecności decyduje przełożony albo Kadry — w zastępstwie "
+    "O tej nieobecności decyduje koordynator albo Administracja współpracy — w zastępstwie "
     "przyjmujesz ją tylko do wiadomości."
 )
 
@@ -507,21 +507,28 @@ def own_cancel_refusal(
 ) -> Optional[str]:
     """Powód, dla którego osoba NIE może sama anulować wniosku (None = może).
 
-    Oczekujący — zawsze; zatwierdzony — tylko przed pierwszym dniem
-    (``today`` = ``business_today()``: Compass liczył „dziś” w UTC i wieczorem
-    pozwalał anulować urlop, który zaczął się o północy w Warszawie).
+    Oczekujący i zatwierdzony — tylko przed pierwszym dniem (``today`` =
+    ``business_today()``: Compass liczył „dziś” w UTC i wieczorem pozwalał
+    anulować urlop, który zaczął się o północy w Warszawie). Od pierwszego dnia
+    osoba faktycznie była nieobecna, więc cofa to przełożony albo Kadry — także
+    niezatwierdzony wniosek (decyzja Artura 28.10.2026).
     ``reported`` — zgłoszenie z B2B albo zlecenia (D5): trwające anulują Kadry,
     koordynator nie (anulowanie przez niego to odrzucenie pod inną nazwą).
     """
 
     if status == "pending":
-        return None
+        if start > today:
+            return None
+        return (
+            "Ten wniosek dotyczy terminu, który już trwa albo minął — anulować "
+            "albo odrzucić go może koordynator albo Administracja współpracy."
+        )
     if status == "approved":
         if start > today:
             return None
         if reported:
-            return "Ten termin już trwa albo minął — anulować go mogą Kadry."
-        return "Ten urlop już trwa albo minął — anulować go może przełożony albo Kadry."
+            return "Ten termin już trwa albo minął — anulować go może Administracja współpracy."
+        return "Ten urlop już trwa albo minął — anulować go może koordynator albo Administracja współpracy."
     return "Ten wniosek jest już zamknięty."
 
 
@@ -531,8 +538,40 @@ def team_cancel_refusal(*, status: str) -> Optional[str]:
     return "Ten wniosek jest już zamknięty."
 
 
+CANCEL_REASON_MIN = 3
+CANCEL_REASON_MAX = 500
+# Powód w treści dymka osoby; mail ucina treść przed nim (``hr_mail``).
+CANCEL_REASON_LABEL = "Powód: "
+
+
+def approver_cancel_refusal(
+    *, start: date, today: date, reason: Optional[str]
+) -> Optional[str]:
+    """Powód cofnięcia przez przełożonego albo Kadry (None = w porządku).
+
+    Od pierwszego dnia (``start <= today``) powód jest wymagany: dni wracają
+    do raportu godzin i statów, a osoba dostaje go w powiadomieniu (decyzja
+    Artura 28.10.2026). Przed pierwszym dniem — opcjonalny. ``reason`` już
+    przycięty albo surowy; puste = brak.
+    """
+
+    text = (reason or "").strip()
+    if not text:
+        if start > today:
+            return None
+        return (
+            "Ten termin już trwa albo minął — podaj powód cofnięcia, osoba "
+            "zobaczy go w powiadomieniu."
+        )
+    if len(text) < CANCEL_REASON_MIN:
+        return f"Powód musi mieć co najmniej {CANCEL_REASON_MIN} znaki."
+    if len(text) > CANCEL_REASON_MAX:
+        return f"Powód może mieć najwyżej {CANCEL_REASON_MAX} znaków."
+    return None
+
+
 FORWARD_OUTSIDE_COMPANY = (
-    "Przekierowanie poczty działa tylko na adres w domenie firmy — "
+    "Kopia poczty działa tylko na adres w domenie firmy — "
     "wybrany zastępca ma adres spoza niej."
 )
 

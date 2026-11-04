@@ -24,10 +24,14 @@ vi.mock("@/components/v2/my-people/MyPeopleLauncher", () => ({
   MyPeopleTopbarButton: () => null,
 }));
 vi.mock("@/components/hr/leave/AbsentTodayButton", () => ({ AbsentTodayButton: () => null }));
+vi.mock("@/components/hr/payroll/BonusDecisionsTopbarButton", () => ({
+  BonusDecisionsTopbarButton: () => null,
+}));
 vi.mock("@/components/hr/approvals/ConsentsTopbarButton", () => ({
   ConsentsTopbarButton: () => null,
 }));
 vi.mock("@/components/v2/jobs/p0/P0TopbarButton", () => ({ P0TopbarButton: () => null }));
+vi.mock("@/components/novelties/NoveltiesTopbarButton", () => ({ NoveltiesTopbarButton: () => null }));
 
 import { TopbarV2 } from "../TopbarV2";
 

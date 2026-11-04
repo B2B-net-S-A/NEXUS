@@ -81,7 +81,7 @@ function bonus(over: Partial<BonusRow> = {}): BonusRow {
 
 const WARNING: CloseWarning = {
   code: "unapproved_timesheets",
-  message: "2 os. bez zatwierdzonego timesheetu — ich godziny nie wejdą do płac tego miesiąca.",
+  message: "2 os. bez zatwierdzonego raportu godzin — ich godziny nie wejdą do płac tego miesiąca.",
   count: 2,
   people: [],
 };
@@ -126,7 +126,7 @@ describe("stepper zamknięcia", () => {
     expect(steps[0].detail).toBe("1 z 3 zaakceptowane");
     expect(steps[0].progress).toBe(33);
     expect(nbsp(steps[1].detail)).toBe("1 do decyzji · 5000,00 zł · 1 jeszcze liczy się");
-    expect(steps[2].detail).toBe("2 os. bez zatwierdzonego timesheetu");
+    expect(steps[2].detail).toBe("2 os. bez zatwierdzonego raportu godzin");
     expect(steps[3].detail).toBe("po krokach 1–3");
     expect(ready).toBe(false);
     expect(needsAcknowledge).toBe(true);
@@ -192,9 +192,9 @@ describe("Razem do wypłaty", () => {
 });
 
 describe("premie do decyzji — zaznaczanie", () => {
-  it("do zbiorczego zatwierdzenia tylko propozycje po terminie, z prawem, nie własne", () => {
+  it("do zbiorczego zatwierdzenia także przed terminem, z prawem, nie własne", () => {
     expect(batchSelectable(bonus(), 7)).toBe(true);
-    expect(batchSelectable(bonus({ eligible: false }), 7)).toBe(false);
+    expect(batchSelectable(bonus({ eligible: false }), 7)).toBe(true);
     expect(batchSelectable(bonus({ can_approve: false }), 7)).toBe(false);
     expect(batchSelectable(bonus({ recipient_user_id: 7 }), 7)).toBe(false);
     expect(batchSelectable(bonus({ status: "assigned" }), 7)).toBe(false);
@@ -218,7 +218,7 @@ describe("osoby: do wyjaśnienia i przypomnienie", () => {
     expect(needsAttention(person({ rate_missing: true }))).toBe(true);
   });
 
-  it("szkic i brak → osobie; wysłany → akceptującemu, tylko Płace", () => {
+  it("szkic i brak → osobie; wysłany → akceptującemu, tylko Rozliczenia", () => {
     expect(reminderAction(person({ timesheet_status: null }), "payroll")).toBe("Przypomnij");
     expect(reminderAction(person({ timesheet_status: "draft" }), "team")).toBe("Przypomnij");
     expect(reminderAction(person({ timesheet_status: "submitted" }), "payroll")).toBe("Ponagl koordynatora");

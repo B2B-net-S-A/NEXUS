@@ -164,7 +164,7 @@ async def test_columns_rows_and_read_agree_across_new_year_and_recount(
         )
         hr = User(
             email=f"split-hr-{marker}@example.com",
-            name=f"Kadry Przykładowe {marker}",
+            name=f"Administracja współpracy Przykładowe {marker}",
             role=UserRole.admin,
             roles=["admin"],
             is_active=True,

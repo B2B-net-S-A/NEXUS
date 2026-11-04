@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react"
+import Link from "next/link"
 import { useQueryClient } from "@tanstack/react-query"
 import { Plus, X } from "lucide-react"
 
@@ -23,13 +24,11 @@ import {
   COMPETENCE_TEAM_QUERY_KEY,
   deleteTeamAssignment,
   putTeamAssignment,
-  putTeamRules,
   setAllocationExcluded,
   useCompetenceTeam,
   type CompetenceTeam,
   type TeamCategory,
   type TeamPerson,
-  type TeamRules,
 } from "@/lib/api/requestAllocation"
 import { resolveViewState } from "@/lib/view-state"
 
@@ -58,7 +57,6 @@ export interface CompetenceTeamActions {
   assign: (userId: number, categoryId: number, priority: 1 | 2) => void
   remove: (assignmentId: number) => void
   exclude: (userId: number, excluded: boolean) => void
-  saveRules: (rules: TeamRules) => void
 }
 
 function PersonChip({
@@ -161,38 +159,6 @@ function AddToCategory({
         Zamknij
       </Button>
     </div>
-  )
-}
-
-function RulesForm({
-  rules,
-  onSave,
-}: {
-  rules: TeamRules
-  onSave: (rules: TeamRules) => void
-}) {
-  const [time, setTime] = useState(rules.review_time)
-  return (
-    <section
-      aria-label="Zasady przydziału"
-      className="grid gap-4 rounded-lg border border-border bg-card p-4 md:grid-cols-[repeat(2,minmax(0,1fr))_auto] md:items-end"
-    >
-      <label className="flex flex-col gap-1 text-sm text-muted-foreground">
-        Codzienny przegląd przydziałów o
-        <input
-          type="time"
-          className="h-10 w-32 rounded-md border border-input bg-background px-2 text-foreground"
-          value={time}
-          onChange={(e) => setTime(e.target.value)}
-        />
-      </label>
-      <p className="text-sm text-muted-foreground">
-        Urlopy biorę z Compassa. Osoba bez kategorii nie dostaje requestów automatycznie.
-      </p>
-      <Button onClick={() => onSave({ review_time: time })}>
-        Zapisz zasady
-      </Button>
-    </section>
   )
 }
 
@@ -305,7 +271,16 @@ export function CompetenceTeamView({
           </section>
         </aside>
       </div>
-      <RulesForm key={team.rules.review_time} rules={team.rules} onSave={actions.saveRules} />
+      <p className="text-sm text-muted-foreground">
+        Godzina przeglądu, P2, limit na osobę i pozostałe zasady automatu są w zakładce{" "}
+        <Link
+          href="/settings/team-structure?zakladka=automat"
+          className="font-medium text-primary underline-offset-2 hover:underline"
+        >
+          Automat przydziału
+        </Link>
+        .
+      </p>
     </div>
   )
 }
@@ -354,8 +329,6 @@ export function CompetenceTeamPanel() {
             () => setAllocationExcluded(userId, excluded),
             "Nie udało się zmienić przydziału osoby.",
           ),
-        saveRules: (rules) =>
-          run(() => putTeamRules(rules), "Nie udało się zapisać zasad.", "Zasady zapisane."),
       }}
     />
   )

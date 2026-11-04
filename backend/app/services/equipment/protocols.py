@@ -21,8 +21,10 @@ from __future__ import annotations
 import hashlib
 import io
 import secrets
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Sequence
+from zoneinfo import ZoneInfo
 
 from jinja2 import TemplateError
 from jinja2.exceptions import SecurityError
@@ -30,6 +32,7 @@ from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.scheduling import DEFAULT_TZ
 from app.models.contract import Contract
 from app.models.equipment import (
     EquipmentAssignment,
@@ -208,10 +211,58 @@ async def get_protocol(db: AsyncSession, protocol_id: int) -> EquipmentProtocol:
     return protocol
 
 
+async def lock(db: AsyncSession, protocol: EquipmentProtocol) -> None:
+    """Zamek na zmianę stanu: najpierw linki protokołu, potem sam protokół.
+
+    Ta sama kolejność co podpis linkiem (``load_link`` blokuje link, potem
+    zapisuje protokół), więc równoległe zmiany czekają na siebie zamiast się
+    zakleszczać. Protokół jest czytany na nowo — zmiana z innej transakcji
+    (anulowanie, podpis, potwierdzenie) nie zostaje nadpisana starą kopią.
+    """
+    await db.execute(
+        select(EquipmentProtocolLink.id)
+        .where(EquipmentProtocolLink.protocol_id == protocol.id)
+        .order_by(EquipmentProtocolLink.id)
+        .with_for_update()
+    )
+    await db.refresh(protocol, with_for_update=True)
+
+
 async def render(
     db: AsyncSession, protocol: EquipmentProtocol
 ) -> protocol_document.ProtocolView:
-    return view_of(protocol, await protocol_lines(db, protocol.id))
+    view = view_of(protocol, await protocol_lines(db, protocol.id))
+    confirmer = (
+        await db.get(User, protocol.confirmed_by) if protocol.confirmed_by else None
+    )
+    return replace(
+        view,
+        holder_signature=holder_signature(protocol),
+        issuer_signature=issuer_signature(protocol, confirmer),
+    )
+
+
+def _stamp(moment: datetime) -> str:
+    local = moment.astimezone(ZoneInfo(DEFAULT_TZ))
+    return f"{local:%d.%m.%Y}, godz. {local:%H:%M}"
+
+
+def holder_signature(protocol: EquipmentProtocol) -> str:
+    """Dopisek pod podpisem osoby: odbiór potwierdzony linkiem (D8)."""
+    if protocol.signature_method != "link" or protocol.signed_at is None:
+        return ""
+    return (
+        f"Potwierdzono elektronicznie linkiem z NEXUSA jako "
+        f"„{protocol.signer_name}”, {_stamp(protocol.signed_at)}"
+    )
+
+
+def issuer_signature(protocol: EquipmentProtocol, confirmer: Optional[User]) -> str:
+    """Dopisek pod podpisem recepcji: kto potwierdził podpis w NEXUSIE (D4)."""
+    if protocol.status != "potwierdzony" or protocol.confirmed_at is None:
+        return ""
+    who = (confirmer.name or confirmer.email) if confirmer else protocol.issuer_name
+    return f"Zatwierdzono w NEXUSIE: {who}, {_stamp(protocol.confirmed_at)}"
 
 
 async def render_docx(db: AsyncSession, protocol: EquipmentProtocol) -> bytes:
@@ -290,6 +341,10 @@ def protocol_payload(
         "confirmed_at": (
             protocol.confirmed_at.isoformat() if protocol.confirmed_at else None
         ),
+        "cancelled_at": (
+            protocol.cancelled_at.isoformat() if protocol.cancelled_at else None
+        ),
+        "cancel_reason": protocol.cancel_reason,
         "template_version": protocol.template_version,
         "template_id": protocol.template_id,
         "created_at": protocol.created_at.isoformat() if protocol.created_at else None,
@@ -371,6 +426,7 @@ async def create_link(
     db: AsyncSession, protocol: EquipmentProtocol, *, actor: User
 ) -> tuple[EquipmentProtocolLink, str]:
     """Nowy link (poprzednie niezużyte przestają działać). Zwraca surowy token."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     if protocol.status == "podpisany":
         raise EquipmentConflict("Protokół jest już podpisany — czeka na potwierdzenie.")
@@ -483,6 +539,7 @@ async def save_signed_file(
     actor: User,
 ) -> EquipmentProtocol:
     """Skan albo PDF z podpisem zaufanym, wgrany przez recepcję."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     if method not in ("papier", "profil_zaufany"):
         raise EquipmentError("Wybierz: podpis na papierze albo profilem zaufanym.")
@@ -537,6 +594,7 @@ async def confirm(
     actor: User,
 ) -> EquipmentProtocol:
     """Człowiek potwierdza podpis (link, papier, profil zaufany)."""
+    await lock(db, protocol)
     _ensure_open(protocol)
     now = datetime.now(timezone.utc)
     if protocol.status == "oczekuje":

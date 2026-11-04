@@ -167,4 +167,63 @@ async def test_migration_seeded_the_catalog():
                 )
             ).scalars()
         )
-    assert {"Jira", "Confluence", "Git", "UML"} <= names
+    assert {"Jira", "Confluence", "Git", "UML", "SailPoint IdentityIQ"} <= names
+
+
+# ── SailPoint IdentityIQ (zgłoszenie z 28.10.2026, rekrutacja 789171) ───────
+#
+# Krytyczne „SailPoint IIQ” ze słowem wiersza „IIQ” ukryło w nocnym przeglądzie
+# 111 osób z SailPointem w CV — żadna nie miała słowa „IIQ”, piszą
+# „SailPoint IdentityIQ”. Frazy niżej to dosłowne fragmenty CV ukrytych osób.
+
+
+@pytest.fixture
+def catalog_aliases():
+    from app.services import must_text_evidence, scoring_service
+
+    saved = dict(scoring_service.ALIAS_MAP)
+    mapping: dict[str, str] = {}
+    for name, _category, aliases in tools.entries():
+        mapping[name] = name
+        mapping.update({alias: name for alias in aliases})
+    scoring_service.set_alias_map(mapping)
+    must_text_evidence._patterns.cache_clear()
+    yield
+    scoring_service.set_alias_map(saved)
+    must_text_evidence._patterns.cache_clear()
+
+
+def _sailpoint_iiq():
+    from app.services.must_gate_terms import requirement_with_options
+
+    return requirement_with_options("sailpoint iiq", {"sailpoint iiq": ("IIQ",)})
+
+
+@pytest.mark.parametrize(
+    "cv",
+    [
+        "Onboarding applications to Sailpoint IdentityIQ",
+        "Maintenance of Sailpoint IAM application IdentityIQ",
+        "Making use of SCCM, Active Directory and SailPoint IdentityIQ",
+        "SailPoint IIQ (IAM), Sentinel One (EDR)",
+        "Identity IQ workflows and rules",
+    ],
+)
+def test_identityiq_meets_sailpoint_iiq(catalog_aliases, cv):
+    from app.services.must_text_evidence import mentions
+
+    assert mentions(_sailpoint_iiq(), cv)
+
+
+@pytest.mark.parametrize(
+    "cv",
+    [
+        # Inny produkt SailPointa — o to rekruter pyta w rozmowie.
+        "Streamlined user access processes in SailPoint IdentityNow",
+        "expertise in CyberArk, Omada, SailPoint, and Delinea",
+    ],
+)
+def test_other_sailpoint_products_do_not_meet_iiq(catalog_aliases, cv):
+    from app.services.must_text_evidence import mentions
+
+    assert not mentions(_sailpoint_iiq(), cv)

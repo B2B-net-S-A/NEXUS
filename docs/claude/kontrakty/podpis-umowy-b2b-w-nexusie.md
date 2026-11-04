@@ -60,6 +60,57 @@ OPCJĘ obok drogi zwykłej. Makiety: https://claude.ai/artifact/EgDmMEUdfLf5tFhQ
   link zostaje w pierwszym mailu) i dzwonek do nadawcy; po terminie link
   wygasa (`expired`) i nadawca dostaje dzwonek. Pętla działa także przy
   wyłączonym przełączniku.
+- **DW przy wysyłce: tylko osoby z NEXUSA, mail zawsze z własnej skrzynki**
+  (prośba zespołu i decyzja Artura 27.10.2026). Zespół chciał też wysyłki ze
+  skrzynki innego rekrutera i osobnego uprawnienia „w zastępstwie” — odrzucone:
+  odpowiedź kontraktora idzie do skrzynki nadawcy (przy urlopie nikt jej nie
+  przeczyta), użycie cudzego połączenia M365 to mail za kogoś bez jego udziału,
+  a za pierwszym mailem idą przypomnienia i kopia. Zamiast tego
+  `b2b_signing_requests.cc_user_ids` (0604): kandydaci do DW
+  (`EsignDefaultsOut.cc_candidates`) to zespół rekrutacji z nadania
+  (prowadzący — podpowiedziany, TAC, DL, aktywne przypisanie) i autor umowy,
+  każdy tylko gdy sam mógłby ją wysłać (`_may_send` — w linku jest PDF ze
+  stawkami); inne id = 422. DW sprawdza się jeszcze raz przed każdym mailem
+  (`_cc_for_mail`): kto wypadł z zespołu, nie dostaje nowego linku ani kopii.
+  DW dostaje pierwszy mail, nowy link, mail
+  o przedłużeniu i kopię podpisanej umowy (bez przypomnień), a dzwonki
+  o wygaśnięciu, prośbie kontraktora i podpisie obu stron idą do
+  `service.watchers` (nadawca + DW).
+- **Zastępstwo: „Przejmij obsługę”, nie nowe uprawnienie** (decyzja Artura
+  27.10.2026). `b2b_signing_requests.handled_by` (0605, pusta = nadawca,
+  `service.handler_id`): przejmuje ten, kto mógłby wysłać tę umowę
+  (`POST /esign/{id}/take-over` z `_assert_row_sender`) i tylko z połączoną
+  skrzynką M365 (inaczej 409, bo dalsze maile obiegu przepadłyby po cichu), wpis
+  `taken_over` w historii i dzwonek do poprzedniej osoby. Przypomnienia
+  kontraktora, mail do reprezentanta i kopia umowy idą odtąd ze skrzynki
+  obsługującego. Dzwonki (`service.bell_recipients`): obsługujący, nadawca,
+  DW i — gdy obsługujący jest dziś na zatwierdzonym całodniowym urlopie —
+  zastępca z modułu „Urlopy” (`service.absences`, ta sama reguła co
+  `hr.leave_substitute`). Rejestr pokazuje „Obsługuje”, urlop do kiedy
+  i zastępcę. Zastępca spoza zespołu rekrutacji dostaje dzwonek, ale nie
+  przejmie wysyłki (stawki) — przejmuje ktoś z zespołu albo TCM/admin.
+- **Wygasły link: ten sam PDF, nie nowa wysyłka** (pytanie zespołu
+  27.10.2026, ocena i makiety: https://claude.ai/artifact/EmKfARRXm5DYHnjwXocec2).
+  LibreOffice z tego samego Worda daje za każdym razem inne bajty (data
+  utworzenia, /ID), więc nowa wysyłka odrzucała plik podpisany przed terminem
+  i kontraktor podpisywał drugi raz. Dlatego:
+  - „Przedłuż termin” (`POST /esign/{id}/extend`, link działa) przesuwa
+    `expires_at`; link z pierwszego maila działa dalej, kontraktor dostaje
+    mail z datą (`mail.contractor_extended_message`);
+  - „Wyślij nowy link” (`POST /esign/{id}/relink`, po terminie) wraca TEN SAM
+    wniosek do `sent` z nowym tokenem, na zamrożonym PDF-ie — tylko gdy umowy
+    nikt nie poprawił: `source_payload_sha256` = odcisk numeru i
+    `render_payload` z chwili wysyłki (`service.payload_fingerprint`). Po
+    poprawce zostaje „Wyślij do podpisu” z nowym PDF-em. Rejestr chowa
+    „Wyślij do podpisu”, gdy jest `can_relink_esign`;
+  - skrót wygasłego linku zostaje `EXPIRED_LINK_DAYS` = 30 dni: strona
+    kontraktora mówi, kiedy minął termin, i ma „Poproś o nowy link”
+    (`POST /api/public/b2b-sign/{token}/renewal`, dzwonek
+    `signature_renewal_requested` do nadawcy, najwyżej raz na dobę). Pliku po
+    terminie nie przyjmie (410);
+  - każdy termin ma jedno przypomnienie (klucz maila z datą terminu);
+    przedłużenia, nowe linki, prośby i wcześniejsze przypomnienia leżą
+    w `b2b_signing_requests.events` (0603) i trafiają do historii umowy.
 - **Reprezentant firmy dostaje maila** (Olaf 26.10.2026: „nic mi nie
   przyszło” — był tylko dzwonek bez ikony na pasku): od razu po podpisie
   kontraktora (`_after_contractor_signed`, klucz `…-company`), potem

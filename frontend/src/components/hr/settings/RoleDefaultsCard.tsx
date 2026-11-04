@@ -185,7 +185,8 @@ export function RoleDefaultsCard() {
         <p className="text-sm text-muted-foreground">Wczytywanie…</p>
       ) : state === "empty" ? (
         <p className="text-sm text-muted-foreground">
-          Brak domyślnych opisów — „Wypełnij miesiąc” wpisuje „Praca standardowa”.
+          Brak domyślnych opisów — „Wypełnij miesiąc” wpisuje „Realizacja usług zgodnie z umową”
+          (B2B i zlecenie) albo „Praca standardowa” (umowa o pracę).
         </p>
       ) : state !== "ready" ? (
         <QueryStateNotice

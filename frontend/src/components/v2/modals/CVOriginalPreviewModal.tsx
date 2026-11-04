@@ -14,6 +14,7 @@
  * patrz `lib/authenticated-files`.
  */
 
+import { useRecruiterOnly } from "@/lib/cv-download-access";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -28,6 +29,7 @@ import {
 } from "@/lib/authenticated-files";
 import { keepDialogOpenOnDocumentSearchEscape } from "@/components/v2/files/DocumentSearchBar";
 import { SearchablePdfPreview } from "@/components/v2/files/SearchablePdfPreview";
+import { preloadPdfJs } from "@/lib/pdfjs-loader";
 import { candidateStageCvApi, type CVOriginalSnapshot } from "@/lib/api";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -64,6 +66,7 @@ export function CVOriginalPreviewModal({
   candidateName,
 }: Props) {
   const { showError } = useToast();
+  const recruiterOnly = useRecruiterOnly();
 
   const { data, isLoading, error, refetch } = useQuery<CVOriginalSnapshot>({
     queryKey: ["cv-original", stageId],
@@ -80,6 +83,8 @@ export function CVOriginalPreviewModal({
   const filename = data?.original_cv_filename ?? null;
   const isPdfFile = isPdf(filename);
   const showInlinePdf = hasSnapshot && isPdfFile;
+  // Sama rola rekrutera: PDF i Word ogląda w NEXUSIE, pobrać może tylko plik bez podglądu.
+  const canPreview = /\.(pdf|docx|png|jpe?g|gif|webp|svg|bmp)$/i.test(filename ?? "");
   const downloadPath = `/api/candidates/stages/${stageId}/cv/original/download`;
   // Podgląd = `inline` w dzienniku dostępu; tylko „Pobierz” liczy się alarmowi
   // masowego przeglądania CV jako zapis na dysk (audyt 22.10, F25).
@@ -100,6 +105,7 @@ export function CVOriginalPreviewModal({
     let cancelled = false;
     setPdfBlob(null);
     setPdfError(false);
+    preloadPdfJs();
 
     (async () => {
       try {
@@ -151,7 +157,7 @@ export function CVOriginalPreviewModal({
               ) : null}
             </div>
           </div>
-          {hasSnapshot ? (
+          {hasSnapshot && !(recruiterOnly && canPreview) ? (
             <Button
               size="sm"
               variant="outline"
@@ -238,14 +244,20 @@ export function CVOriginalPreviewModal({
               <div className="text-sm text-muted-foreground mb-3">
                 Plik {filename ?? "CV"} nie ma wbudowanego podglądu.
               </div>
-              <Button onClick={handleDownload} disabled={downloading}>
-                {downloading ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Download className="h-4 w-4 mr-2" />
-                )}
-                Pobierz
-              </Button>
+              {recruiterOnly && canPreview ? (
+                <p className="text-sm text-muted-foreground">
+                  Obejrzysz go w dużym podglądzie panelu osoby („Rozwiń”, „CV oryginalne”).
+                </p>
+              ) : (
+                <Button onClick={handleDownload} disabled={downloading}>
+                  {downloading ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-2" />
+                  )}
+                  Pobierz
+                </Button>
+              )}
             </div>
           )}
         </div>

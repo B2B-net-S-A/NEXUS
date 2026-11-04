@@ -32,7 +32,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-agreements", () => {
-  it("Kadry: umowa i aneksy osoby z kanałem podpisu", async () => {
+  it("Administracja współpracy: umowa i aneksy osoby z kanałem podpisu", async () => {
     window.history.replaceState({}, "", "/preview/hr-agreements");
     render(<HrAgreementsPreviewPage />);
     expect(await screen.findByRole("button", { name: /Nowa umowa albo aneks/ })).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe("/preview/hr-agreements", () => {
     expect(attempted()).toEqual([]);
   });
 
-  it("Płace: podgląd bez akcji", async () => {
+  it("Rozliczenia: podgląd bez akcji", async () => {
     window.history.replaceState({}, "", "/preview/hr-agreements?state=payroll");
     render(<HrAgreementsPreviewPage />);
     expect(await screen.findByText("wysłana do podpisu")).toBeInTheDocument();

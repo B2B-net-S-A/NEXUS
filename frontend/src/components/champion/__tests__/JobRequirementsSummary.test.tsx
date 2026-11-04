@@ -108,6 +108,23 @@ describe("JobRequirementsSummary", () => {
     expect(within(nice).getByText("Kubernetes")).toBeInTheDocument();
   });
 
+  it("wiersz z zamiennikami pokazuje wszystkie, a lupa dostaje słowa po etykiecie", async () => {
+    getMock.mockResolvedValue({
+      data: {
+        job_id: 5,
+        champion_profile: { ...PROFILE, stack: { ...PROFILE.stack, must: [{ name: "Agile" }], nice: [] } },
+        requirement_full_labels: { Agile: "Agile lub Prince2" },
+        requirement_find_words: { Agile: ["Agile", "Prince2"] },
+      },
+    });
+    const onPick = vi.fn();
+    const user = userEvent.setup();
+    renderSummary(onPick);
+    expect(await screen.findByText("Agile lub Prince2")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Szukaj „Agile lub Prince2” w CV" }));
+    expect(onPick).toHaveBeenCalledWith("Agile", ["Agile", "Prince2"]);
+  });
+
   it("„Szukaj w CV” przekazuje nazwę wymagania i słowa lupy z serwera", async () => {
     getMock.mockResolvedValue({
       data: {

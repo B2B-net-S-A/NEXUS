@@ -201,7 +201,7 @@ async def test_manager_moves_approved_leave_and_m365_follows(
             )
         )
     edited_bell = next(bell for bell in bells if bell.title == "Zmieniono Twój wniosek")
-    assert "Przekierowanie poczty do zastępcy wyłączone" in edited_bell.message
+    assert "Kopia poczty do zastępcy wyłączona" in edited_bell.message
     (event,) = trail
     assert event.details["changed"] == ["end_date", "start_date", "substitute_user_id"]
     assert event.details["before"]["start_date"] == MON.isoformat()
@@ -249,6 +249,8 @@ async def test_edit_after_parallel_cancel_is_a_conflict(app_client, modules_on) 
                 actor=other_actor,
                 request_id=uuid.UUID(request_id),
                 today=MON,
+                # Pierwszy dzień urlopu — od 28.10.2026 cofnięcie wymaga powodu.
+                reason="Wpis pomyłkowy",
             )
             await other.commit()
         try:

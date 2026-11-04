@@ -52,6 +52,8 @@ mają dane (import z Compassa, plików recepcji, kartotek, wzorów umów).
   „Sprawy” (TCM z roli). Admin ma wszystkie. Od 19.10.2026 rola Finanse ma też
   „Kadry” (decyzja Artura przy starcie e-teczki: na produkcji nikt poza adminami
   nie miał Kadr) — zapis w siatce ról na produkcji, domyślna siatka w kodzie bez zmian.
+- **Piąte uprawnienie „Raporty godzin”** (`timesheets`, 28.10.2026): akceptacja
+  timesheetów całej firmy bez reszty Kadr — `raporty-godzin-uprawnienie-bez-kadr.md`.
 - **Rola „Pracownik” (`employee`) jest wyłączna**: widzi „Mój czas”, „Ludzie”,
   Pomoc i Ustawienia; po logowaniu ląduje na `/my-time`. Osoba z inną rolą
   dostaje „Mój czas” przez wiersz kartoteki, nie przez drugą rolę.

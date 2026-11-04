@@ -277,6 +277,64 @@ describe("InsightsRaces", () => {
     expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
   });
 
+  it("dni pracy z urlopów NEXUSA: próg per osoba, bez dopisku „bez urlopów”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({
+            verifications: 33,
+            required_verifications: 58,
+            workdays: 14.5,
+            per_day: 2.28,
+            workdays_source: "nexus",
+          }),
+          recEntry({
+            user_id: 2,
+            name: "Pełny miesiąc",
+            verifications: 80,
+            required_verifications: 80,
+            workdays: 20,
+            per_day: 4,
+            workdays_source: "nexus",
+          }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByText(/2\.3\/dzień/)).toBeInTheDocument();
+    expect(screen.queryByText(/bez urlopów/)).not.toBeInTheDocument();
+    // Dopisek tylko przy osobie z mniejszą liczbą dni pracy niż pełna.
+    expect(screen.getAllByText(/liczone z .* dni pracy/)).toHaveLength(1);
+    expect(screen.getByText(/liczone z 14,5 dni pracy/)).toBeInTheDocument();
+    expect(screen.getAllByTestId("race-threshold")[0]).toHaveAttribute(
+      "title",
+      expect.stringContaining("z dni pracy osoby"),
+    );
+    expect(
+      screen.queryByText(/Próg kwalifikacji jest wspólny/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("zamknięty miesiąc z progiem per osoba nie mówi „wspólny dla wszystkich”", async () => {
+    respond({
+      [RACES]: racesPayload({
+        recommendations: [
+          recEntry({ required_verifications: 60, threshold_basis: "workdays" }),
+        ],
+      }),
+    });
+    renderWithClient(<InsightsRaces month="2020-01" />);
+
+    expect(await screen.findByTestId("race-threshold")).toHaveAttribute(
+      "title",
+      expect.stringContaining("z dni pracy osoby"),
+    );
+    expect(
+      screen.queryByText(/Próg kwalifikacji jest wspólny/),
+    ).not.toBeInTheDocument();
+  });
+
   it("mianownik kalendarzowy dostaje dopisek „bez urlopów”", async () => {
     respond({
       [RACES]: racesPayload({

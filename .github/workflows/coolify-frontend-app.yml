@@ -1,0 +1,42 @@
+# Osobna aplikacja Coolify dla frontu: próba rolling update bez przejmowania ruchu.
+# Plan: docs/claude/podstawy/przerwa-przy-wdrozeniu.md. `create` nie daje domeny,
+# więc Traefik nie kieruje na nią ruchu. `deploy` buduje na serwerze produkcji, więc
+# w dzień roboczy tylko 18:00–08:00, jak każde wdrożenie.
+name: Coolify frontend app
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "plan = odczyt, create = nowa aplikacja bez domeny, deploy = wdrożenie próbne"
+        type: choice
+        options: [plan, create, deploy]
+        default: plan
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coolify-frontend-app
+  cancel-in-progress: false
+
+jobs:
+  frontend-app:
+    name: Frontend app (${{ inputs.mode }})
+    # OPS-N05 (audyt 22.09.2026): sekrety produkcji tylko dla wersji tego pliku z maina.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .github/scripts
+      - name: Verify output redaction
+        run: python3 -m unittest discover -s .github/scripts/tests -p test_coolify_frontend_app.py
+      - name: Run
+        env:
+          CO_URL: ${{ secrets.COOLIFY_URL }}
+          CO_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+          APP_UUID: ${{ secrets.COOLIFY_APP_UUID }}
+          MODE: ${{ inputs.mode }}
+        run: python3 .github/scripts/coolify_frontend_app.py "$MODE"

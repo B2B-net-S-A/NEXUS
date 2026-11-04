@@ -39,6 +39,7 @@ import { Check } from "lucide-react";
 
 import api, { championApi } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { jobTwinsApi } from "@/lib/job-twins-api";
 import { fetchHiringManagerOptions } from "@/lib/hiring-manager";
 import {
   applyJobPrefill,
@@ -47,6 +48,8 @@ import {
   skillNamesFor,
 } from "@/lib/job-new-params";
 import { useToast } from "@/components/Toast";
+import { pracujMailHref } from "@/lib/job-ad-mail-intent";
+import { hasRole, useAuthStore } from "@/store/auth";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ds/PageHeader";
 import type { ClientRef } from "@/components/clients/ClientSinglePicker";
@@ -119,6 +122,7 @@ import {
   NewJobSectionNav,
   type MissingNoteSource,
 } from "./NewJobReviewForm";
+import { NewJobTwinPicker } from "./NewJobTwinPicker";
 import { SimilarJobsPicker } from "./SimilarJobsPicker";
 import { ClientAskedBeforeHint } from "./ClientAskedBeforeHint";
 import { NewJobFilesCard } from "./NewJobFilesCard";
@@ -346,7 +350,12 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
-  const { showSuccess, showError, showInfo } = useToast();
+  const { showSuccess, showError, showInfo, showActionToast } = useToast();
+  // Pracuj.pl wstawia opiekun konta — po utworzeniu DL wysyła mu ogłoszenie
+  // jednym kliknięciem (`ogloszenie-pracuj-mailem-do-opiekuna.md`).
+  const sendsToPracuj = useAuthStore((s) =>
+    hasRole(s.user, "delivery_lead", "head_of_recruitment", "admin"),
+  );
 
   // Podgląd z `step: "request"`: treść czeka w panelu „Wklej treść”, nieodczytana.
   const previewUnread = preview?.step === "request";
@@ -414,6 +423,8 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
   const [saving, setSaving] = useState<"create" | "later" | null>(null);
   // 0341: podobne rekrutacje zaznaczone przy tworzeniu — łączone po zapisie.
   const [similarJobIds, setSimilarJobIds] = useState<number[]>([]);
+  // 0614: bliźniaki zaznaczone przy tworzeniu — łączone po utworzeniu.
+  const [twinJobIds, setTwinJobIds] = useState<number[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Audyt 06.10.2026 (P9): „Utwórz” bez nazwy od klienta — komunikat przy polu.
   const [clientTitleAttempted, setClientTitleAttempted] = useState(false);
@@ -1302,6 +1313,15 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
     creatingRef.current = false;
     void queryClient.invalidateQueries({ queryKey: jobIntakeFormKeys.list });
     invalidateJobs(jobId);
+    // Bliźniaki (0614): połączenie bez par pytań — nowa rekrutacja nie ma
+    // jeszcze Profilu Championa. Odmowa nie cofa utworzenia, tylko mówi.
+    for (const otherId of twinJobIds) {
+      try {
+        await jobTwinsApi.link(jobId, otherId, []);
+      } catch (error) {
+        showError(apiErrorMessage(error, "Rekrutacja powstała, ale nie udało się połączyć bliźniaka."));
+      }
+    }
     // „Z historii klienta” (sekcja 8) — Luna podsumowuje w tle, co klient
     // odrzucał i o co pytał. Bez `await`: tworzenie rekrutacji na to nie
     // czeka, a awaria to tylko brak bloku (odświeżysz go w profilu).
@@ -1334,11 +1354,18 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
       router.push(`/jobs/${jobId}`);
       return;
     }
-    showSuccess(
-      automatic
-        ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, automatSkips)}`
-        : "Rekrutacja utworzona i opublikowana.",
-    );
+    const created = automatic
+      ? `Rekrutacja utworzona i opublikowana. ${automaticHandoffOutcome(allocationMode, automatSkips)}`
+      : "Rekrutacja utworzona i opublikowana.";
+    if (sendsToPracuj) {
+      showActionToast(created, {
+        actionLabel: "Wyślij ogłoszenie na Pracuj.pl",
+        onAction: () => router.push(pracujMailHref(jobId)),
+        durationMs: 15_000,
+      });
+    } else {
+      showSuccess(created);
+    }
     router.push(`/jobs/${jobId}`);
   };
 
@@ -1588,6 +1615,9 @@ export function NewJobPage({ preview }: { preview?: NewJobPagePreview } = {}) {
               onChange={onSimilarChange}
               initialSelected={similarJobIds}
             />
+          )}
+          {!preview && (
+            <NewJobTwinPicker clientId={client?.id ?? null} value={twinJobIds} onChange={setTwinJobIds} />
           )}
           {!preview && <ClientAskedBeforeHint clientId={client?.id ?? null} />}
           {portalsReady && availablePortals.length > 0 && (

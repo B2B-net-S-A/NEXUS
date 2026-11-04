@@ -19,6 +19,7 @@ import { Panel, PanelLoading, ViewHeader } from "../ViewKit";
 import { MyBonusPanel } from "./MyBonusPanel";
 import { MyGoalsPanel } from "./MyGoalsPanel";
 import { MyInFlightPanel } from "./MyInFlightPanel";
+import { MyWhoCountsSection } from "./MyWhoCountsSection";
 
 /** Cele DL, Liga DL i hit ratio liczą kwartał — portfel też. */
 const QUARTER: InsightsPeriodParams = { period: "quarter", offset: 0 };
@@ -70,6 +71,8 @@ export function MyPortfolioView() {
           ) : null
         }
       />
+
+      <MyWhoCountsSection />
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Panel title="Liga Mistrzów DL" hint="kwartał">

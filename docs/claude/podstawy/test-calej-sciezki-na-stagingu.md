@@ -36,22 +36,31 @@ klient) — to też są kroki.
   W=~/.codex/worktrees/nexus-staging-data-promotion  # katalog, z którego stoi staging
   docker compose -p nexus-staging --project-directory $W \
     -f docker-compose.staging.yml --env-file $W/.env.staging.local \
+    --env-file $W/.env.staging-flags.local \
     run -d --rm --no-deps --name nexus-staging-backend-branch \
     -p 127.0.0.1:8101:8000 -v "$PWD/backend:/app" \
     -e 'CORS_ORIGINS=["http://localhost:3101"]' backend
   ```
 
-  Po teście `docker stop nexus-staging-backend-branch`. Jeden taki kontener
+  Baza główna zmienia się co noc (`staging-na-laptopie.md`), a zapisy z testu
+  zostają na starej kopii. Po teście `docker stop nexus-staging-backend-branch`. Jeden taki kontener
   naraz — nazwa jest stała celowo, druga sesja dostanie konflikt zamiast
   cichego drugiego backendu na tej samej bazie.
 - **Zmiana schematu bazy** nie idzie na wspólną bazę stagingu (entrypoint
-  gałęzi wykonałby na niej DDL i migracje). Najpierw kopia:
-  `docker exec nexus-staging-postgres-1 sh -c 'createdb -U nexus nexus_branch && pg_dump -U nexus nexus | psql -q -U nexus nexus_branch'`,
-  potem backend gałęzi z `STAGING_DATABASE_NAME=nexus_branch` ustawionym
-  w powłoce przed `docker compose … run` (compose wstawia je do
-  `DATABASE_URL` przy czytaniu pliku; `-e` tego nie zmieni), po teście
-  `dropdb nexus_branch`. Ten wariant nie był jeszcze przećwiczony
-  (25.10.2026) — pierwsza sesja, która go użyje, poprawia tu przepis.
+  gałęzi wykonałby na niej DDL i migracje). Dotyczy też gałęzi bez własnej
+  migracji, gdy main ma migracje nowsze niż kopia stagingu. Najpierw kopia
+  bazy, na której stoi staging (nazwa jest w `DATABASE_URL` kontenera
+  `nexus-staging-backend-1`, np. `nexus_staging_20261022b`, a nie `nexus`):
+  `docker exec nexus-staging-postgres-1 sh -c 'createdb -U nexus nexus_branch && pg_dump -U nexus <baza stagingu> | psql -q -U nexus nexus_branch'`
+  (11 GB, kilka minut; `createdb -T` nie zadziała, bo staging trzyma
+  połączenia). Potem backend gałęzi z `STAGING_DATABASE_NAME=nexus_branch`
+  ustawionym w powłoce przed `docker compose … run` (compose wstawia je do
+  `DATABASE_URL` przy czytaniu pliku; `-e` tego nie zmieni). Entrypoint
+  migruje kopię, a `/api/health` odpowiada po ok. 2–3 min. Po teście
+  `docker stop nexus-staging-backend-branch` i `dropdb -U nexus nexus_branch`
+  (przećwiczone 29.10.2026).
+- **Front na innym porcie niż 3101** (zajęty przez inną sesję): podaj ten
+  port w `CORS_ORIGINS` backendu gałęzi.
 
 ## 3. Każdy krok jako prawdziwa osoba w tej roli
 

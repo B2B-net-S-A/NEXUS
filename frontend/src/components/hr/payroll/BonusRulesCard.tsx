@@ -23,7 +23,9 @@ import {
   useRefreshProposals,
   useSaveBonusRules,
   type BonusRules,
+  type DlHoursRule,
   type ExtraDlRule,
+  type IndividualRecruiterRule,
 } from "@/lib/api/hr-payroll";
 import { resolveViewState } from "@/lib/view-state";
 
@@ -37,6 +39,8 @@ export const LEAGUE_TYPE_LABELS: Record<string, string> = {
   monthly_placements: "Wyścig placementów (miesiąc, voucher)",
 };
 
+const ALL_CLIENTS = "all";
+
 interface RulesForm {
   boundLow: string;
   boundHigh: string;
@@ -49,6 +53,8 @@ interface RulesForm {
   since: string;
   leagueTypes: string[];
   extraDl: ExtraDlRule[];
+  dlHours: DlHoursRule[];
+  individual: IndividualRecruiterRule[];
 }
 
 type TextKey = {
@@ -70,6 +76,8 @@ export function formFromRules(rules: BonusRules): RulesForm {
     since: rules.automation_since ?? "",
     leagueTypes: rules.league_types,
     extraDl: rules.extra_dl,
+    dlHours: rules.dl_hours ?? [],
+    individual: rules.individual_recruiters ?? [],
   };
 }
 
@@ -102,10 +110,20 @@ export function rulesPayload(
       eligible_business_days: days,
       automation_since: form.since || null,
       league_types: form.leagueTypes,
-      extra_dl: form.extraDl.map(({ dl_user_id, recipient_user_id }) => ({
+      extra_dl: form.extraDl.map(({ dl_user_id, recipient_user_id, client_ids }) => ({
         dl_user_id,
         recipient_user_id,
+        client_ids: client_ids ?? [],
       })),
+      dl_hours: form.dlHours.map(({ user_id, hours }) => ({ user_id, hours })),
+      individual_recruiters: form.individual.map(
+        ({ user_id, base_percent, step_percent, expert_percent }) => ({
+          user_id,
+          base_percent,
+          step_percent,
+          expert_percent,
+        }),
+      ),
     },
   };
 }
@@ -155,6 +173,10 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
   const [error, setError] = useState<string | null>(null);
   const [newDl, setNewDl] = useState("");
   const [newRecipient, setNewRecipient] = useState("");
+  const [newClient, setNewClient] = useState<{ id: number; name: string } | null>(null);
+  const [hoursPerson, setHoursPerson] = useState("");
+  const [hoursValue, setHoursValue] = useState("160");
+  const [individualPerson, setIndividualPerson] = useState("");
   const directory = people.data?.items ?? [];
   const nameOf = (id: number, fallback?: string | null) =>
     directory.find((person) => person.user_id === id)?.name ?? fallback ?? `Osoba ${id}`;
@@ -191,10 +213,16 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
     setError(null);
     set("extraDl", [
       ...form.extraDl,
-      { dl_user_id: Number(newDl), recipient_user_id: Number(newRecipient) },
+      {
+        dl_user_id: Number(newDl),
+        recipient_user_id: Number(newRecipient),
+        client_ids: newClient ? [newClient.id] : [],
+        client_names: newClient ? [newClient.name] : [],
+      },
     ]);
     setNewDl("");
     setNewRecipient("");
+    setNewClient(null);
   };
 
   const field = (key: TextKey, label: string, id: string, description?: string) => (
@@ -308,10 +336,139 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
       </fieldset>
 
       <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">Godziny DL inne niż w miesiącu</legend>
+        <p className="text-xs text-muted-foreground">
+          Podstawa premii DL dla osób, które mają w umowie inną liczbę godzin.
+        </p>
+        {form.dlHours.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {form.dlHours.map((rule) => (
+              <li key={rule.user_id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="text-foreground">
+                  {nameOf(rule.user_id, rule.name)}: {rule.hours} h
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="quiet"
+                  aria-label={`Usuń godziny: ${nameOf(rule.user_id, rule.name)}`}
+                  onClick={() => set("dlHours", form.dlHours.filter((item) => item.user_id !== rule.user_id))}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex flex-wrap items-end gap-2">
+          <FormField label="Delivery Lead" htmlFor="rules-hours-person" className="min-w-[220px] flex-1">
+            <Select value={hoursPerson} onValueChange={setHoursPerson}>
+              <SelectTrigger id="rules-hours-person">
+                <SelectValue placeholder="Wybierz osobę" />
+              </SelectTrigger>
+              <SelectContent>
+                {directory.map((person) => (
+                  <SelectItem key={person.user_id} value={String(person.user_id)}>
+                    {person.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <FormField label="Godziny" htmlFor="rules-hours-value" className="w-24">
+            <Input
+              id="rules-hours-value"
+              inputMode="numeric"
+              value={hoursValue}
+              onChange={(event) => setHoursValue(event.target.value)}
+            />
+          </FormField>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const hours = Number(hoursValue);
+              if (!hoursPerson || !Number.isInteger(hours) || hours < 1) {
+                setError("Wybierz osobę i podaj godziny jako liczbę całkowitą.");
+                return;
+              }
+              setError(null);
+              set("dlHours", [
+                ...form.dlHours.filter((item) => item.user_id !== Number(hoursPerson)),
+                { user_id: Number(hoursPerson), hours },
+              ]);
+              setHoursPerson("");
+            }}
+          >
+            Dodaj
+          </Button>
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-foreground">Indywidualny system premii rekrutera</legend>
+        <p className="text-xs text-muted-foreground">
+          Zamiast progów: godziny × marża × procent. Od 3. startu w miesiącu procent rośnie dla
+          wszystkich premii tego miesiąca. Domyślnie 25%, +5 pkt na start, +5 pkt ekspert.
+        </p>
+        {form.individual.length > 0 ? (
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {form.individual.map((rule) => (
+              <li key={rule.user_id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="text-foreground">
+                  {nameOf(rule.user_id, rule.name)}: {plain(rule.base_percent)}%, +{plain(rule.step_percent)} pkt, ekspert +
+                  {plain(rule.expert_percent)} pkt
+                </span>
+                <Button
+                  size="icon-sm"
+                  variant="quiet"
+                  aria-label={`Usuń system: ${nameOf(rule.user_id, rule.name)}`}
+                  onClick={() => set("individual", form.individual.filter((item) => item.user_id !== rule.user_id))}
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="flex flex-wrap items-end gap-2">
+          <FormField label="Rekruter" htmlFor="rules-individual-person" className="min-w-[220px] flex-1">
+            <Select value={individualPerson} onValueChange={setIndividualPerson}>
+              <SelectTrigger id="rules-individual-person">
+                <SelectValue placeholder="Wybierz osobę" />
+              </SelectTrigger>
+              <SelectContent>
+                {directory.map((person) => (
+                  <SelectItem key={person.user_id} value={String(person.user_id)}>
+                    {person.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              if (!individualPerson) {
+                setError("Wybierz rekrutera.");
+                return;
+              }
+              setError(null);
+              set("individual", [
+                ...form.individual.filter((item) => item.user_id !== Number(individualPerson)),
+                { user_id: Number(individualPerson), base_percent: "25", step_percent: "5", expert_percent: "5" },
+              ]);
+              setIndividualPerson("");
+            }}
+          >
+            Dodaj
+          </Button>
+        </div>
+      </fieldset>
+
+      <fieldset className="space-y-2">
         <legend className="text-sm font-medium text-foreground">Dodatkowa premia DL</legend>
         <p className="text-xs text-muted-foreground">
           Gdy placement prowadzi wskazany Delivery Lead, druga osoba dostaje propozycję premii
-          w tej samej kwocie co DL.
+          w tej samej kwocie co DL. Z wybranym klientem reguła działa tylko u niego.
         </p>
         {form.extraDl.length === 0 ? (
           <p className="text-sm text-muted-foreground">Brak reguł.</p>
@@ -325,6 +482,11 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
                 <span className="text-foreground">
                   {nameOf(rule.dl_user_id, rule.dl_name)} →{" "}
                   {nameOf(rule.recipient_user_id, rule.recipient_name)}
+                  {rule.client_names?.length ? (
+                    <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-foreground">
+                      tylko: {rule.client_names.join(", ")}
+                    </span>
+                  ) : null}
                 </span>
                 <Button
                   size="icon-sm"
@@ -365,6 +527,28 @@ function RulesEditor({ rules }: { rules: BonusRules }) {
               </Select>
             </FormField>
           ))}
+          <FormField label="Tylko klient" htmlFor="rules-extra-client" className="min-w-[220px]">
+            <Select
+              value={newClient ? String(newClient.id) : ALL_CLIENTS}
+              onValueChange={(value) =>
+                setNewClient(
+                  (rules.client_options ?? []).find((client) => String(client.id) === value) ?? null,
+                )
+              }
+            >
+              <SelectTrigger id="rules-extra-client">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={ALL_CLIENTS}>Każdy klient</SelectItem>
+                {(rules.client_options ?? []).map((client) => (
+                  <SelectItem key={client.id} value={String(client.id)}>
+                    {client.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </FormField>
           <Button variant="secondary" onClick={addExtra}>
             Dodaj regułę
           </Button>
@@ -450,7 +634,7 @@ export function BonusRulesCard() {
         </h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Placement to kontrakt NEXUSA: termin premii = start + dni robocze, premia DL = procent
-          marży/h × godziny, premia rekrutera według progu marży. Automat proponuje, Płace
+          marży/h × godziny, premia rekrutera według progu marży. Automat proponuje, Rozliczenia
           zatwierdzają.
         </p>
       </div>

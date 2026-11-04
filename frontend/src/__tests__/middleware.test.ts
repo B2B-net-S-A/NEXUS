@@ -129,6 +129,10 @@ const PRIVATE_ROUTES = [
   "/manager",
   "/preview/shell",
   "/jakas/zupelnie/nowa/trasa",
+  "/wtyczka",
+  "/wtyczka/prywatnosc-admin",
+  "/wtyczka/prywatnosc/panel",
+  "/extension/connect",
 ]
 
 describe("brak tokenu → ekran logowania", () => {
@@ -181,6 +185,17 @@ describe("ważny token → dostęp", () => {
 })
 
 describe("linki publiczne działają bez tokenu", () => {
+  it("polityka wtyczki jest publiczna także na produkcji i z wygasłą sesją", () => {
+    vi.stubEnv("NODE_ENV", "production")
+    try {
+      expect(destination("/wtyczka/prywatnosc")).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc", expiredAdmin)).toBe("pass")
+      expect(destination("/wtyczka/prywatnosc/panel")).toBe("/login")
+    } finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     "/login",
     "/login/forgot-password",
@@ -189,13 +204,19 @@ describe("linki publiczne działają bez tokenu", () => {
     "/register",
     "/register/verify",
     "/403",
+    "/wtyczka/prywatnosc",
     "/apply/abc123",
     "/share/champion-card/abc123",
     "/sign/abc123",
     "/protocol/abc123",
+    "/konsultant",
+    "/konsultant/wejscie",
+    "/konsultant/ocena",
     "/wypis/abc123",
     "/cv/abc123",
     "/cv/i/abc123",
+    "/k/abc123",
+    "/preview/client-panel",
     "/engagement/abc123",
     "/preview/candidates",
     "/preview/candidate-profile",
@@ -261,6 +282,7 @@ describe("linki publiczne działają bez tokenu", () => {
     "/preview/hr-agreements",
     "/preview/hr-people",
     "/preview/client-invoicing",
+    "/preview/sales",
     "/preview/job-portals",
     "/preview/request-allocation",
     "/preview/job-team-panel",
@@ -615,10 +637,11 @@ describe("zawężenia ról nadal obowiązują", () => {
       validRecruiter,
       validHeadOfRecruitment,
       validTalentCommunityManager,
-      validViewer,
     ]) {
       expect(destination("/contracts/b2b-generator", token)).toBe("pass")
     }
+    // 0637: wycofywany Viewer nie ma już sekcji Sourcing.
+    expect(destination("/contracts/b2b-generator", validViewer)).toBe("/403")
   })
 
   it("kolejka kontaktu wpuszcza tylko role wykonujące telefony", () => {

@@ -116,6 +116,20 @@ describe("JobDetailCompactHeader", () => {
     expect(screen.getByTestId("header-client-line")).toHaveClass("sr-only");
   });
 
+  it("długie odznaki nie wchodzą pod zakładki: najpierw ustępuje tytuł, potem odznaki się zawijają (zgłoszenie 28.10.2026)", () => {
+    renderHeader({ badges: <span data-testid="long-badge">Archiwum z Traffita</span> });
+    // Tytuł kurczy się pierwszy, ale nie poniżej 9rem (przy 6rem zamknięta
+    // rekrutacja miała przy 1280 px „Kierowni…”)…
+    expect(screen.getByTestId("job-header-title").className).toMatch(/flex-\[0_100_auto\]/);
+    expect(screen.getByTestId("job-header-title").className).toMatch(/min-w-\[9rem\]/);
+    // …a odznaki nie są `shrink-0` (wychodziły wtedy poza kolumnę pod
+    // „Tablicę”), tylko zawijają się w swojej kolumnie.
+    const badges = screen.getByTestId("long-badge").parentElement!;
+    expect(badges.className).not.toMatch(/shrink-0/);
+    expect(badges.className).toMatch(/(^| )min-w-0( |$)/);
+    expect(badges.className).toMatch(/flex-wrap/);
+  });
+
   it("bez nazwy od klienta i numerów dymek tytułu to sam tytuł", () => {
     renderHeader({ referenceNumber: null });
     expect(screen.getByTestId("job-header-title")).toHaveAttribute("title", "Analityk KYC/AML");
@@ -279,6 +293,19 @@ describe("JobDetailCompactHeader", () => {
     // Liczba nieznana albo zero: sama nazwa, bez „(0)”.
     renderHeader({ onOpenFiles, filesCount: 0 });
     expect(within(await openMenu()).getByTestId("menu-files")).toHaveTextContent(/^Pliki$/);
+  });
+
+  it("menu „⋯”: „Panel klienta” tylko z prawem i otwiera okno panelu", async () => {
+    const onOpenClientPanel = vi.fn();
+    const first = renderHeader({ onOpenClientPanel });
+    const item = within(await openMenu()).getByTestId("menu-client-panel");
+    expect(item).toHaveTextContent(/^Panel klienta$/);
+    await userEvent.click(item);
+    await waitFor(() => expect(onOpenClientPanel).toHaveBeenCalled());
+    first.unmount();
+
+    renderHeader();
+    expect(within(await openMenu()).queryByTestId("menu-client-panel")).toBeNull();
   });
 
   it("podmenu „Dodaj kandydatów”: po nazwisku, z pliku CV, z moich ludzi, przegląd całej bazy", async () => {

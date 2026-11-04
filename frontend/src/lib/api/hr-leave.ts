@@ -92,6 +92,8 @@ export interface LeaveRequestRow {
   note: string | null;
   substitute_user_id: number | null;
   substitute_name: string | null;
+  /** Kto wrzuca do Cpro w tym czasie (tylko wniosek osoby od Cpro). */
+  cpro_substitute_name?: string | null;
   forward_mail_consent: boolean;
   oof_internal_message: string | null;
   oof_external_message: string | null;
@@ -207,6 +209,8 @@ export interface LeavePreview {
   work: WorkSummary;
   substitute_absent: boolean;
   return_on: string | null;
+  /** Osoba wrzuca kandydatów Nordei do Cpro — okno pyta, kto zrobi to w tym czasie. */
+  cpro_sender?: boolean;
 }
 
 export interface SubstituteCandidate {
@@ -226,6 +230,8 @@ export interface LeaveInput {
   half_day?: HalfDay | null;
   note?: string | null;
   substitute_user_id?: number | null;
+  /** Kto wrzuca do Cpro w czasie nieobecności osoby od Cpro (29.10.2026). */
+  cpro_substitute_user_id?: number | null;
   forward_mail_consent?: boolean;
   oof_internal_message?: string | null;
   oof_external_message?: string | null;
@@ -644,8 +650,13 @@ export function useCancelTeamLeave() {
   const invalidate = useInvalidateLeave();
   return useMutation({
     mutationKey: [...HR_COUNTS_MUTATION_KEY, "leave-cancel"],
-    mutationFn: async (id: string) =>
-      (await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/cancel`)).data,
+    // Powód wymagany od pierwszego dnia wniosku (28.10.2026), przed nim — opcjonalny.
+    mutationFn: async ({ id, reason }: { id: string; reason?: string }) =>
+      (
+        await api.post<LeaveRequestRow>(`${ROOT}/approvals/${id}/cancel`, {
+          reason: reason ?? null,
+        })
+      ).data,
     onSuccess: invalidate,
   });
 }

@@ -41,6 +41,35 @@ const SUMMARY = {
     manual: { added: 300, verified: 24, verified_pct: 8 },
   },
   waiting_now: 12,
+  sent_vs_system: {
+    total: 12,
+    jobs: 5,
+    measured: 10,
+    shown: 4,
+    outside_base: 2,
+    missed: 4,
+    no_snapshot: 2,
+    shown_pct: 40,
+    outside_base_pct: 20,
+    missed_pct: 40,
+    segments: [
+      { key: "system", label: "System dodał sam", count: 2 },
+      { key: "proposal", label: "Wzięte z Propozycji", count: 2 },
+      { key: "outside_base", label: "Spoza bazy", count: 2 },
+      { key: "r21_40", label: "Ręcznie, miejsce 21–40", count: 3 },
+      { key: "below_pool", label: "Poniżej puli 150", count: 1 },
+      { key: "no_snapshot", label: "Sprzed pomiaru", count: 2 },
+    ],
+    worst_jobs: [
+      {
+        job_id: 1,
+        job_title: "Przykładowa rekrutacja",
+        sent: 4,
+        missed: 3,
+        reasons: [{ key: "r21_40", label: "Ręcznie, miejsce 21–40", count: 3 }],
+      },
+    ],
+  },
   buckets: [
     {
       bucket: "search",
@@ -142,5 +171,16 @@ describe("AutofillQualityView", () => {
     );
     renderView();
     expect(await screen.findByRole("alert")).toHaveTextContent("Nie udało się");
+  });
+
+  it("„Wysłani do klienta” pokazuje podział, procenty bez osób sprzed pomiaru i rekrutacje", async () => {
+    renderView();
+    const section = await screen.findByTestId("sent-vs-system");
+    expect(section).toHaveTextContent("Wysłani do klienta: czy system ich pokazał?");
+    expect(section).toHaveTextContent("system pokazał sam");
+    expect(section).toHaveTextContent("Sprzed pomiaru");
+    expect(section).toHaveTextContent("Procenty ich nie liczą");
+    expect(section).toHaveTextContent("Ręcznie, miejsce 21–40: 3");
+    expect(within(section).getByRole("link", { name: "Przykładowa rekrutacja" })).toHaveAttribute("href", "/jobs/1");
   });
 });

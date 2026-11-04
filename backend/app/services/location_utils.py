@@ -222,6 +222,29 @@ def tokens_overlap(a: set[str], b: set[str]) -> bool:
     )
 
 
+def nearest_km(a: set[str], b: set[str]) -> float | None:
+    """Najmniejsza odległość (km, w linii prostej) między miejscowościami z dwóch
+    zbiorów tokenów; ``None``, gdy po którejś stronie nie ma miejscowości ze
+    słownika ``pl_places``. Kraje i województwa nie są miejscowością, a
+    Trójmiasto to trzy miasta."""
+    from app.services import pl_places
+
+    def places(tokens: set[str]) -> list:
+        out = []
+        for token in tokens:
+            if not _is_city_token(token):
+                continue
+            key = pl_places.place_key(token)
+            names = _TRICITY_NAMES if key in _TRICITY_KEYS else (key,)
+            out.extend(p for n in names if (p := pl_places.resolve(n)) is not None)
+        return out
+
+    left, right = places(a), places(b)
+    if not left or not right:
+        return None
+    return min(pl_places.distance_km(x, y) for x in left for y in right)
+
+
 def location_matches(requested_tokens: set[str], candidate_location: object) -> bool:
     """True if a candidate's location is compatible with the requested tokens.
 

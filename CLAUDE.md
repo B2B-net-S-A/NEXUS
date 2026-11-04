@@ -132,6 +132,7 @@ kodu sprzed 10.10.2026 odnoszą się do plików z tych katalogów.
 - **Finanse i Insights** — `finanse-insights/`: Finanse → Zmiany w zamówieniach, Zamówienia PDF, Insights (Rywalizacja, Zespół, Firma, raporty).
 - **Powiadomienia i maile** — `powiadomienia/`: Ikony paska, kategorie i wyciszenia, powiadomienia dla ról, maile do zespołu.
 - **Integracje** — `integracje/`: Traffit, COMPASS, CloudTalk, kalendarz i rozmowy u klienta, prepy w Teams, archiwum pytań.
+- **Sprzedaż (dawny Atlas)** — `sprzedaz/`: Uprawnienia Sprzedaży, kartoteka firm sprzedaży, szanse, „Kogo znamy”, daty per firma, powiązanie z klientem, leady, import z Atlasa.
 - **Ludzie w NEXUSIE** — `ludzie/`: Moduły przeniesione z Compassa (bez Akademii) i sprzęt recepcji.
 - **Programy** — `programy/`: Akademia i program praktykanta — oba ukryte z UI od 17.10.2026.
 - **Audyty przekrojowe** — `audyty/`: Reguły po audytach 22–25.09.2026 — przeczytaj przed zmianą w poczcie zamówień, MD, kontraktach, bezpieczeństwie albo integracjach.

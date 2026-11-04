@@ -356,15 +356,38 @@ async def test_warmed_vector_is_the_one_request_vector_would_compute(monkeypatch
     monkeypatch.setattr(fsm.embeddings, "_voyage_model", lambda: "test-model")
     monkeypatch.setattr(fsm, "_query_cache", type(fsm._query_cache)())
     texts = [f"request {i}" for i in range(40)]
+    long_text = "x" * (fsm._CHUNK + 1)
 
     expected = await fsm.request_vector(texts[0])
+    expected_long = await fsm.request_vector(long_text)
     fsm._query_cache.clear()
     calls.clear()
-    await fsm.warm_request_vectors(texts + texts[:5] + ["x" * (fsm._CHUNK + 1), ""])
+    await fsm.warm_request_vectors(texts + texts[:5] + [long_text, ""])
 
-    assert calls == [32, 8]
+    # 40 krótkich + 2 kawałki długiego (27.10.2026: długi w tej samej paczce).
+    assert calls == [32, 10]
     assert await fsm.request_vector(texts[0]) == expected
-    assert calls == [32, 8]
+    assert await fsm.request_vector(long_text) == expected_long
+    assert calls == [32, 10]
+
+
+async def test_warm_leaves_a_text_with_a_failed_chunk_for_request_vector(
+    monkeypatch,
+):
+    from app.services import full_search_measurement as fsm
+
+    async def embed(texts, *, input_type):
+        return [[] if t == "y" else [1.0, 2.0] for t in texts]
+
+    monkeypatch.setattr(fsm.embeddings, "_voyage_embed_batch", embed)
+    monkeypatch.setattr(fsm.embeddings, "_voyage_model", lambda: "test-model")
+    monkeypatch.setattr(fsm, "_query_cache", type(fsm._query_cache)())
+    broken = "x" * fsm._CHUNK + "y"
+
+    await fsm.warm_request_vectors(["ok", broken])
+
+    assert fsm._cached(fsm._cache_key("ok")) is not None
+    assert fsm._cached(fsm._cache_key(broken)) is None
 
 
 async def test_job_event_with_one_failed_batch_goes_back_to_the_queue(

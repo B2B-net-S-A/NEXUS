@@ -315,7 +315,7 @@ export function isTraineeOnly(
 /** All roles a user holds — primary ``role`` ∪ secondary ``roles``.
  *  Fallback: jeśli ``roles`` brakuje (stary localStorage cache lub starsza
  *  API odpowiedź) — używamy ``[role]``. */
-type RoleBearingUser = {
+export type RoleBearingUser = {
   role: UserRole
   roles?: readonly UserRole[]
 }
@@ -341,6 +341,14 @@ export function hasRole(
   if (!user) return false
   const userRoles = getUserRoles(user)
   return roles.some((r) => userRoles.includes(r))
+}
+
+/**
+ * „Automatyzacje” (0446) czytają ekrany, ale nie wynoszą danych plikiem —
+ * lustro ``NOT_READ_ONLY`` na trasach eksportu (candidate_access.py).
+ */
+export function mayExportFiles(user: RoleBearingUser | null | undefined): boolean {
+  return !hasRole(user, "automation")
 }
 
 /**

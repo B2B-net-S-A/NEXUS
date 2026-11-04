@@ -14,6 +14,7 @@ import pytest
 from app.models.ai_feature import AIFeatureKey
 from app.models.job import Job
 from app.services.ai_models import model_for
+from app.services import champion_requirement_rows
 from app.services.job_ad import fixed_blocks, generate, material
 from app.services.job_ad_schema import SOURCE_AI, SOURCE_TEMPLATE
 
@@ -138,8 +139,113 @@ def test_material_hash_covers_an_explicit_versioned_field_list():
     import dataclasses
 
     fields = {f.name for f in dataclasses.fields(material.AdMaterial)}
-    assert set(material._HASH_FIELDS) == fields
+    # `location` wchodzi do odcisku pod kluczem `city` (niżej), a `alternatives`
+    # świadomie poza odciskiem (test niżej).
+    assert set(material._HASH_FIELDS) | {"location", "alternatives"} == fields
     assert material._HASH_VERSION == "v1"
+
+
+def test_cutting_the_street_from_the_city_does_not_mark_ads_as_outdated():
+    """28.10.2026 miasto ogłoszenia traci adres biura. Odcisk liczy się dalej
+    z lokalizacji wpisanej w rekrutacji — inaczej każde ogłoszenie z adresem
+    dostałoby „Rekrutacja zmieniła się… Przygotuj ponownie”, a to nadpisuje
+    ręczne poprawki."""
+    import dataclasses
+
+    job = _job()
+    job.location = "Warszawa, ul. Kwiatowa 12"
+    mat = _material(job)
+    assert mat.city == "Warszawa"
+    before = dataclasses.replace(mat, city="Warszawa, ul. Kwiatowa 12", location=None)
+    assert material.material_hash(mat) == material.material_hash(before)
+
+
+# ── Zamienniki z wierszy wymagań (zgłoszenie 30.10.2026) ────────────────────
+
+
+def _rows_stack(*words: list[str], nice: tuple[list[str], ...] = ()) -> dict:
+    rows = [{"words": w, "level": "must"} for w in words]
+    rows += [{"words": w, "level": "nice"} for w in nice]
+    return {
+        "rows": rows,
+        **champion_requirement_rows.derive(champion_requirement_rows.clean_rows(rows)),
+    }
+
+
+def test_alternatives_carry_the_row_words_the_label_drops():
+    """Wiersz „Prince2*, Agile, Prince2” ma etykietę „Agile”: ogłoszenie pisane
+    z samej etykiety mówiło kandydatowi, że Prince2 się nie liczy."""
+    job = _job(
+        stack=_rows_stack(["Prince2*", "Agile", "Prince2"], nice=(["Unix", "Linux"],))
+    )
+
+    mat = _material(job)
+
+    assert mat.must == ("Agile",)
+    assert mat.alternatives == ("Agile: Prince2", "Unix: Linux")
+
+
+def test_alternatives_never_hand_the_model_a_search_pattern():
+    """Gwiazdka to składnia wyszukiwania: końcowa odpada, a słowa z gwiazdką
+    w środku („hurtown* danych”) nie da się przeczytać, więc nie idzie wcale."""
+    job = _job(
+        stack=_rows_stack(
+            ["hurtowni danych", "hurtown* danych", "data warehouse"],
+            ["Arista", "Cisco*", "Juniper*"],
+        )
+    )
+
+    assert _material(job).alternatives == (
+        "hurtowni danych: data warehouse",
+        "Arista: Cisco, Juniper",
+    )
+
+
+def test_alternatives_empty_without_rows():
+    assert _material().alternatives == ()
+
+
+def test_alternatives_only_for_labels_the_ad_actually_uses():
+    """Etykieta spoza must/nice (np. odcięta limitem listy) nie wnosi zamienników."""
+    stack = _rows_stack(["Agile", "Prince2"])
+    stack["must"] = [{"name": "Java"}]
+
+    assert _material(_job(stack=stack)).alternatives == ()
+
+
+def test_alternatives_do_not_mark_saved_ads_as_outdated():
+    """Decyzja Artura 30.10.2026: tylko nowe ogłoszenia. W odcisku zapaliłyby
+    „Przygotuj ponownie” w ok. 60 ogłoszeniach, a to nadpisuje ręczne poprawki."""
+    import dataclasses
+
+    mat = _material(_job(stack=_rows_stack(["Agile", "Prince2"])))
+    assert mat.alternatives
+
+    assert material.material_hash(mat) == material.material_hash(
+        dataclasses.replace(mat, alternatives=())
+    )
+
+
+def test_prompt_lists_alternatives_and_says_what_to_skip():
+    prompt = generate.prompt_for(
+        _material(_job(stack=_rows_stack(["Unix", "Linux"]))), "pl"
+    )
+
+    assert "Zamienniki: Unix: Linux\n" in prompt
+    assert "Tłumaczenia, skróty" in prompt
+
+
+def test_prompt_without_alternatives_says_none():
+    assert "Zamienniki: brak\n" in generate.prompt_for(_material(), "pl")
+
+
+def test_template_keeps_labels_without_alternatives():
+    """Złożenie bez modelu nie umie odsiać szumu („Application lub User”)."""
+    content = generate.template_content(
+        _material(_job(stack=_rows_stack(["Unix", "Linux"])))
+    )
+
+    assert content["requirements"] == ["Unix"]
 
 
 # ── Prompt ──────────────────────────────────────────────────────────────────
@@ -190,6 +296,32 @@ def test_saved_content_drops_invisible_characters_but_keeps_emoji():
     assert content["title"] == "DevOps"
     assert content["about"] == "Platforma płatności."
     assert content["requirements"] == ["Java 17", "zespół \U0001f469\u200d\U0001f4bb"]
+
+
+def test_hidden_offer_points_are_saved_only_when_there_are_any():
+    """Odcisk treści (`publications.content_hash`) liczy się z całego słownika:
+    pusty klucz w każdej zapisanej treści zapaliłby „Do aktualizacji” przy
+    wszystkich oznaczonych ogłoszeniach."""
+    plain = generate.clean_content({"offer": ["projekt"]}, title="Dev")
+    assert "offer_hidden" not in plain
+    assert "offer_hidden" not in generate.clean_content(
+        {"offer_hidden": ["", "  "]}, title="Dev"
+    )
+    hidden = generate.clean_content(
+        {"offer_hidden": ["prywatna  opieka medyczna", "Prywatna opieka medyczna"]},
+        title="Dev",
+    )
+    assert hidden["offer_hidden"] == ["prywatna opieka medyczna"]
+
+
+def test_city_is_saved_only_when_typed():
+    """Odcisk treści liczy się z całego słownika — pusty klucz w każdej
+    zapisanej treści zapaliłby „Do aktualizacji” przy oznaczonych ogłoszeniach."""
+    assert "city" not in generate.clean_content({"city": "  "}, title="Dev")
+    assert (
+        generate.clean_content({"city": " Warszawa  lub Lublin"}, title="Dev")["city"]
+        == "Warszawa lub Lublin"
+    )
 
 
 def test_parser_reads_fenced_json_and_cleans_bullets():

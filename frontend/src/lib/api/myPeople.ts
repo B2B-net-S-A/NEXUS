@@ -48,6 +48,8 @@ export interface MyPeopleRow {
   snoozed_at: string | null;
   /** Nieobejrzane dopasowania do nowych rekrutacji. */
   new_matches: number;
+  /** Osoba zgłosiła się z linku właściciela listy. */
+  from_link?: boolean;
 }
 
 export interface MyPeopleResponse {

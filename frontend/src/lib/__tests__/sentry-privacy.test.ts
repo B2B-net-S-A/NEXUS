@@ -53,6 +53,11 @@ it('rejects private replay metadata and subsequent segments of that recording', 
   expect(scrubReplayEvent({ type: 'replay_event', replay_id: 'query-replay', urls: [] } as Event, 'https://nexus.dynaminds.pl/?email=private@example.com')).toBeNull()
 })
 
+it('rejects a replay of the client panel link, which is a capability URL', () => {
+  const url = 'https://nexus.example.com/k/syntheticpaneltoken'
+  expect(scrubReplayEvent({ type: 'replay_event', replay_id: 'panel-replay', urls: [url] } as Event, url)).toBeNull()
+})
+
 it('retains a safe replay with private identity/context removed', () => {
   const replay = { type: 'replay_event', replay_id: 'safe-replay', urls: ['https://nexus.dynaminds.pl/'], user: { email: 'private@example.com' }, contexts: { private: { data: 'private-value' } } } as Event
   const result = scrubReplayEvent(replay, 'https://nexus.dynaminds.pl/')

@@ -82,8 +82,11 @@ export function proposalReasonChips(
   askLabels: readonly string[] = [],
 ): ReasonChipList {
   const reqs = requirements ?? [];
+  // „angular · 2020”: technologia sprzed ponad 3 lat jest „zapytaj”, z rokiem.
   const pick = (level: "must" | "nice", status: ProposalRequirement["status"]) =>
-    reqs.filter((r) => r.level === level && r.status === status).map((r) => r.label);
+    reqs
+      .filter((r) => r.level === level && r.status === status)
+      .map((r) => (r.lastUsedYear != null ? `${r.label} · ${r.lastUsedYear}` : r.label));
   return reasonChips({
     met: [...pick("must", "met"), ...pick("nice", "met")],
     gap: pick("must", "not_met"),

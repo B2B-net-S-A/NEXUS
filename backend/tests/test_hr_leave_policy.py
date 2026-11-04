@@ -18,7 +18,9 @@ from app.services.hr.leave_policy import (
     Actor,
     LeavePolicyError,
     PoolYear,
+    CANCEL_REASON_MAX,
     allowed_types,
+    approver_cancel_refusal,
     can_decide,
     can_see_type,
     own_cancel_refusal,
@@ -55,7 +57,7 @@ def test_contractors_may_only_take_vacation() -> None:
     assert allowed_types("b2b") == ("vacation",)
     assert allowed_types("zlecenie") == ("vacation",)
     assert "sick_leave" in allowed_types("uop")
-    with pytest.raises(LeavePolicyError, match="wyłącznie o urlop"):
+    with pytest.raises(LeavePolicyError, match="wyłącznie przerwę"):
         _shape(leave_type="on_demand", employment_type="b2b")
     with pytest.raises(LeavePolicyError, match="Osobie na umowie zlecenie"):
         _shape(leave_type="sick_leave", employment_type="zlecenie", for_self=False)
@@ -212,7 +214,7 @@ def test_type_of_absence_is_visible_only_inside_d6_circle() -> None:
 def test_own_cancel_rules() -> None:
     today = date(2026, 11, 2)
     assert (
-        own_cancel_refusal(status="pending", start=date(2026, 10, 1), today=today)
+        own_cancel_refusal(status="pending", start=date(2026, 11, 3), today=today)
         is None
     )
     assert (
@@ -223,6 +225,52 @@ def test_own_cancel_rules() -> None:
     assert own_cancel_refusal(status="rejected", start=date(2026, 12, 1), today=today)
     assert team_cancel_refusal(status="approved") is None
     assert team_cancel_refusal(status="cancelled") is not None
+
+
+@pytest.mark.parametrize(
+    "start, allowed",
+    [
+        (date(2026, 11, 3), True),  # przed pierwszym dniem
+        (date(2026, 11, 2), False),  # pierwszy dzień
+        (date(2026, 10, 1), False),  # dni już minęły
+    ],
+)
+def test_own_pending_cancel_stops_on_the_first_day(start: date, allowed: bool) -> None:
+    """Decyzja Artura 28.10.2026: osoba nie anuluje sama nieobecności, która
+    trwa albo minęła — także niezatwierdzonego wniosku."""
+
+    refusal = own_cancel_refusal(status="pending", start=start, today=date(2026, 11, 2))
+    if allowed:
+        assert refusal is None
+    else:
+        assert refusal is not None
+        assert "koordynator albo Administracja współpracy" in refusal
+
+
+def test_approver_cancel_needs_a_reason_once_the_term_started() -> None:
+    today = date(2026, 11, 2)
+    future = date(2026, 11, 3)
+    # Przed pierwszym dniem powód jest opcjonalny.
+    assert approver_cancel_refusal(start=future, today=today, reason=None) is None
+    assert approver_cancel_refusal(start=future, today=today, reason="  ") is None
+    assert approver_cancel_refusal(start=future, today=today, reason="ab") is not None
+    # Od pierwszego dnia (także trwający i miniony) — wymagany, 3–500 znaków.
+    for start in (today, date(2026, 10, 1)):
+        missing = approver_cancel_refusal(start=start, today=today, reason=None)
+        assert missing is not None and "powód" in missing.lower()
+        assert approver_cancel_refusal(start=start, today=today, reason=" ab ")
+        assert (
+            approver_cancel_refusal(start=start, today=today, reason="Był w pracy")
+            is None
+        )
+    too_long = "x" * (CANCEL_REASON_MAX + 1)
+    assert approver_cancel_refusal(start=today, today=today, reason=too_long)
+    assert (
+        approver_cancel_refusal(
+            start=today, today=today, reason="x" * CANCEL_REASON_MAX
+        )
+        is None
+    )
 
 
 # ── Microsoft 365: co trafia do kolejki ───────────────────────────────────────

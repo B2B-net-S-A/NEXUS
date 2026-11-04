@@ -61,7 +61,7 @@ describe("useOnboardingGuard", () => {
     expect(nav.replace).not.toHaveBeenCalled();
   });
 
-  it.each(["/login", "/onboarding", "/onboarding/step-2", "/share/abc", "/apply/tok", "/403"])(
+  it.each(["/login", "/onboarding", "/onboarding/step-2", "/share/abc", "/apply/tok", "/403", "/wtyczka/prywatnosc"])(
     "ścieżka wyłączona %s: sygnalizuje potrzebę, ale nie przekierowuje",
     (path) => {
       nav.pathname = path;

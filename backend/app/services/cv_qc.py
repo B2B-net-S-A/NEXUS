@@ -52,8 +52,8 @@ from app.models.candidate_stage_cv import CandidateStageCV
 from app.models.cv_generated_document import CvGeneratedDocument
 from app.models.cv_qc_run import CvQcRun
 from app.models.recruitment_pipeline import CandidateStage
-from app.services import cv_role_order
-from app.services.cv_rewrite_merge import roles_newest_first
+from app.services import cv_role_order, cv_source_dates
+from app.services.cv_rewrite_merge import restore_role_dates_html, roles_newest_first
 from app.services import dz_review as dz
 from app.services.recommendation_card_parser import (
     AI_HIDDEN_FIELDS,
@@ -81,7 +81,16 @@ FIXES_PROMPT_VERSION = "cv-qc-fixes-v6"
 # „Stawka w CV” regułą „Usuń stawkę” (`money_text.is_cv_rate_text`, 17.10.2026)
 # bez podbicia: pomiar na produkcji — 295 par, ten sam wynik QC co stara reguła,
 # więc przeliczenie zapisałoby tylko nowe przebiegi bez zmiany.
-QC_VERSION = "qc-truth-1"
+# „qc-truth-2” (02.11.2026): słowo tylko z pytania karty i nazwa rekrutacji nie
+# są dowodem z rozmowy (`must_text_evidence._card_evidence_text`). Pomiar na
+# stagingu, 867 par: zaliczone 726 → 723, „kandydat mówił o tym” 325 → 301 pozycji.
+# „qc-truth-3” (02.11.2026): zdanie z przecinkami nie jest listą technologii
+# (`is_tech_list`), „C” nie trafia w „C++” (`dz._patterns`). Pomiar na stagingu,
+# 814 par: zaliczone 685 → 688, `must_in_roles` 65 → 39, krytyczne 73 → 64 pozycji.
+# „qc-truth-4” (02.11.2026): „REST APIs” i słownik także w ostrym dopasowaniu, skan
+# idzie do sprawdzenia ręcznego. Pomiar na stagingu, 865 par: zaliczone 712 → 717,
+# `no_unsupported` 104 → 97 pozycji.
+QC_VERSION = "qc-truth-4"
 # Runda 8 (R8-N8-2): cytat źródła musi być zdaniem o wymaganiu, nie słowem.
 SOURCE_QUOTE_MIN_WORDS = 4
 NOTES_TEXT_MAX = 12_000
@@ -98,6 +107,14 @@ PROPOSED_TEXT_MAX = 600
 SOURCE_QUOTE_MAX = 300
 EVIDENCE_MAX = 240
 CONFIRM_TEXT_MAX = 1000
+# Potwierdzenie ma mówić, co kandydat powiedział: 101 ze 153 wpisów od 12.10.2026
+# było samym kliknięciem i Delivery Lead nie miał czego sprawdzić.
+CONFIRM_TEXT_MIN = 15
+ROLE_COMPANY_MAX = 80
+_COMPANY_LIST = re.compile(r"\b\d+\.\s+\S+.*\b\d+\.\s+\S")
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+_RATE_PAIR = re.compile(r"\b\d{2,4}\s*/\s*\d{2,4}\b")
+_DENIAL = re.compile(r"\b(?:nie|bez|brak|nigdy|not|no|never|without)\b", re.IGNORECASE)
 CONFIRMATIONS_MAX = 20
 DESCRIPTIVE_MIN_WORDS = 6
 HEADER_BLOCKS = 6
@@ -124,6 +141,8 @@ WARNING_KEYS = (
     "title_matches_role",
     "bold_unsupported",
     "role_order",
+    "role_dates",
+    "consent_matches",
 )
 
 LABELS = {
@@ -141,6 +160,8 @@ LABELS = {
     "title_matches_role": "Tytuł CV zgodny ze stanowiskiem",
     "bold_unsupported": "Pogrubienia mają pokrycie w oryginale",
     "role_order": "Stanowiska od najnowszego",
+    "role_dates": "Daty stanowisk jak w oryginale",
+    "consent_matches": "Zrzut zgody RODO pasuje do kandydata i rekrutacji",
 }
 
 # Powody obejścia QC do wyboru (02.10.2026). Minimum 10 znaków wolnego tekstu
@@ -177,6 +198,16 @@ _TECH_LABEL = re.compile(
 )
 _HAS_LETTER = re.compile(r"[^\W\d_]")
 _LIST_SPLIT = re.compile(r"[,;|·•]")
+_BRACKETS = re.compile(r"\([^()]*\)")
+# Słowa zdania, których nie ma lista nazw. Bez „of” i „on”, bo stoją w nazwach
+# („Segregation of Duties”, „Ruby on Rails”).
+_SENTENCE_WORDS = frozenset(
+    "and or with for in using by from the a an "
+    "i oraz lub w we z ze do na dla przy po od przez".split()
+)
+# Tyle słów przed dwukropkiem to zdanie („Zarządzanie stosem danych: Spark, dbt”),
+# krótsze to etykieta listy („Bazy danych: Oracle, MySQL”).
+_COLON_LEAD_MIN_WORDS = 3
 _WORD = re.compile(r"[^\W_]+(?:[.#+\-][^\W_]+)*[#+]*", re.UNICODE)
 
 
@@ -194,7 +225,10 @@ def is_tech_list(text: str) -> bool:
     Lista = zaczyna się etykietą („Technologie:”, „Stack:”…) albo ponad
     połowa elementów rozdzielonych przecinkami to krótkie nazwy (≤ 3 słowa).
     „Rozwijała moduł SEPA w Java 11, Spring Boot i Kafka dla 2 mln klientów”
-    ma dwa długie człony — to zdanie, nie lista.
+    ma dwa długie człony — to zdanie, nie lista. Zdaniem jest też tekst ze
+    słowem łączącym („Managed Azure, Entra ID, and Intune”), a nawias nie jest
+    członem listy („Managed applications (Docker, ECS, Kubernetes)”). Pomiar
+    z 02.11.2026: prawie każdy z 991 punktów roli brany za listę był zdaniem.
     """
 
     body = (text or "").strip()
@@ -202,6 +236,12 @@ def is_tech_list(text: str) -> bool:
         return False
     if _TECH_LABEL.match(body):
         return True
+    body = _BRACKETS.sub(" ", body)
+    lead, colon, _ = body.partition(":")
+    if colon and word_count(lead) >= _COLON_LEAD_MIN_WORDS:
+        return False
+    if _SENTENCE_WORDS.intersection(body.split()):
+        return False
     parts = [p.strip() for p in _LIST_SPLIT.split(body) if p.strip()]
     if len(parts) < 3:
         return False
@@ -889,11 +929,16 @@ class QcInput:
     candidate_phone: Optional[str] = None
     # None = reguła klienta nie wymaga zgody; "ok" | "missing" | "manual".
     consent: Optional[str] = None
+    # Wynik sprawdzenia zrzutu przy wgraniu (`cv_consent_check`, 27.10.2026);
+    # None = zrzut sprzed sprawdzania albo brak zrzutu.
+    consent_check: Optional[dict] = None
     today: Optional[date] = None
     # Podzbiór `must`: umiejętności krytyczne rekrutacji (`critical_requirements`).
     critical: list[Requirement] = field(default_factory=list)
     # Wpisy ról z odczytu CV (`dz.role_entries`); None = `experience`.
     role_entries: Any = None
+    # Z pliku oryginału odczytano bardzo mało (skan): QC nie twierdzi, że czegoś nie ma.
+    original_partial: bool = False
     # Odpowiedzi kandydata ze screeningu (bez pytań i bez zdań przeczących) —
     # to samo źródło, z którego pisze generator (13.10.2026).
     answers_text: str = ""
@@ -1117,8 +1162,9 @@ def _role_items(
                     detail=(
                         "Brak w tej roli, a oryginał opisuje to w tej roli."
                         if not in_role
-                        else "Jest tylko na liście technologii — oryginał opisuje, "
-                        "co kandydat w tej roli z tym robił; dopisz zdanie."
+                        else "Jest tylko na liście technologii albo w nazwie "
+                        "stanowiska — oryginał opisuje, co kandydat w tej roli "
+                        "z tym robił; dopisz zdanie."
                     ),
                     fix="ai",
                     role_index=idx,
@@ -1191,6 +1237,87 @@ def _snippet(text: str, needle: str) -> Optional[str]:
     end = min(len(text), at + len(needle) + half)
     quote = " ".join(text[start:end].split())
     return ("…" if start else "") + quote + ("…" if end < len(text) else "")
+
+
+# Poniżej tylu znaków odczyt pliku to raczej skan albo grafika niż całe CV.
+ORIGINAL_PARTIAL_MAX = 500
+# Słowa z wielu wymagań: samo ich trafienie o niczym nie mówi.
+_SIMILAR_GENERIC = frozenset(
+    dz._fold(word)
+    for word in (
+        "project projekt projekty management zarządzanie manager data dane danych "
+        "system systems systemy systemowa analysis analiza analytics testing testy "
+        "service services usługi developer engineer engineering inżynier programista "
+        "experience doświadczenie support wsparcie business biznes access control "
+        "product security research integration integrations integracje integracja "
+        "architecture architektura"
+    ).split()
+)
+# Nazwa ogólna i konkretne odmiany tego samego narzędzia. GitHub to nie „Git”
+# dosłownie, ale rekruter widzi go w CV i uwaga „nie ma Gita” brzmi jak błąd QC.
+_TERM_FAMILIES = {
+    "git": ("github", "gitlab", "bitbucket"),
+    "sql": ("mysql", "postgresql", "postgres", "mssql", "t-sql", "pl/sql", "sqlite"),
+}
+_SIMILAR_WORD_MIN = 5
+_SIMILAR_CONTEXT = 50
+
+
+def similar_in_original(
+    term: str, original: str, *, stems: bool = True
+) -> Optional[dict]:
+    """Coś podobnego do ``term`` w oryginale: pytanie zamiast „nie ma” (02.11.2026).
+
+    Zgłoszenie: QC pisało, że kandydat nie ma technologii, którą oryginał nazywa
+    inaczej („System analysis” przy „Analiza systemowa”, „AML” przy „AML/CTF”).
+    Pomiar na 124 uwagach: 36 ma w oryginale pokrewne słowo, 61 to prawdziwe braki.
+    Nie zmienia wyniku QC: decyduje rekruter, a jego wybór liczy się do „Jakości QC”.
+    ``stems=False`` to tylko rodzina nazw i człon „A/B”: przy lukach rdzeń słowa
+    dawał 342 trafienia na 1195 prawdziwych luk.
+    Cytat stoi w oryginale dosłownie, bez wielokropka, bo sprawdza go pominięcie.
+    """
+    folded = dz._fold(original or "")
+    name = dz._fold(term or "").strip()
+    if not folded or not name:
+        return None
+    patterns = [
+        rf"(?<![\w+#/-]){re.escape(word)}(?![\w+#-])"
+        for word in _TERM_FAMILIES.get(name, ())
+    ]
+    pieces = [piece.strip() for piece in name.split("/")]
+    if len(pieces) > 1:
+        patterns += [
+            rf"(?<![\w+#/-]){re.escape(piece)}(?![\w+#-])"
+            for piece in pieces
+            if len(piece) >= 2
+        ]
+    for word in re.findall(r"[\w+#-]+", name) if stems else ():
+        if len(word) >= _SIMILAR_WORD_MIN and word not in _SIMILAR_GENERIC:
+            patterns.append(
+                rf"(?<![\w+#/-]){re.escape(word[: max(5, len(word) - 2)])}\w*"
+            )
+    for pattern in patterns:
+        match = re.search(pattern, folded)
+        if match is None:
+            continue
+        start = max(0, match.start() - _SIMILAR_CONTEXT)
+        end = min(len(original), match.end() + _SIMILAR_CONTEXT)
+        # Cytat od pełnego słowa do pełnego słowa.
+        while start > 0 and not original[start - 1].isspace():
+            start += 1
+            if start >= match.start():
+                start = match.start()
+                break
+        while end < len(original) and not original[end].isspace():
+            end -= 1
+            if end <= match.end():
+                end = match.end()
+                break
+        return {
+            "term": original[match.start() : match.end()],
+            "quote": " ".join(original[start:end].split()),
+        }
+    return None
 
 
 def _searched(
@@ -1396,6 +1523,34 @@ def _role_order_check(blocks: list[Block], roles: list[CvRole]) -> dict:
     return _check("role_order", "fail", "Do ułożenia", [item])
 
 
+def _role_dates_check(blocks: list[Block], roles: list[CvRole], original: str) -> dict:
+    """„Daty stanowisk jak w oryginale”: reguła `cv_source_dates` (02.11.2026)."""
+    if not original.strip():
+        return _check("role_dates", "skip", "Brak tekstu oryginalnego CV")
+    if not roles or any(
+        not r.blocks or blocks[r.blocks[0]].section != "role" for r in roles
+    ):
+        return _check("role_dates", "skip", "Nie rozpoznano stanowisk w CV")
+    items: list[dict] = []
+    for index, role in enumerate(roles):
+        head = blocks[role.blocks[0]]
+        employer = blocks[role.blocks[1]].text if len(role.blocks) > 1 else ""
+        fix = cv_source_dates.date_fix(
+            head.text, original, f"{head.text} {employer} {role.role.company or ''}"
+        )
+        if fix is not None:
+            items.append(
+                _item(
+                    role=role.role.label,
+                    detail=f"W CV: „{fix.current}”. W oryginale: „{fix.expected}”.",
+                    fix="restore_dates",
+                    role_index=index,
+                )
+            )
+    summary = f"{len(items)} do sprawdzenia" if items else "OK"
+    return _check("role_dates", _status(items), summary, items)
+
+
 def compute_checks(data: QcInput) -> list[dict]:
     """Wszystkie sprawdzenia QC w kolejności kontraktu. Czysta funkcja."""
 
@@ -1479,6 +1634,7 @@ def compute_checks(data: QcInput) -> list[dict]:
             if in_cv[req.label] or req.label in with_role:
                 continue
             in_sources = dz.found_in(sources, req) is not None
+            similar = None if in_sources else similar_in_original(req.label, original)
             critical_items.append(
                 {
                     **_item(
@@ -1487,12 +1643,16 @@ def compute_checks(data: QcInput) -> list[dict]:
                             "Brak w CV — jest w oryginale albo w rozmowie, dopisz "
                             "w edytorze CV."
                             if in_sources
+                            else f"Brak tej nazwy w CV. W oryginale jest „{similar['term']}” "
+                            "— sprawdź, czy to ta sama rzecz."
+                            if similar
                             else "Brak w CV, w oryginale i w rozmowie — zapytaj "
                             "kandydata."
                         ),
                         fix=None if in_sources else "ask_candidate",
                     ),
                     "searched": searched(req),
+                    **({"similar": similar} if similar else {}),
                 }
             )
         # Pozycja roli krytycznej nieobecnej w całym CV — jej pominięcie
@@ -1542,16 +1702,24 @@ def compute_checks(data: QcInput) -> list[dict]:
         in_talk = dz.found_in("\n".join((notes, answers)), req) is not None
         if not in_original and not in_talk:
             descriptive = word_count(req.label) >= 4
+            similar = (
+                None
+                if descriptive
+                else similar_in_original(req.label, original, stems=False)
+            )
             missing_info.append(
                 _item(
                     requirement=req.label,
                     detail=(
                         "Wymaganie opisowe — sprawdź ręcznie, czy CV je pokazuje."
                         if descriptive
+                        else f"Nie ma tej nazwy, ale oryginał ma „{similar['term']}” "
+                        "— sprawdź, czy to ta sama rzecz."
+                        if similar
                         else "Luka kandydata — nie ma tego w CV, w oryginale ani "
                         "w rozmowie. Do rozmowy, nie do poprawy w CV."
                     ),
-                    fix=None if descriptive else "ask_candidate",
+                    fix=None if descriptive or similar else "ask_candidate",
                 )
             )
             continue
@@ -1658,6 +1826,15 @@ def compute_checks(data: QcInput) -> list[dict]:
                 "Brak tekstu oryginalnego CV — sprawdź ręcznie",
             )
         )
+    elif data.original_partial:
+        checks.append(
+            _check(
+                "no_unsupported",
+                "manual",
+                f"Z oryginału odczytano tylko {len(original.strip())} znaków "
+                "(np. skan) — sprawdź ręcznie",
+            )
+        )
     else:
         unsupported: list[dict] = []
         must_labels = {r.label for r in data.must}
@@ -1675,12 +1852,16 @@ def compute_checks(data: QcInput) -> list[dict]:
             elif dz.found_in(sources, req, mode="support") is not None:
                 continue
             is_must = req.label in must_labels
+            similar = similar_in_original(term, original)
             unsupported.append(
                 {
                     **_item(
                         requirement=req.label,
                         detail=(
-                            "Jest w CV, a nie ma tego w oryginale, notatkach ani "
+                            f"Dosłownie tego nie ma, ale oryginał ma „{similar['term']}” "
+                            "— sprawdź, czy to ta sama rzecz."
+                            if similar
+                            else "Jest w CV, a nie ma tego w oryginale, notatkach ani "
                             "odpowiedziach — "
                             + (
                                 "zapytaj kandydata."
@@ -1692,6 +1873,7 @@ def compute_checks(data: QcInput) -> list[dict]:
                         term=term,
                     ),
                     "searched": searched(versioned or req, mode="support"),
+                    **({"similar": similar} if similar else {}),
                 }
             )
         if data.bold_known:
@@ -1859,6 +2041,7 @@ def compute_checks(data: QcInput) -> list[dict]:
     # stanowisk (CV wklejone) role są zgadywane po nazwach firm — tam nie
     # zgłaszamy nic (D5), a rola bez dat zostaje na miejscu (D4).
     checks.append(_role_order_check(blocks, roles))
+    checks.append(_role_dates_check(blocks, roles, original))
 
     # 8. Reguły klienta.
     rule_items: list[dict] = []
@@ -1892,6 +2075,10 @@ def compute_checks(data: QcInput) -> list[dict]:
             rule_items,
         )
     )
+
+    # 8b. Zrzut zgody sprawdzony przy wgraniu (27.10.2026, wariant A):
+    # niepasujący zrzut zapisany z powodem rekrutera widzi tu Delivery Lead.
+    checks.append(_consent_matches_check(data))
 
     # Uwagi.
     checks.append(
@@ -1974,6 +2161,71 @@ def compute_checks(data: QcInput) -> list[dict]:
     order = {key: n for n, key in enumerate((*BLOCKING_KEYS, *WARNING_KEYS))}
     checks.sort(key=lambda check: order[check["key"]])
     return checks
+
+
+async def _newer_profile_cv(db: AsyncSession, src: dz.ReviewSources) -> Optional[dict]:
+    """Nowsze CV kandydata w profilu niż kopia etapu, którą czyta QC (02.11.2026).
+
+    Lustro `newerProfileCv` z panelu osoby. Firmowe CV wgrane jako główne się nie
+    liczy: to nie jest nowszy oryginał, a QC ma rację, że czegoś w oryginale nie ma.
+    """
+    from app.models.candidate_document import CandidateDocument
+    from app.services.client_cv_upload import looks_like_client_cv
+    from app.services.cv_source import current_cv_filters, current_cv_ordering
+
+    snapshot_at = src.original.get("snapshot_at")
+    if src.original.get("source") != "snapshot" or snapshot_at is None:
+        return None
+    doc = (
+        await db.execute(
+            select(CandidateDocument)
+            .where(
+                CandidateDocument.candidate_id == src.candidate.id,
+                *current_cv_filters(),
+            )
+            .order_by(*current_cv_ordering())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if doc is None or looks_like_client_cv(doc.filename):
+        return None
+    uploaded_at = doc.uploaded_at or doc.created_at
+    if uploaded_at is None or (uploaded_at - snapshot_at).total_seconds() < 60:
+        return None
+    return {"filename": doc.filename, "uploaded_at": uploaded_at}
+
+
+def _consent_matches_check(data: QcInput) -> dict:
+    """Uwaga, nie blokada: DL przyjmuje zrzut przez „To OK” albo odsyła CV."""
+    record = data.consent_check
+    if data.consent != "ok" or not isinstance(record, dict):
+        return _check("consent_matches", "skip", "Zrzut bez sprawdzenia AI")
+    status = record.get("status")
+    if status == "ok" and record.get("person_checked") is False:
+        return _check(
+            "consent_matches", "manual", "AI nie znało kandydata — obejrzyj zrzut"
+        )
+    if status == "ok":
+        return _check("consent_matches", "pass", "OK")
+    if status != "mismatch":
+        return _check(
+            "consent_matches", "manual", "AI nie sprawdziło zrzutu — obejrzyj go"
+        )
+    problems = " ".join(
+        str(p.get("detail") or "").strip()
+        for p in record.get("problems") or []
+        if isinstance(p, dict) and p.get("detail")
+    )
+    reason = ((record.get("override") or {}).get("reason") or "").strip()
+    detail = f"AI: {problems}" if problems else "AI: zrzut nie pasuje do rekrutacji."
+    if reason:
+        detail += f" Rekruter zapisał go mimo to — powód: „{reason}”."
+    return _check(
+        "consent_matches",
+        "fail",
+        "Zrzut nie pasuje — obejrzyj go",
+        [_item(detail=detail, fix="replace_consent")],
+    )
 
 
 def _tasks(check: dict) -> int:
@@ -2151,6 +2403,84 @@ async def _consent_state(db: AsyncSession, src: dz.ReviewSources) -> Optional[st
     return "missing"
 
 
+async def _consent_check_record(
+    db: AsyncSession, src: dz.ReviewSources
+) -> Optional[dict]:
+    """Wynik `cv_consent_check` zapisany w pokwitowaniu zgody przy CV.
+
+    Kopia etapu bez dokumentu generatora trzyma pokwitowanie we własnych
+    metadanych (`attach_to_stage_copy`), CV z generatora — w `render_payload`.
+    """
+    gen = src.generated
+    if gen is None or gen.get("source") == "document":
+        return None
+    found = None
+    if gen.get("stage_id"):
+        meta = await db.scalar(
+            select(CandidateStageCV.branded_render_metadata).where(
+                CandidateStageCV.candidate_stage_id == gen["stage_id"]
+            )
+        )
+        if isinstance(meta, dict):
+            found = (meta.get("consent_binding") or {}).get("check")
+    if found is None and gen.get("generated_document_id"):
+        payload = await db.scalar(
+            select(CvGeneratedDocument.render_payload).where(
+                CvGeneratedDocument.id == gen["generated_document_id"]
+            )
+        )
+        if isinstance(payload, dict):
+            shot = payload.get("consent_screenshot") or {}
+            found = (shot.get("binding") or {}).get("check")
+    return found if isinstance(found, dict) else None
+
+
+async def consent_image(db: AsyncSession, stage: CandidateStage) -> Optional[bytes]:
+    """Obraz zgody przy CV, które ocenia QC — miniatura przy `consent_matches`.
+
+    Ten sam wybór co `_consent_state`: kopia etapu renderuje DOCX z WŁASNEGO
+    obrazu, CV z generatora — z `consent_content` albo z klucza w magazynie.
+    Wołający sprawdził dostęp. Awaria magazynu = brak obrazu, nie 500.
+    """
+
+    gen = await dz._generated_cv(db, stage.candidate_id, stage.job_id)
+    if gen is None:
+        return None
+    if gen.get("stage_id"):
+        return await db.scalar(
+            select(CandidateStageCV.branded_consent_content).where(
+                CandidateStageCV.candidate_stage_id == gen["stage_id"]
+            )
+        )
+    row = (
+        await db.execute(
+            select(
+                CvGeneratedDocument.consent_content,
+                CvGeneratedDocument.render_payload,
+            ).where(CvGeneratedDocument.id == gen["generated_document_id"])
+        )
+    ).one_or_none()
+    if row is None:
+        return None
+    if row.consent_content:
+        return row.consent_content
+    shot = (row.render_payload or {}).get("consent_screenshot")
+    key = str(shot.get("storage_key") or "").strip() if isinstance(shot, dict) else ""
+    if not key:
+        return None
+    from app.services import object_storage
+
+    try:
+        return await run_in_threadpool(object_storage.download_cv, key)
+    except Exception:  # noqa: BLE001 — patrz docstring
+        logger.warning(
+            "[cv_qc] consent image unavailable doc=%s",
+            gen["generated_document_id"],
+            exc_info=True,
+        )
+        return None
+
+
 async def _generated_payload(db: AsyncSession, src: dz.ReviewSources) -> Optional[dict]:
     """Migawka wyniku generatora, z którego powstało CV (albo None)."""
     gen = src.generated
@@ -2194,20 +2524,16 @@ async def expected_titles(
     """Nagłówki, które QC uznaje: rola od klienta bez kodów i dopisków (ta sama
     funkcja, z której pisze generator) oraz nagłówek wpisany przez generator
     albo rekrutera."""
-    from app.services.job_public_profile import _client_names
-    from app.services.job_working_title import cv_role_title
+    from app.services.job_working_title import cv_role_title_for_job, is_service_title
 
     out: list[str] = []
-    role = cv_role_title(
-        src.job.title,
-        getattr(src.job, "client_reference", None),
-        await _client_names(db, src.job.client_id),
-    )
+    role = await cv_role_title_for_job(db, src.job)
     if role:
         out.append(role)
     header = str((payload or {}).get("presentation_position") or "").strip()
     # 21.10.2026: nagłówek „(43020)” nie jest rolą — nie potwierdza sam siebie.
-    if not _HAS_LETTER.search(header):
+    # 02.11.2026: „usługi programistyczne” (PKO) też nie.
+    if not _HAS_LETTER.search(header) or is_service_title(header):
         header = ""
     if header and header.casefold() not in {t.casefold() for t in out}:
         out.append(header)
@@ -2219,6 +2545,7 @@ def _qc_input(
     notes: str,
     consent: Optional[str],
     *,
+    consent_check: Optional[dict] = None,
     answers: str = "",
     titles: tuple[str, ...] = (),
     bold: Optional[bool] = None,
@@ -2233,6 +2560,10 @@ def _qc_input(
         has_cv=src.generated is not None,
         bold_known=src.bold_known,
         original_text=(src.original.get("text") or ""),
+        original_partial=(
+            src.original.get("source") == "snapshot"
+            and len((src.original.get("text") or "").strip()) < ORIGINAL_PARTIAL_MAX
+        ),
         experience=src.candidate.experience,
         role_entries=dz.role_entries(src.candidate, src.original.get("text") or ""),
         notes_text=notes,
@@ -2240,6 +2571,7 @@ def _qc_input(
         candidate_email=src.candidate.email,
         candidate_phone=src.candidate.phone,
         consent=consent,
+        consent_check=consent_check,
         answers_text=answers,
         expected_titles=titles,
         bold_expected=bold,
@@ -2258,6 +2590,7 @@ def _cv_payload(src: dz.ReviewSources) -> Optional[dict]:
         "generated_document_id": gen.get("generated_document_id"),
         "document_id": gen.get("document_id"),
         "filename": gen.get("filename"),
+        "from_word_file": bool(gen.get("from_word_file")),
         "bold_known": src.bold_known,
         "updated_at": gen.get("updated_at"),
         "edit_revision": gen.get("edit_revision"),
@@ -2556,11 +2889,13 @@ async def evaluate(
     rows = await _note_rows(db, src.candidate.id)
     notes = notes_text(rows)
     consent = await _consent_state(db, src)
+    consent_check = await _consent_check_record(db, src) if consent == "ok" else None
     payload = await _generated_payload(db, src)
     data = _qc_input(
         src,
         notes,
         consent,
+        consent_check=consent_check,
         answers=answers_text(stage, src.job),
         titles=await expected_titles(db, src, payload),
         bold=bold_expected(src, payload),
@@ -2697,6 +3032,7 @@ async def run_qc(
         ),
         "advisory": advisory_mode(),
         "confirmations": await _confirmations(db, src.candidate.id),
+        "confirm_roles": confirm_roles(src),
         "run_id": run_id,
         "computed_at": computed_at,
         "cv": _cv_payload(src),
@@ -2704,6 +3040,8 @@ async def run_qc(
             "source": src.original.get("source"),
             "filename": src.original.get("filename"),
             "text": src.original.get("text"),
+            "snapshot_at": src.original.get("snapshot_at"),
+            "newer_profile_cv": await _newer_profile_cv(db, src),
         },
         "client_request": {
             "must": [r.label for r in src.must],
@@ -2858,7 +3196,11 @@ async def record_override(
             reason=reason,
             blocking_failed=blocking_failed,
         )
-    if reason_code == CONFIRMED_IN_CALL:
+    # Obejście bez słów kandydata zostaje obejściem, ale nie robi z niczego faktu.
+    if (
+        reason_code == CONFIRMED_IN_CALL
+        and len(" ".join((note or "").split())) >= CONFIRM_TEXT_MIN
+    ):
         for literal in confirmable_terms(checks):
             _add_confirmation(
                 db, src, stage, literal, note, user_id=user_id, via="override"
@@ -2915,8 +3257,12 @@ async def confirm_with_candidate(
     term: str,
     text: Optional[str],
     user_id: int,
+    role: Optional[str] = None,
 ) -> dict:
     """„Potwierdzone z kandydatem”: zapisz potwierdzenie i policz QC od nowa.
+
+    Treść jest obowiązkowa (decyzja Artura 02.11.2026), rola opcjonalna: nazwa
+    firmy pozwala generatorowi użyć faktu w opisie tej roli.
 
     QC uznaje notatki za źródło obok oryginalnego CV („nic spoza oryginału
     i notatek”), więc potwierdzenie jest notatką pary — z autorem i datą,
@@ -2925,7 +3271,9 @@ async def confirm_with_candidate(
     a notatka czytana jako źródło „potwierdzałaby” je wszystkie.
     """
 
+    check_confirmation_text(text)
     src, checks, _ = await evaluate(db, stage)
+    role = checked_role(src, role)
     wanted = _norm(term)
     item = next(
         (
@@ -2940,9 +3288,137 @@ async def confirm_with_candidate(
     if item is None:
         raise ApplyError("QC nie zgłasza już tej pozycji — odśwież okno.")
     literal = str(item.get("term") or item.get("requirement") or "").strip()
-    _add_confirmation(db, src, stage, literal, text, user_id=user_id)
+    _add_confirmation(db, src, stage, literal, text, user_id=user_id, role=role)
     await db.flush()
     return await run_qc(db, stage, user_id=user_id, persist=True)
+
+
+def check_confirmation_text(text: Optional[str]) -> None:
+    """Słowa kandydata: bez nich potwierdzenie niczego nie dowodzi."""
+    if len(" ".join((text or "").split())) < CONFIRM_TEXT_MIN:
+        raise ApplyError(
+            "Wpisz, co dokładnie powiedział kandydat (co najmniej "
+            f"{CONFIRM_TEXT_MIN} znaków). To zdanie zobaczy Delivery Lead."
+        )
+
+
+def confirm_roles(src: dz.ReviewSources) -> list[str]:
+    """Firmy z ról kandydata, do wskazania przy fakcie z rozmowy."""
+    entries = dz.role_entries(src.candidate, src.original.get("text") or "")
+    seen: dict[str, str] = {}
+    for entry in entries:
+        company = " ".join(str(entry.get("company") or "").split())
+        # Odczyt CV bywa listą firm w jednym polu („1. Marcel 2. Capco 3. …”).
+        if (
+            company
+            and len(company) <= ROLE_COMPANY_MAX
+            and not _COMPANY_LIST.search(company)
+        ):
+            seen.setdefault(company.casefold(), company)
+    return list(seen.values())
+
+
+def _sentence_denies(answer: str, term: str) -> bool:
+    """Zdanie z wymaganiem przeczy mu: „Samego Customer 360 nie, podobne: …”.
+
+    `drop_negative_sentences` usuwa zdania z typowym przeczeniem, a takie luźne
+    odpowiedzi przepuszcza. Lista faktów woli pominąć wątpliwe zdanie niż
+    podsunąć rekruterowi coś, czego kandydat nie powiedział.
+    """
+    wanted = term.casefold()
+    for sentence in _SENTENCE_END.split(answer):
+        if wanted in sentence.casefold() and _DENIAL.search(sentence):
+            return True
+    return False
+
+
+def checked_role(src: dz.ReviewSources, role: Optional[str]) -> Optional[str]:
+    """Rola z listy osoby albo ``None``; firmy spoza historii nie zapisujemy."""
+    wanted = " ".join((role or "").split())
+    if not wanted:
+        return None
+    for company in confirm_roles(src):
+        if company.casefold() == wanted.casefold():
+            return company
+    raise ApplyError("Tej firmy nie ma w historii kandydata — odśwież okno.")
+
+
+def _answer_quote(answers: str, term: Optional[str]) -> Optional[str]:
+    """Cytat z jednej odpowiedzi; bez przeczenia i bez pieniędzy.
+
+    Cytat trafia do notatki widocznej w profilu i w innych rekrutacjach, więc nie
+    może przejść przez granicę odpowiedzi ani nieść kwoty czy pary „150/120”,
+    która z notatki Delivery Leada zrobiłaby wpis o stawce do klienta.
+    """
+    if not term:
+        return None
+    from app.services.client_rate_notes import parse_dl_pair
+    from app.services.cv_command_ai import has_amount
+
+    wanted = term.casefold()
+    for line in answers.splitlines():
+        if wanted not in line.casefold() or _sentence_denies(line, term):
+            continue
+        quote = _snippet(line, term)
+        if quote and not (
+            has_amount(line) or parse_dl_pair(line) or _RATE_PAIR.search(line)
+        ):
+            return quote
+    return None
+
+
+async def role_facts(db: AsyncSession, stage: CandidateStage) -> dict:
+    """Wymagania, o których kandydat mówił w rozmowie, a oryginał milczy.
+
+    Generator przenosi fakt z rozmowy do roli tylko, gdy zna firmę, a sam prompt
+    nie podnosi liczby wymagań w opisach ról (pomiar 02.11.2026). Rekruter wskazuje
+    więc rolę przed generacją. Źródłem jest odpowiedź kandydata bez pytań i zdań
+    przeczących (`answers_text`), nigdy treść pytania.
+    """
+    src = await _load_sources(stage=stage, db=db)
+    original = src.original.get("text") or ""
+    answers = answers_text(stage, src.job) or ""
+    # Tylko to, co potwierdzono: cytat w notatce wymienia też inne wymagania.
+    known = {
+        _norm(row["text"].split(" — ", 1)[0])
+        for row in await _confirmations(db, src.candidate.id)
+    }
+    facts: list[dict] = []
+    for req in src.must:
+        if not answers or dz.found_in(original, req, mode="support"):
+            continue
+        if not dz.found_in(answers, req, mode="support"):
+            continue
+        label = _norm(req.label)
+        if any(label in text for text in known):
+            continue
+        quote = _answer_quote(answers, match_in(answers, req))
+        if quote:
+            facts.append({"term": req.label, "quote": quote})
+    return {"facts": facts, "roles": confirm_roles(src)}
+
+
+async def save_role_fact(
+    db: AsyncSession, stage: CandidateStage, *, term: str, role: str, user_id: int
+) -> dict:
+    """Zapisz fakt z rozmowy z rolą: tę samą notatkę co „Potwierdzone z kandydatem”."""
+    current = await role_facts(db, stage)
+    fact = next((f for f in current["facts"] if _norm(f["term"]) == _norm(term)), None)
+    if fact is None:
+        raise ApplyError("Tego faktu nie ma już na liście — odśwież okno.")
+    src = await _load_sources(stage=stage, db=db)
+    _add_confirmation(
+        db,
+        src,
+        stage,
+        fact["term"],
+        fact["quote"],
+        user_id=user_id,
+        via="before_generation",
+        role=checked_role(src, role),
+    )
+    await db.flush()
+    return await role_facts(db, stage)
 
 
 # Powód obejścia, który zapisuje potwierdzenia (D3, 17.10.2026).
@@ -3033,8 +3509,13 @@ def _add_confirmation(
     *,
     user_id: int,
     via: Optional[str] = None,
+    role: Optional[str] = None,
 ) -> None:
-    """Notatka pary „Potwierdzone z kandydatem: X — opis” + Activity."""
+    """Notatka pary „Potwierdzone z kandydatem: X (Firma) — opis” + Activity.
+
+    Nazwa firmy w treści to wskazanie dla generatora i propozycji QC, które
+    przenoszą fakt z rozmowy do roli tylko wtedy, gdy źródło nazywa firmę.
+    """
     from app.models.activity import Activity
     from app.models.note import Note, NoteType
     from app.services import note_kinds
@@ -3044,6 +3525,7 @@ def _add_confirmation(
         Note(
             # Bez kropki po nazwie: „Java 17.” czytałoby się jak inna wersja.
             content=f"Potwierdzone z kandydatem: {literal}"
+            + (f" ({role})" if role else "")
             + (f" — {said}" if said else ""),
             note_type=NoteType.general,
             candidate_id=src.candidate.id,
@@ -3059,6 +3541,8 @@ def _add_confirmation(
     }
     if via:
         details["via"] = via
+    if role:
+        details["role"] = role[:200]
     db.add(
         Activity(
             entity_type="candidate_stage",
@@ -5148,6 +5632,7 @@ def draft_after_fix(previous_html: str, fixed_html: str) -> str:
 # do „Popraw wszystkie”. Usunięcia treści (termin, stawka i kontakt, linia
 # z kontroli AI) i kolejność stanowisk rekruter zatwierdza pojedynczo.
 BULK_ACTIONS = frozenset({"bold_all", "spelling", "ai_fix", "years", "title"})
+ROLE_DATES_NOTHING = "Daty stanowisk zgadzają się z oryginałem."
 ROLE_ORDER_NOTHING = "Stanowiska już są ułożone od najnowszego."
 ROLE_ORDER_UNKNOWN = (
     "Nie umiem bezpiecznie przestawić stanowisk w tym CV — przestaw je ręcznie: "
@@ -5158,6 +5643,7 @@ ROLE_ORDER_UNKNOWN = (
 _ACTIONS = BULK_ACTIONS | {
     "remove_term",
     "role_order",
+    "restore_dates",
     "strip_client_rules",
     "remove_line",
 }
@@ -5182,6 +5668,7 @@ def transform_html(
     today: Optional[date] = None,
     history: Any = None,
     candidate_name: Optional[str] = None,
+    original_text: str = "",
 ) -> tuple[str, list[dict], list[dict]]:
     """Nałóż poprawki QC na podaną treść — bez bazy i bez zapisu.
 
@@ -5215,7 +5702,7 @@ def transform_html(
             action,
             *(
                 str(payload.get(name) or "")
-                for name in ("fix_id", "text", "scope", "term")
+                for name in ("fix_id", "text", "scope", "term", "role_index")
             ),
         )
         if key in seen:
@@ -5271,6 +5758,13 @@ def transform_html(
                 ordered = roles_newest_first(current)
                 changed, count = ordered or (current, 0)
                 nothing = ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN
+                done = {"action": action}
+            elif action == "restore_dates":
+                restored = restore_role_dates_html(
+                    current, original_text, payload.get("role_index")
+                )
+                changed, count = restored or (current, 0)
+                nothing = ROLE_DATES_NOTHING if restored else ROLE_ORDER_UNKNOWN
                 done = {"action": action}
             elif action == "years":
                 # Ta sama historia co uwaga QC (`candidate.experience`), nie
@@ -5381,6 +5875,7 @@ async def transform_for_editor(
             candidate_name=" ".join(
                 p for p in (src.candidate.name, src.candidate.lastname) if p
             ),
+            original_text=src.original.get("text") or "",
         )
 
     # Sam procesor (do 500 KB treści od klienta razy kilka poprawek) — w wątku,
@@ -5545,7 +6040,13 @@ async def apply_action(
         fix = await load_fix(db, stage.id, str(payload.get("fix_id") or ""))
         if fix is None:
             raise ApplyError("Nie ma takiej propozycji — odśwież propozycje poprawek.")
-    elif action not in ("bold_all", "remove_term", "spelling", "role_order"):
+    elif action not in (
+        "bold_all",
+        "remove_term",
+        "spelling",
+        "role_order",
+        "restore_dates",
+    ):
         raise ApplyError("Nieznana poprawka.")
 
     csv = await _editable_csv(
@@ -5601,6 +6102,14 @@ async def apply_action(
         new_html, count = ordered or (html, 0)
         if not count:
             raise ApplyError(ROLE_ORDER_NOTHING if ordered else ROLE_ORDER_UNKNOWN)
+        details.update({"count": count})
+    elif action == "restore_dates":
+        restored = restore_role_dates_html(
+            html, src.original.get("text") or "", payload.get("role_index")
+        )
+        new_html, count = restored or (html, 0)
+        if not count:
+            raise ApplyError(ROLE_DATES_NOTHING if restored else ROLE_ORDER_UNKNOWN)
         details.update({"count": count})
     else:
         new_html, count = fix_spelling_html(html)

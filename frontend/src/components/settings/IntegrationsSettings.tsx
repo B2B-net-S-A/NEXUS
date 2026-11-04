@@ -114,6 +114,15 @@ export function IntegrationsSettings() {
           <EsignSettingsCard />
         </Row>
         <Row
+          title="Wtyczka LinkedIn"
+          description="Panel NEXUSA na LinkedInie i w Recruiterze — kto połączył wtyczkę, odłączanie."
+          action={
+            <Button asChild variant="outline" size="sm">
+              <Link href="/settings/linkedin-extension">Zarządzaj</Link>
+            </Button>
+          }
+        />
+        <Row
           title="Klucze API"
           description="Konta serwisowe i klucze X-API-Key dla automatyzacji (np. rozliczeń w n8n)."
           action={

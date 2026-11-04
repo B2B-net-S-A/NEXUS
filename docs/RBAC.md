@@ -4,8 +4,8 @@
 
 Od migracji 0410 administrator ustawia na ekranie **Ustawienia → Zespół
 i dostęp → „Osoby i role”** dziewięć uprawnień tak/nie na rolę, a pojedynczej
-osobie może dodać uprawnienie ponad jej rolę („Edytuj użytkownika” →
-„Dodatkowe uprawnienia”). To, co zaznaczone, decyduje na trasie; odmowa nazywa
+osobie może dodać uprawnienie ponad jej rolę albo je odebrać („Edytuj użytkownika”
+→ „Uprawnienia tej osoby”). To, co zaznaczone, decyduje na trasie; odmowa nazywa
 brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 
 | # | Klucz | Nazwa na ekranie | Domyślnie (poza adminem) |
@@ -19,6 +19,7 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
 | 7 | `amounts_view` | Stawki i kwoty: podgląd | Finanse, DL |
 | 8 | `amounts_edit` | Stawki i kwoty: zmiana | Finanse |
 | 9 | `finance_module` | Moduł Finanse | Finanse |
+| + | `company_results` | Wyniki firmy: podsumowania przychodu i marży | tylko admin; Rada czyta z tytułu roli (`docs/claude/uprawnienia/wyniki-firmy-tylko-rada-i-admin.md`) |
 
 Źródła prawdy:
 
@@ -46,9 +47,11 @@ brakującą pozycję. Pełny opis: `docs/permissions-nine-switches-contract.md`.
   odczytu i zwykłych zapisów, granica przypisania dla kwot, plików
   i konsekwentnych zapisów prawnych. Każdy inny posiadacz działa u wszystkich
   klientów.
-- **Uprawnienia osoby tylko dodają.** Żeby komuś coś odebrać, zmienia się
-  uprawnienia roli albo rolę tej osoby. Role Viewer (`user`) i Praktykant nie
-  przyjmują uprawnień; administrator ma wszystkie zawsze.
+- **Uprawnienia osoby dodają i odbierają** (decyzja właściciela 02.11.2026, bo
+  przycięcie jednej osoby wymagało nowej roli). Odebrać można tylko razem z tym,
+  co danego uprawnienia wymaga; inaczej 422 `permission_required_by_kept`.
+  Role Viewer (`user`), Praktykant i Rada nie przyjmują nadań; administrator ma
+  wszystkie zawsze i nie da się mu nic odebrać.
 - **Zmiana uprawnień wylogowuje dotknięte konta** i zostawia wpis w Historii
   zdarzeń („Zmiana uprawnień roli” / „Zmiana uprawnień osoby”).
 - **Odmowa nazywa uprawnienie:** 403 `{"code": "permission_denied",
@@ -75,7 +78,7 @@ imienne „Może usuwać klientów”.
 | Delivery Lead | RW | RW | R | — |
 | Talent Community Manager | RW | RW | R | — |
 | Rekruter | RW | RW | R | — |
-| Viewer `user` (legacy) | R | R | R | — |
+| Viewer `user` (legacy, od 0637 bez sekcji) | — | — | — | — |
 | Praktykant | — | — | — | — |
 | Automatyzacje (`automation`, 0446) | R | R | R | — |
 

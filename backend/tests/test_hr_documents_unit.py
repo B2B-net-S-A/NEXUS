@@ -47,7 +47,7 @@ def test_absence_proof_refuses_payroll_and_reception(audience) -> None:
         documents.check_audience("absence_proof", audience)
     assert refused.value.status_code == 422
     assert refused.value.message == (
-        "Potwierdzenie nieobecności widzą tylko osoba i Kadry."
+        "Potwierdzenie nieobecności widzą tylko osoba i Administracja współpracy."
     )
 
 

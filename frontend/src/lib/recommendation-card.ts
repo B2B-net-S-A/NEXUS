@@ -66,7 +66,27 @@ export function cardFieldValue(key: string, field: RecommendationCardField | und
   return raw;
 }
 
+/**
+ * „z poprzedniej próby 26.10.2026” — pole z próby zamkniętej nie dawniej niż
+ * 30 dni przed powrotem osoby liczy się dalej (28.10.2026); `null` = pole tej próby.
+ */
+export function previousAttemptLabel(field: RecommendationCardField | undefined): string | null {
+  if (!field?.previous_attempt) return null;
+  const day = field.at ? new Date(field.at) : null;
+  const date =
+    day && !Number.isNaN(day.getTime())
+      ? day.toLocaleDateString("pl-PL", { day: "numeric", month: "numeric", year: "numeric", timeZone: "Europe/Warsaw" })
+      : null;
+  return date ? `z poprzedniej próby ${date}` : "z poprzedniej próby";
+}
+
 export function cardFieldSource(field: RecommendationCardField | undefined): string | null {
+  const source = cardFieldOrigin(field);
+  const previous = previousAttemptLabel(field);
+  return previous ? [source, previous].filter(Boolean).join(" · ") : source;
+}
+
+function cardFieldOrigin(field: RecommendationCardField | undefined): string | null {
   if (!field) return null;
   if (field.source === "manual") {
     const who = field.by_name ? ` · ${field.by_name}` : "";

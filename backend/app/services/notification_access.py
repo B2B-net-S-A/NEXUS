@@ -44,6 +44,9 @@ ALWAYS_VISIBLE_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.password_reset_requested,
         NotificationType.password_changed_by_admin,
         *HR_PERSONAL_NOTIFICATION_TYPES,
+        # 0619: ważne ogłoszenie — odbiorców wybiera rola z ogłoszenia, nie
+        # sekcja (pulpit ma każdy, także „Pracownik” i Rada).
+        NotificationType.announcement_important,
     }
 )
 
@@ -52,13 +55,18 @@ ADMIN_ONLY_NOTIFICATION_TYPES: frozenset[NotificationType] = frozenset(
         NotificationType.ai_spend_alert,
         NotificationType.automation_failing,
         NotificationType.teams_prep_scope_missing,
+        NotificationType.hr_m365_scope_missing,
     }
 )
 
 # 0508: alarm o masowym przeglądaniu CV — admin i Head of Recruitment (rola
 # główna albo dodatkowa), niezależnie od sekcji (decyzja Artura 22.10.2026).
 HEAD_OF_RECRUITMENT_ALERT_TYPES: frozenset[NotificationType] = frozenset(
-    {NotificationType.candidate_data_access_alert}
+    {
+        NotificationType.candidate_data_access_alert,
+        # 0612: nowa osoba po pierwszym logowaniu (decyzja Artura 28.10.2026).
+        NotificationType.new_person_signed_in,
+    }
 )
 
 # Context-sensitive types are handled separately below.  Every other enum
@@ -102,6 +110,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.signature_signed: ProductSection.sourcing,
     NotificationType.signature_rejected: ProductSection.sourcing,
     NotificationType.signature_failed: ProductSection.sourcing,
+    NotificationType.signature_renewal_requested: ProductSection.sourcing,
     NotificationType.framework_contract_expiring_30d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_14d: ProductSection.delivery,
     NotificationType.framework_contract_expiring_7d: ProductSection.delivery,
@@ -125,6 +134,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.saved_search_reapproval: ProductSection.sourcing,
     # 0338: cykl rozmowy u klienta (terminy od klienta) — sekcja kalendarza.
     NotificationType.interview_slots_requested: ProductSection.pipeline,
+    # 0639: sprawa z panelu klienta pod linkiem z CV.
+    NotificationType.client_panel_request: ProductSection.pipeline,
     NotificationType.interview_slot_chosen: ProductSection.pipeline,
     NotificationType.interview_slot_confirmed: ProductSection.pipeline,
     NotificationType.interview_debrief_saved: ProductSection.pipeline,
@@ -159,6 +170,7 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     # 0450: link prowadzi do Tablicy rekrutacji (plakietka „Championi”).
     NotificationType.champions_changed: ProductSection.pipeline,
     NotificationType.champion_search_resumed: ProductSection.pipeline,
+    NotificationType.job_twin_linked: ProductSection.pipeline,
     NotificationType.request_review_needed: ProductSection.pipeline,
     # 0523: link prowadzi do rekrutacji.
     NotificationType.client_job_opened: ProductSection.pipeline,
@@ -168,6 +180,17 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.job_ad_backlog: ProductSection.pipeline,
     NotificationType.job_ad_nudge: ProductSection.pipeline,
     NotificationType.job_p0_set: ProductSection.pipeline,
+    NotificationType.job_p0_requested: ProductSection.pipeline,
+    # 0617: rekrutacje bez ruchu — link prowadzi na rekrutację.
+    NotificationType.job_idle_reminder: ProductSection.pipeline,
+    # 0607: link prowadzi na Tablicę zamkniętej rekrutacji.
+    NotificationType.job_closed_people_waiting: ProductSection.pipeline,
+    # 0635: zdarzenia CPro — link prowadzi na Tablicę rekrutacji.
+    NotificationType.cpro_candidate_rejected: ProductSection.pipeline,
+    NotificationType.cpro_interview_change: ProductSection.pipeline,
+    NotificationType.cpro_close_needs_decision: ProductSection.pipeline,
+    # 0621: link prowadzi na listę „Po osobach, które odeszły”.
+    NotificationType.departed_pairs_care: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
     NotificationType.hired_order_missing: ProductSection.finance,

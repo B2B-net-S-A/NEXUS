@@ -14,6 +14,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -26,6 +27,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.api.candidate_access import NOT_READ_ONLY
 from app.api.contract_templates import _contract_vars, render_contract_template
 from app.core.printable_html import (
     AUTOPRINT_HASH,
@@ -47,6 +49,7 @@ from app.models.contract import (
     Contract,
     ContractStatus,
     ContractTerminationReason,
+    ContractType,
     EngagementModel,
     ProlongationStatus,
     RateUnit,
@@ -136,6 +139,7 @@ from app.services.contract_lifecycle import (
     assert_contract_client_not_deleted,
     assert_transition,
     auto_activate_complete_draft,
+    clear_undone_termination,
     hard_delete_contract,
     move_to_ready_for_signature,
     reopen_contract,
@@ -186,6 +190,7 @@ from app.services.contract_termination_reversal import (
 from app.services.order_write_errors import commit_order_write
 from app.services.contract_termination_sync import (
     AgreementTermination,
+    close_rows_after_recorded_termination,
     contract_agreement_termination,
     contract_dissolved_by_agreement,
     set_contract_agreement_termination,
@@ -1498,6 +1503,7 @@ def _apply_contract_list_filters(
     subcategory: Optional[list[str]] = None,
     order_end_from: Optional[date] = None,
     order_end_to: Optional[date] = None,
+    agreement_not_terminated: bool = False,
 ):
     """Apply the shared contract list/export filters to ``query`` and return it.
 
@@ -1597,6 +1603,17 @@ def _apply_contract_list_filters(
             Contract.end_date.isnot(None),
             Contract.end_date <= cutoff,
             Contract.end_date >= today,
+        )
+    if agreement_not_terminated:
+        # „Umowa nierozwiązana” (decyzja Artura 28.10.2026): projekt B2B
+        # zakończony albo kończący się, a umowa bez zapisanego rozwiązania —
+        # lista zaległych porozumień/wypowiedzeń. Od 23.09 pole wypełnia okno
+        # „Zakończ współpracę” albo podpis porozumienia w generatorze. Łączy się
+        # z filtrem statusu przez AND.
+        query = query.where(
+            Contract.contract_type == ContractType.b2b,
+            Contract.status.in_((ContractStatus.ended, ContractStatus.ending)),
+            Contract.agreement_termination_mode.is_(None),
         )
     return query
 
@@ -1938,6 +1955,15 @@ def _redact_contract_finance(
     return item
 
 
+def _hide_company_margin(item: Any) -> None:
+    """Lista bez marży dla posiadacza kwot całej firmy bez „Wyników firmy”."""
+    for field in ("margin", "monthly_margin"):
+        if hasattr(item, field):
+            setattr(item, field, None)
+    for member in getattr(item, "group_members", None) or []:
+        member.margin = None
+
+
 # Kolejność członków w zgrupowanym wierszu i rodzeństwa w szczegółach: żywe
 # umowy przed papierowymi, w obrębie statusu najnowsza pierwsza. Dzięki temu
 # chip/oznaczenie pierwszego klienta wskazuje bieżące zatrudnienie.
@@ -2166,6 +2192,14 @@ async def list_contracts(
     order_end_to: Optional[date] = Query(
         None, description="Koniec zamówienia u klienta — górna granica."
     ),
+    agreement_not_terminated: bool = Query(
+        False,
+        description=(
+            "„Umowa nierozwiązana”: kontrakty B2B „Zakończone” albo „Kończące "
+            "się” bez zapisanego rozwiązania umowy "
+            "(`agreement_termination_mode` puste). Łączy się ze `status` (AND)."
+        ),
+    ),
     sort_by: Optional[ContractSortKey] = Query(
         None,
         description=(
@@ -2206,6 +2240,15 @@ async def list_contracts(
         # caller can binary-search a hidden rate/margin by watching which rows
         # survive the filter (an oracle). Drop them before building the query.
         rate_client_min = rate_client_max = margin_min = None
+    # Marża przy każdym wierszu i ranking po niej to wynik całej firmy (decyzja
+    # Artura 02.11.2026). Stawki zostają; portfel Delivery Leada bez zmian.
+    company_margin_hidden = global_finance and not has_permission(
+        current_user, ProductAction.company_results
+    )
+    if company_margin_hidden:
+        margin_min = None
+        if sort_by == "margin":
+            sort_by = None
     if not global_finance and sort_by in _FINANCE_SORT_KEYS:
         # Ta sama wyrocznia co przy filtrach kwot: kolejność wierszy po ukrytej
         # stawce pozwala ją odtworzyć. Rola bez finansów dostaje kolejność domyślną.
@@ -2230,6 +2273,7 @@ async def list_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     sort_expr = (
         _contract_sort_expression(sort_by, business_today()) if sort_by else None
@@ -2398,6 +2442,9 @@ async def list_contracts(
     if not global_finance:
         for item in items:
             _redact_contract_finance(item, finance_client_ids)
+    if company_margin_hidden:
+        for item in items:
+            _hide_company_margin(item)
     return ContractList(
         items=items,
         total=total,
@@ -2565,6 +2612,7 @@ async def export_contracts(
     expiring_in_days: Optional[int] = Query(None, ge=0, le=365),
     order_end_from: Optional[date] = Query(None),
     order_end_to: Optional[date] = Query(None),
+    agreement_not_terminated: bool = Query(False),
     limit: int = Query(10000, ge=1, le=50000),
 ):
     """Export contracts to CSV or Excel — client, rates, order dates and more.
@@ -2572,6 +2620,10 @@ async def export_contracts(
     Honours every filter the list endpoint accepts (so "export what I see" holds)
     but ignores pagination — all matching rows up to ``limit``. Defaults to XLSX.
     """
+    # Plik z całą firmą to zbiorczy wynik (decyzja Artura 02.11.2026): bez
+    # „Wyników firmy” eksport obejmuje jednego klienta.
+    if client_id is None:
+        ensure_permission(current_user, ProductAction.company_results)
     # Eksport zawiera dane kandydata razem ze stawkami i marżą. Finance ma
     # jawny organization-wide business read; zapis i lifecycle kontraktu nadal
     # pozostają poza tą zależnością.
@@ -2603,6 +2655,7 @@ async def export_contracts(
         expiring_in_days=expiring_in_days,
         order_end_from=order_end_from,
         order_end_to=order_end_to,
+        agreement_not_terminated=agreement_not_terminated,
     )
     query = query.order_by(Contract.id).limit(limit)
     result = await db.execute(query)
@@ -2693,14 +2746,17 @@ async def export_placements(
     wb = Workbook()
     ws = wb.active
     ws.title = "Placementy"
-    ws.append(list(placements.PLACEMENT_EXPORT_COLUMNS))
+    # Arkusz roboczy zostaje dla całego okresu, ale bez marży, jeśli konto nie ma
+    # „Wyników firmy” (decyzja Artura 02.11.2026).
+    columns: tuple[str, ...] = placements.PLACEMENT_EXPORT_COLUMNS
+    if not has_permission(current_user, ProductAction.company_results):
+        columns, rows = placements.without_margin_columns(rows)
+    ws.append(list(columns))
     for cell in ws[1]:
         cell.font = Font(bold=True)
     ws.freeze_panes = "A2"
     date_columns = [
-        idx + 1
-        for idx, name in enumerate(placements.PLACEMENT_EXPORT_COLUMNS)
-        if name in placements.DATE_COLUMNS
+        idx + 1 for idx, name in enumerate(columns) if name in placements.DATE_COLUMNS
     ]
     for row in rows:
         ws.append(safe_row(row))
@@ -2801,7 +2857,7 @@ def _register_export_row(c: Contract) -> list:
     ]
 
 
-@router.get("/register/export")
+@router.get("/register/export", dependencies=NOT_READ_ONLY)
 async def export_client_register(
     current_user: DeliveryViewUser,
     db: AsyncSession = Depends(get_db),
@@ -2929,8 +2985,8 @@ async def contract_order_sync_report(
     filename = (
         f"zgodnosc-zamowienie-kontrakt_{value.get('business_day', 'raport')}.xlsx"
     )
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
@@ -3021,8 +3077,8 @@ async def contract_candidate_contact_report(
     )
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"braki-kontaktu-konsultantow_{ts}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
@@ -3056,8 +3112,8 @@ async def contract_missing_orders_report(
         generated_at=generated_at,
     )
     filename = f"kontrakty-bez-zamowienia_{generated_at:%Y%m%d_%H%M%S}.xlsx"
-    return StreamingResponse(
-        BytesIO(content),
+    return Response(
+        content,
         media_type=(
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
@@ -4413,6 +4469,7 @@ async def apply_contract_update(
         ):
             contract.end_date = None
             updates["end_date"] = None
+            clear_undone_termination(db, contract, actor_id=policy.actor_id)
         # Audyt ma nieść WYNIK przejścia, nie żądaną wartość — przejście
         # potrafi wylądować gdzie indziej niż na wprost przysłanej wartości.
         updates["status"] = contract.status.value
@@ -4565,6 +4622,7 @@ async def apply_contract_update(
                 # zostawiony tutaj zamknąłby wiersz jako „rozwiązany” przy
                 # późniejszym, zwykłym zakończeniu (audyt 25.09.2026, runda 4).
                 await undo_contract_termination(db, contract, actor_id=policy.actor_id)
+                clear_undone_termination(db, contract, actor_id=policy.actor_id)
     # Reguła zakładki „Zakończeni" (09.2026): data końca umowy wpisana w module
     # Kontrakty jest zarazem datą końca ZAMÓWIENIA tej osoby. Otwarte
     # zamówienia dostają tę samą datę (zaczynające się później — anulowane),
@@ -4783,6 +4841,7 @@ async def apply_contract_status(
         and contract.end_date is not None
     ):
         contract.end_date = None
+        clear_undone_termination(db, contract, actor_id=policy.actor_id)
     db.add(
         Activity(
             entity_type="contract",
@@ -6779,6 +6838,105 @@ async def terminate_contract(
         termination_lessons=data.termination_lessons,
         actor_id=current_user.id,
         agreement_termination=_agreement_termination(data.agreement_termination),
+    )
+    await db.flush()
+    await db.refresh(contract)
+    detail = _to_detail(contract)
+    if not await _can_read_contract_finance(contract, current_user, db):
+        _redact_contract_finance(detail)
+    return detail
+
+
+@router.put(
+    "/{contract_id}/agreement-termination",
+    response_model=ContractDetailResponse,
+)
+async def record_agreement_termination(
+    contract_id: int,
+    data: AgreementTerminationPayload,
+    # To samo uprawnienie co „Zakończ współpracę”: dane rozwiązania umowy
+    # zapisuje dziś tylko tamto okno.
+    current_user: ContractStatusUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Rozwiązanie umowy B2B podpisane poza NEXUSEM (zgłoszenie 29.10.2026).
+
+    Kontrakt zakończony bez danych rozwiązania nie miał gdzie ich dopisać:
+    okno „Zakończ współpracę” działa przy kończeniu, a podpis porozumienia —
+    tylko dla umowy z Generatora. Zapis rusza wyłącznie dane umowy (i umowę
+    w Generatorze zawieszoną tym zakończeniem); koniec projektu, zamówienia
+    i status zostają bez zmian.
+    """
+    result = await db.execute(
+        select(Contract)
+        .where(Contract.id == contract_id)
+        .options(
+            selectinload(Contract.candidate),
+            selectinload(Contract.client),
+            selectinload(Contract.job),
+            selectinload(Contract.candidate_rate_schedule),
+            selectinload(Contract.client_rate_schedule),
+            selectinload(Contract.framework_rate_schedule),
+        )
+        .with_for_update()
+    )
+    contract = result.scalar_one_or_none()
+    if not contract:
+        raise HTTPException(status_code=404, detail="Contract not found")
+    await _ensure_delivery_lead_contract_visible(contract, current_user, db)
+    if contract.contract_type != ContractType.b2b:
+        raise HTTPException(
+            status_code=422,
+            detail="Rozwiązanie umowy zapisuje się tylko przy umowie B2B.",
+        )
+    # Także „Zakończony” nocną zmianą po dacie końca, bez okna (bez
+    # `terminated_at`) — lista „Umowa nierozwiązana” liczy je tak samo.
+    if contract.status not in (ContractStatus.ended, ContractStatus.ending):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Najpierw zakończ współpracę — rozwiązanie umowy dopisuje się "
+                "do zakończonego projektu."
+            ),
+        )
+    # Zapisane rozwiązanie zmienia się przez „Cofnij zakończenie”, nie tu:
+    # nadpisanie rozjechałoby kontrakt z zamkniętą już umową w Generatorze.
+    if contract_agreement_termination(contract) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Rozwiązanie umowy jest już zapisane na tym kontrakcie.",
+        )
+    termination = AgreementTermination(
+        mode=data.mode,
+        party=data.party,
+        signed_on=data.signed_on,
+        last_day=data.last_day,
+    )
+    set_contract_agreement_termination(contract, termination)
+    # Umowa zawieszona tym zakończeniem → „Zakończone”; pozostałe (bez migawki
+    # tego kontraktu) zamyka ta sama synchronizacja co okno z rozwiązaniem.
+    closed_rows = await close_rows_after_recorded_termination(
+        db, contract, termination, actor_id=current_user.id
+    )
+    closed_rows += await sync_generator_after_contract_ended(
+        db, contract, actor_id=current_user.id
+    )
+    db.add(
+        Activity(
+            entity_type="contract",
+            entity_id=contract.id,
+            action="agreement_termination_recorded",
+            user_id=current_user.id,
+            details={
+                "agreement_termination": {
+                    "mode": termination.mode,
+                    "party": termination.party,
+                    "signed_on": termination.signed_on.isoformat(),
+                    "last_day": termination.last_day.isoformat(),
+                },
+                "generator_rows_closed": closed_rows,
+            },
+        )
     )
     await db.flush()
     await db.refresh(contract)

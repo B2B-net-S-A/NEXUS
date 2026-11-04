@@ -35,18 +35,25 @@ def _connect_args(url: str) -> dict[str, Any]:
     Audyt F06: bez tego nie da się policzyć, ile ze 100 połączeń Postgresa
     zajmuje aplikacja, a ile backup, alembic czy ręczna sesja. Tylko asyncpg —
     inne sterowniki (testowe SQLite) nie znają `server_settings`.
+
+    `jit=off`: CTE KPI (`VERIFIER_ANCHORED_CTE`) kompilował przy każdym
+    wywołaniu 364 funkcje — 2,5 s z 4,6 s na produkcji 27.10.2026; bez JIT
+    to samo zapytanie trwa 2,2 s. Krótkie zapytania JIT-a i tak nie dostają.
     """
     if not url.startswith("postgresql+asyncpg://"):
         return {}
-    return {"server_settings": {"application_name": "nexus-backend"}}
+    return {"server_settings": {"application_name": "nexus-backend", "jit": "off"}}
 
 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     pool_pre_ping=True,
-    pool_size=20,
-    max_overflow=40,
+    # Połączenia ponad `pool_size` są zamykane po oddaniu: przy 20 + 40
+    # produkcja otwierała ~95 nowych połączeń na minutę (27.10.2026).
+    # Suma 60 bez zmian (max_connections=100).
+    pool_size=40,
+    max_overflow=20,
     json_serializer=_json_serializer,
     connect_args=_connect_args(settings.DATABASE_URL),
     # Treść błędu SQLAlchemy (IntegrityError, DataError…) domyślnie niesie

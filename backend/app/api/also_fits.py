@@ -14,17 +14,24 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.candidate_access import CandidateSearchAccess
-from app.api.recruitment_access import ensure_job_read_access, job_read_scope_clause
+from app.api.recruitment_access import (
+    ensure_job_membership,
+    ensure_job_read_access,
+    job_read_scope_clause,
+)
 from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.database import get_db
 from app.core.scheduling import business_today
 from app.core.rate_limit import limiter, user_or_ip_key
 from app.models.candidate import Candidate
 from app.models.job import Job
+from app.services.job_membership import is_member_of_job
 from app.services.also_fits import (
+    SEARCH_LIMIT,
     SOURCE_OUR_CONSULTANT,
     also_fits_for_candidate,
     returning_consultant,
+    search_open_jobs,
 )
 
 router = APIRouter()
@@ -98,3 +105,74 @@ async def candidate_also_fits(
         source=SOURCE_OUR_CONSULTANT if returning is not None else None,
         returns_to_market_on=returning.returns_on if returning is not None else None,
     )
+
+
+class ManualJobOut(BaseModel):
+    job_id: int
+    title: str
+    client_name: Optional[str] = None
+    client_reference: Optional[str] = None
+    delivery_lead_name: Optional[str] = None
+    #: Rekrutacja może wejść do wspólnej rozmowy — ta sama reguła co pary
+    #: „Screening dla” (``joint-context``: ``ensure_job_membership``; od #1742
+    #: rekruter, DL, HoR i TCM przechodzą ją w każdej rekrutacji).
+    joinable: bool
+    #: Patrzący naprawdę jest w zespole (prowadzi, DL, współpracownik,
+    #: przypisanie) — bez obejścia ról. „Twój zespół” i kolejność wyników.
+    in_my_team: bool
+
+
+@router.get(
+    "/candidates/{candidate_id}/also-fits/search",
+    response_model=list[ManualJobOut],
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
+# Pole z opóźnieniem 250 ms — jedno zapytanie na frazę; sufit jak trasa obok.
+@limiter.limit("120/minute", key_func=user_or_ip_key)
+async def candidate_also_fits_search(
+    request: Request,
+    candidate_id: int,
+    current_user: CandidateSearchAccess,
+    from_job_id: int = Query(..., gt=0),
+    q: str = Query("", max_length=120),
+    db: AsyncSession = Depends(get_db),
+) -> list[ManualJobOut]:
+    """„+ Dodaj inną rekrutację” w „Screening dla” (29.10.2026).
+
+    Otwarte rekrutacje firmy bez tej osoby, po nazwie, numerze u klienta,
+    kliencie i id. Rekrutacje z zespołu patrzącego na górze.
+    """
+    await ensure_job_read_access(db, current_user, from_job_id)
+    if await db.get(Candidate, candidate_id) is None:
+        raise HTTPException(status_code=404, detail="Nie ma takiej osoby.")
+    hits = await search_open_jobs(
+        db,
+        candidate_id=candidate_id,
+        from_job_id=from_job_id,
+        phrase=q,
+        scope_clause=job_read_scope_clause(current_user, Job.id),
+    )
+    rows: list[ManualJobOut] = []
+    for hit in hits:
+        try:
+            await ensure_job_membership(db, current_user, hit.job_id)
+            joinable = True
+        except HTTPException:
+            joinable = False
+        in_my_team = await is_member_of_job(
+            db, current_user, hit.job_id, admin_bypass=False
+        )
+        rows.append(
+            ManualJobOut(
+                job_id=hit.job_id,
+                title=hit.title,
+                client_name=hit.client_name,
+                client_reference=hit.client_reference,
+                delivery_lead_name=hit.delivery_lead_name,
+                joinable=joinable,
+                in_my_team=in_my_team,
+            )
+        )
+    # Stabilnie: kolejność z bazy (najnowsze) w obrębie każdej grupy.
+    rows.sort(key=lambda r: not r.in_my_team)
+    return rows[:SEARCH_LIMIT]

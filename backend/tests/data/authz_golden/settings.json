@@ -25,15 +25,16 @@
   "recruiter+payroll",
   "recruiter+equipment",
   "recruiter+cases",
-  "board"
+  "board",
+  "finance-finance_module"
  ],
  "routes": {
-  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/settings/candidates-columns": "PPPPPPPDPPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/candidates-columns/all": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/candidates-columns": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-delivery": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/settings/notification-roles": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

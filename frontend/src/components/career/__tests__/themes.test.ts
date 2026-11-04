@@ -60,18 +60,27 @@ describe("szablony graficzne strony kariery (0478)", () => {
     expect(contrast(t.btnText, t.btn), `${id}.btnText`).toBeGreaterThanOrEqual(4.5);
   });
 
-  it("Terminal nie dostaje żadnych nadpisań — strona wygląda jak przed szablonami", () => {
-    expect(themeTokens("terminal")).toEqual({});
-    expect(themeTokens(null)).toEqual({});
-    expect(themeTokens("nie-ma-takiego")).toEqual({});
-    expect(ogColors("terminal")).toEqual({ ...OG_COLORS });
+  it("trzy szablony w barwach B2B Network zamiast 12 scen (28.10.2026)", () => {
+    expect([...CAREER_THEME_IDS]).toEqual(["grafit", "terminal", "jasny"]);
+    for (const id of CAREER_THEME_IDS) {
+      // Czerwień marki z brand booka w ozdobnikach każdego szablonu.
+      expect(CAREER_THEMES[id].decor).toBe("#E73748");
+    }
+  });
+
+  it("dawna scena, pusty i nieznany identyfikator dostają Grafit", () => {
+    expect(themeTokens("plan")).toEqual(themeTokens("grafit"));
+    expect(themeTokens(null)).toEqual(themeTokens("grafit"));
+    expect(ogColors("nie-ma-takiego")).toEqual(ogColors("grafit"));
+    expect(themeTokens("terminal")["--kr-bg"]).toBe(CAREER_THEMES.terminal.bg);
+    expect(Object.keys(ogColors("jasny")).sort()).toEqual(Object.keys(OG_COLORS).sort());
   });
 
   it("szablon nadpisuje wyłącznie zmienne zadeklarowane w career.css", () => {
     const declared = new Set(
       [...css.matchAll(/^\s*(--kr-[a-z-]+):/gm)].map((m) => m[1]),
     );
-    for (const id of CAREER_THEME_IDS.filter((x) => x !== "terminal")) {
+    for (const id of CAREER_THEME_IDS) {
       for (const name of Object.keys(themeTokens(id))) {
         expect(declared.has(name), `${id}: ${name} nie ma w .kr-root`).toBe(true);
       }
@@ -85,8 +94,8 @@ describe("szablony graficzne strony kariery (0478)", () => {
     expect(new Set(hexes)).toEqual(new Set(["#000000", "#f5f3ee"]));
   });
 
-  it("nieznany szablon to Terminal", () => {
-    expect(careerTheme("xyz")).toBe(CAREER_THEMES.terminal);
+  it("nieznany szablon to Grafit", () => {
+    expect(careerTheme("xyz")).toBe(CAREER_THEMES.grafit);
   });
 
   it("mixHex miesza kanały liniowo", () => {

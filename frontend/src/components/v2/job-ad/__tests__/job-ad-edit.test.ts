@@ -6,6 +6,8 @@ import {
   editorText,
   findingsByField,
   isEditKey,
+  ownOfferLines,
+  sameItem,
   withEdited,
   withoutExcerpt,
   withoutTech,
@@ -104,5 +106,29 @@ describe("job-ad-edit — technologie i znaleziska", () => {
     ]);
     expect(map.get("about")).toHaveLength(2);
     expect(map.size).toBe(1);
+  });
+});
+
+describe("job-ad-edit — własne punkty „To oferujemy” (zgłoszenie 28.10.2026)", () => {
+  const locked = ["kontrakt B2B", "praca zdalna", "prywatna opieka medyczna"];
+
+  it("wklejona lista z karty zostawia tylko własne punkty", () => {
+    const pasted = "Kontrakt  B2B\npraca zdalna\nduży projekt bankowy\nprywatna opieka medyczna\n";
+    expect(ownOfferLines(pasted, locked)).toEqual({
+      items: ["duży projekt bankowy"],
+      skipped: 3,
+    });
+  });
+
+  it("powtórzony własny punkt liczy się raz", () => {
+    expect(ownOfferLines("projekt\nProjekt\n\nzespół", [])).toEqual({
+      items: ["projekt", "zespół"],
+      skipped: 1,
+    });
+  });
+
+  it("ukryte punkty zapisują się razem z poprawką pola", () => {
+    expect(withEdited(CONTENT, "offer", "a\nb").offer).toEqual(["a", "b"]);
+    expect(sameItem(" Prywatna  opieka medyczna", "prywatna opieka medyczna")).toBe(true);
   });
 });

@@ -9,7 +9,8 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
 
 * termin premii = start + 21 dni roboczych firmy (``bonus_rules``, kalendarz
   firmy z dniami wolnymi — jak urlop),
-* okres premii = miesiąc terminu (zamknięty miesiąc → pierwszy otwarty),
+* okres premii = miesiąc po starcie, nie wcześniej niż miesiąc terminu
+  (``payout_period``; zamknięty miesiąc → pierwszy otwarty),
   wybierany pod blokadą współdzieloną okresu — miesiąc, który właśnie się
   zamyka, automat omija, zamiast dorzucić do niego propozycję,
 * marża/h = stawka klienta − stawka kosztowa z dnia startu, w zł/h:
@@ -27,10 +28,13 @@ Dla kontraktu z datą startu (status aktywny, kończący się albo zakończony):
   przypisanie). Bez weryfikującego premii rekrutera nie ma — ani gdy
   weryfikującym jest ten sam Delivery Lead bez roli rekrutera (22.10.2026:
   DL, który sam przeprowadził osobę, dostaje jedną premię, DL-a). DL, który
-  ma też rolę rekrutera, dostaje obie (decyzja Artura 25.10.2026).
+  ma też rolę rekrutera, dostaje obie (decyzja Artura 25.10.2026), chyba że
+  domyka po rekruterze, który odszedł: osobę zweryfikowała u tego klienta
+  osoba z wyłączonym kontem (decyzja Artura 02.11.2026).
 
 Kontrakt zakończony przed terminem (albo anulowany) → propozycje anulowane
-przez automat; cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
+przez automat, ale nie wiersze z arkusza: te zostają z oznaczeniem do sprawdzenia;
+cofnięcie zakończenia → przywrócone. Kontrakt usunięty trwale →
 propozycje anulowane na stałe (``contract_deleted``, poza
 ``AUTO_CANCEL_REASONS``: nie ma czego przywracać), przyznane zostają. Gdy miesiąc premii
 zamknięto w międzyczasie, przywrócona propozycja idzie na pierwszy otwarty
@@ -75,11 +79,16 @@ from app.services.hr.bonus_rules import (
     BonusRules,
     automation_floor_for,
     dl_bonus,
+    dl_hours_for,
     eligible_date,
     extra_dl_recipient,
+    individual_percent,
+    individual_recruiter_bonus,
+    individual_rule_for,
     load_bonus_calendar,
     load_rules,
     money,
+    payout_period,
     recruiter_bonus,
     recruiter_tier,
 )
@@ -105,6 +114,18 @@ ROLE_LABELS: dict[str, str] = {
     "dl_extra": "Dodatkowa premia DL",
     "recruiter": "Premia rekrutera",
 }
+#: Pola migawki z ręcznymi zmianami Płac — automat ich nie nadpisuje.
+EDIT_MARKS: tuple[str, ...] = (
+    "edited_amount",
+    "edited_recipient",
+    "edited_period",
+    "recipient_change_reason",
+    "automat_recipient_user_id",
+    "settlement_import",
+    "settlement_note",
+    "amount_edited_after_import",
+    "recipient_edited_after_import",
+)
 STARTED_STATUSES: frozenset[ContractStatus] = frozenset(
     {ContractStatus.active, ContractStatus.ending, ContractStatus.ended}
 )
@@ -205,6 +226,8 @@ class PlacementContext:
     job_leads: dict[int, int] = field(default_factory=dict)
     #: weryfikujący z rolą rekrutera (główną albo dodatkową)
     recruiter_roles: frozenset[int] = frozenset()
+    #: (kandydat, rekrutacja) domknięte po rekruterze z wyłączonym kontem
+    closed_after_departure: frozenset[tuple[int, int]] = frozenset()
 
     def people(self, contract: Contract) -> tuple[Optional[int], Optional[int], str]:
         """(Delivery Lead, rekruter, skąd DL).
@@ -213,7 +236,8 @@ class PlacementContext:
         DL z rekrutacji, potem prowadzący z rolą DL, zapasowo DL klienta
         (decyzje Artura 18.10.2026). DL, który sam zweryfikował osobę, nie
         dostaje do premii DL-a premii rekrutera (decyzja Artura 22.10.2026) —
-        chyba że ma też rolę rekrutera: wtedy dostaje obie (25.10.2026).
+        chyba że ma też rolę rekrutera: wtedy dostaje obie (25.10.2026). Domknięcie
+        po rekruterze, który odszedł, to obowiązek DL-a: tylko premia DL (02.11.2026).
         """
 
         recruiter_id = (
@@ -225,7 +249,11 @@ class PlacementContext:
         if (
             dl_id is not None
             and recruiter_id == dl_id
-            and recruiter_id not in self.recruiter_roles
+            and (
+                recruiter_id not in self.recruiter_roles
+                or (contract.candidate_id, contract.job_id)
+                in self.closed_after_departure
+            )
         ):
             recruiter_id = None
         return dl_id, recruiter_id, source
@@ -256,7 +284,7 @@ class PlacementContext:
 async def load_context(
     db: AsyncSession, contracts: Sequence[Contract]
 ) -> PlacementContext:
-    """Najwyżej siedem zapytań niezależnie od liczby kontraktów."""
+    """Najwyżej osiem zapytań niezależnie od liczby kontraktów."""
 
     job_ids = sorted({c.job_id for c in contracts if c.job_id is not None})
     jobs: dict[int, Optional[int]] = {}
@@ -293,6 +321,9 @@ async def load_context(
             for user_id, role, roles in rows.all()
             if holds_recruiter_role(role, roles)
         }
+    closed_after_departure = await _closed_after_departure(
+        db, contracts, verifiers, recruiter_roles
+    )
     # DL klienta potrzebny tylko tam, gdzie rekrutacja go nie wskazuje.
     fallback_clients = sorted(
         {
@@ -341,6 +372,49 @@ async def load_context(
         verifiers,
         job_leads,
         frozenset(recruiter_roles),
+        closed_after_departure,
+    )
+
+
+async def _closed_after_departure(
+    db: AsyncSession,
+    contracts: Sequence[Contract],
+    verifiers: Mapping[tuple[int, int], int],
+    recruiter_roles: set[int],
+) -> frozenset[tuple[int, int]]:
+    """Pary, które u tego klienta weryfikowała wcześniej osoba, która odeszła.
+
+    Przekazanie z ``departure_care`` przypina parę do osoby, która odeszła, ale nie
+    obejmuje odejść sprzed 28.10.2026 ani nowej rekrutacji u tego samego klienta.
+    Ślad zostaje w etapach: kandydata zweryfikowała u klienta osoba z wyłączonym
+    kontem. ``PlacementContext.people`` bierze to pod uwagę tylko przy DL-u, który
+    sam zweryfikował osobę.
+    """
+
+    wanted = [
+        contract
+        for contract in contracts
+        if contract.client_id is not None
+        and verifiers.get((contract.candidate_id, contract.job_id)) in recruiter_roles
+    ]
+    if not wanted:
+        return frozenset()
+    rows = await db.execute(
+        select(CandidateStage.candidate_id, Job.client_id)
+        .join(Job, Job.id == CandidateStage.job_id)
+        .join(User, User.id == CandidateStage.moved_by)
+        .where(
+            CandidateStage.stage == PipelineStage.verified,
+            CandidateStage.candidate_id.in_(sorted({c.candidate_id for c in wanted})),
+            Job.client_id.in_(sorted({c.client_id for c in wanted})),
+            User.is_active.is_(False),
+        )
+    )
+    departed = set(rows.all())
+    return frozenset(
+        (contract.candidate_id, contract.job_id)
+        for contract in wanted
+        if (contract.candidate_id, contract.client_id) in departed
     )
 
 
@@ -429,6 +503,9 @@ def placement_targets(
     dl_id: Optional[int],
     recruiter_id: Optional[int],
     rules: BonusRules,
+    *,
+    recruiter_starts: int = 1,
+    client_id: Optional[int] = None,
 ) -> dict[str, PlacementTarget]:
     """Odbiorcy i kwoty premii z placementu — czysta reguła automatu.
 
@@ -436,24 +513,36 @@ def placement_targets(
     za DL-em (z ustawień), rekruter — gdy marża nie jest ujemna. Przy
     nieznanej marży role są te same, a kwota ``None``: automat takich nie
     zapisuje, prognoza „w drodze” pokazuje je bez kwoty.
+
+    ``recruiter_starts`` — starty rekrutera w miesiącu startu kontraktu; liczy
+    się tylko przy systemie indywidualnym (``individual_recruiters``).
+    ``client_id`` — klient kontraktu dla reguły dodatkowej premii z listą klientów.
     """
 
     targets: dict[str, PlacementTarget] = {}
     if dl_id is not None:
         dl_amount = (
-            None if margin_per_hour is None else dl_bonus(margin_per_hour, rules)
+            None
+            if margin_per_hour is None
+            else dl_bonus(margin_per_hour, rules, dl_user_id=dl_id)
         )
         if dl_amount is None or dl_amount > 0:
             targets["dl"] = PlacementTarget("dl", dl_id, dl_amount, "delivery_lead")
-            extra = extra_dl_recipient(dl_id, rules)
+            extra = extra_dl_recipient(dl_id, rules, client_id=client_id)
             if extra is not None:
                 targets["dl_extra"] = PlacementTarget(
                     "dl_extra", extra, dl_amount, "delivery_lead"
                 )
     if recruiter_id is not None:
-        rec_amount = (
-            None if margin_per_hour is None else recruiter_bonus(margin_per_hour, rules)
-        )
+        individual = individual_rule_for(recruiter_id, rules)
+        if margin_per_hour is None:
+            rec_amount = None
+        elif individual is not None:
+            rec_amount = individual_recruiter_bonus(
+                margin_per_hour, individual, recruiter_starts, rules
+            )
+        else:
+            rec_amount = recruiter_bonus(margin_per_hour, rules)
         if margin_per_hour is None or rec_amount is not None:
             targets["recruiter"] = PlacementTarget(
                 "recruiter", recruiter_id, rec_amount, "recruiter"
@@ -461,10 +550,47 @@ def placement_targets(
     return targets
 
 
+async def recruiter_starts_in_month(
+    db: AsyncSession, recruiter_id: int, start: date
+) -> int:
+    """Ile placementów tego rekrutera startuje w miesiącu ``start`` (reguła premii)."""
+
+    first = start.replace(day=1)
+    after = (
+        first.replace(year=first.year + 1, month=1)
+        if first.month == 12
+        else first.replace(month=first.month + 1)
+    )
+    contracts = list(
+        await db.scalars(
+            select(Contract).where(
+                Contract.start_date >= first,
+                Contract.start_date < after,
+                Contract.status.in_(STARTED_STATUSES),
+                Contract.returned_from_contract_id.is_(None),
+            )
+        )
+    )
+    context = await load_context(db, contracts)
+    return sum(1 for item in contracts if context.people(item)[1] == recruiter_id)
+
+
+def contract_end(contract: Contract) -> Optional[date]:
+    """Data końca kontraktu; aktywny nie kończy się datą zakończenia.
+
+    Przywrócony do aktywnych kontrakt mógł zachować ``terminated_at`` sprzed
+    przywrócenia (kontrakt 557, 02.11.2026), a to nie jest koniec współpracy.
+    """
+
+    if _status(contract) == ContractStatus.active:
+        return contract.end_date
+    return contract.end_date or contract.terminated_at
+
+
 def ends_before_deadline(contract: Contract, eligible_on: date) -> bool:
     """Kontrakt kończy się przed terminem premii (albo zakończony bez daty)."""
 
-    end = contract.end_date or contract.terminated_at
+    end = contract_end(contract)
     return (end is not None and end < eligible_on) or (
         _status(contract) == ContractStatus.ended and end is None
     )
@@ -485,6 +611,13 @@ def _auto_cancel(bonus: HrBonus, reason: str) -> None:
 
 def _edited(bonus: HrBonus) -> bool:
     return bool((bonus.rule_snapshot or {}).get("edited_amount"))
+
+
+def _edit_marks(bonus: HrBonus) -> dict[str, Any]:
+    """Ślady ręcznych zmian z migawki: przelicza się tylko to, czego nikt nie zmienił."""
+
+    snapshot = bonus.rule_snapshot or {}
+    return {key: snapshot[key] for key in EDIT_MARKS if key in snapshot}
 
 
 async def _lock_periods(
@@ -522,7 +655,9 @@ async def _lock_periods(
         return None
     assert calendar is not None
     eligible_on = eligible_date(contract.start_date, rules, calendar=calendar)
-    return await first_open_month_locked(db, eligible_on.year, eligible_on.month)
+    return await first_open_month_locked(
+        db, *payout_period(contract.start_date, eligible_on)
+    )
 
 
 async def reconcile_contract(
@@ -572,7 +707,10 @@ async def reconcile_contract(
         return {**counts, "skipped": "not_started"}
     if contract.returned_from_contract_id is not None:
         return {**counts, "skipped": "return_after_break"}
-    if not existing and contract.start_date < automation_floor(rules, today):
+    # Kontrakt sprzed startu automatu dostał wiersz z arkusza albo z Compassa: automat
+    # uzgadnia to, co jest, ale nie dopisuje brakujących ról (02.11.2026).
+    before_floor = contract.start_date < automation_floor(rules, today)
+    if not existing and before_floor:
         return {**counts, "skipped": "before_automation_window"}
 
     start = contract.start_date
@@ -583,16 +721,33 @@ async def reconcile_contract(
     context = await load_context(db, [contract])
     dl_id, recruiter_id, people_source = context.people(contract)
 
+    recruiter_starts = 1
+    if individual_rule_for(recruiter_id, rules) is not None and recruiter_id:
+        recruiter_starts = await recruiter_starts_in_month(db, recruiter_id, start)
     # Nieznana marża (brak stawki albo kursu) = brak propozycji automatu.
     targets: dict[str, tuple[int, Decimal, str]] = {
         role: (target.recipient_user_id, target.amount, target.category)
         for role, target in placement_targets(
-            margin.per_hour, dl_id, recruiter_id, rules
+            margin.per_hour,
+            dl_id,
+            recruiter_id,
+            rules,
+            recruiter_starts=recruiter_starts,
+            client_id=contract.client_id,
         ).items()
         if target.amount is not None
     }
+    # Arkusz mógł dać premię DL odbiorcy dodatkowej premii: jedna osoba, jedna premia.
+    main_dl = existing.get(source_key(contract.id, "dl"))
+    if (
+        main_dl is not None
+        and main_dl.status != "cancelled"
+        and "dl_extra" in targets
+        and main_dl.recipient_user_id == targets["dl_extra"][0]
+    ):
+        del targets["dl_extra"]
 
-    period = (eligible_on.year, eligible_on.month)
+    period = payout_period(start, eligible_on)
     target_period = locked_target or await first_open_month_locked(db, *period)
     closed = await closed_months(db)
     candidate_name, client_name = context.names(contract)
@@ -618,14 +773,43 @@ async def reconcile_contract(
         key = source_key(contract.id, role)
         bonus = existing.get(key)
         target = targets.get(role)
+        from_sheet = bonus is not None and bool(
+            (bonus.rule_snapshot or {}).get("settlement_import")
+        )
         if ended_early:
-            if bonus is not None and bonus.status == "proposed":
+            # Wiersz z arkusza to decyzja Delivery: oznaczenie, nie anulowanie.
+            if bonus is not None and bonus.status == "proposed" and not from_sheet:
                 _auto_cancel(bonus, "contract_ended")
+                ended_on = contract_end(contract)
+                if ended_on is not None:
+                    bonus.rule_snapshot = {
+                        **(bonus.rule_snapshot or {}),
+                        "ended_on": ended_on.isoformat(),
+                    }
                 counts["cancelled"] += 1
             continue
+        if bonus is None and before_floor:
+            continue
         if target is None:
+            # Anulowany wiersz z arkusza wraca: osoba i kwota są z arkusza, nie z reguły.
+            if (
+                from_sheet
+                and bonus.status == "cancelled"
+                and bonus.cancel_reason in AUTO_CANCEL_REASONS
+            ):
+                bonus.status = "proposed"
+                bonus.cancel_reason = None
+                bonus.cancelled_at = None
+                bonus.cancelled_by = None
+                bonus.eligible_on = bonus.eligible_on or eligible_on
+                counts["restored"] += 1
+                continue
             # Np. rekrutacja straciła DL — propozycji poprawionej ręcznie nie ruszamy.
-            if bonus is not None and bonus.status == "proposed" and not _edited(bonus):
+            if (
+                bonus is not None
+                and bonus.status == "proposed"
+                and not _edit_marks(bonus)
+            ):
                 _auto_cancel(bonus, "rule_no_longer_applies")
                 counts["cancelled"] += 1
             continue
@@ -633,6 +817,14 @@ async def reconcile_contract(
         snapshot = {**common, "role": role}
         if role == "recruiter" and margin.per_hour is not None:
             snapshot["tier"] = recruiter_tier(margin.per_hour, rules)
+            individual = individual_rule_for(recipient, rules)
+            if individual is not None:
+                snapshot["individual_percent"] = str(
+                    individual_percent(individual, recruiter_starts)
+                )
+                snapshot["recruiter_starts"] = recruiter_starts
+        if role in ("dl", "dl_extra"):
+            snapshot["dl_hours"] = dl_hours_for(dl_id, rules)
         description = placement_description(role, candidate_name, client_name)
         if bonus is None:
             db.add(
@@ -675,27 +867,39 @@ async def reconcile_contract(
             moved_from = f"{bonus.period_year}-{bonus.period_month:02d}"
             snapshot["restored_from_closed_period"] = moved_from
             bonus.period_year, bonus.period_month = target_period
-            if _edited(bonus):
-                bonus.rule_snapshot = {
-                    **(bonus.rule_snapshot or {}),
-                    "restored_from_closed_period": moved_from,
-                }
-        if _edited(bonus):
-            bonus.eligible_on = eligible_on
-            continue
+        marks = _edit_marks(bonus)
+        # Przelicza się tylko to, czego Płace nie zmieniły ręcznie.
+        new_recipient = (
+            bonus.recipient_user_id if marks.get("edited_recipient") else recipient
+        )
+        new_amount = bonus.amount if marks.get("edited_amount") else amount
+        new_period = (
+            (bonus.period_year, bonus.period_month)
+            if marks.get("edited_period") and not closed_period
+            else target_period
+        )
         changed = (
-            bonus.recipient_user_id != recipient
-            or bonus.amount != amount
-            or (bonus.period_year, bonus.period_month) != target_period
+            bonus.recipient_user_id != new_recipient
+            or bonus.amount != new_amount
+            or (bonus.period_year, bonus.period_month) != new_period
             or bonus.eligible_on != eligible_on
         )
-        bonus.recipient_user_id = recipient
-        bonus.amount = amount
+        bonus.recipient_user_id = new_recipient
+        bonus.amount = new_amount
         bonus.category = category
-        bonus.period_year, bonus.period_month = target_period
+        bonus.period_year, bonus.period_month = new_period
         bonus.eligible_on = eligible_on
-        bonus.rule_snapshot = snapshot
-        bonus.description = description
+        bonus.rule_snapshot = {
+            **snapshot,
+            **marks,
+            **(
+                {"restored_from_closed_period": moved_from}
+                if closed_period and restorable
+                else {}
+            ),
+        }
+        if not marks.get("edited_amount"):
+            bonus.description = description
         if changed and not restorable:
             counts["updated"] += 1
     await db.flush()
@@ -720,6 +924,9 @@ async def ended_early_bonus_ids(
         and bonus.status == "assigned"
         and bonus.contract_id is not None
         and bonus.eligible_on is not None
+        # Rozliczenie z arkusza: firma świadomie bierze ryzyko (×2 z października
+        # płacone przed startem, decyzja Artura 30.10.2026), więc bez ostrzeżenia.
+        and not (bonus.rule_snapshot or {}).get("settlement_import")
     ]
     if not candidates:
         return set()
@@ -738,6 +945,37 @@ async def ended_early_bonus_ids(
         if contract is not None and ends_before_deadline(contract, bonus.eligible_on):
             found.add(bonus.id)
     return found
+
+
+async def no_order_bonus_ids(db: AsyncSession, bonuses: Sequence[HrBonus]) -> set[int]:
+    """Premie PRZYZNANE (także przed terminem), a po terminie kontrakt nie ma zamówienia.
+
+    Brak zamówienia pokazuje, że konsultant mógł nie wystartować. Premie z arkusza
+    idą na ryzyko firmy (``settlement_import``), więc bez ostrzeżenia.
+    """
+
+    today = business_today()
+    candidates = [
+        bonus
+        for bonus in bonuses
+        if bonus.source == SOURCE
+        and bonus.status == "assigned"
+        and bonus.contract_id is not None
+        and bonus.eligible_on is not None
+        and bonus.eligible_on <= today
+        and not (bonus.rule_snapshot or {}).get("settlement_import")
+    ]
+    if not candidates:
+        return set()
+    without = set(
+        await db.scalars(
+            select(Contract.id).where(
+                Contract.id.in_(sorted({b.contract_id for b in candidates})),
+                Contract.client_order_start_date.is_(None),
+            )
+        )
+    )
+    return {bonus.id for bonus in candidates if bonus.contract_id in without}
 
 
 async def contracts_to_reconcile(
@@ -910,9 +1148,12 @@ __all__ = [
     "PlacementTarget",
     "automation_floor",
     "contract_margin",
+    "EDIT_MARKS",
+    "contract_end",
     "ended_early_bonus_ids",
     "ends_before_deadline",
     "load_context",
+    "no_order_bonus_ids",
     "holds_dl_role",
     "load_verifiers",
     "on_contract_deleted",
@@ -922,6 +1163,7 @@ __all__ = [
     "placement_description",
     "placement_targets",
     "reconcile_contract",
+    "recruiter_starts_in_month",
     "source_key",
     "sync_placements",
 ]

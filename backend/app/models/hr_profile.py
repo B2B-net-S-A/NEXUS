@@ -100,6 +100,9 @@ class EmployeeProfile(Base, TimestampMixin):
     can_log_overtime: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    no_hours_limit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     job_title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     department: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)

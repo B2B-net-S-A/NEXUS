@@ -38,6 +38,7 @@ import re
 from dataclasses import asdict, dataclass
 from typing import Any, Iterable, Optional, Sequence
 
+from app.services.public_city import address_match
 from app.services.public_profile_lint import (
     CERTAIN_MONEY_PATTERNS,
     CODE_CLIENT,
@@ -61,9 +62,10 @@ CODE_SHORT_REQUIREMENT = "short_requirement"
 CODE_MISSING_START = "missing_start"
 CODE_MISSING_DURATION = "missing_duration"
 CODE_EMPTY_SECTION = "empty_section"
+CODE_ADDRESS = "address"
 
 # Pola ogłoszenia w kolejności, w jakiej czyta je rekruter.
-TEXT_FIELDS = ("title", "lead", "about", "start", "duration", "language")
+TEXT_FIELDS = ("title", "lead", "about", "start", "duration", "language", "city")
 LIST_FIELDS = ("responsibilities", "requirements", "nice_to_have", "offer")
 # Miejsca poza treścią, którą rekruter poprawia w oknie.
 FIELD_TERMS = "terms"
@@ -262,6 +264,32 @@ def _advice(field: str, texts: list[str]) -> list[AdFinding]:
     return out
 
 
+def _address(field: str, texts: Sequence[str]) -> list[AdFinding]:
+    """Adres biura pozwala wygooglować klienta (zgłoszenie 28.10.2026).
+
+    Uwaga, nie blokada (decyzja Artura): nazwa ulicy w opisie projektu bywa
+    niewinna.
+    """
+    out: list[AdFinding] = []
+    for text in texts:
+        match = address_match(text)
+        if match:
+            excerpt = _excerpt(text, match)
+            out.append(
+                AdFinding(
+                    code=CODE_ADDRESS,
+                    severity=SEVERITY_ADVISE,
+                    message=(
+                        f"Adres w treści: „{excerpt}”. Po adresie łatwo "
+                        "rozpoznać klienta — zostaw samo miasto."
+                    ),
+                    excerpt=excerpt,
+                    field=field,
+                )
+            )
+    return out
+
+
 def _short_requirements(items: Iterable[str]) -> Optional[AdFinding]:
     short = [item for item in items if len(_WORD.findall(item)) < 3]
     if not short:
@@ -342,7 +370,9 @@ def lint_ad(
     for field, texts in _field_texts(content, tech):
         add(_from_public_lint(field, texts, **names))
         add(_advice(field, texts))
+        add(_address(field, texts))
     add(_from_public_lint(FIELD_TERMS, _strings(list(terms)), **names))
+    add(_address(FIELD_TERMS, _strings(list(terms))))
     add(_from_public_lint(FIELD_FIXED, _strings(list(fixed)), **names))
     add(_from_public_lint(None, _strings(list(rendered)), **names))
     short = _short_requirements(_strings(content.get("requirements")))

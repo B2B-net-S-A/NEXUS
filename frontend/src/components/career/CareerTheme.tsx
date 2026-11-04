@@ -1,5 +1,4 @@
 import "./career.css";
-import "./scenes/scenes.css";
 
 import { careerDisplayFont, careerMonoFont } from "./fonts";
 

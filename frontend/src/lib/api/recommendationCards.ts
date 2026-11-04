@@ -27,6 +27,8 @@ export interface RecommendationCardField {
   origin?: CardFieldOrigin;
   /** Hasła, z których powstało zdanie (`phrased`). */
   keywords?: string;
+  /** Pole z poprzedniej próby, która liczy się dalej (powrót ≤ 30 dni, 28.10.2026). */
+  previous_attempt?: boolean;
   [normalized: string]: unknown;
 }
 

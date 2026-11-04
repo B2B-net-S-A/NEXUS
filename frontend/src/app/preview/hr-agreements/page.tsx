@@ -48,19 +48,19 @@ const STATE_KEYS = ["person", "new", "issues", "payroll", "templates"] as const;
 type State = (typeof STATE_KEYS)[number];
 
 const STATES = [
-  { key: "person", label: "Kadry: umowy osoby" },
+  { key: "person", label: "Administracja współpracy: umowy osoby" },
   { key: "new", label: "Nowa umowa albo aneks" },
   { key: "issues", label: "Do wyjaśnienia" },
-  { key: "payroll", label: "Płace: podgląd" },
+  { key: "payroll", label: "Rozliczenia: podgląd" },
   { key: "templates", label: "Wzory umów" },
 ] as const;
 
 const NOTES: Record<State, string> = {
-  person: "Dane fikcyjne, bez zapytań. Ogląda Paulina z Kadr — podpis przez Autenti albo ręcznie ze skanem.",
-  new: "Dane fikcyjne, bez zapytań. Wzór wybiera formę; minimum zlecenia z Ustawień Płac.",
+  person: "Dane fikcyjne, bez zapytań. Ogląda Paulina z Administracji współpracy — podpis przez Autenti albo ręcznie ze skanem.",
+  new: "Dane fikcyjne, bez zapytań. Wzór wybiera formę; minimum zlecenia z Ustawień Rozliczeń.",
   issues: "Dane fikcyjne, bez zapytań. Autenti nie przyjęło wysyłki, a podpisana umowa trafiła na zamknięty miesiąc płac.",
-  payroll: "Dane fikcyjne, bez zapytań. Płace widzą umowy i stawki, ale ich nie zmieniają.",
-  templates: "Dane fikcyjne, bez zapytań. Pliki Word od Kadr z wersjami; treści prawnej NEXUS nie pisze.",
+  payroll: "Dane fikcyjne, bez zapytań. Rozliczenia widzą umowy i stawki, ale ich nie zmieniają.",
+  templates: "Dane fikcyjne, bez zapytań. Pliki Word od Administracji współpracy z wersjami; treści prawnej NEXUS nie pisze.",
 };
 
 function prepare(params: URLSearchParams) {

@@ -141,7 +141,7 @@ export function PreviewPanel({
         <p className="text-muted-foreground">
           {onBehalf
             ? "Wpis jest od razu zatwierdzony; osoba dostanie powiadomienie."
-            : "Zwolnienie zatwierdza się od razu — przełożony i Kadry dostaną powiadomienie."}
+            : "Zwolnienie zatwierdza się od razu — koordynator i Administracja współpracy dostanie powiadomienie."}
         </p>
       ) : null}
       {!report && !onBehalf && !preview.auto_approved ? (

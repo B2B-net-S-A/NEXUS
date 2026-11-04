@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.analytics.capabilities import (
     AnalyticsCapability,
-    require_capability,
     user_has_capability,
 )
 from app.analytics.periods import Period, PeriodError, resolve_period
@@ -18,6 +17,7 @@ from app.api.section_access import (
     INSIGHTS_SECTION_DEPENDENCIES,
     PIPELINE_SECTION_DEPENDENCIES,
 )
+from app.api.permission_access import CompanyResultsUser
 from app.api.recruitment_access import ensure_job_membership
 from app.api.deps import (
     ROLE_DENIED_DETAIL,
@@ -48,6 +48,7 @@ from app.schemas.recruitment_activity import (
     RecruitmentActivityMetric,
     RecruitmentActivityState,
     RecruitmentActivitySummaryResponse,
+    RecruitmentActivityTeamTotalsResponse,
     RecruitmentActivityWindow,
 )
 from app.services.dashboard_v2 import (
@@ -66,6 +67,7 @@ from app.services.recruitment_operations import (
 from app.services.recruitment_activity import (
     build_recruitment_activity_summary,
     list_recruitment_activity_details,
+    team_period_totals,
 )
 from app.services.kpi_engine import WARSAW
 
@@ -103,10 +105,6 @@ HeadOfRecruitmentDashboardUser = Annotated[
             UserRole.talent_community_manager,
         )
     ),
-]
-FinanceUser = Annotated[
-    User,
-    Depends(require_capability(AnalyticsCapability.VIEW_FINANCE)),
 ]
 RecruitmentOperationsUser = Annotated[
     User,
@@ -292,8 +290,13 @@ async def recruitment_activity_summary(
     month: BoundedMonth | None = Query(None),
     subject_user_id: int | None = Query(None, ge=1),
     scope: Literal["auto", "team"] = Query("auto"),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
 ) -> RecruitmentActivitySummaryResponse:
-    """Drillable personal/team KPI activity for the unified dashboard."""
+    """Drillable personal/team KPI activity for the unified dashboard.
+
+    `date_from`–`date_to` (włącznie) zastępuje okno miesiąca w liczbach kafli.
+    """
 
     selected_day = day or datetime.now(WARSAW).date()
     selected_month = month or selected_day.replace(day=1)
@@ -304,6 +307,8 @@ async def recruitment_activity_summary(
         selected_month=selected_month,
         subject_user_id=subject_user_id,
         team_scope=scope == "team",
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -352,6 +357,31 @@ async def recruitment_activity_details(
         date_from=date_from,
         date_to=date_to,
         state=state,
+    )
+
+
+@router.get(
+    "/recruitment-activity/team-totals",
+    response_model=RecruitmentActivityTeamTotalsResponse,
+    dependencies=PIPELINE_SECTION_DEPENDENCIES,
+)
+async def recruitment_activity_team_totals(
+    current_user: RecruitmentOperationsUser,
+    db: Database,
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    metric: list[RecruitmentActivityMetric] = Query(...),
+) -> RecruitmentActivityTeamTotalsResponse:
+    """Liczby zespołu za dni `date_from`–`date_to` dla kilku etapów naraz —
+    każda równa `period_total` z `/recruitment-activity/details` (`scope=team`,
+    `window=range`). Kafel „Wyniki zespołu” pyta raz zamiast raz na etap."""
+
+    return await team_period_totals(
+        db,
+        current_user,
+        metrics=tuple(dict.fromkeys(metric)),
+        date_from=date_from,
+        date_to=date_to,
     )
 
 
@@ -411,9 +441,13 @@ async def recruitment_operations_favorite(
     )
 
 
-@router.get("/finance", response_model=FinanceDashboardResponse)
+@router.get(
+    "/finance",
+    response_model=FinanceDashboardResponse,
+    dependencies=INSIGHTS_SECTION_DEPENDENCIES,
+)
 async def finance_dashboard(
-    current_user: FinanceUser,
+    current_user: CompanyResultsUser,
     db: Database,
     period: DashboardPeriod,
     tab: Literal["operations", "executive"] = Query("operations"),

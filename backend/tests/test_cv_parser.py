@@ -578,3 +578,199 @@ async def test_parse_cv_bills_the_requesting_user(monkeypatch):
     await cvp.parse_cv("cv text", db=object(), user_id=42)
 
     assert seen["user_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_anthropic_call_caches_the_instructions_but_not_the_cv(monkeypatch):
+    """Instrukcje są stałe, a CV inne przy każdym wywołaniu. Znacznik musi stać
+    między nimi, bo znacznik za CV płaci za zapis, którego nikt nie odczyta."""
+    from app.services import claude_client
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("TREŚĆ CV {nawias}") is not None
+
+    head, tail = seen["messages"][0]["content"]
+    assert head["cache_control"] == {"type": "ephemeral"}
+    assert "TREŚĆ CV" not in head["text"]
+    assert "cache_control" not in tail
+    assert head["text"] + tail["text"] == CV_ENRICHMENT.template.replace(
+        "{cv_text}", "TREŚĆ CV {nawias}"
+    ).replace("{{", "{").replace("}}", "}")
+
+
+@pytest.mark.asyncio
+async def test_model_outside_anthropic_reads_the_same_whole_prompt(monkeypatch):
+    from app.services import claude_client, llm_providers
+    from app.services.llm_prompts import CV_ENRICHMENT
+
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    monkeypatch.setattr(llm_providers, "api_key_configured", lambda model: True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv", model="gpt-6-luna") is not None
+
+    assert llm_providers._flatten_text(
+        seen["messages"][0]["content"], what="test"
+    ) == CV_ENRICHMENT.render(cv_text="cv")
+
+
+@pytest.mark.asyncio
+async def test_parser_uses_the_fallback_declared_in_the_registry(monkeypatch):
+    from app.models.ai_feature import AIFeatureKey
+    from app.services import ai_models, claude_client
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    seen = {}
+
+    def fake_call_claude(**kwargs):
+        seen.update(kwargs)
+        return _fake_anthropic_response({"companies": []})
+
+    monkeypatch.setattr(claude_client, "call_claude", fake_call_claude)
+
+    assert await cvp._parse_with_claude("cv") is not None
+
+    assert seen["fallback_models"] == [
+        m
+        for m in ai_models.model_chain_for(AIFeatureKey.cv_parser)
+        if m != seen["model"]
+    ]
+    assert seen["fallback_models"]
+
+
+# ── technologie bez śladu w CV (audyt modeli 02.11.2026) ─────────────────────
+
+
+@pytest.fixture
+def aliases(monkeypatch):
+    from app.services import scoring_service
+
+    monkeypatch.setattr(scoring_service, "_RODZINY_ALIASOW", None)
+    saved = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({"js": "javascript", "k8s": "kubernetes"})
+    yield
+    scoring_service.set_alias_map(saved)
+
+
+def test_technology_without_a_trace_in_the_cv_is_dropped_everywhere(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {
+        "skills": [{"name": "Python", "level": "senior"}, {"name": "Sitecore"}],
+        "technologies": ["Python", "Sitecore"],
+        "experience": [{"company": "Acme", "technologies": ["Python", "Sitecore"]}],
+        "projects": [{"name": "X", "technologies": ["Sitecore"]}],
+    }
+
+    dropped = drop_untraced_technologies(parsed, "Programuję w Pythonie od 2015 roku.")
+
+    assert dropped == 1
+    assert parsed["skills"] == [{"name": "Python", "level": "senior"}]
+    assert parsed["technologies"] == ["Python"]
+    assert parsed["experience"][0]["technologies"] == ["Python"]
+    assert parsed["projects"][0]["technologies"] == []
+
+
+@pytest.mark.parametrize(
+    "name,cv_text",
+    [
+        ("JavaScript", "Frontend: JS, HTML."),
+        ("Kubernetes", "Klastry k8s na produkcji."),
+        ("Microsoft Excel", "Zaawansowany Excel."),
+        ("Power BI", "Raporty w PowerBI."),
+        ("Bazy danych", "Projektowanie baz danych."),
+        ("C#", "Backend w C# i .NET."),
+        ("Cloud", "Administracja serwerami."),
+        ("TypeScript", "Frontend: TS, Angular."),
+        ("Git", "Repozytoria na GitLabie."),
+        ("PHP", "Backend w PHP8."),
+        ("ArchUnit", "Testy architektury w ArhUnit."),
+    ],
+)
+def test_other_spelling_of_the_same_technology_stays(aliases, name, cv_text):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {"technologies": [name]}
+
+    assert drop_untraced_technologies(parsed, cv_text) == 0
+    assert parsed["technologies"] == [name]
+
+
+def test_short_name_needs_a_whole_word(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {"technologies": ["Go", "R"]}
+
+    drop_untraced_technologies(parsed, "Good morning. Warszawa, doświadczenie.")
+
+    assert parsed["technologies"] == []
+
+
+def test_nothing_is_dropped_without_the_alias_map_or_the_cv_text(monkeypatch):
+    from app.services import scoring_service
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    saved = dict(scoring_service.ALIAS_MAP)
+    scoring_service.set_alias_map({})
+    try:
+        parsed = {"technologies": ["JavaScript"]}
+        assert drop_untraced_technologies(parsed, "Frontend: JS.") == 0
+        assert parsed["technologies"] == ["JavaScript"]
+    finally:
+        scoring_service.set_alias_map(saved)
+
+    scoring_service.set_alias_map({"js": "javascript"})
+    try:
+        parsed = {"technologies": ["JavaScript"]}
+        assert drop_untraced_technologies(parsed, "") == 0
+    finally:
+        scoring_service.set_alias_map(saved)
+
+
+def test_malformed_model_output_does_not_break_the_filter(aliases):
+    from app.services.cv_technology_grounding import drop_untraced_technologies
+
+    parsed = {
+        "skills": "Python",
+        "technologies": [None, 7, "Python"],
+        "experience": ["nie obiekt", {"technologies": "Python"}],
+    }
+
+    assert drop_untraced_technologies(parsed, "Python") == 0
+    assert parsed["technologies"] == [None, 7, "Python"]
+
+
+@pytest.mark.asyncio
+async def test_parser_output_passes_through_the_filter(aliases, monkeypatch):
+    from app.services import claude_client
+
+    monkeypatch.setattr(cvp.settings, "ANTHROPIC_API_KEY", "sk-test-key")
+    monkeypatch.setattr(cvp.settings, "CV_ENRICHMENT_ENABLED", True)
+    monkeypatch.setattr(
+        claude_client,
+        "call_claude",
+        lambda **kwargs: _fake_anthropic_response(
+            {"skills": [{"name": "Python"}, {"name": "Sitecore"}]}
+        ),
+    )
+
+    out = await cvp._parse_with_claude("Programuję w Pythonie.")
+
+    assert [s["name"] for s in out["skills"]] == ["Python"]

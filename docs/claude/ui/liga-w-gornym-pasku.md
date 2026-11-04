@@ -80,8 +80,9 @@ i rekomendacje D1–D6. Raport: `docs/league-topbar-completion-report.md`.
   Head of Recruitment i Delivery Lead na pulpicie 2 → 1 segment; przy 1536 px
   liczba segmentów bez zmian. Przycisk: 117 px rekruter, 147 px lider u widza,
   178 px DL bez miejsca (25.10.2026, było 163 px „poza ligą”; wyszukiwarka dalej 220 px przy 1280, 1366 i 1536 px). W najgorszym zestawie (HoR z rolą DL, „Do wysłania”,
-  pigułka po rozmowie, długie okruszki, 1280 px) okruszki zostają skrótem
-  10 px (było 105) — ustępują ostatnie, jak przed zmianą. Pilnuje tego e2e
+  pigułka po rozmowie, długie okruszki, 1280 px) okruszki ustępują ostatnie,
+  jak przed zmianą; 28.10.2026 zostawało im 0 px (jak gubią całe okruszki —
+  `licznik-celow-w-gornym-pasku.md`, „Okruszki w ciasnym pasku”). Pilnuje tego e2e
   „górny pasek — licznik celów” (najciaśniejszy pasek ma najszerszy przycisk).
 - Harness: `/preview/kpi-topbar` (paski, sekcja „Liga Mistrzów — stany
   przycisku”, panele), dane fikcyjne w `league/league-fixtures.ts`.

@@ -62,10 +62,16 @@ class GraphClient:
     """
 
     _semaphore: asyncio.Semaphore = asyncio.Semaphore(_CONCURRENCY)
+    _sales_ok: bool = False
 
-    def __init__(self, connection: M365Connection, db: AsyncSession) -> None:
+    def __init__(
+        self, connection: M365Connection, db: AsyncSession, *, sales_ok: bool = False
+    ) -> None:
         self._conn = connection
         self._db = db
+        # Skrzynka handlowca bez dostępu do kandydatów — tylko synchronizacja
+        # i subskrypcje (``services/m365/access.py``); reszta zostaje zamknięta.
+        self._sales_ok = sales_ok
         self._client = httpx.AsyncClient(timeout=30.0, follow_redirects=True)
         self._cipher = get_token_cipher()
         # Decrypt once per instance — tokens stay in memory, never logged.
@@ -90,7 +96,9 @@ class GraphClient:
         """Owner eligibility gate — overridden by the app-only client, which has
         no owner to revalidate (its authority is the tenant's admin consent and
         the Application Access Policy, both enforced server-side)."""
-        await require_eligible_connection_owner(self._db, self._conn)
+        await require_eligible_connection_owner(
+            self._db, self._conn, sales_ok=self._sales_ok
+        )
 
     async def __aexit__(self, *exc_info) -> None:
         await self.close()

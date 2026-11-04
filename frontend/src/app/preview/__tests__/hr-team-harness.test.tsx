@@ -41,7 +41,7 @@ afterEach(() => {
 });
 
 describe("/preview/hr-team", () => {
-  it("przełożona: pasek „Dziś”, sprawy do decyzji, mini-tydzień, miesiąc i premie", async () => {
+  it("koordynatorka: pasek „Dziś”, sprawy do decyzji, mini-tydzień, miesiąc i premie", async () => {
     const user = userEvent.setup();
     window.history.replaceState({}, "", "/preview/hr-team");
     render(<HrTeamPreviewPage />);
@@ -53,8 +53,8 @@ describe("/preview/hr-team", () => {
     if (TODAY_IS_WORKDAY) expect(today).toHaveTextContent("wyjazd");
 
     // „Do Twojej decyzji”: wniosek Julii i timesheet Tomasza z akcjami, premia Oli do wiadomości.
-    const decisions = screen.getByRole("region", { name: "Do Twojej decyzji" });
-    expect(within(decisions).getByRole("link", { name: "Wszystkie w Akceptacjach →" })).toHaveAttribute(
+    const decisions = screen.getByRole("region", { name: "Do potwierdzenia" });
+    expect(within(decisions).getByRole("link", { name: "Wszystkie do potwierdzenia →" })).toHaveAttribute(
       "href",
       "/people/approvals",
     );
@@ -65,7 +65,7 @@ describe("/preview/hr-team", () => {
     expect(timesheet).toHaveTextContent("raport godzin");
     expect(timesheet).toHaveTextContent("czeka 2 dni");
     const bonusRow = within(decisions).getByText("Ola Przykładowa").closest("li")!;
-    expect(bonusRow).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Płace");
+    expect(bonusRow).toHaveTextContent("wynagrodzenie dodatkowe · 1 propozycja — decydują Rozliczenia");
     // Kwota premii jest w kolumnie „Premie w drodze”, nie w wierszu decyzji.
     expect(bonusRow).not.toHaveTextContent(/zł|PLN/);
     await user.click(within(leave as HTMLElement).getByRole("button", { name: "Odrzuć" }));
@@ -80,7 +80,7 @@ describe("/preview/hr-team", () => {
     expect(ola).toHaveTextContent("zaplanowane 8 dni");
     // Wiersz puli z zerem na B2B: liczy się płatna pula, nie sam wiersz.
     expect(ola).not.toHaveTextContent(/zostało/);
-    expect(ola).toHaveTextContent("1 propozycja — decydują Płace");
+    expect(ola).toHaveTextContent("1 propozycja — decydują Rozliczenia");
     expect(within(ola).getByRole("progressbar")).toBeInTheDocument();
     const ewa = screen.getByRole("row", { name: /^Ewa Makietowa/ });
     const ewaWeek = within(ewa).getByRole("img", { name: /^pn: / });
@@ -91,23 +91,23 @@ describe("/preview/hr-team", () => {
     // Student na zleceniu (D8): sam znacznik — daty zwolnienia widzą Kadry i Płace.
     const adam = screen.getByRole("row", { name: /^Adam Wzorcowy/ });
     expect(adam).toHaveTextContent("Zlecenie · student");
-    expect(adam).toHaveTextContent("bez timesheetu");
+    expect(adam).toHaveTextContent("bez raportu godzin");
     expect(adam).not.toHaveTextContent(/składki od/);
     expect(screen.getByRole("columnheader", { name: "Ten tydzień" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Nieobecności" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Premie w drodze" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Mój zespół" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("columnheader", { name: "Wynagrodzenie dodatkowe" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Koordynacja" })).toHaveAttribute("aria-selected", "true");
     expect(attempted()).toEqual([]);
   });
 
-  it("Kadry bez Płac: zespół Marty bez kolumny i kart premii", async () => {
+  it("Administracja współpracy bez Rozliczeń: zespół Marty bez kolumny i kart premii", async () => {
     window.history.replaceState({}, "", "/preview/hr-team?as=hr");
     render(<HrTeamPreviewPage />);
 
     expect(await screen.findByRole("row", { name: /^Tomasz Podglądowy/ })).toHaveTextContent(
       "odchodzi",
     );
-    expect(screen.queryByRole("columnheader", { name: "Premie w drodze" })).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Wynagrodzenie dodatkowe" })).toBeNull();
     expect(screen.queryByText(/wynagrodzenie dodatkowe/)).toBeNull();
     expect(screen.getByRole("combobox", { name: "Zespół koordynatora" })).toHaveTextContent(
       "Marta Fikcyjna",

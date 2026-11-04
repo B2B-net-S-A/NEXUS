@@ -27,7 +27,9 @@
  * - `?state=covering` — Ola w zastępstwie za Kamila: decyduje o urlopie jego
  *   osoby, L4 widzi jako „Nieobecność” tylko do wiadomości (D6).
  * Filtry historii (status × osoba), oba miesiące timesheetów i podgląd każdej
- * osoby są zasiane — klik nie wysyła zapytania.
+ * osoby są zasiane — klik nie wysyła zapytania. „Anuluj” przy urlopie Kamila
+ * (trwa) i L4 Ewy (minęło) otwiera okno cofnięcia z wymaganym powodem
+ * (28.10.2026); przyszły termin — zwykłe potwierdzenie.
  */
 
 import { PageHeader } from "@/components/ds/PageHeader";
@@ -396,22 +398,22 @@ export default function HrApprovalsPreviewPage() {
   if (!ready) return <HrHarnessLoading />;
   const { state, config, timesheetHref } = ready.value;
   const links = [
-    { key: "manager", label: "Przełożona", href: "?" },
-    { key: "timesheets", label: "Timesheety poprzedniego miesiąca", href: timesheetHref },
-    { key: "hr", label: "Kadry" },
-    { key: "covering", label: "W zastępstwie przełożonego" },
+    { key: "manager", label: "Koordynatorka", href: "?" },
+    { key: "timesheets", label: "Raporty godzin poprzedniego miesiąca", href: timesheetHref },
+    { key: "hr", label: "Administracja współpracy" },
+    { key: "covering", label: "W zastępstwie koordynatora" },
   ];
   return (
     <HrHarnessShell
       client={ready.client}
-      title="Ludzie → Akceptacje"
+      title="Ludzie → Do potwierdzenia"
       note="Dane fikcyjne, bez zapytań. Decyzje w podglądzie nie zapisują się (odpowiedź to błąd sieci)."
       states={links}
       current={state}
     >
       <div className="space-y-4">
         <PageHeader
-          title="Akceptacje"
+          title="Do potwierdzenia"
           description="Nieobecności, raporty godzin i zgody do decyzji — w jednej liście."
           density="compact"
         />

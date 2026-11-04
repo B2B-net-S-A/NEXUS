@@ -46,7 +46,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   linii pytań (`screening_text_without_questions`).
 - **Branża tylko ze źródła (D1).** Schemat promptu: branża tylko, gdy CV ją
   opisuje; brak = pusty string. `_normalize_candidate_data` nie wpisuje już
-  „IT”; blind drukuje wtedy samo „Firma”.
+  „IT”; blind drukuje wtedy samo „Firma”. Branża nie stoi obok nazwy firmy
+  w dokumencie (decyzja Artura 03.11.2026, po zgłoszeniu z zespołu): szablon
+  HTML doklejał `firma · branża` i przez edytor trafiało to do zatwierdzonego
+  Worda, a Word prosto z generatora drukował samą firmę. Pole `industry`
+  zostaje w danych, bo korzysta z niego blind („Firma z branży X”). Istniejące
+  szkice i zatwierdzone CV zostały bez zmian; branżę kasuje w nich rekruter.
 - **Nagłówek = nazwa roli od klienta (D2).**
   `job_working_title.cv_role_title(title, client_reference, client_names)`
   zdejmuje prefiks klienta (`job_public_profile._strip_client_prefix`), numer
@@ -69,8 +74,8 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   expert”), a gdy człony mają spacje — na „ – ”. Na stagingu zmieniło to 34
   z 207 otwartych rekrutacji, wszystkie Nordei; „Replacement Senior …” bez
   separatora zostaje (to mogłaby być rola „Replacement Planner”).
-  Gdy rekruter zostawi w polu „Stanowisko” tytuł rekrutacji, nagłówek bierze
-  `cv_role_title`, nie surowy tytuł.
+  Gdy rekruter zostawi w polu „Stanowisko” podpowiedź, nagłówek bierze
+  `cv_role_title`, nie surowy tytuł (pole: `rekrutacja-tworzenie/trzy-nazwy-rekrutacji.md`).
   Wołają ją `standalone_service.load_candidate_generation_source` (z nazwami
   klienta) i `legacy_v7.pipeline` (wzorce bez bazy, dla uploadu). Rekrutacja
   z bazy idzie zawsze przez `cv_role_title_for_job(db, job)` — to samo
@@ -90,6 +95,12 @@ Dotyczy ścieżki produkcyjnej `legacy_v7` (domyślnej). Kod v10 bez zmian.
   - „N lat doświadczenia jako X” = `min(cała kariera, max(liczba modelu,
     role X))` — kod nigdy nie dopisuje lat z cudzych ról („3 lata jako Data
     Engineer” przy latach w sklepie nie staje się „13 lat”);
+  - **od 02.11.2026 bez zaokrąglania w górę** (decyzja Artura po audycie CV
+    wgrywanych ręcznie, 19 z 67 plików zmieniało tę liczbę, najczęściej w dół):
+    `_tenure_text` pisze pełne lata w dół, a od 3 dodatkowych miesięcy „Ponad N
+    lat” / „Over N years”. To odwraca zasadę „staż nie może być zaniżany”
+    i starą uwagę „5 lat ma być 5, nie ponad 4”. Bezpiecznik fabrykacji dalej
+    czyta zaokrąglone `_total_experience_years` (±1);
   - cała reszta („2 lata w SQL”, „2.5 years combined …”) zostaje, jak
     napisał model.
 - **Notatki dla modelu** (`collect_screening_notes_text`):
@@ -258,3 +269,72 @@ czytają odpowiedzi bez linii `P:` (reguła „pytanie ≠ fakt” wyżej), wię
   „tak/nie” albo zaślepce (`lib/screening-answer-hint.ts`).
 - Testy: `test_cv_generator_b2b_pipeline.py` (sekcja „Odpowiedź, która odsyła
   do pytania”).
+
+## Reguły promptu po audycie CV wgrywanych ręcznie (02.11.2026)
+
+Pomiar: 87 z 319 CV do klienta to pliki przerobione poza NEXUSEM, 79 z nich po
+generacji; raport https://claude.ai/artifact/8GYHqERnTEipVcEVBwdPym (prywatny).
+Zmiany tylko w `legacy_v7/prompts.py` (PL i EN), kod v10 bez zmian:
+
+- **Punkt „Dlaczego nasz kandydat”**: pełne zdanie do ~30 słów pod jedno
+  z najważniejszych wymagań, zamiast „jedna linijka do ~18 słów”. Zakaz punktu
+  wyliczającego wymagania zostaje.
+- **Limity punktów**: starsze role 6 zamiast 4, role sprzed ponad 10 lat 3
+  zamiast 2. W 136 z 331 ról pliki miały więcej punktów niż generator.
+- **Fakt o obecnej pracy** („aktualnie”, „w obecnym projekcie”) wolno przypisać
+  do najnowszej roli. Reszta faktów z rozmowy dalej wymaga nazwy firmy albo
+  projektu w odpowiedzi.
+- **Umiejętności**: pierwsze kategorie nazwane obszarami z wymagań klienta.
+- **Posiadany must-have w opisie roli**: gdy źródło pokazuje użycie w tej roli,
+  punkt ma go nazwać wprost, także gdy stoi już w umiejętnościach.
+- **Bez zmian:** generator nie dopisuje tego, czego nie ma w źródłach.
+
+Pomiar na prawdziwym generatorze (20 par, stare i nowe reguły, bez zapisu):
+słowa w punkcie „Dlaczego” 13,9 → 18,9 (pliki 21), wymagania bez źródła 5 → 5,
+wymagania w całym CV 109 → 110 na 175. Wymagania w opisach ról 76 → 70 (pliki
+85): prompt tego nie podnosi, różnica mieści się w rozrzucie modelu. Od tego
+jest pytanie o rolę przy potwierdzeniu i przed generacją.
+
+## Daty stanowisk jak w oryginale (02.11.2026)
+
+Zgłoszenie rekruterki: koniec pracy 05.2026 stawał się w CV firmowym „obecnie”.
+Pomiar (797 CV z 30 dni, tylko odczyt): 59 z 555 porównywalnych „obecnie” przeczyło
+oryginałowi. Makiety: https://claude.ai/artifact/Qyta7HJjw9Jb3AKDdJDiip. Decyzja
+Artura: oryginał wygrywa także wtedy, gdy kandydat mówi w rozmowie co innego. Taką
+zmianę rekruter wpisuje ręcznie w edytorze.
+
+- **Reguła w `services/cv_source_dates.py`.** Różnica liczy się tylko przy pewnym
+  dopasowaniu: w oryginale jeden okres z tym samym początkiem, a do 400 znaków od
+  niego nazwa firmy albo stanowiska. Studia z tym samym początkiem nie zamykają pracy,
+  a inny okres trwający tej samej firmy (złączone awanse) zostawia „obecnie”.
+- **Generator poprawia sam tylko fałszywe „obecnie”** (`restore_experience_dates`,
+  przed kolejnością stanowisk i latami, w `legacy_v7` i `v10`), także zapisane datą:
+  bieżący miesiąc jako koniec przy wcześniejszym końcu w oryginale (próba na prawdziwym
+  generatorze: 11.2026 przy 09.2026). Inna data końca bywa
+  świadomym złączeniem albo podziałem ról („Wcześniejsze projekty”, awanse), więc kod
+  jej nie zmienia. Pomiar: 46 ról poprawionych, wszystkie przejrzane ręcznie.
+- **Prompt `legacy_v7` (wersja 10):** „obecnie” tylko, gdy źródło podaje stanowisko
+  jako trwające, a data końca ze źródła przechodzi bez zmian.
+- **Uwaga QC „Daty stanowisk jak w oryginale”** (`role_dates`, nie blokuje) pokazuje
+  każdą różnicę: fałszywe „obecnie”, odwrotnie i inną datę końca (90 ról na 795 CV).
+  Przycisk „Przywróć daty z oryginału” (`restore_dates`, `role_index`) zmienia jedno
+  stanowisko i nie wchodzi do „Popraw wszystko”. Bez znaczników stanowisk i bez tekstu
+  oryginału sprawdzenie nie dotyczy. `QC_VERSION` bez zmian: zaliczenie jest to samo.
+- CV wygenerowane wcześniej nie zmieniają się same.
+
+Testy: `tests/test_cv_source_dates.py`, sekcja „Daty stanowisk” w `tests/test_cv_qc.py`,
+`CvQcDialog.test.tsx` („Daty stanowisk jak w oryginale”).
+
+## Jednorazowa poprawka CV z nazwą usługi (03.11.2026)
+
+CV powstałe przed #2872 miały nagłówek i plik „usługi programistyczne”. Decyzja Artura:
+wszystkie CV etapu w otwartych rekrutacjach, także zatwierdzone i z etapu „Rozmowa”.
+Krok `cv-service-title-repair` w `entrypoint.sh`, kod `services/cv_service_title_repair.py`.
+
+- Zły nagłówek w szkicu: podmiana w `<h1>` i w pliku. Zły nagłówek w CV zatwierdzonym:
+  zamrożona wersja zostaje, nowy szkic czeka na zatwierdzenie człowieka.
+- Dobry nagłówek: tylko nazwa pliku, także na zamrożonych wersjach, a plik bierze nazwę
+  z nagłówka. Bez ponownego zatwierdzania.
+- Ponad 40 CV krok niczego nie zmienia i nie stawia markera. Stare wartości są
+  w `activities` (`branded_cv_service_title_repair`), paragon ma same liczby.
+- `cv_generated_documents` zostają historią generacji.

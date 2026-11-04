@@ -38,6 +38,8 @@ JOB_FILES_DIR = STORAGE_ROOT / "job_files"
 # wersje — przed podpisem nie ma jeszcze kontraktu, więc nie Dokumenty kontraktu.
 B2B_SIGNING_DIR = STORAGE_ROOT / "b2b_signing"
 PRE_CONTRACTS_DIR = STORAGE_ROOT / "pre_contracts"
+# Sprzedaż (Atlas → NEXUS): pliki przy firmie sprzedaży albo szansie.
+SALES_FILES_DIR = STORAGE_ROOT / "sales_files"
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -593,3 +595,25 @@ def get_job_file_path(relative_path: str) -> Path:
 
 def delete_job_file(relative_path: str) -> None:
     _delete_relative(relative_path, "job file")
+
+
+# ── Sprzedaż: pliki firm i szans (0601) ──────────────────────────────────────
+
+
+def save_sales_file(
+    owner: str, owner_id: int, name: str, data: bytes
+) -> tuple[str, int]:
+    """Zapisz plik pod /sales_files/{owner}/{owner_id}/{uuid}-{name}."""
+    rel, size = _save_to(
+        SALES_FILES_DIR / owner / str(owner_id), name, io.BytesIO(data)
+    )
+    logger.info("Saved sales file: %s (%d bytes)", safe_storage_key(rel), size)
+    return rel, size
+
+
+def read_sales_file(relative_path: str) -> bytes:
+    return _resolve_under_root(relative_path).read_bytes()
+
+
+def delete_sales_file(relative_path: str) -> None:
+    _delete_relative(relative_path, "sales file")

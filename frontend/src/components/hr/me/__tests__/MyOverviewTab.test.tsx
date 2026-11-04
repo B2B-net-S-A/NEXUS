@@ -51,6 +51,7 @@ const ALL: Record<HrModuleKey, boolean> = {
   equipment: true,
   settlements: false,
   approvals: false,
+  back_office: false,
 };
 
 function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
@@ -70,6 +71,7 @@ function config(open: Partial<Record<HrModuleKey, boolean>> = {}): HrConfig {
       equipment: false,
       settlements: false,
       approvals: false,
+      back_office: false,
       cases: false,
     },
   } as HrConfig;
@@ -307,7 +309,7 @@ describe("MyOverviewTab", () => {
     expect(screen.getAllByRole("button", { name: "Spróbuj ponownie" }).length).toBeGreaterThanOrEqual(3);
   });
 
-  it("wyłączone moduły: brak kart i brak zapytań; przełożony i zadania zostają", async () => {
+  it("wyłączone moduły: brak kart i brak zapytań; koordynator i zadania zostają", async () => {
     route(healthy());
     renderTab(
       config({ leave: false, time: false, payroll: false, equipment: false, lifecycle: false }),
@@ -318,7 +320,7 @@ describe("MyOverviewTab", () => {
     expect(screen.queryByRole("generic", { name: /Płatne dni|Urlop|Nieobecności/ })).toBeNull();
     expect(screen.queryByRole("generic", { name: /Premie|Wynagrodzenie dodatkowe/ })).toBeNull();
     expect(screen.queryByRole("generic", { name: "Mój sprzęt" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Zgłoś nieobecność|Uzupełnij dzień/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Zgłoś nieobecność|Dodaj godziny/ })).toBeNull();
     expect(mocks.get).not.toHaveBeenCalled();
   });
 
@@ -348,7 +350,7 @@ describe("MyOverviewTab", () => {
     expect(screen.getByRole("button", { name: "Zgłoś nieobecność" })).toBeInTheDocument();
   });
 
-  it("UoP: urlop z limitami Kodeksu, protokół do podpisu i timesheet w zadaniach", async () => {
+  it("UoP: urlop z limitami Kodeksu, protokół do podpisu i raport godzin w zadaniach", async () => {
     route(
       healthy({
         "/api/hr/leave/balance": balance({
@@ -383,24 +385,24 @@ describe("MyOverviewTab", () => {
     expect(within(manager).getByText(/wskazujesz we wniosku/)).toBeInTheDocument();
   });
 
-  it("osoba bez obowiązku timesheetu: bez „dni do uzupełnienia” i bez „Uzupełnij dzień”", async () => {
+  it("osoba bez obowiązku raportu godzin: bez „dni do uzupełnienia” i bez „Dodaj godziny”", async () => {
     route(healthy({ [monthUrl]: { ...monthView(), days: [emptyWorkday] } }));
     renderTab(config(), { ...person(), timesheet_required: false });
 
     const month = await card(/^Raport godzin · /);
     expect(await within(month).findByText(/Bez obowiązku raportu godzin/)).toBeInTheDocument();
     expect(nbsp(month.textContent)).not.toMatch(/do uzupełnienia|wyślij do/i);
-    expect(screen.queryByRole("button", { name: "Uzupełnij dzień" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Dodaj godziny" })).toBeNull();
     expect(await screen.findByText("Nic do zrobienia.")).toBeInTheDocument();
   });
 
-  it("z obowiązkiem timesheetu: dzień bez wpisu do uzupełnienia i przycisk „Uzupełnij dzień”", async () => {
+  it("z obowiązkiem raportu godzin: dzień bez wpisu do uzupełnienia i przycisk „Dodaj godziny”", async () => {
     route(healthy({ [monthUrl]: { ...monthView(), days: [emptyWorkday] } }));
     renderTab();
 
     const month = await card(/^Raport godzin · /);
     expect(await within(month).findByText(/1 dzień do uzupełnienia/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Uzupełnij dzień" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Dodaj godziny" })).toBeInTheDocument();
   });
 
   it("mini-kalendarz: brakujący dzień to przycisk, który otwiera miesiąc", async () => {
@@ -412,7 +414,7 @@ describe("MyOverviewTab", () => {
     const days = await within(month).findByRole("group", { name: "Dni miesiąca" });
     fireEvent.click(within(days).getByRole("button", { name: /brak wpisu — uzupełnij/ }));
     expect(onOpenTab).toHaveBeenCalledWith("month");
-    expect(within(month).getByText(/^Brakuje dziś/)).toBeInTheDocument();
+    expect(within(month).getByText(/^Bez wpisu dziś/)).toBeInTheDocument();
     expect(within(month).getByRole("progressbar", { name: "Godziny miesiąca wobec normy" })).toHaveAttribute(
       "aria-valuenow",
       "69",

@@ -78,11 +78,14 @@ from app.services.hr.time_entries import (
 router = APIRouter()
 
 MODULE = HrModule.time
-NOT_APPROVER_DETAIL = "Godziny potwierdza koordynator, Kadry albo administrator."
-NOT_PAYROLL_DETAIL = "Godziny całego miesiąca (paczkę i CSV) pobierają Płace i Kadry."
-NOT_ADMIN_DETAIL = "Domyślne opisy ustawiają Kadry."
+NOT_APPROVER_DETAIL = (
+    "Godziny potwierdza koordynator, Administracja współpracy, osoba z uprawnieniem „Raporty godzin” "
+    "albo administrator."
+)
+NOT_PAYROLL_DETAIL = "Godziny całego miesiąca (paczkę i CSV) pobierają Rozliczenia i Administracja współpracy."
+NOT_ADMIN_DETAIL = "Domyślne opisy ustawia Administracja współpracy."
 NOT_REMINDER_DETAIL = (
-    "O raporcie godzin przypominają Płace, Kadry, administrator "
+    "O raporcie godzin przypominają Rozliczenia, Administracja współpracy, administrator "
     "albo osoba, która go akceptuje."
 )
 
@@ -91,7 +94,8 @@ NOT_REMINDER_DETAIL = (
 
 
 def require_hr_time_approver():
-    """Kolejka akceptacji: przełożony z ludźmi w kartotece, Kadry, admin."""
+    """Kolejka akceptacji: przełożony z ludźmi w kartotece, Kadry, „Raporty
+    godzin”, admin."""
 
     async def _check(
         current_user: User = Depends(require_onboarded_user),
@@ -106,7 +110,8 @@ def require_hr_time_approver():
 
 
 def require_hr_time_reader():
-    """PDF timesheetu: osoba z kartoteką albo Płace/Kadry/admin (zakres w handlerze)."""
+    """PDF timesheetu: osoba z kartoteką albo Płace/Kadry/„Raporty godzin”/admin
+    (zakres w handlerze)."""
 
     async def _check(
         current_user: User = Depends(require_onboarded_user),
@@ -115,7 +120,11 @@ def require_hr_time_reader():
         await ensure_module(db, current_user, MODULE)
         if current_user.has_role(UserRole.admin) or any(
             has_permission(current_user, p)
-            for p in (ProductAction.people_admin, ProductAction.payroll)
+            for p in (
+                ProductAction.people_admin,
+                ProductAction.payroll,
+                ProductAction.timesheets,
+            )
         ):
             return current_user
         if await people.has_live_profile(db, current_user.id):
@@ -585,6 +594,20 @@ async def submit_my_month(
     return time_month.timesheet_payload(timesheet)
 
 
+@router.post("/me/{year}/{month}/withdraw")
+async def withdraw_my_month(
+    year: int, month: int, current_user: SelfUser, db: AsyncSession = Depends(get_db)
+) -> dict:
+    with _http_errors():
+        validate_period(year, month)
+        found = await find_timesheet(db, current_user.id, year, month)
+        if found is None:
+            raise TimeNotFound("Nie ma takiego raportu godzin.")
+        actor = await load_actor(db, current_user)
+        timesheet = await time_flow.withdraw(db, timesheet_id=found.id, actor=actor)
+    return time_month.timesheet_payload(timesheet)
+
+
 @router.get("/me/{year}/{month}/pdf")
 async def my_pdf(
     year: int, month: int, current_user: SelfUser, db: AsyncSession = Depends(get_db)
@@ -593,7 +616,7 @@ async def my_pdf(
         validate_period(year, month)
         found = await find_timesheet(db, current_user.id, year, month)
         if found is None:
-            raise TimeNotFound("Nie ma timesheetu za ten miesiąc.")
+            raise TimeNotFound("Nie ma raportu godzin za ten miesiąc.")
         return await _pdf_response(db, found, viewer=current_user)
 
 
@@ -661,17 +684,17 @@ async def _pdf_response(
     db: AsyncSession, timesheet: Timesheet, *, viewer: User
 ) -> Response:
     if timesheet.status != "approved":
-        raise TimeConflict("PDF jest dostępny po akceptacji timesheetu.")
+        raise TimeConflict("PDF jest dostępny po akceptacji raportu godzin.")
     sheet, matches = await _pdf_sheet(db, timesheet)
     if sheet is None:
         raise TimeConflict(
-            "Ten timesheet nie ma sumy kontrolnej — poproś o ponowną akceptację."
+            "Ten raport godzin nie ma sumy kontrolnej — poproś o ponowną akceptację."
         )
     if not matches:
         await _record_mismatch(db, timesheet, viewer)
         raise TimeConflict(
-            "Wpisy timesheetu nie zgadzają się z sumą kontrolną zapisaną przy "
-            "akceptacji. Zgłoś to Kadrom — PDF nie zostanie wydany."
+            "Wpisy raportu godzin nie zgadzają się z sumą kontrolną zapisaną przy "
+            "akceptacji. Zgłoś to Administracji współpracy — PDF nie zostanie wydany."
         )
     content = await asyncio.to_thread(time_pdf.render_pdf, sheet)
     filename = time_pdf.pdf_filename(sheet.person_name, sheet.year, sheet.month)
@@ -690,10 +713,10 @@ async def timesheet_pdf(
         timesheet = await db.get(Timesheet, timesheet_id)
         subject = await people.profile_of(db, timesheet.user_id) if timesheet else None
         if timesheet is None or subject is None:
-            raise TimeNotFound("Nie ma takiego timesheetu.")
+            raise TimeNotFound("Nie ma takiego raportu godzin.")
         actor = await load_actor(db, current_user)
         if not actor.can_read(subject):
-            raise TimeNotFound("Nie ma takiego timesheetu.")
+            raise TimeNotFound("Nie ma takiego raportu godzin.")
         return await _pdf_response(db, timesheet, viewer=current_user)
 
 
@@ -787,7 +810,7 @@ async def export_month_zip(
         content=content,
         media_type="application/zip",
         headers={
-            "Content-Disposition": f'attachment; filename="timesheety-{year}-{month:02d}.zip"',
+            "Content-Disposition": f'attachment; filename="raporty-godzin-{year}-{month:02d}.zip"',
             "X-Timesheets-Included": str(len(sheets)),
             "X-Timesheets-Skipped": str(len(skipped)),
         },
@@ -808,7 +831,7 @@ async def _decidable_subject(
     if user is None or profile is None:
         raise TimeNotFound("Nie ma takiej kartoteki.")
     if user_id == actor.user_id:
-        raise TimeForbidden("Własny timesheet prowadzisz w „Moim czasie”.")
+        raise TimeForbidden("Własny raport godzin prowadzisz w „Mojej współpracy”.")
     if not actor.can_approve(profile):
         raise TimeNotFound("Nie ma takiej osoby w Twoim zespole.")
     return user, profile
@@ -947,12 +970,12 @@ async def _visible_timesheet(db: AsyncSession, actor: Actor, timesheet_id: int) 
 
     timesheet = await db.get(Timesheet, timesheet_id)
     if timesheet is None:
-        raise TimeNotFound("Nie ma takiego timesheetu.")
+        raise TimeNotFound("Nie ma takiego raportu godzin.")
     if timesheet.user_id == actor.user_id:
-        raise TimeForbidden("Własnego timesheetu nie akceptuje się samemu.")
+        raise TimeForbidden("Własnego raportu godzin nie akceptuje się samemu.")
     subject = await people.profile_of(db, timesheet.user_id)
     if subject is None or not actor.can_approve(subject):
-        raise TimeNotFound("Nie ma takiego timesheetu.")
+        raise TimeNotFound("Nie ma takiego raportu godzin.")
 
 
 @router.post("/timesheets/{timesheet_id}/approve")

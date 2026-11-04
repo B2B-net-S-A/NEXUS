@@ -28,12 +28,19 @@ z tych informacji ma swoje pole.
   `PATCH /api/candidates/{id}` tylko dla pola, które się ZMIENIA — stary
   dopisek nie blokuje edycji telefonu. Front pokazuje zdanie pod polem
   (`lib/name-field-error.ts`, okna „Dodaj kandydata” i „Edytuj dane”).
-- **Ścieżki automatyczne zdejmują po cichu** (osoba z zewnątrz nie dostaje
-  odmowy): `/from-linkedin`, `/bulk-import` (przed walidacją), imię z odczytu CV
+- **Ścieżki automatyczne zdejmują dopiski przed zapisem**:
+  `/api/extension/candidates`, `/bulk-import` (przed walidacją), imię z odczytu CV
   (`/from-cv`, `/cv/preview`, uzupełnianie z CV), import CSV, załączniki M365,
   strona kariery i link zgłoszeń, zgłoszenia, poczta zamówień, scalanie, mapper
   Traffita, import Talent Radar. Testy: `test_candidate_name_marker_paths.py`
   (nowa ścieżka zakładająca kandydata z danych z zewnątrz → dopisz ją tam).
+- **Nowa osoba z panelu LinkedIn:** `linkedin_extension_writes.create_candidate`
+  czyści pełne `profile.full_name` funkcją `strip_name_markers` **przed**
+  podziałem na imię i nazwisko. Polskie znaki i łącznik zostają. Jeżeli po
+  oczyszczeniu brakuje imienia lub nazwiska, wraca 422; nie powstaje zastępczy
+  profil z samym dopiskiem. Dokładne dopasowanie publicznego linku zwraca
+  istniejącą osobę wcześniej — ten zapis nie zmienia jej imienia i nazwiska.
+  Regresje HTTP: `test_linkedin_extension_candidate_name_markers.py`.
 - **Wartości dłuższej niż 200 znaków reguła nie skanuje**
   (`MAX_SCANNED_NAME_LENGTH`): wzorce są kwadratowe na długim ciągu spacji,
   a import zbiorczy i CSV wołają regułę przed walidacją długości pola (100). Pole, które było samym dopiskiem, zostaje bez zmian (puste imię

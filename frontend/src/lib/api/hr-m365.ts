@@ -86,7 +86,8 @@ export interface M365Status {
   last_profile_sync: M365JobRun | null;
   secret: M365Secret;
   custom_oof_mailboxes: { user_id: number; name: string; last_reconciled_at: string | null }[];
-  mailbox_errors: { user_id: number; name: string; last_error: string }[];
+  /** `scope_exempt`: osoba zostaje poza grupą aplikacji świadomie, alarm o niej nie mówi. */
+  mailbox_errors: { user_id: number; name: string; last_error: string; scope_exempt: boolean }[];
 }
 
 export const M365_MODE_LABELS: Record<M365Mode, string> = {
@@ -100,8 +101,8 @@ export const M365_KIND_LABELS: Record<M365OperationKind, string> = {
   clear_oof: "Zdjęcie autoodpowiedzi",
   calendar_event_upsert: "Wydarzenie „Poza biurem”",
   calendar_event_delete: "Usunięcie wydarzenia",
-  forward_rule_open: "Przekierowanie poczty",
-  forward_rule_close: "Zamknięcie przekierowania",
+  forward_rule_open: "Kopia poczty do zastępcy",
+  forward_rule_close: "Zamknięcie kopii poczty",
 };
 
 const REASON_LABELS: Record<string, string> = {
@@ -212,7 +213,7 @@ export function m365ProfileSyncView(run: M365JobRun | null): M365View {
   }
   const parts = [`zaktualizowano ${count(run, "updated")} z ${count(run, "read")}`];
   const kept = count(run, "kept_manual");
-  if (kept) parts.push(`zostawione zmiany Kadr: ${kept}`);
+  if (kept) parts.push(`zostawione zmiany Administracji współpracy: ${kept}`);
   const missing = count(run, "not_found");
   if (missing) parts.push(`bez konta w Microsoft 365: ${missing}`);
   return { label: `${day} · zakończony`, tone: "success", note: parts.join(" · ") };
@@ -272,6 +273,23 @@ export function useM365Operations(tab: M365QueueTab, enabled = true) {
   });
 }
 
+/** Tylko brak dostępu naprawia się grupą aplikacji — przy nim jest decyzja „Zostaw poza grupą”. */
+export const M365_OUT_OF_SCOPE_ERROR = "forbidden (403)";
+
+export function useSetM365ScopeExempt() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, exempt }: { userId: number; exempt: boolean }) =>
+      (
+        await api.post<{ user_id: number; scope_exempt: boolean }>(
+          `/api/hr/admin/m365/mailboxes/${userId}/scope-exempt`,
+          { exempt },
+        )
+      ).data,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: m365Keys.all }),
+  });
+}
+
 export function useRetryM365Operation() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -323,6 +341,9 @@ export interface M365MailboxRule {
   substitute_name: string | null;
   health: M365ForwardHealth;
   reason: string | null;
+  /** `false`: włączona reguła w skrzynce może przekazywać albo kasować pocztę osoby. */
+  mailbox_keeps_mail: boolean;
+  mailbox_note: string | null;
 }
 
 export interface M365MailboxCheck {

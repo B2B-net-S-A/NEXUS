@@ -88,7 +88,7 @@ describe("Forma umowy na kartotece", () => {
     mocks.person = null;
   });
 
-  it("Kadry bez Płac: bez wiersza „Forma”, edycja kartoteki zostaje", async () => {
+  it("Administracja współpracy bez Rozliczeń: bez wiersza „Forma”, edycja kartoteki zostaje", async () => {
     await renderProfile(olaWithoutForm(), { people_admin: true });
     expect(screen.queryByText("Forma")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Edytuj kartotekę/ })).toBeInTheDocument();
@@ -108,7 +108,7 @@ describe("Forma umowy na kartotece", () => {
     expect(screen.queryByRole("button", { name: /Edytuj kartotekę/ })).not.toBeInTheDocument();
   });
 
-  it("kartoteka z konta: forma i przełożony „do uzupełnienia”", async () => {
+  it("kartoteka z konta: forma i koordynator „do uzupełnienia”", async () => {
     await renderProfile(olaFromAccount(), { people_admin: true, payroll: true });
     expect(screen.getAllByText("do uzupełnienia")).toHaveLength(2);
   });

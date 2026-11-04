@@ -109,7 +109,7 @@ async def _actor(
                 await resolve_effective_access(db, [found])
                 return found
     raise AgreementError(
-        "Nie ma osoby z Kadr, która przygotowała umowę — przepisz ją ręcznie "
+        "Nie ma osoby z Administracji współpracy, która przygotowała umowę — przepisz ją ręcznie "
         "(„Przepisz ponownie”)."
     )
 
@@ -167,7 +167,7 @@ async def _rate_to_payroll(
         title="Stawka z umowy do przepisania",
         message=(
             f"{name or 'Osoba'}: {title(agreement).lower()} podpisana — przepisz "
-            f"stawkę od {day:%d.%m.%Y} w Płacach."
+            f"stawkę od {day:%d.%m.%Y} w Rozliczeniach."
         ),
         ntype=NotificationType.hr_rate_changed,
         link=f"/people/{agreement.user_id}#place",
@@ -199,7 +199,7 @@ async def _apply_rate(db: AsyncSession, agreement: HrAgreement, actor: User) -> 
     ):
         raise AgreementError(
             f"Osoba ma już inną stawkę na {day:%m.%Y}, a umowa zaczyna się w połowie "
-            "miesiąca — stawkę od 1. dnia miesiąca ustawiają Płace."
+            "miesiąca — stawkę od 1. dnia miesiąca ustawiają Rozliczenia."
         )
     try:
         await payroll_rates.set_rate(

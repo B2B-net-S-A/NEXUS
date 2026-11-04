@@ -27,6 +27,7 @@ import {
   AgreementSignatureAction,
   invalidateAgreementQueries,
 } from "@/components/v2/b2b-generator/AgreementSignatureAction";
+import { EsignRowStatus } from "@/components/v2/b2b-generator/esign/EsignRowStatus";
 import { SendForSignatureDialog } from "@/components/v2/b2b-generator/esign/SendForSignatureDialog";
 import { hasActionAccess } from "@/lib/action-access";
 import { b2bGeneratorApi, type B2BGeneratedContractRow } from "@/lib/api";
@@ -177,7 +178,8 @@ export function AgreementPanelTab({
   const inEsign =
     !signed && (row.esign?.status === "sent" || row.esign?.status === "contractor_signed");
   // Serwer liczy `can_send_esign` z przełącznika i prawa poprawki umowy.
-  const canSendEsign = !readOnly && Boolean(row.can_send_esign);
+  // Po terminie „Wyślij nowy link” (ten sam PDF) zastępuje nową wysyłkę.
+  const canSendEsign = !readOnly && Boolean(row.can_send_esign) && !row.can_relink_esign;
   return (
     <section
       aria-label="Umowa B2B"
@@ -243,6 +245,10 @@ export function AgreementPanelTab({
           readOnly={readOnly}
         />
       </div>
+      {/* Link wygasł (27.10.2026): „Wyślij nowy link” na tym samym PDF-ie. */}
+      {!readOnly && !signed && row.esign?.status === "expired" ? (
+        <EsignRowStatus row={row} />
+      ) : null}
       {sending ? (
         <SendForSignatureDialog
           row={row}

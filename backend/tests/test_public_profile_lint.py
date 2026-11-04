@@ -474,7 +474,7 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         (
             "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT, Pep: 4979 (42827)",
             [],
-            "PL - CBP - Solution Architecture - SENIOR T24 ARCHITECT",
+            "Solution Architecture - SENIOR T24 ARCHITECT",
         ),
         ("Senior Data Architect", ["Nordea Bank Abp"], "Senior Data Architect"),
         ("NORDEA BANK ABP – Java Dev", ["Nordea Bank Abp"], "Java Dev"),
@@ -496,6 +496,42 @@ def test_optional_fields_reject_with_field_loc(kwargs, field):
         ("IT Analyst (42928, 42927)", [], "IT Analyst"),
         ("Java (nr 42835)", [], "Java"),
         ("Java Developer (ID 4521)", [], "Java Developer"),
+        # 29.10.2026 (Nordea): numer zapotrzebowania „TP#…”, kraj i zespół
+        # u klienta na początku, „Replacement (for …)” na końcu.
+        (
+            "Nordea: PL - MDM - IT Automation Tester Senior - TP#41745 (42553)",
+            ["Nordea Bank Abp", "Nordea"],
+            "IT Automation Tester Senior",
+        ),
+        (
+            "Nordea: PL_KYC_IT Automation Tester Senior_TP#43800 (42524)",
+            ["Nordea Bank Abp"],
+            "IT Automation Tester Senior",
+        ),
+        ("PL_KYC_3 x IT Automation Tester Senior_TP#43719", [], "3 x IT Automation Tester Senior"),
+        (
+            "PL - IT Developer Senior - Recovery Data - TP#45854 (42948)",
+            [],
+            "IT Developer Senior - Recovery Data",
+        ),
+        ("PL-EBSD-IT Analyst Senior - Red Train", [], "IT Analyst Senior - Red Train"),
+        ("PL_IT_Developer_expert_TP#40379", [], "IT_Developer_expert"),
+        ("PL_IngestOps - CoreCDP - Replacement", [], "IngestOps - CoreCDP"),
+        ("PL_IngestOps - CoreCDP - Replacement for Tomasz B", [], "IngestOps - CoreCDP"),
+        ("Senior Automation Tester TP#36384 (42855)", [], "Senior Automation Tester"),
+        (
+            "Replacement- PL- GETFIT Senior Test Automation Engineer TP ID 40942",
+            [],
+            "GETFIT Senior Test Automation Engineer",
+        ),
+        ("Replacement - Manual tester (Pega tester)", [], "Manual tester (Pega tester)"),
+        ("1 X Scrum Master Replacement for Jakub", [], "1 X Scrum Master"),
+        # Bez „Replacement” nie zostałaby rola — zostaje.
+        ("Replacement (open request)", [], "Replacement (open request)"),
+        # „PL” jako część roli albo certyfikatu zostaje.
+        ("PL/SQL Developer", [], "PL/SQL Developer"),
+        ("PL-300 Power BI Analyst", [], "PL-300 Power BI Analyst"),
+        ("Analityk danych PL", [], "Analityk danych PL"),
     ],
 )
 def test_default_public_title(title, clients, expected):
@@ -551,6 +587,9 @@ def test_legacy_default_title_keeps_the_rules_from_before_19_10():
         "Wsparcie zespołu (PKN500023226).",
         "SCTASK0123456",
         "Tester_PKN/5/000177/26",
+        "IT Automation Tester Senior - TP#41745",
+        "IT Automation Tester Senior_TP#43800",
+        "Senior Test Automation Engineer TP ID 40942",
     ],
 )
 def test_internal_codes_are_findings(text):
@@ -945,6 +984,99 @@ def test_profile_approved_before_19_10_keeps_its_old_default_title():
     assert again.title == old_title
 
 
+def _nordea_job(title="Nordea: PL - MDM - IT Automation Tester Senior - TP#41745"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(client_id=7, title=title, client_reference=None)
+
+
+def _approved_with_title(title, **overrides):
+    """Opis zatwierdzony z tytułem ``title`` (także w migawce)."""
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_profile(**overrides)
+    profile.approved_hash = jpp.content_hash(
+        "podtytuł", "Opis zatwierdzony.", jpp.normalize_sections(None), title
+    )
+    snapshot = jpp.stored_approved_content(profile.sections)
+    snapshot[jpp.APPROVED_TEXT_KEY]["title"] = title
+    return profile
+
+
+async def test_codes_dropped_by_new_rules_keep_the_approval_and_show_the_new_title():
+    """29.10.2026 (decyzja Artura): opis zatwierdzony z tytułem domyślnym
+    z kodem „TP#…” zostaje zatwierdzony, a strona od razu pokazuje tytuł bez
+    kodów — bez ponownego zatwierdzania."""
+    from app.services import job_public_profile as jpp
+
+    old_title = "PL - MDM - IT Automation Tester Senior - TP#41745"
+    profile = _approved_with_title(old_title)
+    cache = {7: ["Nordea"]}
+    status, default, effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert default == effective == "IT Automation Tester Senior"
+    assert status == jpp.STATUS_APPROVED
+
+    version = await jpp.published_version(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert version is not None and version.title == "IT Automation Tester Senior"
+    assert version.pending_changes is False
+    # Migawka dostaje tytuł, z którym liczono skrót zatwierdzenia — inaczej
+    # pierwsza zmiana opisu zdjęłaby stronę.
+    sections = jpp.with_published_text(profile.sections, version)
+    text = jpp.stored_approved_content(sections)[jpp.APPROVED_TEXT_KEY]
+    assert text["title"] == old_title
+
+
+async def test_edit_after_approval_shows_the_approved_title_without_codes():
+    from app.services import job_public_profile as jpp
+
+    old_title = "PL - MDM - IT Automation Tester Senior - TP#41745"
+    profile = _approved_with_title(old_title)
+    profile.about = "Nowa treść, jeszcze bez kontroli."
+    cache = {7: ["Nordea"]}
+    status, _default, _effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert status == jpp.STATUS_DRAFT
+    version = await jpp.published_version(
+        None, _nordea_job(), profile, names_cache=cache
+    )
+    assert version is not None and version.pending_changes is True
+    assert version.about == "Opis zatwierdzony."
+    assert version.title == "IT Automation Tester Senior"
+
+
+async def test_title_change_beyond_codes_still_needs_approval():
+    """Tytuł domyślny, który nie jest zatwierdzonym tytułem bez kodów (zmiana
+    tytułu rekrutacji), nadal wraca do szkicu."""
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_with_title("PL - MDM - IT Automation Tester Senior - TP#41745")
+    status, default, _effective = await jpp.resolve_status(
+        None,
+        _nordea_job("Nordea: PL - MDM - Java Developer - TP#41745"),
+        profile,
+        names_cache={7: ["Nordea"]},
+    )
+    assert default == "Java Developer"
+    assert status == jpp.STATUS_DRAFT
+
+
+async def test_custom_title_is_not_rewritten_by_the_cleanup():
+    from app.services import job_public_profile as jpp
+
+    profile = _approved_with_title("Tester automatyzujący")
+    profile.public_title = "Tester automatyzujący"
+    status, _default, effective = await jpp.resolve_status(
+        None, _nordea_job(), profile, names_cache={7: ["Nordea"]}
+    )
+    assert effective == "Tester automatyzujący"
+    assert status == jpp.STATUS_APPROVED
+
+
 # ── Plakat z kodem QR (etap 3, 19.10.2026) ────────────────────────────────
 
 
@@ -981,15 +1113,15 @@ def test_poster_html_escapes_text_and_embeds_the_qr_as_data_uri():
 
 
 def test_poster_uses_the_recruitment_theme_colors():
-    """0478: plakat w kolorach szablonu; nieznany szablon = Terminal."""
+    """Plakat w kolorach szablonu; nieznany szablon (np. dawna scena) = Grafit."""
     pytest.importorskip("segno")
     from app.services.career_poster import poster_html
 
     url = "https://kariera.example/r/java-ab12"
-    paper = poster_html(_poster_payload(), url, "papier")
-    assert "background: #F5F3EE" in paper and "color: #C8102E" in paper
-    fallback = poster_html(_poster_payload(), url, "nie-ma-takiego")
-    assert "background: #000000" in fallback and "color: #F06A80" in fallback
+    light = poster_html(_poster_payload(), url, "jasny")
+    assert "background: #F5F4EC" in light and "color: #C42536" in light
+    fallback = poster_html(_poster_payload(), url, "papier")
+    assert "background: #141414" in fallback and "color: #F05A69" in fallback
 
 
 def test_poster_without_optional_sections_has_no_empty_blocks():

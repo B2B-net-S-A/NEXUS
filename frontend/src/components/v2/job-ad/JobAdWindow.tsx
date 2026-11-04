@@ -31,6 +31,7 @@ import {
   isAdChangedError,
   jobAdApi,
   jobAdQueryKey,
+  linesToItems,
   type AdContent,
   type AdFinding,
   type AdLang,
@@ -40,7 +41,7 @@ import {
 import { copyHtmlToClipboard, copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
-import { AdChannels } from "./AdChannels";
+import { AdChannels, type AdFocusChannel } from "./AdChannels";
 import { AdFactsRail, TERM_KEYS, type AdTerms } from "./AdFactsRail";
 import { JOBS_LIST_QUERY_ROOT } from "./AdPublications";
 import { JustJoinTab } from "./JustJoinTab";
@@ -51,6 +52,7 @@ import {
   withoutExcerpt,
   type AdDrafts,
   type AdEditKey,
+  type AdFieldKey,
 } from "./job-ad-edit";
 
 export type JobAdTab = "pracuj" | "jjit";
@@ -70,6 +72,14 @@ export interface JobAdWindowProps {
   onClose: () => void;
   api?: JobAdWindowApi;
   initialTab?: JobAdTab;
+  /** Wejście z maila przypomnienia: kanał z krokami, zakładka portalu. */
+  focusChannel?: AdFocusChannel | null;
+  /** Z maila: okno „Nie publikujemy” od razu. */
+  openSkip?: boolean;
+  /** Z maila: pytanie „Przypomnieć rekruterowi?” od razu. */
+  askRemind?: boolean;
+  /** Z maila: mail do opiekuna Pracuj.pl od razu (`&wyslij=opiekun`). */
+  openSend?: boolean;
 }
 
 const LANG_OPTIONS: ReadonlyArray<{ value: AdLang; label: string }> = [
@@ -98,11 +108,15 @@ export function JobAdWindow({
   onClose,
   api = jobAdApi,
   initialTab = "pracuj",
+  focusChannel = null,
+  openSkip = false,
+  askRemind = false,
+  openSend = false,
 }: JobAdWindowProps) {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const { askConfirm, confirmDialog } = useConfirmV2();
-  const [tab, setTab] = useState<JobAdTab>(initialTab);
+  const [tab, setTab] = useState<JobAdTab>(focusChannel === "jjit" ? "jjit" : initialTab);
   const [firstLang, setFirstLang] = useState<AdLang>("pl");
   const [copied, setCopied] = useState<ReadonlySet<string>>(new Set());
   const [careerCopied, setCareerCopied] = useState(false);
@@ -208,10 +222,18 @@ export function JobAdWindow({
     }
   };
 
-  const saveField = async (key: AdEditKey, text: string): Promise<boolean> => {
+  const saveField = async (key: AdFieldKey, text: string): Promise<boolean> => {
     if (!ad) return false;
-    const saved = await saveAd(withEdited(ad.content, key, text), ad.tech);
-    if (saved) setDraft(key, null);
+    const edited = withEdited(ad.content, key, text);
+    // Ukrycia punktów „To oferujemy” zapisują się razem z polem.
+    const hidden = key === "offer" ? drafts.offer_hidden : undefined;
+    const content =
+      hidden === undefined ? edited : { ...edited, offer_hidden: linesToItems(hidden) };
+    const saved = await saveAd(content, ad.tech);
+    if (saved) {
+      setDraft(key, null);
+      if (hidden !== undefined) setDraft("offer_hidden", null);
+    }
     return saved;
   };
 
@@ -395,6 +417,11 @@ export function JobAdWindow({
                           Dostaniesz ją w dwóch formatach: pola formularza Pracuj.pl i opis
                           JustJoin.IT.
                         </p>
+                        {openSend ? (
+                          <p role="status" className="text-sm text-foreground">
+                            Mail do opiekuna Pracuj.pl otworzy się, gdy treść będzie gotowa.
+                          </p>
+                        ) : null}
                         <div className="flex flex-wrap items-center gap-3">
                           <SegmentedRadio
                             label="Język ogłoszenia"
@@ -465,6 +492,7 @@ export function JobAdWindow({
                         </TabsContent>
                         <TabsContent value="jjit" className="mt-0">
                           <JustJoinTab
+                            viaApi={state.jjit_api?.ready === true}
                             content={ad.content}
                             tech={ad.tech}
                             rendered={rendered}
@@ -497,6 +525,10 @@ export function JobAdWindow({
                       onShowFinding={show}
                       onRemoveFinding={removeExcerpt}
                       api={api}
+                      focusChannel={focusChannel}
+                      openSkip={openSkip}
+                      askRemind={askRemind}
+                      openSend={openSend}
                     />
                   ) : null}
                 </>

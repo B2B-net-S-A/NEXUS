@@ -305,11 +305,11 @@ describe("settings-registry — „Klucze API” (konta serwisowe, 14.10.2026)",
   });
 });
 
-describe("settings-registry — „Płace” (reguły premii, 17.10.2026)", () => {
+describe("settings-registry — „Rozliczenia” (reguły premii, 17.10.2026)", () => {
   const see = (account: ReturnType<typeof accessSnapshot>) =>
     canSeeSettingsItem(account, item("payroll"), { hrProgram: true });
 
-  it("idzie za uprawnieniem „Płace”, nie za „Kadrami” (lustro require_hr_payroll_admin)", () => {
+  it("idzie za uprawnieniem „Rozliczenia”, nie za „Administracją współpracy” (lustro require_hr_payroll_admin)", () => {
     expect(see(accessSnapshot("admin"))).toBe(true);
     expect(see(accessSnapshot("finance"))).toBe(true);
     expect(see(accessSnapshot("finance", { revoke: ["payroll"] }))).toBe(false);
@@ -320,7 +320,7 @@ describe("settings-registry — „Płace” (reguły premii, 17.10.2026)", () =
     expect(see(accessSnapshot("employee"))).toBe(false);
   });
 
-  it("ma własną trasę obok „Kadr” w obszarze Zespół i dostęp", () => {
+  it("ma własną trasę obok „Administracji współpracy” w obszarze Zespół i dostęp", () => {
     expect(item("payroll").area).toBe("team");
     expect(findSettingsItemByRoute("/settings/payroll")?.id).toBe("payroll");
     const ids = SETTINGS_ITEMS.map((i) => i.id);
@@ -394,6 +394,8 @@ describe("settings-registry — grupy w obszarze (lewa kolumna, 20.10.2026)", ()
       "stages",
       "ranking",
       "prep-review",
+      "twin-rules",
+      "cpro",
       "kpi-targets",
     ]);
     expect(groups.find((g) => g.name === "Teksty")!.items.map((i) => i.id)).toEqual([

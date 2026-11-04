@@ -22,6 +22,7 @@ import {
   FinancialRatesCard,
   type EurPlnRate,
 } from "@/components/contracts/FinancialRatesCard";
+import { fetchRecruitmentRates } from "@/lib/api/recruitmentRates";
 import { ContractNotesTab } from "@/components/contracts/ContractNotesTab";
 import { ContractCareTab } from "@/components/care/ContractCareTab";
 import { ContractFeedbackHistory } from "@/components/care/ContractFeedbackHistory";
@@ -48,7 +49,10 @@ import {
   type AgreementTerminationParty,
   type ContractTerminationReason,
 } from "@/lib/api";
+import { documentsHref } from "@/lib/b2b-documents";
 import { ContractTerminationSummary } from "@/components/contracts/ContractTerminationSummary";
+import { contractProjectEnd } from "@/lib/contract-termination";
+import { ContractAgreementRecordDialog } from "@/components/contracts/ContractAgreementRecordDialog";
 import { ContractDocument, summariseComplianceRisk } from "@/components/ContractDocumentsTab";
 import {
   formatCurrency,
@@ -94,11 +98,14 @@ import {
   ContractStatusControl,
   SELECTABLE_CONTRACT_STATUSES,
 } from "@/components/contracts/ContractStatusControl";
+import { ContractBonusesCard } from "@/components/hr/payroll/ContractBonusesCard";
 import { getUserRoles, useAuthStore } from "@/store/auth";
 import { contractAccess } from "@/lib/contract-access";
 import { permissionLabel } from "@/lib/permissions";
 import {
   buildContractDetailHref,
+  buildContractsListUrl,
+  parseContractsListState,
   parseContractsReturnContext,
   type ContractsReturnContext,
 } from "@/lib/contracts-list-navigation";
@@ -264,6 +271,14 @@ function statusStyle(status: string): string {
 // Statusy do wyboru w formularzu edycji — te same co na liście statusu
 // w nagłówku (`ContractStatusControl`).
 const SELECTABLE_STATUSES = SELECTABLE_CONTRACT_STATUSES;
+
+// Decyzja Artura 28.10.2026: zaległe umowy zespół domyka z jednej listy
+// w rejestrze, więc przypomnienie na karcie prowadzi też do niej.
+const NOT_TERMINATED_AGREEMENTS_HREF = buildContractsListUrl({
+  ...parseContractsListState("").state,
+  statusFilter: [],
+  agreementNotTerminated: true,
+});
 
 const TYPE_LABELS: Record<string, string> = {
   b2b: "B2B",
@@ -563,11 +578,12 @@ export default function ContractDetailPage() {
     useHrConfig().data?.open_modules.care === true &&
     !getUserRoles(user).includes("automation");
   const [editing, setEditing] = useState(false);
+  const [recordAgreementOpen, setRecordAgreementOpen] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [error, setError] = useState("");
 
   // Fetch contract
-  const { data: contract, isLoading, isError } = useQuery<ContractDetail>({
+  const { data: contract, isLoading, isError, error: contractError } = useQuery<ContractDetail>({
     queryKey: ["contract", id],
     queryFn: () => contractsApi.get(id).then((r) => r.data),
     enabled: !Number.isNaN(id),
@@ -580,6 +596,22 @@ export default function ContractDetailPage() {
     canEditContractDocuments,
     canUploadContractDocuments,
   } = contractAccess(user, { impersonating, clientId: contract?.client_id });
+
+  // Stawka do klienta z rekrutacji kontraktu, dopóki kontrakt nie ma własnej
+  // (podpowiedź w „Stawkach finansowych”; przychód nadal z zamówienia). Tylko
+  // przy `job_id` — „najnowsza para u klienta” bywa sprzed lat (27.10.2026).
+  const recruitmentRateQuery = useQuery({
+    queryKey: ["contract-recruitment-rate", contract?.id, contract?.job_id],
+    enabled:
+      canViewFinance &&
+      contract != null &&
+      contract.rate_client == null &&
+      contract.candidate_id != null &&
+      contract.job_id != null,
+    queryFn: () =>
+      fetchRecruitmentRates(contract!.client_id, contract!.candidate_id!, contract!.job_id),
+  });
+  const recruitmentRate = recruitmentRateQuery.data?.rate ?? null;
 
   // Fetch activity timeline (lazy)
   const activitiesQuery = useQuery<ActivityEntry[]>({
@@ -915,6 +947,8 @@ export default function ContractDetailPage() {
   }
 
   if (isError || !contract) {
+    // Kontrakt spoza zakresu osoby (403) to nie awaria: inny komunikat niż przy 5xx.
+    const contractViewState = resolveViewState({ isLoading: false, isError, error: contractError });
     return (
       <div className="p-6">
         <Link
@@ -923,7 +957,11 @@ export default function ContractDetailPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Wróć do listy
         </Link>
-        <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        {contractViewState === "forbidden" || contractViewState === "not_found" ? (
+          <QueryStateNotice state={contractViewState} className="mt-4" />
+        ) : (
+          <p className="mt-4 text-destructive">Nie udało się wczytać kontraktu.</p>
+        )}
       </div>
     );
   }
@@ -1402,6 +1440,8 @@ export default function ContractDetailPage() {
         </section>
       )}
 
+      {!editing && <ContractBonusesCard contractId={id} />}
+
       {/* Tabs */}
       <div className="border-b border-border flex gap-1 overflow-x-auto">
         {visibleTabs.map((t) => {
@@ -1452,7 +1492,7 @@ export default function ContractDetailPage() {
                 zostaje obok formularza (prawa kolumna), jak dotąd. */}
             {!editing &&
               (canViewFinance ? (
-                <FinancialRatesCard contract={contract} />
+                <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />
               ) : (
                 <div
                   className="rounded-lg border border-border bg-card p-4"
@@ -1502,8 +1542,8 @@ export default function ContractDetailPage() {
             {!editing &&
               ((contract.status === "ended" && contract.termination_reason) ||
                 // `end_date` odróżnia zakończenie zaplanowane od umowy
-                // przywróconej: wskrzeszenie zostawia `terminated_at`, ale
-                // czyści datę końca (umowa znów bezterminowa).
+                // przywróconej przed 02.11.2026: tamte niosą `terminated_at`
+                // bez daty końca (umowa znów bezterminowa).
                 (contract.terminated_at && contract.end_date)) && (
               <div className="rounded-lg border border-destructive/20 bg-destructive-muted p-4">
                 <h2 className="text-sm font-semibold text-destructive-muted-foreground mb-2">
@@ -1520,6 +1560,61 @@ export default function ContractDetailPage() {
                   </p>
                 )}
                 <ContractTerminationSummary contract={contract} />
+                {/* Propozycja zespołu 28.10.2026: zakończony projekt z umową
+                    B2B bez rozwiązania przypomina o porozumieniu. */}
+                {contract.contract_type === "b2b" && !contract.agreement_termination_mode && (
+                  <div
+                    className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-warning/30 bg-warning-muted px-3 py-2 text-sm text-warning-muted-foreground"
+                    data-testid="agreement-not-terminated"
+                  >
+                    <span>
+                      <span className="font-medium">Umowa B2B nie jest rozwiązana.</span>{" "}
+                      Zostaw ją tylko, jeśli osoba wraca na inny projekt.
+                    </span>
+                    <Link
+                      href={documentsHref({
+                        newType: "termination_agreement",
+                        contractId: contract.id,
+                        values: {
+                          termination_date: contractProjectEnd(contract) ?? "",
+                          last_service_date: contractProjectEnd(contract) ?? "",
+                        },
+                      })}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Przygotuj porozumienie
+                    </Link>
+                    <Link
+                      href={NOT_TERMINATED_AGREEMENTS_HREF}
+                      className="font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Wszystkie nierozwiązane umowy
+                    </Link>
+                    {canEditContractStatus && (
+                      // Zgłoszenie zespołu 29.10.2026: porozumienie podpisane
+                      // poza NEXUSEM (umowa sprzed generatora) nie miało gdzie
+                      // trafić — przypomnienie wisiało na zawsze.
+                      <span className="basis-full border-t border-warning/30 pt-1.5">
+                        Porozumienie albo wypowiedzenie podpisane poza NEXUSEM?{" "}
+                        <button
+                          type="button"
+                          onClick={() => setRecordAgreementOpen(true)}
+                          className="ml-1 rounded-md border border-border bg-card px-2 py-0.5 font-medium text-foreground hover:bg-muted"
+                        >
+                          Zapisz rozwiązanie umowy
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                )}
+                {recordAgreementOpen && (
+                  <ContractAgreementRecordDialog
+                    contractId={contract.id}
+                    candidateName={contract.candidate_name}
+                    projectEnd={contractProjectEnd(contract)}
+                    onClose={() => setRecordAgreementOpen(false)}
+                  />
+                )}
                 {contract.termination_lessons && (
                   <p className="text-sm mt-2 whitespace-pre-wrap">
                     <span className="text-muted-foreground block">
@@ -2446,7 +2541,7 @@ export default function ContractDetailPage() {
 
           {/* Prawa kolumna: meta; w trybie edycji także karta stawek. */}
           <div className="space-y-4">
-            {editing && canViewFinance && <FinancialRatesCard contract={contract} />}
+            {editing && canViewFinance && <FinancialRatesCard contract={contract} recruitmentRate={recruitmentRate} />}
 
             <div className="rounded-lg border border-border bg-card p-4 text-xs text-muted-foreground space-y-1">
               <div>Utworzono: {formatDate(contract.created_at)}</div>

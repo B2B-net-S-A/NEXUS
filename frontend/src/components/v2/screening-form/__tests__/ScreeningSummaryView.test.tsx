@@ -128,6 +128,35 @@ describe("ScreeningSummaryView", () => {
     expect(screen.getByTestId("screening-form-readonly-terms")).toHaveTextContent("130–150 zł/h");
   });
 
+  it("powrót osoby w ciągu 30 dni: pola z poprzedniej próby mówią, z której rozmowy są (28.10.2026)", () => {
+    const { rerender } = render(<ScreeningSummaryView state={FILLED} />);
+    expect(screen.queryByTestId("screening-summary-previous-attempt")).toBeNull();
+
+    const returned = formState({
+      ...FILLED,
+      card: {
+        ...FILLED.card,
+        fields: {
+          ...FILLED.card.fields,
+          availability: {
+            raw: "od 1 listopada",
+            source: "manual",
+            by_name: "Marta Testowa",
+            at: "2026-10-26T15:03:00Z",
+            previous_attempt: true,
+          },
+        },
+      },
+    });
+    rerender(<ScreeningSummaryView state={returned} />);
+
+    expect(screen.getByTestId("screening-summary-previous-attempt")).toHaveTextContent("Osoba wróciła do tej rekrutacji");
+    const terms = screen.getByTestId("screening-form-readonly-terms");
+    expect(within(terms).getByText("Dostępność").nextElementSibling).toHaveTextContent(
+      "od 1 listopada· z poprzedniej próby 26.10.2026",
+    );
+  });
+
   it("komunikat blokady stoi tylko tam, gdzie widok zastępuje formularz", () => {
     const locked = { ...FILLED, editable: false, read_only_message: "Proces zakończony." };
     const { rerender } = render(<ScreeningSummaryView state={locked} />);

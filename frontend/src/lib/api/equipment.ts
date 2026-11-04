@@ -137,6 +137,9 @@ export interface ProtocolLine {
   unit_value: string | null;
   condition: ReturnCondition | null;
   notes: string | null;
+  /** Szczegół wydania: nazwa z rejestru i dodatki recepcji (``null`` = dodatków nie da się poprawić). */
+  base_name?: string | null;
+  accessories?: string | null;
 }
 
 export interface EquipmentProtocol {
@@ -153,6 +156,8 @@ export interface EquipmentProtocol {
   signer_name: string | null;
   has_signed_file: boolean;
   confirmed_at: string | null;
+  cancelled_at?: string | null;
+  cancel_reason?: string | null;
   template_version: string;
   created_at: string | null;
   link: { expires_at: string; used_at: string | null; created_at: string | null } | null;
@@ -544,6 +549,28 @@ export function useCreateExternalPerson() {
   });
 }
 
+export interface MoveToUserResult {
+  holder: EquipmentHolder;
+  assignments: number;
+  protocols: number;
+  confirmed_protocols: number;
+  tasks: number;
+}
+
+/** „Przepisz na konto”: niezwrócony sprzęt osoby spoza NEXUSA na jej konto. */
+export function useMoveExternalToUser() {
+  const invalidate = useInvalidateEquipment();
+  return useMutation({
+    mutationFn: async ({ personId, userId }: { personId: number; userId: number }) =>
+      (
+        await api.post<MoveToUserResult>(`${BASE}/external-people/${personId}/move-to-user`, {
+          user_id: userId,
+        })
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
 export function useReturnEquipment() {
   const invalidate = useInvalidateEquipment();
   return useMutation({
@@ -609,6 +636,46 @@ export function useConfirmProtocol() {
           ...(signer_name ? { signer_name } : {}),
         })
       ).data,
+    onSuccess: invalidate,
+  });
+}
+
+export interface ProtocolLineFix {
+  position: number;
+  unit_value?: string | null;
+  accessories?: string | null;
+  condition?: ReturnCondition;
+  notes?: string | null;
+}
+
+export interface ProtocolFix {
+  protocol_date?: string;
+  holder_name?: string;
+  lines?: ProtocolLineFix[];
+}
+
+/** Poprawka protokołu przed podpisem (decyzja 28.10.2026) — unieważnia wysłany link. */
+export function useCorrectProtocol() {
+  const invalidate = useInvalidateEquipment();
+  return useMutation({
+    mutationFn: async ({ protocolId, fix }: { protocolId: number; fix: ProtocolFix }) =>
+      (
+        await api.patch<EquipmentProtocol & { link_revoked: boolean }>(
+          `${BASE}/protocols/${protocolId}`,
+          fix,
+        )
+      ).data,
+    onSuccess: invalidate,
+  });
+}
+
+/** Anulowanie niepotwierdzonego protokołu z powodem (wydanie → sprzęt wraca na stan). */
+export function useCancelProtocol() {
+  const invalidate = useInvalidateEquipment();
+  return useMutation({
+    mutationFn: async ({ protocolId, reason }: { protocolId: number; reason: string }) =>
+      (await api.post<EquipmentProtocol>(`${BASE}/protocols/${protocolId}/cancel`, { reason }))
+        .data,
     onSuccess: invalidate,
   });
 }
