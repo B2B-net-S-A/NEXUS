@@ -11,8 +11,8 @@ ją przepuścił — blokowała sama lista.
 
 Posiadacz uprawnienia oznacza podpis wiersza rejestru, gdy spełnia JEDNO z:
 
-- ma rolę admin, Head of Recruitment, TCM albo Delivery Lead (DL — tylko
-  u klientów z portfela, jak dotąd: `_assert_signature_client_access`),
+- ma rolę admin, Head of Recruitment, TCM, Finanse albo Delivery Lead (DL —
+  tylko u klientów z portfela, jak dotąd: `_assert_signature_client_access`),
 - jest autorem umowy (`created_by`),
 - jest w zespole rekrutacji umowy (`_jobs_run_by`: prowadzący, TAC, DL
   rekrutacji, aktywne przypisanie, ręczny współpracownik — bez `auto_cc`).
@@ -55,3 +55,8 @@ nie patrzy na autora ani zespół.
   roli w bazie pochodzi z migracji 0282 (rekruter = `none`) i zasiew go nie
   nadpisuje, więc całej roli Rekruter nadaje je Artur w Ustawienia → Osoby
   i role. Wcześniej rekruterom nadawał je imiennie.
+- Finanse (od 04.11.2026): rola sama podpisu nie daje (wiersz roli = `none`),
+  ale osoba z imiennym nadaniem oznacza każdą umowę. Zgłoszenie: po przejściu
+  z TCM do Finansów imienne uprawnienie nie działało przy żadnej cudzej umowie,
+  a Finanse nie bywają w zespole rekrutacji. Rola Finanse jest wyłączna
+  (`ck_users_exclusive_finance_viewer_roles`), więc TCM nie da się zostawić obok.

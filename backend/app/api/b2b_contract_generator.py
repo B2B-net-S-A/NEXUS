@@ -869,11 +869,14 @@ async def _require_signature_job_scope(db: AsyncSession, user: User, job: Job) -
 
 #: Kto oznacza podpis KAŻDEJ umowy (w swoim zakresie klientów). Delivery Lead
 #: jest tu, bo jego zakres i tak zawęża portfel (``_assert_signature_client_access``).
+#: Finanse nie bywają autorem ani w zespole rekrutacji, więc bez tego wpisu
+#: nadane im uprawnienie nie działałoby przy żadnej umowie (zgłoszenie 04.11.2026).
 _SIGNS_EVERY_CONTRACT_ROLES: tuple[UserRole, ...] = (
     UserRole.admin,
     UserRole.head_of_recruitment,
     UserRole.talent_community_manager,
     UserRole.delivery_lead,
+    UserRole.finance,
 )
 
 _SIGNATURE_ROW_SCOPE_DENIED = (

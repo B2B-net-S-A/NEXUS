@@ -1938,6 +1938,42 @@ async def test_recruiter_confirms_own_contract_outside_the_team(
 
 
 @pytest.mark.asyncio
+async def test_finance_with_the_permission_confirms_any_contract(
+    app_client: AsyncClient,
+):
+    """Zgłoszenie z 04.11.2026: osoba z roli Finanse z imiennym uprawnieniem
+    widziała „Podpis tej umowy oznacza…” przy cudzych umowach. Finanse nie
+    bywają w zespole rekrutacji ani autorem umowy, więc reguła wiersza
+    zostawiała uprawnienie bez skutku. Samo wejście do roli nadal nie daje
+    podpisu (wiersz roli w bazie = ``none``)."""
+    from tests._permission_grants import grant_permissions, role_permission
+
+    admin_id = await _current_admin_id(app_client)
+    headers = await _headers_for_role(app_client, UserRole.finance)
+    user_id = int(headers["X-Test-User-Id"])
+    foreign = await _seed_bound_scenario(created_by=admin_id)
+
+    async with role_permission("finance", "b2b_signature_confirmation", granted=False):
+        denied = await _confirm(app_client, headers, foreign["generated_id"])
+    assert denied.status_code == 403, denied.text
+    assert denied.json()["detail"]["code"] == "action_access_denied"
+
+    await grant_permissions(user_id, "b2b_signature_confirmation")
+    item = await _listed(app_client, headers, foreign)
+    assert item["can_confirm_signed"] is True, item["blocked_reason"]
+    assert item["blocked_reason"] is None
+
+    allowed = await _confirm(app_client, headers, foreign["generated_id"])
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["outcome"] == "created"
+    assert await _counts_for_pair(foreign["candidate_id"], foreign["job_id"]) == (
+        1,
+        1,
+        1,
+    )
+
+
+@pytest.mark.asyncio
 async def test_exception_after_flush_rolls_back_entire_confirmation(
     app_client: AsyncClient,
     app_auth_headers: dict[str, str],
