@@ -613,14 +613,15 @@ async def test_revoking_finance_module_from_one_person_closes_the_route(
     colleague = await make_account(UserRole.finance)
     target_id = int(account["id"])
     target_url = f"{PANEL}/users/{target_id}"
-    # Trasa z ``FinanceModuleUser``: puste ciało przechodzi bramkę i odpada na
-    # walidacji, więc 403 znaczy odmowę bramki, a nie pozostałej logiki.
-    finance_route = "/api/finance/order-changes/checks"
+    # Wyniki miesięczne stoją za sekcją Finanse, która wynika z „Modułu Finanse”.
+    finance_route = "/api/finance/periods"
+    # Zakładki o zamówieniach mają własne uprawnienie (04.11.2026).
+    orders_route = "/api/finance/order-changes/summary"
 
     headers = await _login(app_client, account)
     colleague_headers = await _login(app_client, colleague)
-    allowed = await app_client.post(finance_route, headers=headers, json={})
-    assert allowed.status_code == 422, allowed.text
+    allowed = await app_client.get(finance_route, headers=headers)
+    assert allowed.status_code == 200, allowed.text
 
     revision = (await _snapshot(app_client, app_auth_headers))["revision"]
     revoke = await app_client.put(
@@ -639,16 +640,18 @@ async def test_revoking_finance_module_from_one_person_closes_the_route(
     }
 
     # Odebranie wylogowuje tę jedną osobę; druga z tą samą rolą pracuje dalej.
-    stale = await app_client.post(finance_route, headers=headers, json={})
+    stale = await app_client.get(finance_route, headers=headers)
     assert stale.status_code == 401, stale.text
-    untouched = await app_client.post(finance_route, headers=colleague_headers, json={})
-    assert untouched.status_code == 422, untouched.text
+    untouched = await app_client.get(finance_route, headers=colleague_headers)
+    assert untouched.status_code == 200, untouched.text
 
     headers = await _login(app_client, account)
-    denied = await app_client.post(finance_route, headers=headers, json={})
+    denied = await app_client.get(finance_route, headers=headers)
     assert denied.status_code == 403, denied.text
     assert denied.json()["detail"]["code"] == "permission_denied"
     assert denied.json()["detail"]["permission"] == "finance_module"
+    kept = await app_client.get(orders_route, headers=headers)
+    assert kept.status_code == 200, kept.text
     me = await app_client.get("/api/auth/me", headers=headers)
     assert me.json()["effective_action_access"]["finance_module"] == "none"
     assert me.json()["effective_section_access"]["finance"] == "none"
@@ -691,8 +694,8 @@ async def test_revoking_finance_module_from_one_person_closes_the_route(
     assert person["restrictions"] == []
     assert "finance_module" in person["effective"]
     headers = await _login(app_client, account)
-    restored = await app_client.post(finance_route, headers=headers, json={})
-    assert restored.status_code == 422, restored.text
+    restored = await app_client.get(finance_route, headers=headers)
+    assert restored.status_code == 200, restored.text
     event = await _last_user_event(target_id)
     assert event.reason == "Usunięto ograniczenie: „Moduł Finanse”."
 
@@ -727,7 +730,8 @@ async def test_revoking_what_a_kept_permission_requires_is_refused(
         "code": "permission_required_by_kept",
         "message": (
             "Nie można odebrać „Stawki i kwoty: podgląd”: wymaga go "
-            "„Stawki i kwoty: zmiana”, „Moduł Finanse”, a ta osoba to zachowuje. "
+            "„Stawki i kwoty: zmiana”, „Moduł Finanse”, "
+            "„Zamówienia: zmiany, PDF-y, import MD”, a ta osoba to zachowuje. "
             "Odbierz najpierw tamto albo wszystko naraz."
         ),
     }
@@ -754,6 +758,7 @@ async def test_revoking_what_a_kept_permission_requires_is_refused(
         ("amounts_view", "none"),
         ("amounts_edit", "none"),
         ("finance_module", "none"),
+        ("orders_work", "none"),
     )
     assert together.status_code == 200, together.text
     person = (await app_client.get(target_url, headers=app_auth_headers)).json()["user"]
@@ -1190,6 +1195,7 @@ async def test_first_real_change_writes_the_whole_seed_of_an_unseeded_role(
             "company_results": "none",
             # Umowy klientów (04.11.2026): domyślnie ma je tylko admin.
             "client_contracts_view": "none",
+            "orders_work": "none",
             # Grupa „Ludzie” (16.10.2026): TCM prowadzi skrzynkę administracja@.
             "people_admin": "none",
             "payroll": "none",

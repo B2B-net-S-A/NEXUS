@@ -27,6 +27,8 @@ Dlatego:
   import MD”). Trasy stoją na `finance.orders_router`, bez bramki sekcji;
   `/api/md-consumption` na `OrdersWorkUser`. „Moduł Finanse” pociąga `orders_work`,
   więc posiadacz modułu niczego nie traci.
+- Stary limit sekcji Finanse (`legacy_section_caps`) nie ogranicza już zakładek o zamówieniach,
+  bo stoją poza tą sekcją. Na kopii produkcji z 04.11.2026 takich wierszy nie ma.
 - Odebranie „Modułu Finanse” osobie z rolą Finanse zostawia jej zakładki o zamówieniach.
   Żeby zamknąć całe wejście, trzeba odebrać oba uprawnienia.
 - Kwoty przy rekordzie daje „Stawki i kwoty: podgląd”

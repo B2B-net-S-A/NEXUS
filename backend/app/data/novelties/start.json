@@ -92,10 +92,10 @@
     "why": "W Finansach przełączasz widoki (zmiany w zamówieniach, zamówienia PDF, import MD) i eksportujesz dane.",
     "tier": "tour",
     "shipped_on": "2026-10-30",
-    "audience": {"roles": ["finance", "back_office"]},
+    "audience": {"roles": ["finance"]},
     "where": "Finanse",
     "href": "/finance",
-    "section": "delivery",
+    "section": "finance",
     "dot_anchor": "finance.modes",
     "steps": [
       {"anchor": "finance.modes", "text": "Kliknij przełącznik widoków.", "hint": "Każdy widok to inna lista do rozliczenia."},

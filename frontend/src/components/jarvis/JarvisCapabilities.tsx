@@ -1,14 +1,15 @@
 "use client";
 
-/** Pusty panel: co Jarvis zrobi sam, co przygotuje do kliknięcia, a czego nie zrobi.
+/** Pusty panel: co Jarvis sprawdzi, co zapisze od razu, co przygotuje do kliknięcia, a czego nie zrobi.
  *  Lista przychodzi z `GET /api/jarvis/status` — z narzędzi TEJ roli. */
 
-import { Check, Hand, MousePointerClick } from "lucide-react";
+import { Check, Hand, MousePointerClick, Undo2 } from "lucide-react";
 import type { JarvisCapabilities as Capabilities } from "@/lib/jarvis/types";
 
 export function JarvisCapabilities({ capabilities }: { capabilities: Capabilities }) {
   const groups = [
     { Icon: Check, title: "Sprawdzę od razu", items: capabilities.read },
+    { Icon: Undo2, title: "Zrobię od razu, gdy poprosisz — cofniesz przez 15 minut", items: capabilities.now },
     { Icon: MousePointerClick, title: "Przygotuję — Ty klikasz „Zrób to”", items: capabilities.write },
     { Icon: Hand, title: "Tego nie zrobię — pokażę, gdzie kliknąć", items: capabilities.never },
   ].filter((g) => g.items.length > 0);

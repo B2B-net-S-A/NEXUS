@@ -66,7 +66,11 @@ export function applyStreamEvent(state: JarvisTurnState, event: JarvisStreamEven
     case "gap":
       return { ...state, items: [...state.items, { kind: "gap", gap: event.gap }] };
     case "action_proposed":
-      return { ...state, items: [...state.items, { kind: "action", action: event.action }], mood: "listening" };
+      return {
+        ...state,
+        items: [...state.items, { kind: "action", action: event.action }],
+        mood: event.action.status === "proposed" ? "listening" : state.mood,
+      };
     case "sources":
       return state.items.length === 0 && event.items.length === 0
         ? state
@@ -110,6 +114,15 @@ function finalizeStreaming(items: JarvisItem[]): JarvisItem[] {
 }
 
 /** Podmiana karty akcji po zatwierdzeniu/odrzuceniu (+ ewentualna karta „mimo ostrzeżenia”). */
+/** „Cofnij” przychodzi po odpowiedzi modelu pod kartą, więc komunikat idzie na koniec rozmowy. */
+export function applyUndoOutcome(
+  items: JarvisItem[],
+  updated: Extract<JarvisItem, { kind: "action" }>["action"],
+  message: string,
+): JarvisItem[] {
+  return [...replaceAction(items, updated), { kind: "message", role: "assistant", markdown: message }];
+}
+
 export function replaceAction(
   items: JarvisItem[],
   updated: Extract<JarvisItem, { kind: "action" }>["action"],

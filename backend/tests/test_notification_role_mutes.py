@@ -134,7 +134,7 @@ def test_role_mute_blocks_delivery_and_hides_rows_but_missing_policy_mutes_nothi
     assert "NOT IN" in str(notification_visibility_predicate(user)).upper()
 
 
-def test_matrix_covers_the_six_working_roles():
+def test_matrix_covers_the_seven_working_roles():
     assert {role.value for role in MATRIX_ROLES} == {
         "admin",
         "head_of_recruitment",
@@ -142,6 +142,7 @@ def test_matrix_covers_the_six_working_roles():
         "recruiter",
         "talent_community_manager",
         "finance",
+        "back_office",
     }
 
 

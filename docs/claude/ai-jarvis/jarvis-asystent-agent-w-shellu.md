@@ -15,7 +15,8 @@ Backend: `app/api/jarvis.py` + `app/services/jarvis/`; front: `components/jarvis
   PROPONUJE (`jarvis_actions.status=proposed`, karta w UI), wykonanie dopiero
   po `POST /api/jarvis/actions/{id}/confirm` klikniętym przez człowieka — i to
   DOKŁADNIE z zapisanymi `args`, idempotentnie (`proposed → confirmed` warunkowym
-  UPDATE, TTL 15 min); `link` (`open_screen`) — operacje krytyczne (usuwanie,
+  UPDATE, TTL 15 min), a narzędzia z `undo` wykonują się od razu, z „Cofnij”
+  (`jarvis-zapis-od-razu-z-cofnij.md`); `link` (`open_screen`) — operacje krytyczne (usuwanie,
   wypowiedzenie, podpis, stawki, maile, generatory, admin) NIGDY nie są
   wykonywane, Jarvis daje przycisk do ekranu. Listę zakazaną i „read ⇒ trasa
   odczytu” pilnuje `test_jarvis_tool_registry_contract.py`.

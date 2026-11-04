@@ -22,6 +22,7 @@ interface Props {
   actionsDisabled?: boolean;
   onConfirm?: (action: JarvisAction) => void;
   onReject?: (action: JarvisAction) => void;
+  onUndo?: (action: JarvisAction) => void;
   onNavigate?: () => void;
   onGuideTask?: (task: ScreenGuideTask) => void;
   onShowAnchor?: (anchorId: string) => void;
@@ -36,6 +37,7 @@ export function JarvisMessageList({
   actionsDisabled,
   onConfirm,
   onReject,
+  onUndo,
   onNavigate,
   onGuideTask,
   onShowAnchor,
@@ -121,6 +123,7 @@ export function JarvisMessageList({
                 disabled={actionsDisabled}
                 onConfirm={onConfirm}
                 onReject={onReject}
+                onUndo={onUndo}
               />
             );
           case "sources":

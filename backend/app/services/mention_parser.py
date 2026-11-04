@@ -38,6 +38,11 @@ from app.services.section_permissions import (
 _EMAIL_RE = re.compile(r"@([A-Za-z0-9._+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})")
 
 
+def has_mention(content: str) -> bool:
+    """Czy tekst ma składnię wzmianki — bez bazy, także dla adresu spoza zespołu."""
+    return bool(_EMAIL_RE.search(content or ""))
+
+
 async def _extract_candidate_user_ids(db: AsyncSession, content: str) -> set[int]:
     """Resolves adresy e-mail z treści do zbioru user_id.
 

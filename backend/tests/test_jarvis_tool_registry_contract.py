@@ -14,12 +14,21 @@ from __future__ import annotations
 
 import ast
 import re
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from app.services.jarvis import tools as jarvis_tools
-from app.services.jarvis.tools import ALL_TOOLS, SCREENS, TOOLS_BY_NAME, tools_for_user
+from app.services.jarvis.prompt import SYSTEM_PROMPT
+from app.services.jarvis.tools import (
+    ALL_TOOLS,
+    SCREENS,
+    TOOLS_BY_NAME,
+    UNDO_WINDOW_MINUTES,
+    tools_for_user,
+)
+from app.services.job_proposals import UNDO_ADD_WINDOW
 from app.services.request_semantics import is_read_only_http_request
 from app.services.section_permissions import ProductSection
 from tests._route_introspection import iter_api_routes
@@ -101,7 +110,56 @@ def test_write_tools_are_reversible_and_have_a_card(tool):
     assert tool.method != "DELETE", tool.name
     assert not is_read_only_http_request(tool.method, _concrete(tool.path)), tool.name
     assert tool.preview is not None and tool.done != "Gotowe.", tool.name
-    assert tool.description.startswith("PROPONUJE"), tool.name
+    # 27.10.2026: zapis z „Cofnij” wykonuje się od razu — i mówi to modelowi.
+    expected = "WYKONUJE OD RAZU" if tool.undo is not None else "PROPONUJE"
+    assert tool.description.startswith(expected), tool.name
+
+
+# Zapisy wykonywane od razu i ich trasy odwrotne — zamknięta lista. Nowe
+# narzędzie z ``undo`` to decyzja Artura, nie skutek uboczny refaktoru.
+_UNDO_ROUTES = {
+    "create_note": {("DELETE", "/api/notes/{note_id}")},
+    "add_candidates_to_job": {
+        ("DELETE", "/api/candidates/{candidate_id}/recruitments/{job_id}")
+    },
+    "snooze_my_person": {("DELETE", "/api/my-people/{candidate_id}/snooze")},
+    "pin_my_person": {("DELETE", "/api/my-people/{candidate_id}/pin")},
+}
+
+
+def test_only_the_agreed_writes_run_at_once():
+    assert {t.name for t in ALL_TOOLS if t.undo is not None} == set(_UNDO_ROUTES)
+
+
+def test_undo_window_matches_quick_undo_of_adding_to_a_job():
+    """Dłuższe okno Jarvisa dawałoby przycisk, który zawsze kończy się odmową."""
+    assert UNDO_ADD_WINDOW == timedelta(minutes=UNDO_WINDOW_MINUTES)
+
+
+def test_prompt_does_not_tell_the_model_to_add_people_on_its_own():
+    """„Zaproponuj dodanie” przy zapisie od razu dodawałoby ludzi bez prośby."""
+    assert "zaproponuj dodanie" not in SYSTEM_PROMPT
+    assert "wprost o to poprosił" in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize("name", sorted(_UNDO_ROUTES))
+def test_undo_calls_hit_registered_inverse_routes(name):
+    tool = TOOLS_BY_NAME[name]
+    args = {"candidate_id": 11, "job_id": 22, "content": "x", "candidate_ids": [11]}
+    specs = tool.undo(args, {"id": 33, "added": [11, 12]})
+    assert specs
+    routes = _registered_routes()
+    for spec in specs:
+        assert spec.method == "DELETE"
+        template = next(
+            (method, path)
+            for method, path in _UNDO_ROUTES[name]
+            if re.fullmatch(re.sub(r"\{[^}]+\}", r"\\d+", path), spec.path)
+        )
+        assert template in routes, template
+    if name == "add_candidates_to_job":
+        assert all(spec.params == {"quick_undo": "true"} for spec in specs)
+        assert len(specs) == 2, "cofnięcie zdejmuje każdą dodaną osobę"
 
 
 @pytest.mark.parametrize(
