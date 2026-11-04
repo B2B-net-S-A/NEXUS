@@ -99,6 +99,7 @@ export function canMoveInPipeline(user: PermissionUser): boolean {
       "talent_community_manager",
       "recruiter",
       "finance",
+      "back_office",
     ) && hasSectionAccess(user, "pipeline", "write")
   );
 }

@@ -2284,6 +2284,7 @@ app.include_router(
 )
 # Moduł „Finanse" — import miesięcznych wyników kontraktorów (admin + finance).
 app.include_router(finance_api.router, prefix="/api/finance", tags=["finance"])
+app.include_router(finance_api.orders_router, prefix="/api/finance", tags=["finance"])
 app.include_router(onboarding_api.router, prefix="/api/users", tags=["onboarding"])
 # Własny pulpit (0337) PRZED routerem `/api/users`, żeby `/me/dashboard`
 # nigdy nie trafił w trasę z parametrem ścieżki.

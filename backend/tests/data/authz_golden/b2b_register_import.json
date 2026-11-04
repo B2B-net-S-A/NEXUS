@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/b2b-generator/register-import/runs": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/b2b-generator/register-import/runs/{run_id}/rollback": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

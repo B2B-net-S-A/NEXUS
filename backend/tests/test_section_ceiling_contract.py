@@ -48,6 +48,9 @@ _SECTIONLESS_PERMISSIONS = {
     ProductAction.sales_view,
     ProductAction.sales_edit,
     ProductAction.client_contracts_view,
+    # Zakładki o zamówieniach: celowo bez sekcji Finanse, bo jej odczyt daje
+    # VIEW_FINANCE (rola Back office, 04.11.2026).
+    ProductAction.orders_work,
 }
 
 _AUTH_CALLS = {"get_current_user", "get_authenticated_user", "require_onboarded_user"}

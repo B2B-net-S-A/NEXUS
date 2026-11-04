@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/client-panel/jobs/{job_id}/activity": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "GET /api/client-panel/requests": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "PATCH /api/client-panel/jobs/{job_id}/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/client-panel/jobs/{job_id}/rotate-link": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/client-panel/requests/{request_id}/answer": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "POST /api/client-panel/requests/{request_id}/close": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD",
-  "PUT /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDD"
+  "GET /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/client-panel/jobs/{job_id}/activity": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "GET /api/client-panel/requests": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "PATCH /api/client-panel/jobs/{job_id}/candidates/{candidate_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/client-panel/jobs/{job_id}/rotate-link": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/client-panel/requests/{request_id}/answer": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "POST /api/client-panel/requests/{request_id}/close": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD",
+  "PUT /api/client-panel/jobs/{job_id}": "PDDPDDDDPPPDDDDDPDDDDDDDDDDDD"
  }
 }

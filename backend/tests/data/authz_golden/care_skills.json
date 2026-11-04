@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBDDDDDDDBD",
-  "POST /api/care/skill-review/{item_id}/create": "BDBDBDDDBBDBBBDDDDDDDDDDDDDD",
-  "POST /api/care/skill-review/{item_id}/dismiss": "BDBDBDDDBBDBBBDDDDDDDDDDDDDD",
-  "POST /api/care/skill-review/{item_id}/map": "BDBDBDDDBBDBBBDDDDDDDDDDDDDD"
+  "GET /api/care/skill-review": "BBBBBDDDBBBBBBBBDBBDDDDDDDBDB",
+  "POST /api/care/skill-review/{item_id}/create": "BDBDBDDDBBDBBBDDDDDDDDDDDDDDD",
+  "POST /api/care/skill-review/{item_id}/dismiss": "BDBDBDDDBBDBBBDDDDDDDDDDDDDDD",
+  "POST /api/care/skill-review/{item_id}/map": "BDBDBDDDBBDBBBDDDDDDDDDDDDDDD"
  }
 }

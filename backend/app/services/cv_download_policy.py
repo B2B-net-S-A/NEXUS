@@ -30,6 +30,7 @@ UNRESTRICTED_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
 )
 

@@ -285,6 +285,7 @@ describe("UserModal — uprawnienia tej osoby", () => {
       "Zakończenie współpracy, zmiana statusu kontraktu",
       "Umowy B2B: oznaczanie jako podpisane",
       "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
+      "Zamówienia: zmiany, PDF-y, import MD",
       "Rekrutacje: zakładanie, zamykanie, wysyłka CV do klienta",
       "Stawki i kwoty: podgląd",
       "Stawki i kwoty: zmiana",
@@ -327,7 +328,7 @@ describe("UserModal — uprawnienia tej osoby", () => {
     try {
       renderModal({ initial: tcm });
       const group = await personPermissions();
-      expect(namesIn(group)).toHaveLength(13);
+      expect(namesIn(group)).toHaveLength(14);
       expect(namesIn(group)).not.toContain("Sprawy: skrzynka administracja@");
     } finally {
       hrProgram.on = true;
@@ -421,13 +422,17 @@ describe("UserModal — uprawnienia tej osoby", () => {
     expect(view).toBeDisabled();
     expect(option(group, "Stawki i kwoty: podgląd", "Odebrane")).toBeDisabled();
     expect(view).toHaveAccessibleDescription(
-      "Wymagane przez: „Stawki i kwoty: zmiana”, „Moduł Finanse”",
+      "Wymagane przez: „Stawki i kwoty: zmiana”, „Moduł Finanse”, „Zamówienia: zmiany, PDF-y, import MD”",
     );
 
-    // Odebranie obu, które go wymagają, zwalnia blokadę.
+    // Odebranie wszystkich, które go wymagają, zwalnia blokadę.
     fireEvent.click(option(group, "Stawki i kwoty: zmiana", "Odebrane"));
     expect(view).toBeDisabled();
     fireEvent.click(option(group, "Moduł Finanse", "Odebrane"));
+    expect(view).toBeDisabled();
+    fireEvent.click(
+      option(group, "Zamówienia: zmiany, PDF-y, import MD", "Odebrane"),
+    );
     expect(option(group, "Stawki i kwoty: podgląd", "Odebrane")).toBeEnabled();
   });
 

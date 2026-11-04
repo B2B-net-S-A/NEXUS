@@ -37,7 +37,9 @@ export type Permission =
   // Wyniki firmy (02.11.2026): zbiorcze kwoty, bez Modułu Finanse.
   | "company_results"
   // Umowy klientów (04.11.2026): lista i pliki, bez sekcji Delivery i bez kwot.
-  | "client_contracts_view";
+  | "client_contracts_view"
+  // Zamówienia w module Finanse (04.11.2026): zmiany, PDF-y, import MD.
+  | "orders_work";
 
 export type PermissionGroupKey =
   | "clients_contracts"

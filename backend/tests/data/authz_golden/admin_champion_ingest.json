@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/champion-profiles/coverage": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/champion-profiles/ingest": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

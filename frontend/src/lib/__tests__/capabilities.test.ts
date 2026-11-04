@@ -31,6 +31,7 @@ const ALL_ROLES: UserRole[] = [
   "automation",
   "employee",
   "board",
+  "back_office",
 ];
 
 const mkUser = (role: UserRole) => ({ role });
@@ -59,6 +60,7 @@ const EXPECTED: Record<
       | "automation"
       | "employee"
       | "board"
+      | "back_office"
     >,
     boolean
   >
@@ -533,12 +535,29 @@ describe("rejestr capability — kompletność", () => {
       "nav.order_mail": "delivery_view",
       "nav.my_relationships": "delivery_view",
       "nav.contracts": "delivery_view",
-      "nav.finance": "finance_module",
+      "nav.finance": "orders_work",
       "nav.sales": "sales_view",
       "nav.client_contracts": "client_contracts_view",
     });
   });
 });
+
+/**
+ * „Back office” (0645) pracuje jak Finanse i ma też „Klienci: dodawanie i edycja”
+ * (decyzja Artura 04.11.2026), czego domyślny zestaw Finansów nie zawiera.
+ */
+function backOfficeExpected(capability: Capability): boolean {
+  return (
+    financeExpected(capability) ||
+    [
+      "client.create",
+      "client.update",
+      "cv_rule.manage",
+      "client_playbook.manage",
+      "contact.create",
+    ].includes(capability)
+  );
+}
 
 describe("hasCapability — pełna macierz rola × capability", () => {
   for (const capability of ALL_CAPABILITIES) {
@@ -547,6 +566,8 @@ describe("hasCapability — pełna macierz rola × capability", () => {
       const expected =
         role === "finance"
           ? financeExpected(capability)
+          : role === "back_office"
+            ? backOfficeExpected(capability)
           : role === "talent_community_manager"
             ? talentCommunityManagerExpected(capability)
             : role === "trainee"
@@ -825,7 +846,7 @@ describe("capability z uprawnienia — to, co administrator przełączył, decyd
     }
   });
 
-  it("Moduł Finanse: nadany Head of Recruitment otwiera wejście, wyłączony Finansom — zamyka", () => {
+  it("Finanse w menu: Moduł Finanse nadany Head of Recruitment otwiera wejście, odebrane zamówienia i moduł — zamykają", () => {
     expect(
       hasCapability(
         accessSnapshot("head_of_recruitment", { grant: ["finance_module"] }),
@@ -834,7 +855,7 @@ describe("capability z uprawnienia — to, co administrator przełączył, decyd
     ).toBe(true);
     expect(
       hasCapability(
-        accessSnapshot("finance", { revoke: ["finance_module"] }),
+        accessSnapshot("finance", { revoke: ["finance_module", "orders_work"] }),
         "nav.finance",
       ),
     ).toBe(false);
@@ -1408,10 +1429,11 @@ const CAPABILITY_BACKEND_MIRROR: Record<
   "nav.order_mail": DELIVERY_VIEW_MIRROR,
   "nav.my_relationships": DELIVERY_VIEW_MIRROR,
   "nav.contracts": DELIVERY_VIEW_MIRROR,
-  // /api/finance/* → FinanceModuleUser (deps.py) = „Moduł Finanse”.
+  // /api/finance/order-changes|order-pdfs → OrdersWorkUser (deps.py);
+  // „Moduł Finanse” pociąga `orders_work`.
   "nav.finance": {
-    permission: "finance_module",
-    evidence: [{ alias: "FinanceModuleUser" }],
+    permission: "orders_work",
+    evidence: [{ alias: "OrdersWorkUser" }],
   },
   // /api/sales/* → SalesViewUser (permission_access.py) = „Sprzedaż: podgląd”.
   "nav.sales": {
@@ -1645,7 +1667,7 @@ describe("kontrakt sidebar ↔ rejestr capability", () => {
       ),
     ).toBe(true);
     expect(
-      seesHref(accessSnapshot("finance", { revoke: ["finance_module"] }), "/finance"),
+      seesHref(accessSnapshot("finance", { revoke: ["finance_module", "orders_work"] }), "/finance"),
     ).toBe(false);
   });
 

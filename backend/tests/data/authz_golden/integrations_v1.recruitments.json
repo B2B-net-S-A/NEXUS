@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/board": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/requirements": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/stages": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/recruitments": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/board": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/requirements": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/stages": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
-  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
-  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPPDDDDDDPD",
-  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
-  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDDDDDDDDDD",
-  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/clients": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/clients/{client_id}": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "GET /api/clients/{client_id}/profile": "PPDPPDDDPPPDPPPPDPPPDDDDDDPDP",
+  "PATCH /api/clients/{client_id}": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "POST /api/clients": "PDDPDDDDPPPDDDPDDDDDDDDDDDDDP",
+  "POST /api/clients/{client_id}/merge-into/{target_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

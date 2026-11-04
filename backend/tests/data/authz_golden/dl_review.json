@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/dl-review/context": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dl-review/jobs/{job_id}/queue": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
+  "GET /api/dl-review/context": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dl-review/jobs/{job_id}/queue": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

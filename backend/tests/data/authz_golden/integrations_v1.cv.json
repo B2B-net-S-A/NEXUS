@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv/file": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/{job_id}/candidates/{candidate_id}/cv": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

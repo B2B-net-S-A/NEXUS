@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDDDBD",
-  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDDDBD"
+  "DELETE /api/clients/{client_id}": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB",
+  "POST /api/clients/{client_id}/deletion-check": "BBDBBDDDBBBDBBBBDBBBDDDDDDBDB"
  }
 }

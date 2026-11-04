@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
+  "GET /api/competence-categories": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/competence-categories/{cc_id}/recruiters": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

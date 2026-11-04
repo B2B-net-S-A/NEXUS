@@ -67,6 +67,7 @@ from app.services.hr import account_profiles
 from app.services import new_person_setup
 from app.services.m365 import oauth as m365_oauth
 from app.services.onboarding_access import onboarding_persona_changed
+from app.services.action_permissions import ProductAction, has_permission
 from app.services.section_permissions import resolve_effective_section_access
 from app.services.user_email import normalize_email, user_by_email_statement
 
@@ -1109,6 +1110,7 @@ async def callback(
         roles=[r.value for r in user.get_all_roles()],
         authorization_version=user.authorization_version,
         section_access=user.effective_section_access,
+        finance_orders=has_permission(user, ProductAction.orders_work),
     )
     refresh = create_refresh_token(
         user.id, authorization_version=user.authorization_version

@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/absences": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/absences/{request_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/absences": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/absences/{request_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

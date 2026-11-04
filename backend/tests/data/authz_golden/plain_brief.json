@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/jobs/{job_id}/plain-brief": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PUT /api/jobs/{job_id}/role-profile": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

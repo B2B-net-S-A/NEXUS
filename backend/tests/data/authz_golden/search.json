@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
+  "GET /api/search/": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/search/global": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/search/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/search/candidates/diagnostics": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/search/candidates/scores": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/search/semantic": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

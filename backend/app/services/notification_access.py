@@ -193,7 +193,8 @@ NOTIFICATION_SECTION_BY_TYPE: dict[NotificationType, ProductSection] = {
     NotificationType.departed_pairs_care: ProductSection.pipeline,
     NotificationType.request_allocation_proposals: ProductSection.pipeline,
     NotificationType.candidate_claim_taken: ProductSection.pipeline,
-    NotificationType.hired_order_missing: ProductSection.finance,
+    # 0645: Finanse i Back office; „Dodaj zamówienie” prowadzi do Delivery.
+    NotificationType.hired_order_missing: ProductSection.delivery,
     NotificationType.consultant_in_other_recruitment: ProductSection.delivery,
     # 0440: link prowadzi do panelu osoby na Tablicy rekrutacji (sekcja CV).
     NotificationType.cv_ready: ProductSection.pipeline,

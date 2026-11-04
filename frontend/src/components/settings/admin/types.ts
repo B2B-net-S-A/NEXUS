@@ -54,6 +54,7 @@ export const ROLES = [
   "automation",
   "employee",
   "board",
+  "back_office",
   "user",
 ];
 
@@ -70,6 +71,7 @@ export const EXCLUSIVE_ROLES: readonly string[] = [
   "automation",
   "employee",
   "board",
+  "back_office",
 ];
 
 /**
@@ -96,6 +98,7 @@ export const ROLE_LABELS: Record<string, string> = {
   automation: "Automatyzacje",
   employee: "Konsultant/Kontraktor",
   board: "Rada nadzorcza",
+  back_office: "Back office",
   manager: "Manager",
   client: "Klient",
 };

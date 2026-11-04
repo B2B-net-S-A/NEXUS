@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/financial-adjustments": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/financial-adjustments/{adjustment_id}/approve": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

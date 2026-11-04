@@ -76,7 +76,7 @@
     "why": "W rejestrze kontraktów widzisz każdą współpracę; z panelu kontraktu zmieniasz warunki i kończysz współpracę.",
     "tier": "tour",
     "shipped_on": "2026-10-30",
-    "audience": {"roles": ["finance"]},
+    "audience": {"roles": ["finance", "back_office"]},
     "where": "Kontrakty",
     "href": "/contracts",
     "section": "delivery",

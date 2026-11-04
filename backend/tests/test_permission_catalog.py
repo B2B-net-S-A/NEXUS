@@ -32,6 +32,19 @@ EXPECTED_DEFAULTS: dict[str, set[str]] = {
         "finance_module",
         # „Ludzie w NEXUSIE” (D2, 16.10.2026): Płace domyślnie u Finansów.
         "payroll",
+        # 04.11.2026: zakładki o zamówieniach poza „Modułem Finanse”.
+        "orders_work",
+    },
+    # 0645: „Back office” — zamówienia i umowy, kwoty przy rekordzie.
+    "back_office": {
+        "delivery_view",
+        "clients_edit",
+        "contracts_orders_edit",
+        "contract_status",
+        "b2b_signature_confirmation",
+        "amounts_view",
+        "amounts_edit",
+        "orders_work",
     },
     "head_of_recruitment": set(),
     "delivery_lead": {
@@ -68,7 +81,7 @@ PRODUCTION_SECTIONS: dict[str, dict[str, str]] = {
 }
 
 
-def test_screen_shows_eighteen_permissions_in_five_groups() -> None:
+def test_screen_shows_nineteen_permissions_in_five_groups() -> None:
     assert [permission.label for permission in catalog.PERMISSIONS] == [
         "Klienci, kontrakty i zamówienia: podgląd",
         "Klienci: dodawanie i edycja",
@@ -88,17 +101,18 @@ def test_screen_shows_eighteen_permissions_in_five_groups() -> None:
         "Raporty godzin: akceptacja całej firmy",
         "Wyniki firmy: podsumowania przychodu i marży",
         "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
+        "Zamówienia: zmiany, PDF-y, import MD",
     ]
     assert [(group.label, len(group.permissions)) for group in catalog.GROUPS] == [
-        ("Klienci i kontrakty", 6),
+        ("Klienci i kontrakty", 7),
         ("Rekrutacje", 1),
         ("Pieniądze", 4),
         ("Ludzie", 5),
         ("Sprzedaż", 2),
     ]
-    assert sum(len(group.permissions) for group in catalog.GROUPS) == 18
+    assert sum(len(group.permissions) for group in catalog.GROUPS) == 19
     # Siatka przy starcie sprawdza ostatni zasiewany klucz — nowe na końcu.
-    assert catalog.SEEDED_KEYS[-1] == catalog.CLIENT_CONTRACTS_VIEW
+    assert catalog.SEEDED_KEYS[-1] == catalog.ORDERS_WORK
 
 
 def test_catalog_roles_are_exactly_the_application_roles() -> None:
@@ -144,6 +158,7 @@ def test_edit_permissions_pull_in_what_they_need() -> None:
     }
     assert catalog.close(["finance_module"]) == {
         "finance_module",
+        "orders_work",
         "amounts_view",
         "delivery_view",
     }

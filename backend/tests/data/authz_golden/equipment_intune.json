@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB"
+  "DELETE /api/equipment/intune/devices/{device_id}/resolution": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/discrepancies": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/equipment/intune/status": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/link": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/devices/{device_id}/resolve": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/equipment/intune/sync": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB"
  }
 }

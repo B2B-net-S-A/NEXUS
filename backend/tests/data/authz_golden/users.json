@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/users": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/users": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/users/me/email-notifications": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/users/mentionable": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/users/me/preferences": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "PUT /api/users/me/email-notifications/{kind}": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP"
  }
 }

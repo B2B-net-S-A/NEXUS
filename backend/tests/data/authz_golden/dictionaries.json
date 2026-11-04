@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/dictionaries/{slug}/items": "PPPPPPPDPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/settings/dictionaries": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/settings/dictionaries/{slug}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/settings/dictionaries/{slug}/items/{item_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/settings/dictionaries/{slug}/items": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

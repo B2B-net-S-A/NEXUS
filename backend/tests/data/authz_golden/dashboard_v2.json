@@ -27,20 +27,21 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDDD",
-  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPDDD",
-  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/dashboard/v2/admin-ops": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/delivery-lead": "PDDPDDDDPPPDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/finance": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/head-of-recruitment": "PDPDPDDDPPDPPPDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/v2/my-work": "PDDDDPDDDDPPPDPPPPPDDPPPPDDDD",
+  "GET /api/dashboard/v2/recruitment-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/v2/recruitment-activity/details": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/v2/recruitment-activity/team-totals": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/v2/recruitment-operations": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/v2/recruitment-operations/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/dashboard/v2/recruitment-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PUT /api/dashboard/v2/recruitment-operations/{job_id}/favorite": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

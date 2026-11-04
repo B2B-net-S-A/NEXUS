@@ -56,6 +56,7 @@ DIGEST_ROLES = (
     UserRole.delivery_lead,
     UserRole.head_of_recruitment,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 

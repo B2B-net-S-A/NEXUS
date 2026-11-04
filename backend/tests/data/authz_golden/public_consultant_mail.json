@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/consultant-mail/unsubscribe/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

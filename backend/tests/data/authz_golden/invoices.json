@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/invoices/dso": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
-  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD"
+  "DELETE /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/invoices/dso": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/invoices/export.csv": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "GET /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "PATCH /api/invoices/{invoice_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD",
+  "POST /api/invoices": "PPDDDDDDDDDDDDDDDPDDDDDDDDDDD"
  }
 }

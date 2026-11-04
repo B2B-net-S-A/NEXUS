@@ -86,6 +86,7 @@ DlAlertsUser = Annotated[
             UserRole.admin,
             UserRole.delivery_lead,
             UserRole.finance,
+            UserRole.back_office,
         )
     ),
 ]

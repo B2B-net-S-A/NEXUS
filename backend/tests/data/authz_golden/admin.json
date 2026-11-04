@@ -27,18 +27,19 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/admin/users/{user_id}/departure-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/system": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/admin/users/{user_id}/departure-preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/impersonate/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/reset-password": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/resync-aad-groups": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/users/{user_id}/send-reset-link": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/admin/users/{user_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

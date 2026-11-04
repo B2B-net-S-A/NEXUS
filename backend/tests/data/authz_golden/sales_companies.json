@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/owner-labels": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/registry": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/owner-labels/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/merge": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/duplicates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/owner-labels": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/registry": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/owner-labels/assign": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/merge": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/companies/{company_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

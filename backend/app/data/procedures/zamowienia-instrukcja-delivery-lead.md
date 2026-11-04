@@ -1,4 +1,4 @@
-> **Zgodność z systemem sprawdzona:** 03.11.2026
+> **Zgodność z systemem sprawdzona:** 04.11.2026
 
 Ta instrukcja opisuje, jak **dziś naprawdę działa** moduł Zamówienia — a nie jak
 miał działać albo jak działał kiedyś. Zaczyna się od rzeczy wspólnych dla
@@ -191,9 +191,9 @@ dane z dokumentu od klienta.
 
 Po każdym zatrudnieniu — z podpisu umowy i z ręcznego przestawienia na
 „zatrudniony" — dostajesz w panelu **„Moi klienci"** kartę „Nowy kontraktor —
-uzupełnij zamówienie", a dział Finansów powiadomienie o tym samym. To jedna
+uzupełnij zamówienie", a Finanse i Back office powiadomienie o tym samym. To jedna
 sprawa: gdy zapiszesz zamówienie z datą rozpoczęcia i stawką przychodową,
-karta i powiadomienie Finansów znikają od razu.
+karta i to powiadomienie znikają od razu.
 
 **2. Osoba jest na liście, ale chcesz poprawić jedno pole.** Kliknij jej
 wiersz. W panelu, w sekcji bieżącego zamówienia, numer zamówienia, obie stawki
@@ -243,7 +243,7 @@ godzinę, pod polem pojawia się notka **„Różni się od stawki z rekrutacji 
 sprawdź”**. **Zapisu nic nie blokuje** — klient mógł przyjąć inną stawkę po
 negocjacji. Stawkę do klienta widzą tylko role, które widzą ją w rekrutacji
 (administrator, Head of Recruitment, Delivery Lead, Talent Community Manager,
-Finanse); pozostali widzą samą stawkę kandydata. Bez podglądu kwot klienta
+Finanse, Back office); pozostali widzą samą stawkę kandydata. Bez podglądu kwot klienta
 linii nie ma wcale.
 
 **Po renegocjacji stawki z klientem popraw stawkę do klienta w rekrutacji**

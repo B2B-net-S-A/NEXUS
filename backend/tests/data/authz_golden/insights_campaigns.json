@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/insights/campaigns/active": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/campaigns/active": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "PATCH /api/insights/campaigns/{campaign_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/insights/campaigns": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

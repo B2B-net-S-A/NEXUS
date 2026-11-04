@@ -127,7 +127,7 @@ def narrow_to_self(
     IDs and never permits selecting another user.
     """
 
-    if user.has_any_role(UserRole.finance, UserRole.user):
+    if user.has_any_role(UserRole.finance, UserRole.back_office, UserRole.user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="My Work is unavailable for exclusive non-recruitment roles",

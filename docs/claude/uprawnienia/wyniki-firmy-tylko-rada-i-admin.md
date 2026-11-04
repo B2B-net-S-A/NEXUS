@@ -28,6 +28,8 @@ Makiety i audyt: https://claude.ai/artifact/P9J4Zgecx7B9D9S9VQvQoN.
   w zamówieniach, Wyniki miesięczne. Nie zdejmuj `VIEW_FINANCE` z roli Finanse:
   otwiera ponad 40 powierzchni z pojedynczymi rekordami. Trasy zbiorcze mają
   własną bramkę.
+  Osoby od zamówień i umów mają rolę Back office bez tej sekcji
+  (`rola-back-office-zamowienia-i-umowy.md`).
 
 ## Co jest za uprawnieniem
 

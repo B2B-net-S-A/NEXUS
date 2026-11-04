@@ -27,9 +27,10 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/team-table": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD"
+  "GET /api/insights/team-table": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

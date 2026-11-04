@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 
 import { QueryStateNotice } from "@/components/ds";
-import { RequireSectionAccess } from "@/components/RequireSectionAccess";
+import { RequirePermission } from "@/components/RequirePermission";
 import { FinanceArchiveTab } from "@/components/finance/FinanceArchiveTab";
 import { FinanceResultsTab } from "@/components/finance/FinanceResultsTab";
 import { MdImportWorkspace } from "@/components/finance/MdImportWorkspace";
@@ -20,6 +20,7 @@ import {
 } from "@/components/finance/OrderPdfsTab";
 import { financeApi, type OrderPdfRef } from "@/lib/api/finance";
 import { ORDER_CHANGES_POLL_MS } from "@/lib/polling";
+import { hasPermission } from "@/lib/permissions";
 import { hasSectionAccess } from "@/lib/section-access";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth";
@@ -86,10 +87,9 @@ function FinanceViewSync({ onView }: { onView: (view: ViewMode) => void }) {
  * jego arkusz), stoją jako zakładki. Przełącznik jest ten sam co w module
  * Kontrakty.
  *
- * Widoczne dla osób z efektywnym dostępem do sekcji Finance (rola lub wyjątek
- * indywidualny). `RequireSectionAccess` to warstwa UX; realną bramką jest
- * database-backed section guard na backendzie plus podpisany snapshot w
- * `ROLE_ROUTES` (middleware).
+ * „Moduł Finanse” otwiera wszystkie zakładki. Samo „Zamówienia: zmiany, PDF-y,
+ * import MD” (rola Back office, decyzja Artura 04.11.2026) otwiera tylko trzy
+ * o zamówieniach. `RequirePermission` to warstwa UX; bramką jest API.
  *
  * Stan zakładki żyje w URL przez History API, nie `useSearchParams` — ten drugi
  * wymusza w Next 15 granicę Suspense wokół całej strony (ten sam powód co
@@ -99,6 +99,7 @@ export default function FinancePage() {
   const user = useAuthStore((state) => state.user);
   const impersonating = useAuthStore((state) => state.realUser !== null);
   const [view, setView] = useState<ViewMode>("results");
+  const hasModule = hasPermission(user, "finance_module");
   const [mounted, setMounted] = useState(false);
   // Podgląd jako użytkownik jest zawsze read-only, także gdy target ma
   // Finance=write. Backend odrzuca takie mutacje; UI nie może sugerować, że
@@ -106,14 +107,20 @@ export default function FinancePage() {
   const canWrite =
     !impersonating && hasSectionAccess(user, "finance", "write");
   // „Faktury do klientów” (E8) tylko przy włączonym module (admin widzi zawsze).
-  const invoicingOpen = useInvoicingModule().data?.open === true;
+  const invoicingOpen = useInvoicingModule(hasModule).data?.open === true;
   // „Wydatki ze zgodą” (Zgody, etap 3) tylko przy otwartym module „Zgody”.
-  const approvalsOpen = useHrConfig().data?.open_modules?.approvals === true;
+  const approvalsOpen =
+    useHrConfig(hasModule).data?.open_modules?.approvals === true;
+  // Import MD: `orders_work`, nie zapis sekcji — sekcji Back office nie ma.
+  const canImportMd = !impersonating && hasPermission(user, "orders_work");
+  const fallbackView: ViewMode = hasModule ? "results" : "order-changes";
   const visibleView =
-    (view === "md" && !canWrite) ||
+    (view === "md" && !canImportMd) ||
+    (view === "results" && !hasModule) ||
+    (view === "archive" && !hasModule) ||
     (view === "sales-invoices" && !invoicingOpen) ||
     (view === "approved-expenses" && !approvalsOpen)
-      ? "results"
+      ? fallbackView
       : view;
 
   useEffect(() => {
@@ -174,12 +181,12 @@ export default function FinancePage() {
   }
 
   return (
-    <RequireSectionAccess
-      section="finance"
+    <RequirePermission
+      permissions={["orders_work", "finance_module"]}
       fallback={
         <QueryStateNotice
           state="forbidden"
-          description="Moduł Finanse wymaga uprawnień finansowych. Poproś administratora o dostęp."
+          description="Ten ekran wymaga uprawnienia do Modułu Finanse albo do zamówień. Poproś administratora o dostęp."
         />
       }
     >
@@ -206,19 +213,23 @@ export default function FinancePage() {
           data-help="finance.modes"
           className="flex max-w-full gap-0.5 overflow-x-auto border-b border-border"
         >
-          <ModeButton
-            active={visibleView === "results"}
-            onClick={() => changeView("results")}
-          >
-            Wyniki miesięczne
-          </ModeButton>
-          <ModeButton
-            active={visibleView === "archive"}
-            onClick={() => changeView("archive")}
-          >
-            Archiwum
-          </ModeButton>
-          {canWrite && (
+          {hasModule && (
+            <ModeButton
+              active={visibleView === "results"}
+              onClick={() => changeView("results")}
+            >
+              Wyniki miesięczne
+            </ModeButton>
+          )}
+          {hasModule && (
+            <ModeButton
+              active={visibleView === "archive"}
+              onClick={() => changeView("archive")}
+            >
+              Archiwum
+            </ModeButton>
+          )}
+          {canImportMd && (
             <ModeButton active={view === "md"} onClick={() => changeView("md")}>
               Import zużycia MD
             </ModeButton>
@@ -283,7 +294,7 @@ export default function FinancePage() {
           <MdImportWorkspace />
         )}
       </div>
-    </RequireSectionAccess>
+    </RequirePermission>
   );
 }
 

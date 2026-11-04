@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/users/me/onboarding/jobs": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/users/me/onboarding": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

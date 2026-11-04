@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/interview-questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/interview-questions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/interview-questions/{question_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "PUT /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "DELETE /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "DELETE /api/jobs/{job_id}/questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/interview-questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/suggested-questions": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/jobs/{job_id}/questions/reorder": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/interview-questions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/interview-questions/{question_id}/rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/questions/pin": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/interview-questions/{question_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

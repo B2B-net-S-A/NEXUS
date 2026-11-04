@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/champion-card/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv-i/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/public/cv/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/apply/{token}": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/public/cv-i/{token}/chat": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

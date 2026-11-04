@@ -18,6 +18,9 @@ import { hasSectionAccess } from "@/lib/section-access"
 export type UserRole =
   | "admin"
   | "finance"
+  // „Back office” (0645) — rola WYŁĄCZNA: zamówienia i umowy, kwoty przy
+  // rekordzie, bez Wyników miesięcznych i Płac.
+  | "back_office"
   | "head_of_recruitment"
   | "delivery_lead"
   | "talent_community_manager"
@@ -62,6 +65,8 @@ export const ROLE_RANK: Record<UserRole, number> = {
   employee: 0.5,
   // Tylko odczyt Insights — żadna bramka rangowa jej nie przepuszcza.
   board: 0.5,
+  // Jak Finanse: rola rozłączna, bramki rangowe jej nie przepuszczają.
+  back_office: 0,
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
@@ -76,6 +81,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   automation: "Automatyzacje",
   employee: "Konsultant/Kontraktor",
   board: "Rada nadzorcza",
+  back_office: "Back office",
 }
 
 /** Identyfikatory modułów DynaReportera (migracja B.0, 0111). Lista
@@ -512,7 +518,7 @@ export function canManageOrderLifecycle(
 
 /**
  * „Cofnij zakończenie" i „Powrót po przerwie" (ticket 09.2026): Admin,
- * Finanse i Talent Community Manager — lustro `ContractTerminationRecoveryUser`.
+ * Finanse, Back office i Talent Community Manager — lustro `ContractTerminationRecoveryUser`.
  * Delivery Lead świadomie poza: to korekta administracyjna, nie decyzja
  * o obsadzie. Wymagany co najmniej odczyt sekcji Delivery (bramka routera).
  */
@@ -520,7 +526,7 @@ export function canRecoverContractTermination(
   user: Pick<User, "role" | "roles" | "effective_section_access"> | null | undefined
 ): boolean {
   return (
-    hasRole(user, "admin", "finance", "talent_community_manager") &&
+    hasRole(user, "admin", "finance", "back_office", "talent_community_manager") &&
     hasSectionAccess(user, "delivery", "read")
   )
 }

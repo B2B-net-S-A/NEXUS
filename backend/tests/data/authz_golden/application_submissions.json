@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/application-submissions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/application-submissions/{submission_id}/resolve": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

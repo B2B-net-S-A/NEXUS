@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/insights/integrations/runs": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/integrations/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "PATCH /api/integrations/runs/{run_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/integrations/runs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/integrations/runs/{run_id}/events": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

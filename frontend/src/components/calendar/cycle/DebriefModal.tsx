@@ -12,6 +12,7 @@ const DEBRIEF_WRITE_ROLES = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ] as const;
 
 /**

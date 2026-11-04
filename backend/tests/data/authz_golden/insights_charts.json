@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/charts/placement-analysis": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/charts/yearly-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD"
+  "GET /api/insights/charts/placement-analysis": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/charts/yearly-stats": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

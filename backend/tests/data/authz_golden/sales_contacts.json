@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/contacts/{contact_id}/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/contacts/{contact_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/contacts/{contact_id}/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/contacts/{contact_id}/companies/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/contacts": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/contacts/{contact_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/contacts/{contact_id}/companies": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

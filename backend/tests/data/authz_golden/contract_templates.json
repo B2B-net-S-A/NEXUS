@@ -27,14 +27,15 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDDDPD",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDDDPD",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDDDPD",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDP",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDP",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDDDPDP",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

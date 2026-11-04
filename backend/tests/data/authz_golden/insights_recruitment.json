@@ -27,20 +27,21 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/link-people": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/recruitment/weekly-trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD"
+  "GET /api/insights/recruitment/available-periods": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/competence-matrix": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/in-flight": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/in-flight/me": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/invite-links": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/link-people": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/insights/recruitment/seniority": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/team-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/team-goals": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/recruitment/weekly-trend": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP"
  }
 }

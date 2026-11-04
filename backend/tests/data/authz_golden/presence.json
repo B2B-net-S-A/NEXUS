@@ -27,9 +27,10 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
+  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/files/{file_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/files": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/files/{file_id}/download": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/files": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/files/{file_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/files": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/files/{file_id}/download": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/files": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

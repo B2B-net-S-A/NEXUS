@@ -125,6 +125,7 @@ def test_finance_role_shows_granted_effective_and_what_forces_the_view() -> None
         "amounts_view",
         "amounts_edit",
         "finance_module",
+        "orders_work",
     ]
     assert named["clients_edit"] == {
         "granted": False,

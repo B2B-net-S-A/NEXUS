@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/candidates/{candidate_id}/similar/check": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/candidates/{candidate_id}/similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/similar/check": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/cpro/log": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/cpro-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PUT /api/cpro/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/cpro/log": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/cpro-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PUT /api/cpro/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

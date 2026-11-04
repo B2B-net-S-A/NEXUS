@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "POST /api/recommendation-cards/note/read": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/recommendation-cards/note/read-file": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/recommendation-cards/phrase": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

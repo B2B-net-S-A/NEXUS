@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "POST /api/integrations/v1/recruitments/{job_id}/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "POST /api/integrations/v1/recruitments/{job_id}/candidates": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/recruitments/{job_id}/moves": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

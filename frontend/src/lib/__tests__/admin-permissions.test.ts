@@ -288,7 +288,7 @@ describe("uprawnienia jednej osoby", () => {
     expect(rows.map((row) => row.key)).toEqual(
       snapshot.permission_groups.flatMap((group) => group.permissions),
     );
-    expect(rows).toHaveLength(18);
+    expect(rows).toHaveLength(19);
     expect(rows.filter((row) => row.fromRole).map((row) => row.key)).toEqual([
       "delivery_view",
       "contract_status",
@@ -303,7 +303,7 @@ describe("uprawnienia jednej osoby", () => {
       new Map(),
       new Set(["people"]),
     );
-    expect(hidden).toHaveLength(13);
+    expect(hidden).toHaveLength(14);
     expect(hidden.map((row) => row.key)).not.toContain("cases");
   });
 
@@ -328,7 +328,7 @@ describe("uprawnienia jednej osoby", () => {
     expect(rowOf(before, "amounts_view")).toMatchObject({
       on: true,
       fromRole: true,
-      requiredBy: ["amounts_edit", "finance_module"],
+      requiredBy: ["amounts_edit", "finance_module", "orders_work"],
     });
 
     const one = personPermissionRows(
@@ -337,12 +337,19 @@ describe("uprawnienia jednej osoby", () => {
       overrides({ finance_module: "none" }),
     );
     expect(rowOf(one, "finance_module")).toMatchObject({ on: false, fromRole: true });
-    expect(rowOf(one, "amounts_view").requiredBy).toEqual(["amounts_edit"]);
+    expect(rowOf(one, "amounts_view").requiredBy).toEqual([
+      "amounts_edit",
+      "orders_work",
+    ]);
 
     const both = personPermissionRows(
       snapshot,
       granted,
-      overrides({ finance_module: "none", amounts_edit: "none" }),
+      overrides({
+        finance_module: "none",
+        amounts_edit: "none",
+        orders_work: "none",
+      }),
     );
     expect(rowOf(both, "amounts_view")).toMatchObject({ on: true, requiredBy: [] });
   });
@@ -533,7 +540,7 @@ describe("uprawnienia jednej osoby", () => {
     });
   });
 
-  it("zna wszystkie osiemnaście uprawnień (jedenaście + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
-    expect(PERMISSION_KEYS).toHaveLength(18);
+  it("zna wszystkie dziewiętnaście uprawnień (dwanaście + pięć „Ludzie” + dwa „Sprzedaż”)", () => {
+    expect(PERMISSION_KEYS).toHaveLength(19);
   });
 });

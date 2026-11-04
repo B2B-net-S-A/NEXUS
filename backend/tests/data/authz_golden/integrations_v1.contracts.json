@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/contracts": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/contracts/{contract_id}/rate-history": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

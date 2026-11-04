@@ -27,12 +27,13 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDPDD",
-  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDPDD",
-  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDPDD",
-  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDPDD"
+  "GET /api/insights/board": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/insights/board/flows": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD",
+  "GET /api/insights/board/yoy": "PPPDDDDDDPDPDDDDDPDDDDDDDPDDD",
+  "GET /api/insights/hit-ratio-closures": "PPPDDDDDDPDPDDDDDPDDDDDDDPDDD"
  }
 }

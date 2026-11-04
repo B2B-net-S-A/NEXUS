@@ -27,16 +27,17 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/hr/admin/m365/forwards": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "GET /api/hr/admin/m365/operations": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/admin/m365/mailboxes/{user_id}/scope-exempt": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD",
-  "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDDDDD"
+  "GET /api/hr/admin/m365/forwards": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/hr/admin/m365/operations": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "GET /api/hr/admin/m365/status": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/admin/m365/forwards/check": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/admin/m365/forwards/close": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/admin/m365/mailboxes/{user_id}/scope-exempt": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/admin/m365/operations/{operation_id}/retry": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD",
+  "POST /api/hr/admin/m365/reconcile": "PDDDDDDDDDDDDDDDDDDDDPDDDDDDD"
  }
 }

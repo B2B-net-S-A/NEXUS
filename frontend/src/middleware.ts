@@ -96,6 +96,8 @@ type RouteAccessRule = {
   required?: Exclude<SectionAccess, "none">;
   /** Dodatkowa, węższa reguła operacyjna obowiązująca także po section grant. */
   enforceRoles?: boolean;
+  /** Podpisany znacznik `fo` (uprawnienie `orders_work`) też otwiera trasę. */
+  alsoOpenedByFinanceOrders?: boolean;
 };
 
 const ROLE_ROUTES: RouteAccessRule[] = [
@@ -155,10 +157,13 @@ const ROLE_ROUTES: RouteAccessRule[] = [
   },
   // Moduł „Finanse" — podpisany claim sekcji pozwala także na indywidualny
   // wyjątek, a lista ról zachowuje bezpieczny fallback dla starszych tokenów.
+  // Zakładki o zamówieniach otwiera też podpisany znacznik `fo`: uprawnienie
+  // `orders_work` celowo nie daje sekcji Finanse (Back office, 04.11.2026).
   {
     prefix: "/finance",
     roles: ["admin", "finance"],
     section: "finance",
+    alsoOpenedByFinanceOrders: true,
   },
   // Zamówienia z maila są powierzchnią Delivery; scope rekordu liczy backend.
   { prefix: "/order-mail", roles: DELIVERY_ROLES, section: "delivery" },
@@ -808,7 +813,9 @@ export function middleware(request: NextRequest) {
   ) {
     return NextResponse.redirect(new URL(BOARD_HOME, request.url));
   }
-  if (accessRule?.section && payload.sa) {
+  if (accessRule?.alsoOpenedByFinanceOrders && payload.fo === true) {
+    // Strona pokazuje tylko zakładki o zamówieniach, API pilnuje reszty.
+  } else if (accessRule?.section && payload.sa) {
     if (
       !hasSignedSectionAccess(
         payload.sa,

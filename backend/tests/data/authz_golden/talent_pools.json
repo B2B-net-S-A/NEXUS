@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/talent-pools": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PATCH /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/talent-pools": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/talent-pools/{pool_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "DELETE /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "DELETE /api/talent-pools/{pool_id}/remove/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/talent-pools": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/talent-pools/for-candidate/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/talent-pools/{pool_id}/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/talent-pools/{pool_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/talent-pools": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/talent-pools/{pool_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/talent-pools/{pool_id}/bulk-add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

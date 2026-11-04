@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/people-setup/options": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/people-setup/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/people-setup/options": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/people-setup/{user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

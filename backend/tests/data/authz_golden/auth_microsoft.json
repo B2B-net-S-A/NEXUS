@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP",
-  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPPPPPPPPP"
+  "GET /api/auth/microsoft/authorize": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "GET /api/auth/microsoft/callback": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/auth/microsoft/exchange": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPP"
  }
 }

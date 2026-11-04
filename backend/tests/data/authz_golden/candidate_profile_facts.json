@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

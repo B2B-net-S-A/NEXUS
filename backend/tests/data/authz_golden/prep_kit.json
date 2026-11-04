@@ -27,9 +27,10 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "POST /api/prep-kit/generate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD"
+  "POST /api/prep-kit/generate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP"
  }
 }

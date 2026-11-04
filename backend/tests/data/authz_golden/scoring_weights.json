@@ -27,22 +27,23 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights/panel": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights/panel/measurement": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights/panel/preview/jobs": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "GET /api/scoring-weights/panel/preview/{job_id}": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
-  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights/panel/history/{change_id}/restore": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights/panel/measurements": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/scoring-weights/panel/publish": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/scoring-weights/panel/known-points": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "DELETE /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "DELETE /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights/panel": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights/panel/measurement": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights/panel/preview/jobs": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "GET /api/scoring-weights/panel/preview/{job_id}": "PDPPDDDDPPPPDDDDDDDDDDDDDDDDD",
+  "PATCH /api/scoring-weights/{profile_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights/panel/history/{change_id}/restore": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights/panel/measurements": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/scoring-weights/panel/publish": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/scoring-weights/panel/draft": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/scoring-weights/panel/known-points": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

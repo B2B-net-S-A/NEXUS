@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "DELETE /api/marketplace/candidates/{candidate_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/marketplace/candidates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/marketplace/candidates/{candidate_id}/matches": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/marketplace/pool": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/marketplace/candidates/{candidate_id}/add": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

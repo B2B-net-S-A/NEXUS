@@ -27,9 +27,10 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "PUT /api/pipeline/jobs/{job_id}/candidates/{candidate_id}/owner": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "PUT /api/pipeline/jobs/{job_id}/candidates/{candidate_id}/owner": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/background-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/proposal-inbox/hidden-by-critical": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "GET /api/jobs/{job_id}/background-events": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/proposal-counts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/proposal-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/proposal-inbox": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/proposal-inbox/hidden-by-critical": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/jobs/{job_id}/proposal-inbox/dismiss-bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/proposal-inbox/opened": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/proposal-inbox/{candidate_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

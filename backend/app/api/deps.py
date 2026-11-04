@@ -613,6 +613,12 @@ FinanceModuleUser = Annotated[
     User,
     Depends(require_permission(ProductAction.finance_module)),
 ]
+# Zakładki o zamówieniach w module Finanse: „Zamówienia: zmiany, PDF-y, import MD”.
+# Domyślnie Finanse i Back office; „Moduł Finanse” je pociąga.
+OrdersWorkUser = Annotated[
+    User,
+    Depends(require_permission(ProductAction.orders_work)),
+]
 
 DeliveryLeadPlus = Annotated[
     User,
@@ -728,6 +734,7 @@ RecruiterPlus = Annotated[
             UserRole.talent_community_manager,
             UserRole.recruiter,
             UserRole.finance,
+            UserRole.back_office,
         )
     ),
 ]
@@ -752,6 +759,7 @@ OperationalUser = Annotated[
             UserRole.talent_community_manager,
             UserRole.recruiter,
             UserRole.finance,
+            UserRole.back_office,
             UserRole.automation,
         )
     ),

@@ -27,10 +27,11 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/talent-pools/backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/talent-pools/backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

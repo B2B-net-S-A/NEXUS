@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/client-contract-documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDP",
-  "GET /api/client-contract-documents/{contract_id}/amendments/{amendment_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDP",
-  "GET /api/client-contract-documents/{contract_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDP"
+  "GET /api/client-contract-documents": "PDDDDDDDDDDDDDDDDDDDDDDDDDDPD",
+  "GET /api/client-contract-documents/{contract_id}/amendments/{amendment_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDPD",
+  "GET /api/client-contract-documents/{contract_id}/file": "PDDDDDDDDDDDDDDDDDDDDDDDDDDPD"
  }
 }

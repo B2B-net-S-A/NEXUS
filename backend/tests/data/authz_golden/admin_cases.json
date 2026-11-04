@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/cases": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/cases/assignees": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD",
-  "GET /api/cases/contract-options": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD",
-  "GET /api/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD",
-  "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD",
-  "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD",
-  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/cases/{case_id}/reply": "BDDDBDDDBDDDBBDDDDDDDDDDBDDD"
+  "GET /api/cases": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/cases/assignees": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD",
+  "GET /api/cases/contract-options": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD",
+  "GET /api/cases/{case_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/cases/{case_id}": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD",
+  "POST /api/cases": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD",
+  "POST /api/cases/{case_id}/close": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD",
+  "POST /api/cases/{case_id}/comments": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/cases/{case_id}/reply": "BDDDBDDDBDDDBBDDDDDDDDDDBDDDD"
  }
 }

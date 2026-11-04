@@ -27,7 +27,7 @@ _DEFAULT_TEAM_PERMISSIONS: dict[str, tuple[ProductAction, ...]] = {
     "care": (ProductAction.cases,),
     "finance": (ProductAction.payroll, ProductAction.timesheets),
     "contracts": (ProductAction.contracts_orders_edit,),
-    "orders": (ProductAction.finance_module,),
+    "orders": (ProductAction.orders_work,),
 }
 
 

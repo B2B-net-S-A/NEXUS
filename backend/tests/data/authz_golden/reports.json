@@ -27,17 +27,18 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/reports/clients": "PPPPPDDDPPPPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/clients/at-risk": "PPPPPDDDPPPPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/clients/{client_id}/trend": "PPPPPDDDPPPPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDDDDDDDDDPD",
-  "GET /api/reports/my-delivery-lead": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/reports/sales": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/reports/clients": "PPPPPDDDPPPPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/clients/at-risk": "PPPPPDDDPPPPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/clients/{client_id}/trend": "PPPPPDDDPPPPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/delivery-leads": "PPPDPDDDPPDPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/delivery-leads/{dl_id}/trend": "PPPDPDDDPPDPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/invite-links": "PPPPPDDDPPPPPPDDDDDDDDDDDDPDD",
+  "GET /api/reports/my-delivery-lead": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/reports/recruitment": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/reports/sales": "PDDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

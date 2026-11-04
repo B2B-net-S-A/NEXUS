@@ -53,6 +53,7 @@ EXTENSION_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 

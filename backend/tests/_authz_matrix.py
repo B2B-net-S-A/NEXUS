@@ -144,6 +144,9 @@ PERSONAS: tuple[Persona, ...] = (
         UserRole.employee,
         grants=("client_contracts_view",),
     ),
+    # 0645: „Back office” — zamówienia i umowy bez sekcji Finanse
+    # (test_back_office_role_access.py).
+    Persona("back_office", UserRole.back_office),
 )
 
 #: Odstępstwa produkcji od macierzy z kodu (odczyt 02.10.2026): TCM ma

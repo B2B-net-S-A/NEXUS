@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB"
+  "GET /api/academy/editions": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/academy/programs/{program_id}/editions/{month}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/checklist/{item_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/academy/programs/{program_id}/editions/{month}/participants/{application_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/academy/programs/{program_id}/editions/{month}/issue": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB"
  }
 }

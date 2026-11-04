@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/insights/clients/ranking": "PDDDDDDDDDDDDDDDDDDDDDDDDPDD"
+  "GET /api/insights/clients/hiring-managers": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/clients/hit-ratio": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/insights/clients/ranking": "PDDDDDDDDDDDDDDDDDDDDDDDDPDDD"
  }
 }

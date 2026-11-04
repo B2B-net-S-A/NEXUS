@@ -21,6 +21,7 @@ export function isRecruiterOnly(user: RoleBearingUser | null | undefined): boole
       "delivery_lead",
       "talent_community_manager",
       "finance",
+      "back_office",
       "automation",
     )
   );

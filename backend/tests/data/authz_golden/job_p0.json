@@ -27,15 +27,16 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "DELETE /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/p0-jobs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/p0/request/approve": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "DELETE /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "DELETE /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/p0-jobs": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/p0": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/p0/extend": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/jobs/{job_id}/p0/request": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/p0/request/approve": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

@@ -27,13 +27,14 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPPPDDDDDDPD",
-  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPPPDDDDDDPD",
-  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDDDDDDDDDPD",
-  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDDDDDDDDDPD",
-  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDDDDDDDDDPD"
+  "GET /api/clients/{client_id}/contract-structure": "PPDBPDDDBBBDPPPPDPPPDDDDDDPDP",
+  "GET /api/clients/{client_id}/executive-contracts/review": "PPDBPDDDBBBDPPPPDPPPDDDDDDPDP",
+  "PATCH /api/clients/{client_id}/executive-contracts/{ec_id}": "PPDBDDDDBBBDDPDDDDDDDDDDDDPDP",
+  "POST /api/clients/{client_id}/executive-contracts": "PPDBDDDDBBBDDPDDDDDDDDDDDDPDP",
+  "POST /api/clients/{client_id}/executive-contracts/assignments": "PPDBDDDDBBBDDPDDDDDDDDDDDDPDP"
  }
 }

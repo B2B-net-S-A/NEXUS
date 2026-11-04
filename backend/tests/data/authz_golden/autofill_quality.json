@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/autofill-quality/reports": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "GET /api/autofill-quality/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPPD",
-  "POST /api/autofill-quality/reports/{report_id}/proposals/{index}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "GET /api/autofill-quality/reports": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "GET /api/autofill-quality/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPPPDP",
+  "POST /api/autofill-quality/reports/{report_id}/proposals/{index}/decision": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

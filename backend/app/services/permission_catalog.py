@@ -55,6 +55,10 @@ COMPANY_RESULTS = "company_results"
 # zawierać stawki, stąd ta informacja w nazwie. Grupa „Klienci i kontrakty”, ale
 # na KOŃCU katalogu (siatka przy starcie, jak wyżej).
 CLIENT_CONTRACTS_VIEW = "client_contracts_view"
+# Zamówienia w module Finanse (decyzja Artura 04.11.2026): zmiany, PDF-y i import
+# MD bez reszty modułu, dla roli Back office. „Moduł Finanse” je pociąga, żeby
+# jego posiadacz nie stracił zakładek. Na KOŃCU katalogu (siatka przy starcie).
+ORDERS_WORK = "orders_work"
 
 #: Poziomowa akcja sprzed katalogu — nie jest jednym z dziewięciu uprawnień.
 GENERATOR = "b2b_contract_generator"
@@ -67,6 +71,7 @@ ADMIN = "admin"
 ROLES: tuple[str, ...] = (
     "admin",
     "finance",
+    "back_office",
     "head_of_recruitment",
     "delivery_lead",
     "talent_community_manager",
@@ -129,6 +134,7 @@ PERMISSIONS: tuple[Permission, ...] = (
             Holder("delivery_lead", _needs(delivery="read")),
             Holder("talent_community_manager", _needs(delivery="read")),
             Holder("automation", _needs(delivery="read")),
+            Holder("back_office"),
         ),
     ),
     Permission(
@@ -136,7 +142,10 @@ PERMISSIONS: tuple[Permission, ...] = (
         "Klienci: dodawanie i edycja",
         "clients_contracts",
         requires=(DELIVERY_VIEW,),
-        holders=(Holder("delivery_lead", _needs(delivery="write")),),
+        holders=(
+            Holder("delivery_lead", _needs(delivery="write")),
+            Holder("back_office"),
+        ),
     ),
     Permission(
         CONTRACTS_ORDERS_EDIT,
@@ -147,6 +156,7 @@ PERMISSIONS: tuple[Permission, ...] = (
             Holder("delivery_lead", _needs(delivery="write")),
             # Decyzja Artura 02.10.2026: Finanse zakładają kontrakty i zamówienia.
             Holder("finance", _needs(delivery="write")),
+            Holder("back_office"),
         ),
     ),
     Permission(
@@ -159,6 +169,7 @@ PERMISSIONS: tuple[Permission, ...] = (
             # TCM zmieniał status już przy samym odczycie Delivery (wyjątek
             # w bramce sekcji) — stąd niższy próg niż u Delivery Leada.
             Holder("talent_community_manager", _needs(delivery="read")),
+            Holder("back_office"),
         ),
     ),
     Permission(
@@ -171,6 +182,7 @@ PERMISSIONS: tuple[Permission, ...] = (
             Holder("delivery_lead"),
             Holder("talent_community_manager"),
             Holder("recruiter"),
+            Holder("back_office"),
         ),
         seeded=False,
     ),
@@ -188,6 +200,7 @@ PERMISSIONS: tuple[Permission, ...] = (
         holders=(
             Holder("finance", _needs(delivery="read", finance="read")),
             Holder("delivery_lead", _needs(delivery="read")),
+            Holder("back_office"),
         ),
     ),
     Permission(
@@ -195,13 +208,13 @@ PERMISSIONS: tuple[Permission, ...] = (
         "Stawki i kwoty: zmiana",
         "money",
         requires=(AMOUNTS_VIEW,),
-        holders=(Holder("finance", _needs(finance="write")),),
+        holders=(Holder("finance", _needs(finance="write")), Holder("back_office")),
     ),
     Permission(
         FINANCE_MODULE,
         "Moduł Finanse",
         "money",
-        requires=(AMOUNTS_VIEW,),
+        requires=(AMOUNTS_VIEW, ORDERS_WORK),
         holders=(Holder("finance", _needs(finance="write")),),
     ),
     Permission(
@@ -254,6 +267,13 @@ PERMISSIONS: tuple[Permission, ...] = (
         CLIENT_CONTRACTS_VIEW,
         "Umowy klientów: lista i pliki (w plikach mogą być stawki)",
         "clients_contracts",
+    ),
+    Permission(
+        ORDERS_WORK,
+        "Zamówienia: zmiany, PDF-y, import MD",
+        "clients_contracts",
+        requires=(AMOUNTS_VIEW,),
+        holders=(Holder("finance", _needs(finance="write")), Holder("back_office")),
     ),
 )
 

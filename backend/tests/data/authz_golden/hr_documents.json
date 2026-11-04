@@ -27,18 +27,19 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/people/{user_id}/protocols/{protocol_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/documents/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PATCH /api/hr/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/retention/delete": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "POST /api/hr/documents/{document_id}/remove": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
-  "PUT /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/people/{user_id}/protocols/{protocol_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/documents/{document_id}/file": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PATCH /api/hr/documents/{document_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/people/{user_id}": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/retention/delete": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "POST /api/hr/documents/{document_id}/remove": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB",
+  "PUT /api/hr/documents/settings/retention": "BBBBBBBDBBBBBBBBBBBBBBBBBBBBB"
  }
 }

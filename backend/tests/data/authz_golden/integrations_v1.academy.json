@@ -27,11 +27,12 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "GET /api/integrations/v1/academy/programs": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/academy/programs/{program_id}/participants": "UUUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

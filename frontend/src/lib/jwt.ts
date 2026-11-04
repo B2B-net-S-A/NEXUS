@@ -19,6 +19,8 @@ export interface JwtPayload {
   fpc?: boolean;
   /** Podpisany snapshot dostępu do sekcji używany przez edge middleware. */
   sa?: Partial<Record<ProductSection, SectionAccess>>;
+  /** Podpisany znacznik uprawnienia `orders_work`: wejście na `/finance`. */
+  fo?: boolean;
 }
 
 /** Decode the JWT payload segment, or `null` when the token is malformed. */

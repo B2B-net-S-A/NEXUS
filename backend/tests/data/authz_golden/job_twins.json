@@ -27,19 +27,20 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/jobs/{job_id}/twins/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/job-twins/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/job-twins/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/job-twins/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "GET /api/jobs/{job_id}/open-similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/twins": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/jobs/{job_id}/twins/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/job-twins/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/job-twins/rules/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "POST /api/jobs/{job_id}/twins": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD",
-  "PUT /api/job-twins/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPD"
+  "DELETE /api/jobs/{job_id}/twins/{other_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/job-twins/candidates": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/job-twins/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/job-twins/suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "GET /api/jobs/{job_id}/open-similar": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/twins": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/jobs/{job_id}/twins/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/job-twins/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/job-twins/rules/preview": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "POST /api/jobs/{job_id}/twins": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP",
+  "PUT /api/job-twins/rules": "PPPPPPDDPPPPPPPPPPPDDPPPPDPDP"
  }
 }

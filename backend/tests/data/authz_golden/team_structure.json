@@ -27,23 +27,24 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/team-structure/dl-clients/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "DELETE /api/team-structure/sourcer-categories/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "DELETE /api/team-structure/tac-delivery-leads/{tac_user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "DELETE /api/team-structure/tac-linkedin-farming/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "GET /api/team-structure/dl-clients": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/team-structure/my-team": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/team-structure/sourcer-categories": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/team-structure/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "GET /api/team-structure/tac-delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPDPD",
-  "POST /api/team-structure/dl-clients": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/team-structure/sourcer-categories": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/team-structure/tac-delivery-leads": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "POST /api/team-structure/tac-linkedin-farming": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/team-structure/dl-clients/{assignment_id}/toggle-head": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
-  "PUT /api/team-structure/operators/{user_id}/competences": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
+  "DELETE /api/team-structure/dl-clients/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "DELETE /api/team-structure/sourcer-categories/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "DELETE /api/team-structure/tac-delivery-leads/{tac_user_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "DELETE /api/team-structure/tac-linkedin-farming/{assignment_id}": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "GET /api/team-structure/dl-clients": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/team-structure/my-team": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/team-structure/sourcer-categories": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/team-structure/summary": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "GET /api/team-structure/tac-delivery-leads": "PPPPPPDDPPPPPPPPPPPPDPPPPDPDP",
+  "POST /api/team-structure/dl-clients": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/team-structure/sourcer-categories": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/team-structure/tac-delivery-leads": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "POST /api/team-structure/tac-linkedin-farming": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/team-structure/dl-clients/{assignment_id}/toggle-head": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD",
+  "PUT /api/team-structure/operators/{user_id}/competences": "PDPDDDDDDPDPDDDDDDDDDDDDDDDDD"
  }
 }

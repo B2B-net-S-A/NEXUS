@@ -27,18 +27,19 @@
   "recruiter+cases",
   "board",
   "finance-finance_module",
-  "employee+client_contracts_view"
+  "employee+client_contracts_view",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDPD",
-  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDDDBD",
-  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDDDBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDDDBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDDBD",
-  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDDBD",
-  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDPD",
-  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDDDPD",
-  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDDPD",
-  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDDDPD"
+  "DELETE /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDPDP",
+  "GET /api/clients/{client_id}/framework-contracts": "BBDBDDDDBBBDDDDDDBBDDDDDDDBDB",
+  "GET /api/clients/{client_id}/framework-contracts/search": "BBDBDDDDBBBDDDDDDBBDDDDDDDBDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}": "BBDBDDDDBBBDDDDDDBBDDDDDDDBDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/file": "BBDBDDDDBBBDDDDDDBBDDDDDDDBDB",
+  "GET /api/clients/{client_id}/framework-contracts/{fc_id}/text": "BBDBDDDDBBBDDDDDDBBDDDDDDDBDB",
+  "PATCH /api/clients/{client_id}/framework-contracts/{fc_id}": "PPDBDDDDBBBDDDDDDDDDDDDDDDPDP",
+  "POST /api/clients/{client_id}/framework-contracts": "PPDBDDDDBBBDDDDDDDDDDDDDDDPDP",
+  "POST /api/clients/{client_id}/framework-contracts/{fc_id}/send-autenti": "PPDBDDDDBBBDDDDDDDDDDDDDDDPDP",
+  "PUT /api/clients/{client_id}/framework-contracts/{fc_id}/file": "PPDBDDDDBBBDDDDDDDDDDDDDDDPDP"
  }
 }
