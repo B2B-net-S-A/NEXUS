@@ -14,5 +14,12 @@ okres 7 dni, grupuje tygodniami i zwraca same liczby.
   i listy idą przez tę trasę.
 - `scope=team` dostaje rola z wglądem w zespół; innym trasa odpowiada 403 —
   Jarvis podaje wtedy liczby tej osoby i mówi, że zespołu nie widzi.
+  Osoby ani kamieni bez zasługi narzędzie nie wskazuje (`subject_user_id`
+  i `scope=unattributed` nie przechodzą przez `build`), test odmowy
+  w `test_jarvis_activity_people.py`.
+- Liczba na „ile” to `period_total` (jak kafel), `total` to wiersze listy bez
+  tygodniowych wpisów DynaReportera sprzed 12.10.2026. Lista idzie po 20
+  wierszy (`MAX_LIST_ITEMS`), kolejne przez `page`. Placement nie ma
+  `window=day` (trasa daje 422), na jeden dzień `window=range`.
 - Prompt: konkretny dzień/tydzień/od–do i „kto…” → `activity_people`;
   dłuższe trendy, nowi kandydaci, kontrakty i przychód → `evaluate_metric`.

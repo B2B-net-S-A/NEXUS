@@ -548,14 +548,23 @@ def _shape_activity_people(data: Any, _args: dict[str, Any]) -> Any:
                 }
             )
         )
+    total = int(data.get("total") or 0)
+    page = int(data.get("page") or 1)
+    page_size = int(data.get("page_size") or MAX_LIST_ITEMS)
     return trim(
         _clean(
             {
-                "total": data.get("total"),
+                # Ta sama liczba co kafel; `total` = wiersze listy, bez tygodniowych
+                # wpisów DynaReportera sprzed 12.10.2026 (`history_total`).
+                "period_total": data.get("period_total"),
+                "history_total": data.get("history_total"),
+                "total": total,
                 "people": data.get("people"),
                 "period_start": data.get("period_start"),
                 "period_end": data.get("period_end"),
                 "scope": data.get("scope"),
+                "page": page,
+                "has_more": page * page_size < total,
                 "items": rows,
             }
         )
@@ -1878,11 +1887,15 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
             "(recommendation), zaproszono na rozmowę u klienta (interview), "
             "zaakceptowano (acceptance) albo zatrudniono (placement) — z datą i osobą, "
             "która ma zasługę. Okres: jeden dzień (window=day, day), tydzień tego dnia "
-            "(window=week), miesiąc (window=month) albo dni od–do (window=range, "
-            "date_from, date_to). scope=team = cały zespół/firma, mine = tylko moje. "
-            "Pytanie ogólne („ile osób…”, „kto…”) bez „ja/moje” → team; „Brak "
-            "uprawnień” przy team znaczy, że rola nie widzi zespołu — podaj wtedy swoje "
-            "liczby i powiedz to. Używaj do „ile dziś / w piątek…” i „kto…”."
+            "(window=week, day), miesiąc tego dnia (window=month, day; bez day bieżący) "
+            "albo dni od–do (window=range, date_from, date_to). Placement nie ma "
+            "window=day: dla jednego dnia podaj window=range. scope=team = cały "
+            "zespół/firma, mine = tylko moje. Pytanie ogólne („ile osób…”, „kto…”) bez "
+            "„ja/moje” → team; „Brak uprawnień” przy team znaczy, że rola nie widzi "
+            "zespołu — podaj wtedy swoje liczby i powiedz to. Na „ile” odpowiadaj "
+            "period_total (liczba z Insights), lista ma total wierszy po 20 na stronę: "
+            "has_more = kolejna strona przez page. Używaj do „ile dziś / w piątek…” "
+            "i „kto…”."
         ),
         input_schema=_schema(
             {
@@ -1901,6 +1914,7 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
                 "date_from": {**STR, "format": "date"},
                 "date_to": {**STR, "format": "date"},
                 "scope": {"type": "string", "enum": ["mine", "team"]},
+                "page": {"type": "integer", "minimum": 1},
             },
             ("metric", "window"),
         ),
@@ -1919,7 +1933,8 @@ READ_TOOLS: tuple[JarvisTool, ...] = (
                     "date_from": a.get("date_from"),
                     "date_to": a.get("date_to"),
                     "scope": "team" if a.get("scope") == "team" else "auto",
-                    "page_size": 100,
+                    "page": a.get("page"),
+                    "page_size": MAX_LIST_ITEMS,
                 }
             ),
         ),
