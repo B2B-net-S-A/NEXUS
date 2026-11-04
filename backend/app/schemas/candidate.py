@@ -1096,6 +1096,9 @@ class CandidateDocumentOut(BaseModel):
     uploaded_at: Optional[datetime] = None
     external_source: Optional[str] = None
     created_at: datetime
+    # Suma pliku: ramka „inne główne CV” porównuje ją z kopią etapu. Pliki
+    # z importu Traffita często jej nie mają.
+    content_sha256: Optional[str] = None
     # 0400: kto wgrał plik i plakietka „nieaktualne”. Nazwiska uzupełnia
     # handler (`_documents_with_people`) — model nie ładuje relacji.
     uploaded_by_name: Optional[str] = None
