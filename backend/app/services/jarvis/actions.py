@@ -1,9 +1,10 @@
-"""Zatwierdzenie / odrzucenie akcji zaproponowanej przez Jarvisa.
+"""Zatwierdzenie / odrzucenie akcji zaproponowanej przez Jarvisa i „Cofnij”.
 
-Wykonanie następuje WYŁĄCZNIE tu, po kliknięciu człowieka, i używa DOKŁADNIE
-``args`` zapisanych przy propozycji (model nie może ich podmienić po
-pokazaniu karty). Idempotencja: przejście ``proposed → confirmed`` jest
-warunkowym UPDATE, więc drugie kliknięcie (albo dwie karty naraz) dostaje 409.
+Wykonanie następuje tu, po kliknięciu człowieka, i używa DOKŁADNIE ``args``
+zapisanych przy propozycji (model nie może ich podmienić po pokazaniu karty).
+Idempotencja: przejście ``proposed → confirmed`` jest warunkowym UPDATE, więc
+drugie kliknięcie (albo dwie karty naraz) dostaje 409. Wyjątek to narzędzia
+z ``undo`` (``execute_now``): wykonują się w turze, a karta ma „Cofnij”.
 
 Wynik trafia do historii rozmowy jako notatka systemowa — następna tura
 modelu wie, co się naprawdę stało. Bez kolejnego wywołania modelu: potwierdzenie
@@ -18,13 +19,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from app.core.config import settings
 from app.core.database import AsyncSessionLocal
 from app.models.jarvis import JarvisAction
 from app.services.jarvis import store
-from app.services.jarvis.tools import TOOLS_BY_NAME, render_result
+from app.services.jarvis.tools import (
+    TOOLS_BY_NAME,
+    UNDO_WINDOW_MINUTES,
+    RequestSpec,
+    render_result,
+)
 from app.services.jarvis.transport import (
     CallerIdentity,
     JarvisTransport,
@@ -100,9 +106,42 @@ def serialize_action(action: "JarvisAction | ActionRow") -> dict[str, Any]:
         "tool": action.tool_name,
         "status": action.status,
         "preview": action.preview,
-        "result": action.result,
+        "result": _public_result(action.result),
         "created_at": action.created_at.isoformat() if action.created_at else None,
         "decided_at": action.decided_at.isoformat() if action.decided_at else None,
+        "undo": _undo_state(action),
+    }
+
+
+def _public_result(result: Any) -> Any:
+    """Wywołania odwrotne zostają na serwerze — front dostaje tylko stan."""
+    if not isinstance(result, dict):
+        return result
+    return {k: v for k, v in result.items() if k not in ("undo_calls", "undo_state")}
+
+
+def _undo_deadline(action: "JarvisAction | ActionRow") -> Optional[datetime]:
+    if action.decided_at is None:
+        return None
+    return action.decided_at + timedelta(minutes=UNDO_WINDOW_MINUTES)
+
+
+def _undo_state(action: "JarvisAction | ActionRow") -> Optional[dict[str, Any]]:
+    """``None`` = akcji nie da się cofnąć; inaczej stan przycisku „Cofnij”."""
+    result = action.result if isinstance(action.result, dict) else {}
+    if action.status != "executed" or not result.get("undo_calls"):
+        return None
+    deadline = _undo_deadline(action)
+    state = str(result.get("undo_state") or "available")
+    closed = deadline is None or deadline <= _now()
+    if state == "available" and closed:
+        state = "expired"
+    # Restart w trakcie cofania nie może zostawić karty na zawsze w „Cofam…”.
+    if state == "running" and closed:
+        state = "failed"
+    return {
+        "state": state,
+        "until": deadline.isoformat() if deadline else None,
     }
 
 
@@ -183,6 +222,33 @@ async def confirm_action(
     action_id: uuid.UUID, *, user_id: int, identity: CallerIdentity
 ) -> ActionOutcome:
     action = await _transition(action_id, user_id, "confirmed")
+    return await _execute(action, user_id=user_id, identity=identity, at_once=False)
+
+
+async def execute_now(
+    action_id: uuid.UUID, *, user_id: int, identity: CallerIdentity
+) -> ActionOutcome:
+    """Zapis łatwy do cofnięcia — wykonany w turze, bez kliknięcia „Zrób to”.
+
+    Wynik idzie do modelu jako ``tool_result`` (pętla), więc nic nie dopisujemy
+    do historii: wiadomość w środku tury rozdzieliłaby ``tool_use`` od wyniku.
+    """
+    action = await _transition(action_id, user_id, "confirmed")
+    return await _execute(action, user_id=user_id, identity=identity, at_once=True)
+
+
+async def _no_note(_action: "ActionRow", _text: str) -> None:
+    return None
+
+
+async def _execute(
+    action: "ActionRow",
+    *,
+    user_id: int,
+    identity: CallerIdentity,
+    at_once: bool,
+) -> ActionOutcome:
+    note = _no_note if at_once else _note
     tool = TOOLS_BY_NAME.get(action.tool_name)
     if tool is None or tool.tier != "write":
         finished = await _finish(action.id, "failed", {"error": "Nieznane narzędzie"})
@@ -208,7 +274,7 @@ async def confirm_action(
     except _NotExecutable as exc:
         error = str(exc)
         finished = await _finish(action.id, "failed", {"ok": False, "error": error})
-        await _note(
+        await note(
             action, f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {error}"
         )
         return ActionOutcome(serialize_action(finished), f"Nie udało się: {error}")
@@ -216,7 +282,7 @@ async def confirm_action(
         # Wywołanie trasy mogło już coś zapisać — nie wiemy, czy się wykonało.
         logger.exception("jarvis: wykonanie akcji %s padło", tool.name)
         finished = await _finish(action.id, "failed", store.UNCERTAIN_RESULT)
-        await _note(action, store.uncertain_note(preview_text))
+        await note(action, store.uncertain_note(preview_text))
         return ActionOutcome(
             serialize_action(finished), str(store.UNCERTAIN_RESULT["error"])
         )
@@ -227,9 +293,24 @@ async def confirm_action(
         except Exception:  # noqa: BLE001 — zapis się udał, psuje się tylko skrót
             logger.warning("jarvis: shape akcji %s padł", tool.name)
             shaped = None
-        finished = await _finish(action.id, "executed", {"ok": True, "data": shaped})
+        nothing_added = _nothing_added(tool.name, response.data)
+        if nothing_added:
+            finished = await _finish(
+                action.id, "failed", {"ok": False, "error": nothing_added}
+            )
+            await note(
+                action,
+                f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {nothing_added}",
+            )
+            return ActionOutcome(serialize_action(finished), nothing_added)
+        executed: dict[str, Any] = {"ok": True, "data": shaped}
+        # „Cofnij” tylko przy zapisie bez kliknięcia. Kliknięta karta to decyzja.
+        undo_calls = _undo_calls(tool, args, response.data) if at_once else []
+        if undo_calls:
+            executed["undo_calls"] = undo_calls
+        finished = await _finish(action.id, "executed", executed)
         message = tool.done
-        await _note(
+        await note(
             action,
             f"[Wynik akcji] Użytkownik zatwierdził i wykonano: {preview_text}. "
             f"Odpowiedź systemu: {render_result(shaped)[:1500]}",
@@ -270,7 +351,7 @@ async def confirm_action(
                 "status": "proposed",
                 "preview": preview,
             }
-        await _note(
+        await note(
             action, f"[Wynik akcji] Przesunięcie zatrzymane ostrzeżeniem: {reason}."
         )
         return ActionOutcome(
@@ -287,8 +368,147 @@ async def confirm_action(
     finished = await _finish(
         action.id, "failed", {"ok": False, "error": error, "status": response.status}
     )
-    await _note(action, f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {error}")
+    await note(action, f"[Wynik akcji] Nie udało się: {preview_text}. Powód: {error}")
     return ActionOutcome(serialize_action(finished), f"Nie udało się: {error}")
+
+
+def _nothing_added(tool_name: str, data: Any) -> Optional[str]:
+    """Trasa odpowiada 200 także wtedy, gdy pominęła każdą osobę. Taka karta nie
+    może mówić „Zrobione za Ciebie”, bo nic się nie stało i nie ma czego cofać."""
+    if tool_name != "add_candidates_to_job" or not isinstance(data, dict):
+        return None
+    if data.get("added"):
+        return None
+    labels = sorted(
+        {
+            str(row["reason_label"])
+            for row in data.get("skipped") or []
+            if isinstance(row, dict) and row.get("reason_label")
+        }
+    )
+    return "Nikogo nie dodano" + (f": {'; '.join(labels)}." if labels else ".")
+
+
+def _undo_calls(tool: Any, args: dict[str, Any], data: Any) -> list[dict[str, Any]]:
+    if tool.undo is None:
+        return []
+    try:
+        specs = tool.undo(args, data)
+    except Exception:  # noqa: BLE001 — zapis się udał, tylko „Cofnij” nie powstanie
+        logger.warning("jarvis: nie zbudowałem cofnięcia akcji %s", tool.name)
+        return []
+    return [
+        {"method": spec.method, "path": spec.path, "params": spec.params or None}
+        for spec in specs
+    ]
+
+
+class UndoNotAvailable(Exception):
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
+
+
+async def undo_action(
+    action_id: uuid.UUID, *, user_id: int, identity: CallerIdentity
+) -> ActionOutcome:
+    """„Cofnij” na karcie zapisu wykonanego od razu.
+
+    Stan ``undo_state`` przechodzi ``available → running`` warunkowym UPDATE
+    (drugie kliknięcie dostaje odmowę), potem ``done`` albo ``failed``.
+    Wywołania odwrotne idą tokenem klikającego — bramki działają jak na ekranie.
+    """
+    deadline_from = _now() - timedelta(minutes=UNDO_WINDOW_MINUTES)
+    async with AsyncSessionLocal() as db:
+        row = (
+            (
+                await db.execute(
+                    update(JarvisAction)
+                    .where(
+                        JarvisAction.id == action_id,
+                        JarvisAction.user_id == user_id,
+                        JarvisAction.status == "executed",
+                        JarvisAction.decided_at > deadline_from,
+                        JarvisAction.result["undo_calls"].isnot(None),
+                        JarvisAction.result["undo_state"].is_(None),
+                    )
+                    .values(
+                        result=JarvisAction.result.op("||")(
+                            func.jsonb_build_object("undo_state", "running")
+                        )
+                    )
+                    .returning(JarvisAction)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if row is None:
+            exists = await db.scalar(
+                select(JarvisAction.id).where(
+                    JarvisAction.id == action_id, JarvisAction.user_id == user_id
+                )
+            )
+            await db.rollback()
+            if exists is None:
+                raise ActionNotFound()
+            raise UndoNotAvailable("Tej akcji nie da się już cofnąć.")
+        action = ActionRow.of(row)
+        await db.commit()
+
+    preview_text = str((action.preview or {}).get("text") or action.tool_name)
+    errors: list[str] = []
+    try:
+        async with JarvisTransport(identity) as transport:
+            for call in (action.result or {}).get("undo_calls") or []:
+                response = await transport.call(
+                    RequestSpec(call["method"], call["path"], params=call.get("params"))
+                )
+                # 404 = już tego nie ma (ktoś usunął ręcznie) — cel cofnięcia osiągnięty.
+                if not response.ok and response.status != 404:
+                    errors.append(describe_error(response))
+    except Exception:
+        # Jak przy wykonaniu (runda 8): stan ma się domknąć, nie zostać w „Cofam…”.
+        logger.exception("jarvis: cofnięcie akcji %s padło", action.tool_name)
+        errors.append("nie wiem, czy zmiana została cofnięta.")
+    state = "failed" if errors else "done"
+    async with AsyncSessionLocal() as db:
+        row = (
+            (
+                await db.execute(
+                    update(JarvisAction)
+                    .where(JarvisAction.id == action.id)
+                    .values(
+                        result=JarvisAction.result.op("||")(
+                            func.jsonb_build_object("undo_state", state)
+                        )
+                    )
+                    .returning(JarvisAction)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert row is not None
+        finished = ActionRow.of(row)
+        await db.commit()
+    tool = TOOLS_BY_NAME.get(action.tool_name)
+    if errors:
+        await _note(
+            action,
+            f"[Wynik akcji] Cofnięcie nie udało się: {preview_text}. Powód: {errors[0]}",
+        )
+        return ActionOutcome(
+            serialize_action(finished), f"Nie udało się cofnąć: {errors[0]}"
+        )
+    await _note(action, f"[Wynik akcji] Użytkownik COFNĄŁ: {preview_text}.")
+    note_stays = action.tool_name == "add_candidates_to_job" and action.args.get("note")
+    return ActionOutcome(
+        serialize_action(finished),
+        "Cofnięte."
+        + (" Notatka dodana przy okazji zostaje w profilu." if note_stays else ""),
+        invalidates=tool.invalidates if tool else (),
+    )
 
 
 async def _fresh_notes(

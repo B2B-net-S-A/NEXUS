@@ -69,6 +69,9 @@ export interface JarvisAction {
   };
   /** `uncertain` = wykonanie przerwane w trakcie — nie wiadomo, czy się zapisało. */
   result?: { ok?: boolean; error?: string; uncertain?: boolean } | null;
+  /** Zapis wykonany od razu (notatka, dodanie do rekrutacji, „Moi ludzie”):
+   *  stan przycisku „Cofnij”; `null` = tej akcji się nie cofa. */
+  undo?: { state: "available" | "running" | "done" | "failed" | "expired"; until: string | null } | null;
 }
 
 export interface JarvisLink {
@@ -109,6 +112,8 @@ export interface JarvisGapReportRow extends JarvisGap {
 /** Pusty panel: co Jarvis zrobi za tę rolę (`services/jarvis/capabilities.py`). */
 export interface JarvisCapabilities {
   read: string[];
+  /** Zapisy wykonywane od razu, z „Cofnij” na karcie. */
+  now: string[];
   write: string[];
   never: string[];
 }
@@ -191,7 +196,8 @@ export type JarvisStreamEvent =
   | { type: "highlight"; anchor: string; label: string; reason: string }
   | { type: "mail_draft"; draft: JarvisMailDraft }
   | { type: "gap"; gap: JarvisGap }
-  | { type: "action_proposed"; action: JarvisAction }
+  /** Przy zapisie wykonanym od razu niesie też komunikat i klucze do odświeżenia. */
+  | { type: "action_proposed"; action: JarvisAction; message?: string; invalidates?: string[][] }
   | ({ type: "deep_link" } & JarvisLink)
   | { type: "sources"; items: JarvisSource[] }
   | { type: "error"; message: string; code?: string }

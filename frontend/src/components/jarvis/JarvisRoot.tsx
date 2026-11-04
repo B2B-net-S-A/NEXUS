@@ -25,6 +25,7 @@ import { apiErrorMessage } from "@/lib/api-error";
 import {
   cancelJarvisTurn,
   confirmAction,
+  undoAction,
   deleteConversation,
   fetchConversation,
   fetchConversations,
@@ -36,7 +37,7 @@ import {
 } from "@/lib/jarvis/api";
 import { screenFromLocation, suggestionsFor } from "@/lib/jarvis/context";
 import { JARVIS_OPEN_EVENT, type JarvisOpenDetail } from "@/lib/jarvis/events";
-import { applyStreamEvent, replaceAction, type JarvisTurnState } from "@/lib/jarvis/reducer";
+import { applyStreamEvent, applyUndoOutcome, replaceAction, type JarvisTurnState } from "@/lib/jarvis/reducer";
 import { JarvisHttpError, streamJarvisChat } from "@/lib/jarvis/stream";
 import type {
   JarvisAction,
@@ -291,6 +292,9 @@ export function JarvisRoot() {
             onEvent: (event) => {
               if (event.type === "conversation") loadedConversation.current = event.conversation_id;
               if (event.type === "highlight") showHelpAnchor(event.anchor);
+              // Zapis wykonany od razu — ekran pod panelem ma pokazać zmianę.
+              if (event.type === "action_proposed")
+                for (const key of event.invalidates ?? []) queryClient.invalidateQueries({ queryKey: key });
               setTurn((t) => applyStreamEvent(t, event));
             },
           },
@@ -316,14 +320,27 @@ export function JarvisRoot() {
   );
 
   const decide = useCallback(
-    async (action: JarvisAction, decision: "confirm" | "reject") => {
+    async (action: JarvisAction, decision: "confirm" | "reject" | "undo") => {
       setBusyActionId(action.id);
       try {
-        const outcome = decision === "confirm" ? await confirmAction(action.id) : await rejectAction(action.id);
+        const outcome =
+          decision === "confirm"
+            ? await confirmAction(action.id)
+            : decision === "undo"
+              ? await undoAction(action.id)
+              : await rejectAction(action.id);
         setTurn((t) => ({
           ...t,
-          items: replaceAction(t.items, outcome.action, outcome.follow_up, outcome.message),
-          mood: outcome.action.status === "executed" ? "success" : outcome.action.status === "failed" ? "error" : "idle",
+          items:
+            decision === "undo"
+              ? applyUndoOutcome(t.items, outcome.action, outcome.message)
+              : replaceAction(t.items, outcome.action, outcome.follow_up, outcome.message),
+          mood:
+            outcome.action.status === "failed" || outcome.action.undo?.state === "failed"
+              ? "error"
+              : outcome.action.status === "executed"
+                ? "success"
+                : "idle",
         }));
         for (const key of outcome.invalidates) queryClient.invalidateQueries({ queryKey: key });
       } catch (error) {
@@ -697,6 +714,7 @@ export function JarvisRoot() {
           onOpenAppearance={() => setAppearanceOpen(true)}
           onClose={() => setOpen(false)}
           onConfirm={(a) => void decide(a, "confirm")}
+          onUndo={(a) => void decide(a, "undo")}
           onReject={(a) => void decide(a, "reject")}
           onNavigate={() => {
             if (typeof window !== "undefined" && window.innerWidth < 768) setOpen(false);

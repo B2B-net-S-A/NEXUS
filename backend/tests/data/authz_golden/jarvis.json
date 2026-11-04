@@ -38,6 +38,7 @@
   "GET /api/jarvis/ui-events/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
   "POST /api/jarvis/actions/{action_id}/confirm": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
   "POST /api/jarvis/actions/{action_id}/reject": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
+  "POST /api/jarvis/actions/{action_id}/undo": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
   "POST /api/jarvis/chat": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
   "POST /api/jarvis/conversations/{conversation_id}/cancel": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",
   "POST /api/jarvis/gaps/{gap_id}/report": "PPPPPPPDPPPPPPPPPPPPPPPPPPPP",

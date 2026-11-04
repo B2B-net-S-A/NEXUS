@@ -69,7 +69,7 @@ describe("karta „Tego nie zrobię”", () => {
 
 describe("pusty panel — co Jarvis zrobi za tę rolę", () => {
   it("pokazuje tylko grupy, które rola ma", () => {
-    render(<JarvisCapabilities capabilities={{ read: ["tablice rekrutacji"], write: [], never: ["usuwanie"] }} />);
+    render(<JarvisCapabilities capabilities={{ read: ["tablice rekrutacji"], now: [], write: [], never: ["usuwanie"] }} />);
     expect(screen.getByText("Sprawdzę od razu")).toBeInTheDocument();
     expect(screen.queryByText(/Przygotuję/)).toBeNull();
     expect(screen.getByText("usuwanie")).toBeInTheDocument();

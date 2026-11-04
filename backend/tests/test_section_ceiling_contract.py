@@ -131,6 +131,7 @@ _SECTIONLESS_ALLOWLIST: dict[str, str] = {
     "DELETE /api/jarvis/conversations/{conversation_id}": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/actions/{action_id}/confirm": "Jarvis: narzędzia wracają do aplikacji przez trasy z własną bramką sekcji",
     "POST /api/jarvis/actions/{action_id}/reject": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
+    "POST /api/jarvis/actions/{action_id}/undo": "Jarvis: cofnięcie wraca do aplikacji przez trasy z własną bramką sekcji",
     "POST /api/jarvis/conversations/{conversation_id}/cancel": "Jarvis: rozmowy i akcje zawężone do właściciela, bez danych domenowych",
     "POST /api/jarvis/ui-events": "Jarvis: telemetria własnych kliknięć (kod ekranu, bez danych domenowych)",
     "POST /api/jarvis/gaps/{gap_id}/report": "Jarvis: „Zgłoś, że tego potrzebuję” na własnej karcie braku (bez danych domenowych)",

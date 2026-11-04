@@ -1,6 +1,6 @@
 # Jarvis — asystent w NEXUSIE
 
-Jarvis to asystent AI dostępny na każdym ekranie NEXUSA. Zastąpił MINDY z DynaReportera. Odpowiada na pytania o dane w NEXUSIE i przygotowuje zadania do wykonania. **Każdą zmianę najpierw pokazuje Ci do zatwierdzenia.**
+Jarvis to asystent AI dostępny na każdym ekranie NEXUSA. Zastąpił MINDY z DynaReportera. Odpowiada na pytania o dane w NEXUSIE, wykonuje proste zapisy, o które poprosisz, i przygotowuje pozostałe zadania do wykonania. **Prosty zapis cofniesz na karcie przez 15 minut, a resztę najpierw pokazuje Ci do zatwierdzenia.**
 
 ## Jak otworzyć
 
@@ -39,11 +39,17 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 - pokazywać propozycje w „Do przejrzenia”, werdykty klienta i skrzynkę zamówień z powodami wstrzymania,
 - liczyć „ile…” (np. ile CV wysłałeś w zeszłym miesiącu) i wyjaśniać, dlaczego kandydat pasuje do rekrutacji.
 
+**Robić od razu, gdy poprosisz** (z „Cofnij” na karcie przez 15 minut):
+
+- dodanie notatki do kandydata (notatka, w której oznaczasz kogoś przez @, czeka na „Zrób to”, bo ta osoba dostaje powiadomienie i mail),
+- dodanie kandydatów do rekrutacji,
+- uśpienie albo przypięcie osoby w „Moich ludziach”.
+
+Karta „Zrobione za Ciebie” pokazuje, co zostało zapisane. **„Cofnij”** działa raz. Dodanie do rekrutacji cofniesz, dopóki osoba nie ma ruchu ani zapisanego screeningu; notatka podana przy dodaniu zostaje w profilu. Po 15 minutach zmianę poprawiasz na zwykłym ekranie.
+
 **Przygotowywać zadania** (do Twojego zatwierdzenia):
 
-- dodanie notatki do kandydata,
 - przesunięcie kandydata na tablicy rekrutacji,
-- dodanie kandydatów do rekrutacji,
 - wpis w Twoim kalendarzu (bez zapraszania innych osób),
 - dodanie kandydata do puli talentów,
 - oznaczenie powiadomień jako przeczytane i sprawy klienta jako załatwionej,
@@ -51,7 +57,6 @@ Jarvis widzi **dokładnie to, co Ty**. Każde jego sprawdzenie idzie przez te sa
 - odświeżenie podsumowania aktywności kandydata,
 - zapis debriefu po rozmowie u klienta,
 - odrzucenie propozycji w „Do przejrzenia”, werdykt klienta, „Biorę” kandydata,
-- uśpienie albo przypięcie osoby w „Moich ludziach”,
 - zapamiętanie Twojej preferencji („odpowiadaj krócej”).
 
 Zadanie pojawia się jako **karta** z opisem. Nic się nie dzieje, dopóki nie klikniesz **„Zrób to”**. „Anuluj” odrzuca propozycję. Propozycja wygasa po 15 minutach. Jeśli NEXUS ostrzeże przy przesunięciu (np. konflikt z klientem), Jarvis pokaże nową kartę „mimo ostrzeżenia” — decyzja zostaje przy Tobie.
