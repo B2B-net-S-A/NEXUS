@@ -28,3 +28,30 @@ bieżącym CV, 264 z innym plikiem, 93 z plikiem rodzaju „cv”. Generacje z 3
 ze znanym źródłem, 15 z firmowego Worda, z tego 14 przy dostępnym innym pliku
 (12 wybranych ręcznie, 2 domyślnie). Kopie „Oryginał CV” z 30 dni: 426 z firmowego
 Worda u 129 osób, 245 przy dostępnym pliku rodzaju „cv”.
+
+## Naprawa starych danych: `app.cli.client_cv_flag_repair` (04.11.2026)
+
+Kolejność z #2926 nie zdjęła flagi „główne” z firmowego Worda ani nie zmieniła
+kopii „Oryginał CV”, z którą porównuje QC. Skrypt ma `--dry-run`, `--commit`
+i `--rollback`, niczego nie kasuje, a paragon
+`app_settings['client_cv_flag_repair_2026_11']` niesie same id i liczby. Przebieg
+przećwiczony na kopii produkcji; bieg na produkcji wymaga zgody Artura.
+
+- **„93 osoby” z pomiaru 02.11 to nie to samo co flaga.** Na kopii z 04.11 #2926 zmienia
+  plik domyślny 110 osobom: 77 ma flagę na firmowym Wordzie, 33 nie ma używalnego
+  głównego CV. Flagę na firmowym Wordzie ma 1517 osób, ale 1440 nie ma pliku rodzaju
+  „cv” bez cech firmowego i zostaje jak jest.
+- **Paczka CV:** od #2926 te osoby dostają w ZIP-ie plik kandydata i tak ma zostać,
+  bo firmowe CV powstaje na osobę i nie nadaje się do hurtu
+  (`oryginal-cv-tylko-po-generatorze.md`). Trasy nie zmieniamy. Sama zmiana flagi
+  podmienia plik w paczce tylko tam, gdzie dziś wygrywał plik bez daty albo wybór
+  między plikami bez daty był przypadkowy (10 osób na kopii).
+- **Kopia etapu** dostaje plik tylko bez CV do klienta. Szkic i zatwierdzone CV mają
+  swój wzór, plik wgrany ręcznie to wybór rekrutera, a kopia z bajtami w bazie nie
+  dałaby się cofnąć.
+- **Treść pliku jest sprawdzana, nie sama nazwa.** Odpada plik bez nazwiska osoby,
+  nieczytelny, z układem szablonu albo o bajtach firmowego CV. Takie osoby zostają
+  bez zmian i idą do przeglądu po id (10 na kopii).
+- **Plik DOC jako główne CV** (20 osób) nie ma podglądu w przeglądarce, a generator
+  go nie czyta i zostaje przy firmowym Wordzie. `--exclude-doc` je pomija.
+- **`--rollback` nie cofa odczytu AI** (`--reread`): profil osoby zostaje z nowego pliku.
