@@ -45,6 +45,7 @@ export function AdvancedOptions(props: AdvancedOptionsProps) {
     <div className="mt-4 border-t border-border pt-3">
       <button
         type="button"
+        data-tour="cv.position"
         aria-expanded={props.open}
         aria-controls={panelId}
         onClick={() => props.onOpenChange(!props.open)}

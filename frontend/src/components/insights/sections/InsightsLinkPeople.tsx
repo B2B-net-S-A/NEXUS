@@ -67,7 +67,7 @@ export function InsightsLinkPeople({ period }: { period: InsightsPeriodParams })
 
   return (
     <section className="space-y-4" data-testid="insights-link-people">
-      <h2 className="flex items-center gap-2 text-base font-semibold text-foreground">
+      <h2 data-tour="insights.link-people" className="flex items-center gap-2 text-base font-semibold text-foreground">
         <Link2 className="h-5 w-5 text-primary" />
         Kto co przyniósł
       </h2>

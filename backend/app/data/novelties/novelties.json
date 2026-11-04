@@ -798,6 +798,63 @@
     ]
   },
   {
+    "id": "qc-pod-inna-nazwa",
+    "pr": 2929,
+    "title": "QC pyta: „w oryginale pod inną nazwą?”",
+    "why": "Gdy QC nie znajdzie technologii dosłownie, a w oryginale stoi pokrewna nazwa, pokaże cytat i zapyta, czy to to samo. „To ta sama rzecz” zdejmuje uwagę jednym kliknięciem.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby → okno QC",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv-qc.same-thing"
+  },
+  {
+    "id": "pytania-klienta-z-tej-rekrutacji",
+    "pr": 2913,
+    "title": "Pytania klienta: najpierw te z tej rekrutacji",
+    "why": "Pod rekrutacją stoją teraz tylko pytania, które padły na rozmowach w tej rekrutacji. Pozostałe nie zniknęły: znajdziesz je pod „Wszystkie pytania klienta”, pogrupowane po rekrutacji.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment"
+      ]
+    },
+    "where": "Rekrutacja → panel osoby i Profil Championa",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "jobs.client-questions.scope"
+  },
+  {
+    "id": "zmien-terminy-od-klienta",
+    "pr": 2850,
+    "title": "„Zmień terminy”, gdy klient podał inne",
+    "why": "Klient podał inne terminy rozmowy? Zmienisz je sam, bez czekania na wybór rekrutera, a rekruter dostanie dzwonek z nowymi. Przy dodawaniu nowych terminów pojawi się też „Zastąp otwarte terminy”.",
+    "tier": "dot",
+    "shipped_on": "2026-10-30",
+    "audience": {
+      "roles": [
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
+    "where": "Kalendarz → panel osoby → Terminy od klienta",
+    "href": "/calendar",
+    "section": "pipeline",
+    "dot_anchor": "calendar.slots.change"
+  },
+  {
     "id": "premie-po-miesiacach",
     "title": "Premie i wynagrodzenie dodatkowe po miesiącach",
     "why": "Wybierasz miesiąc i od razu widzisz podstawę, wynagrodzenie dodatkowe albo premie oraz sumę. Lista pokazuje wtedy tylko pozycje z tego miesiąca, a „Wszystkie” wraca do pełnej listy.",
@@ -830,5 +887,44 @@
     "href": "/jobs",
     "section": "pipeline",
     "dot_anchor": "person.cv.edit"
+  },
+  {
+    "id": "stanowisko-jak-u-klienta",
+    "pr": 2983,
+    "title": "Pole „Stanowisko” pokazuje to, co dostanie klient",
+    "why": "Generator od razu podaje nagłówek do CV, bez numeru zapytania, i nazwę pliku. Własną nazwę cofniesz przez „Przywróć z rekrutacji”. Gdy rekrutacja nie ma roli, pole trzeba wypełnić.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → CV → generator → Zaawansowane",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "cv.position"
+  },
+  {
+    "id": "powod-z-poprzedniej-rekrutacji",
+    "pr": 2962,
+    "title": "Powód odrzucenia z poprzedniej rekrutacji w panelu osoby",
+    "why": "Zakończona rekrutacja ma w „Wcześniej u nas” własną kartę z powodem odrzucenia lub rezygnacji, nawet bez notatek. Powód widać też w „Co już wiemy”, więc nie musisz wchodzić w profil.",
+    "tier": "dot",
+    "shipped_on": "2026-11-03",
+    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Panel osoby → Notatki i historia → Wcześniej u nas",
+    "href": "/jobs",
+    "section": "pipeline",
+    "dot_anchor": "person.history.earlier"
+  },
+  {
+    "id": "kto-co-przyniosl",
+    "pr": 2942,
+    "title": "Raport „Kto co przyniósł” z linków",
+    "why": "Tabela na osobę: link ogólny osobno od linków do rekrutacji, wejścia w okresie i od początku oraz dalsze etapy. Zgłoszenia z linków liczą się już osobno od ogłoszeń z portali.",
+    "tier": "dot",
+    "shipped_on": "2026-11-02",
+    "audience": { "roles": ["delivery_lead", "head_of_recruitment", "admin"] },
+    "where": "Insights → Raporty → Źródła, portale i linki",
+    "href": "/insights",
+    "section": "insights",
+    "dot_anchor": "insights.link-people"
   }
 ]

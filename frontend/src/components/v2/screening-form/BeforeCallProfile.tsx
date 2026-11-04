@@ -414,7 +414,11 @@ export function BeforeCallProfile({ item, jobId, readOnly, onOpenHistory }: Befo
         ) : null}
 
         {lastEnded || earlier.count > 0 || notesQuery.isError ? (
-          <section aria-label="Wcześniej u nas" className="space-y-1.5">
+          <section
+            aria-label="Wcześniej u nas"
+            data-tour="person.history.earlier"
+            className="space-y-1.5"
+          >
             <h3 className="text-xs font-semibold text-muted-foreground">Wcześniej u nas</h3>
             {notesQuery.isError ? (
               // Awaria odczytu nie może wyglądać jak osoba bez historii.

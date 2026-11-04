@@ -62,6 +62,7 @@ export function ClientQuestions({
       )}
       <button
         type="button"
+        data-tour="jobs.client-questions.scope"
         aria-expanded={showAll}
         onClick={() => setShowAll((v) => !v)}
         className={`mt-2 font-medium text-primary hover:underline ${text}`}

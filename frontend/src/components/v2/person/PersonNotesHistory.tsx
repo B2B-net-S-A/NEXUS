@@ -324,7 +324,7 @@ export function PersonNotesHistory({
           <JobNotesList candidateId={candidateId} notes={split.here} readOnly={readOnly} />
         )}
         {teaser.length > 0 ? (
-          <section aria-label="Wcześniej u nas" className="space-y-2">
+          <section aria-label="Wcześniej u nas" data-tour="person.history.earlier" className="space-y-2">
             <SectionHead title="Wcześniej u nas" meta="ostatnie rozmowy" />
             <JobNotesList candidateId={candidateId} notes={teaser} readOnly={readOnly} showRecruitment />
             {onOpenHistory ? (
@@ -351,7 +351,7 @@ export function PersonNotesHistory({
         )}
       </section>
 
-      <section aria-label="Wcześniej u nas" className="space-y-2">
+      <section aria-label="Wcześniej u nas" data-tour="person.history.earlier" className="space-y-2">
         <SectionHead
           title="Wcześniej u nas"
           meta={split.groups.length > 0 ? earlierSummaryLabel(split) : null}

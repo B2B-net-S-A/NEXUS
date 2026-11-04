@@ -290,6 +290,7 @@ export function CandidateCycleCard({
             {canManageSlots ? (
               <button
                 type="button"
+                data-tour="calendar.slots.change"
                 onClick={() => onAction({ type: "add_slots", pair: item, request: req })}
                 className="font-semibold text-primary hover:underline"
               >
