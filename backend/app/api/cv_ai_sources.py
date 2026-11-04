@@ -296,7 +296,7 @@ async def _cv_files(db: AsyncSession, stage: CandidateStage) -> list[AiSourceFil
                 CandidateDocument.candidate_id == stage.candidate_id,
                 _supported_cv_doc_filter(),
             )
-            .order_by(*current_cv_ordering(), CandidateDocument.id.desc())
+            .order_by(*current_cv_ordering())
         )
     ).all()
     # Kopia bieżącego wiersza etapu, a bez niej najnowsza kopia pary (ruch

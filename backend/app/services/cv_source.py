@@ -100,8 +100,13 @@ def current_cv_ordering() -> tuple:
     go nie zastępuje: import Traffita nie klasyfikuje plików, a co piąty taki
     plik Word obok firmowego CV sam ma układ szablonu
     (`generator-cv/firmowe-cv-ustepuje-cv-kandydata.md`).
+
+    04.11.2026: plik bez daty (import Traffita) idzie na koniec swojej rangi, bo
+    Postgres przy DESC stawia NULL pierwszy i wygrywał z plikiem wgranym w NEXUSIE.
+    Id kończy kolejność: bez niego wybór zależał od układu wierszy i sam UPDATE
+    innej kolumny podmieniał plik w paczce CV.
     """
-    is_cv = CandidateDocument.document_kind == CandidateDocumentKind.cv
+    is_cv =CandidateDocument.document_kind == CandidateDocumentKind.cv
     is_candidate_file = not_(client_cv_file_clause())
     return (
         case(
@@ -111,7 +116,8 @@ def current_cv_ordering() -> tuple:
             (is_cv, 3),
             else_=4,
         ),
-        CandidateDocument.uploaded_at.desc(),
+        CandidateDocument.uploaded_at.desc().nulls_last(),
+        CandidateDocument.id.desc(),
     )
 
 
