@@ -6,7 +6,14 @@
     "tier": "dot",
     "shipped_on": "2026-11-04",
     "pr": 3034,
-    "audience": { "roles": ["recruiter", "delivery_lead", "head_of_recruitment", "admin"] },
+    "audience": {
+      "roles": [
+        "recruiter",
+        "delivery_lead",
+        "head_of_recruitment",
+        "admin"
+      ]
+    },
     "where": "Rekrutacja → Odrzuć z powodem → Zatrudniony gdzie indziej",
     "href": "/jobs",
     "section": "pipeline",
