@@ -142,6 +142,16 @@ ROLE_CAPABILITIES: dict[UserRole, frozenset[AnalyticsCapability]] = {
             AnalyticsCapability.VIEW_TEAM_KPI,
         }
     ),
+    # 0644: „Back office” — Insights jak rekruter, bez osobistych KPI. Bez
+    # ``VIEW_FINANCE``: kwoty przy rekordzie daje „Stawki i kwoty: podgląd”
+    # (``financial_access.can_read_client_finance``).
+    UserRole.back_office: frozenset(
+        {
+            AnalyticsCapability.VIEW_OPERATIONAL_AGGREGATES,
+            AnalyticsCapability.VIEW_RECRUITMENT_RANKING,
+            AnalyticsCapability.VIEW_TENDERS_OPERATIONAL,
+        }
+    ),
     UserRole.admin: _ALL,
 }
 

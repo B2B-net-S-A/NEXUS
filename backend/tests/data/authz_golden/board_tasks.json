@@ -26,18 +26,19 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/closing": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/cv": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/departed-care": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/board-tasks": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/closing": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/cpro/queue": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/cv": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/departed-care": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/dl-review-row": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/board-tasks/dl-send": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/board-tasks/dl-send/{stage_id}/nudge": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PUT /api/board-tasks/cpro/sender": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

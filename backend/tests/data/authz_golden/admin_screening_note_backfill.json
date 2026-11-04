@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/screening-note-backfill/status": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/screening-note-backfill": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

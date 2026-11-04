@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/pipeline/stages/{stage_id}/screening/reassign-context": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/screening/reassign-suggestions": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

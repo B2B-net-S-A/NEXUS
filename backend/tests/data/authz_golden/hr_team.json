@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/hr/team": "BBBBBBBDBBBBBBBBBBBBBBBBBBB",
-  "GET /api/hr/team/managers": "BBBBBBBDBBBBBBBBBBBBBBBBBBB"
+  "GET /api/hr/team": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB",
+  "GET /api/hr/team/managers": "BBBBBBBDBBBBBBBBBBBBBBBBBBBB"
  }
 }

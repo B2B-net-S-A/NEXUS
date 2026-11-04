@@ -102,6 +102,7 @@ const OPERATIONAL: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ];
 
 /** Role operacyjne plus „Automatyzacje” (0446) — lustro odczytowych zbiorów
@@ -120,6 +121,7 @@ const RECRUITER_PLUS: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
 ];
 
 /**
@@ -171,6 +173,7 @@ const ALL_ROLES: readonly UserRole[] = [
   "recruiter",
   "user",
   "automation",
+  "back_office",
 ];
 
 /**
@@ -342,9 +345,10 @@ export const CAPABILITY_PERMISSIONS: Partial<Record<Capability, Permission>> = {
   "nav.order_mail": "delivery_view",
   "nav.my_relationships": "delivery_view",
   "nav.contracts": "delivery_view",
-  // /api/finance/* → FinanceModuleUser = „Moduł Finanse”
+  // /finance: zakładki o zamówieniach stoją za `orders_work`, a „Moduł Finanse”
+  // je pociąga, więc jedno uprawnienie opisuje każdego, kto ma tu wejść.
   // (backend/app/api/deps.py).
-  "nav.finance": "finance_module",
+  "nav.finance": "orders_work",
   // /api/sales/* → SalesViewUser = „Sprzedaż: podgląd” (backend/app/api/sales_gates.py).
   "nav.sales": "sales_view",
 };
@@ -398,7 +402,6 @@ const CAPABILITY_SECTION_REQUIREMENTS: Partial<
   "nav.contracts": { section: "delivery", required: "read" },
   // `/api/dashboard/v2/recruitment-stats` wymaga Insights (F02).
   "dashboard.recruitment_stats.view": { section: "insights", required: "read" },
-  "nav.finance": { section: "finance", required: "read" },
 };
 
 export const MUTATING_CAPABILITIES: ReadonlySet<Capability> = new Set([

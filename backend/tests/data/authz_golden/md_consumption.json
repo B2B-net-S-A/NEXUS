@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDDD"
+  "GET /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDPP",
+  "GET /api/md-consumption/imports/{import_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDPP",
+  "POST /api/md-consumption/imports": "PPDDDDDDDDDDDDDDDPDDDDDDDDPP",
+  "POST /api/md-consumption/imports/{import_id}/reprocess-polkomtel": "PPDDDDDDDDDDDDDDDPDDDDDDDDPP",
+  "POST /api/md-consumption/imports/{import_id}/rows/{row_id}/assign": "PPDDDDDDDDDDDDDDDPDDDDDDDDPP"
  }
 }

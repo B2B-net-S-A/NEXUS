@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/sales/clients/options": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/clients/{client_id}/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/clients/link/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/sales/clients/options": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/clients/{client_id}/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/clients/link/{company_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

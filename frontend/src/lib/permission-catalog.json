@@ -8,7 +8,8 @@
         "clients_edit",
         "contracts_orders_edit",
         "contract_status",
-        "b2b_signature_confirmation"
+        "b2b_signature_confirmation",
+        "orders_work"
       ]
     },
     {
@@ -58,7 +59,8 @@
         "finance",
         "delivery_lead",
         "talent_community_manager",
-        "automation"
+        "automation",
+        "back_office"
       ]
     },
     {
@@ -69,7 +71,8 @@
         "delivery_view"
       ],
       "default_roles": [
-        "delivery_lead"
+        "delivery_lead",
+        "back_office"
       ]
     },
     {
@@ -81,7 +84,8 @@
       ],
       "default_roles": [
         "delivery_lead",
-        "finance"
+        "finance",
+        "back_office"
       ]
     },
     {
@@ -93,7 +97,8 @@
       ],
       "default_roles": [
         "delivery_lead",
-        "talent_community_manager"
+        "talent_community_manager",
+        "back_office"
       ]
     },
     {
@@ -104,7 +109,8 @@
       "default_roles": [
         "delivery_lead",
         "talent_community_manager",
-        "recruiter"
+        "recruiter",
+        "back_office"
       ]
     },
     {
@@ -125,7 +131,8 @@
       ],
       "default_roles": [
         "finance",
-        "delivery_lead"
+        "delivery_lead",
+        "back_office"
       ]
     },
     {
@@ -136,7 +143,8 @@
         "amounts_view"
       ],
       "default_roles": [
-        "finance"
+        "finance",
+        "back_office"
       ]
     },
     {
@@ -144,7 +152,8 @@
       "label": "Moduł Finanse",
       "group": "money",
       "requires": [
-        "amounts_view"
+        "amounts_view",
+        "orders_work"
       ],
       "default_roles": [
         "finance"
@@ -211,6 +220,18 @@
       "group": "money",
       "requires": [],
       "default_roles": []
+    },
+    {
+      "key": "orders_work",
+      "label": "Zamówienia: zmiany, PDF-y, import MD",
+      "group": "clients_contracts",
+      "requires": [
+        "amounts_view"
+      ],
+      "default_roles": [
+        "finance",
+        "back_office"
+      ]
     }
   ]
 }

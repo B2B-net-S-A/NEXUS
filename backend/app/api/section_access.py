@@ -67,7 +67,9 @@ def _is_contract_termination_recovery(request: Request, current_user: User) -> b
         and parts[2].isdigit()
         and parts[3] in _TERMINATION_RECOVERY_COMMANDS
         and current_user.has_any_role(
-            UserRole.talent_community_manager, UserRole.finance
+            UserRole.talent_community_manager,
+            UserRole.finance,
+            UserRole.back_office,
         )
     )
 

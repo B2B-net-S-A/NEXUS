@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/jobs/{job_id}/assignable-stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/jobs/{job_id}/proposals/bulk": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

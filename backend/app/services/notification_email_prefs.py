@@ -276,7 +276,7 @@ def _candidate_bell(ntype: NotificationType) -> Callable[[User, _Context], bool]
 
 def _hire_documents(user: User, _: _Context) -> bool:
     return (
-        user.has_role(UserRole.finance)
+        user.has_any_role(UserRole.finance, UserRole.back_office)
         and user_may_receive_type(user, NotificationType.hired_order_missing)
     ) or (
         user.has_role(UserRole.delivery_lead)

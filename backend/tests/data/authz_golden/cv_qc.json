@@ -26,19 +26,20 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages/{stage_id}/qc/consent-screenshot": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/pipeline/stages/{stage_id}/qc": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/stages/{stage_id}/qc/consent-screenshot": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/confirm": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismiss": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/dismissals/{dismissal_id}/restore": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/fixes": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/override": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/role-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/qc/transform": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

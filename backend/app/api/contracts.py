@@ -285,6 +285,7 @@ ContractTerminationRecoveryUser = Annotated[
         require_roles(
             UserRole.admin,
             UserRole.finance,
+            UserRole.back_office,
             UserRole.talent_community_manager,
         )
     ),

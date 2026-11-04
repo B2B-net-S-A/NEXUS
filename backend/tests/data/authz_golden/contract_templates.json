@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDDDP",
-  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDDDP",
-  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDDDP",
-  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/contract-templates": "PPDBDDDDBBBDDDDDDPPDDDDDDDPP",
+  "GET /api/contract-templates/{template_id}": "PPDBDDDDBBBDDDDDDPPDDDDDDDPP",
+  "GET /api/contract-templates/{template_id}/render": "PPDBDDDDBBBDDDDDDPPDDDDDDDPP",
+  "PATCH /api/contract-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/contract-templates": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

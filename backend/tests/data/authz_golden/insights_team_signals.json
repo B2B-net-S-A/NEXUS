@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDPP",
-  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDDPP",
-  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDDPP"
+  "GET /api/insights/recruitment/stale-jobs": "PPPPPDDDPPPPPPDDDDDDDDDDDPPD",
+  "GET /api/insights/team/attention": "PPPPPDDDPPPPPPDDDDDDDDDDDPPD",
+  "GET /api/insights/team/people": "PPPPPDDDPPPPPPDDDDDDDDDDDPPD"
  }
 }

@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUUU",
-  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUUUUUUUUU"
+  "DELETE /api/integrations/v1/webhooks/{webhook_id}": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/events": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "GET /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU",
+  "POST /api/integrations/v1/webhooks/{webhook_id}/test": "UUUUUUUUUUUUUUUUUUUUUUUUUUUU"
  }
 }

@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/admin/match-score-repair/preview": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/admin/match-score-repair/repair": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

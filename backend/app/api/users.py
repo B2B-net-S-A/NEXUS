@@ -108,6 +108,7 @@ _MENTION_HISTORY_ROLES = [
     *_DEFAULT_ROLES,
     UserRole.head_of_recruitment,
     UserRole.finance,
+    UserRole.back_office,
 ]
 
 

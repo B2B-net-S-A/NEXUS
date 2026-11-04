@@ -55,6 +55,7 @@ MATRIX_ROLES: tuple[UserRole, ...] = (
     UserRole.recruiter,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 ROLE_LABELS: dict[str, str] = {
@@ -64,6 +65,7 @@ ROLE_LABELS: dict[str, str] = {
     UserRole.recruiter.value: "Rekruter",
     UserRole.talent_community_manager.value: "Talent Community Manager",
     UserRole.finance.value: "Finanse",
+    UserRole.back_office.value: "Back office",
 }
 
 _MATRIX_ROLE_VALUES = frozenset(role.value for role in MATRIX_ROLES)

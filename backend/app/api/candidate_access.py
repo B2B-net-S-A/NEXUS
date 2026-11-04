@@ -65,6 +65,7 @@ _INTERNAL_OPERATIONAL_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 # 0446: „Automatyzacje” czytają kandydatów i CV jak reszta firmy (decyzja
@@ -79,6 +80,7 @@ CANDIDATE_READ_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
     UserRole.automation,
 )
 CANDIDATE_DOCUMENT_ROLES: tuple[UserRole, ...] = CANDIDATE_READ_ROLES
@@ -98,6 +100,7 @@ CANDIDATE_WRITE_ROLES: tuple[UserRole, ...] = (
     UserRole.talent_community_manager,
     UserRole.recruiter,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
@@ -106,6 +109,7 @@ CANDIDATE_EXPORT_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 CANDIDATE_FINANCE_READ_ROLES: tuple[UserRole, ...] = _INTERNAL_OPERATIONAL_ROLES
@@ -128,6 +132,7 @@ CLIENT_RATE_VIEW_ROLES: tuple[UserRole, ...] = (
     UserRole.delivery_lead,
     UserRole.talent_community_manager,
     UserRole.finance,
+    UserRole.back_office,
 )
 
 

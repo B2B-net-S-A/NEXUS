@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDD",
-  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDDD"
+  "DELETE /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
+  "GET /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
+  "GET /api/rate-cards/suggest": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
+  "GET /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
+  "PATCH /api/rate-cards/{card_id}": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD",
+  "POST /api/rate-cards": "PPDDDDDDDDDDDDDDDPDDDDDDDDDD"
  }
 }

@@ -45,7 +45,7 @@ function permissionSwitch(name: string) {
   return screen.getByRole("switch", { name });
 }
 
-describe("PermissionsTab — jedna rola, siedemnaście przełączników", () => {
+describe("PermissionsTab — jedna rola, osiemnaście przełączników", () => {
   beforeEach(() => {
     hrProgram.on = true;
     vi.clearAllMocks();
@@ -101,7 +101,7 @@ describe("PermissionsTab — jedna rola, siedemnaście przełączników", () => 
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Sprzedaż"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(12);
+    expect(screen.getAllByRole("switch")).toHaveLength(13);
     expect(
       within(screen.getByRole("group", { name: "Rola" })).queryByRole("button", {
         name: "Pracownik",
@@ -109,12 +109,12 @@ describe("PermissionsTab — jedna rola, siedemnaście przełączników", () => 
     ).toBeNull();
   });
 
-  it("rysuje pięć grup i siedemnaście przełączników ze stanem roli", async () => {
+  it("rysuje pięć grup i osiemnaście przełączników ze stanem roli", async () => {
     renderTab();
     await screen.findByRole("group", { name: "Rola" });
 
     for (const [name, switches] of [
-      ["Klienci i kontrakty", 5],
+      ["Klienci i kontrakty", 6],
       ["Rekrutacje", 1],
       ["Pieniądze", 4],
       ["Ludzie", 5],
@@ -127,7 +127,7 @@ describe("PermissionsTab — jedna rola, siedemnaście przełączników", () => 
     expect(
       screen.getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent),
     ).toEqual(["Klienci i kontrakty", "Rekrutacje", "Pieniądze", "Ludzie", "Sprzedaż"]);
-    expect(screen.getAllByRole("switch")).toHaveLength(17);
+    expect(screen.getAllByRole("switch")).toHaveLength(18);
     expect(
       permissionSwitch("Finanse: Kontrakty i zamówienia: tworzenie i edycja"),
     ).toBeChecked();
@@ -480,7 +480,7 @@ describe("PermissionsTab — jedna rola, siedemnaście przełączników", () => 
 
     await user.click(within(alert).getByRole("button", { name: /Spróbuj ponownie/ }));
 
-    expect(await screen.findAllByRole("switch")).toHaveLength(17);
+    expect(await screen.findAllByRole("switch")).toHaveLength(18);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 

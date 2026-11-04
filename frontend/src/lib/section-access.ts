@@ -75,6 +75,7 @@ export const ALL_USER_ROLES: readonly UserRole[] = [
   "automation",
   "employee",
   "board",
+  "back_office",
 ];
 
 /**
@@ -154,6 +155,16 @@ export const ROLE_SECTION_ACCESS: Record<
     pipeline: "none",
     delivery: "none",
     insights: "none",
+    finance: "none",
+    system_admin: "none",
+  },
+  // „Back office” (0644): jak Finanse, bez sekcji Finanse. Zakładki o zamówieniach
+  // otwiera uprawnienie `orders_work`, nie ta sekcja.
+  back_office: {
+    sourcing: "write",
+    pipeline: "write",
+    delivery: "write",
+    insights: "read",
     finance: "none",
     system_admin: "none",
   },

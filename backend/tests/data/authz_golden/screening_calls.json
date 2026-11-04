@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "POST /api/screening-calls": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/screening-calls/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/screening-calls/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "POST /api/screening-calls": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/screening-calls/{event_id}/cancel": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PUT /api/screening-calls/{event_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

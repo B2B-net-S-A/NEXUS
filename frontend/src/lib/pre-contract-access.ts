@@ -14,6 +14,7 @@ export const PRE_CONTRACT_ROLES: readonly UserRole[] = [
   "talent_community_manager",
   "recruiter",
   "finance",
+  "back_office",
   "automation",
   "board",
 ];

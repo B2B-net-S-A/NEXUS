@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/scoring-config": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "PATCH /api/insights/scoring-config": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "GET /api/insights/scoring-config": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
+  "PATCH /api/insights/scoring-config": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

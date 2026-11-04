@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/care/board": "BBDBBDDDBBBDBBBBDBBDDDDDDDB",
-  "GET /api/care/clients": "BBDBBDDDBBBDBBBBDBBDDDDDDDB",
-  "PUT /api/care/board/state": "BBDBBDDDBBBDBBBDDDBDDDDDDDB"
+  "GET /api/care/board": "BBDBBDDDBBBDBBBBDBBDDDDDDDBB",
+  "GET /api/care/clients": "BBDBBDDDBBBDBBBBDBBDDDDDDDBB",
+  "PUT /api/care/board/state": "BBDBBDDDBBBDBBBDDDBDDDDDDDBB"
  }
 }

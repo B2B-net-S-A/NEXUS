@@ -129,6 +129,15 @@ DEFAULT_ROLE_SECTION_ACCESS: dict[UserRole, dict[ProductSection, SectionAccess]]
     # 0490: „Rada nadzorcza” — wyłącznie odczyt Insights. Kwoty kokpitu Firma
     # otwiera rola w ``BoardReader``, nie sekcja Finanse ani ``VIEW_FINANCE``.
     UserRole.board: _policy(insights=SectionAccess.read),
+    # 0644: „Back office” — jak Finanse, ale bez sekcji Finanse. Jej odczyt
+    # nadałby ``VIEW_FINANCE`` (40+ powierzchni); zakładki o zamówieniach stoją
+    # za ``orders_work``, a kwoty przy rekordzie za „Stawki i kwoty: podgląd”.
+    UserRole.back_office: _policy(
+        sourcing=SectionAccess.write,
+        pipeline=SectionAccess.write,
+        delivery=SectionAccess.write,
+        insights=SectionAccess.read,
+    ),
 }
 
 # Backwards-compatible export name. Tests use it as the migration seed contract.

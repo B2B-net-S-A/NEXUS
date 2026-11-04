@@ -26,19 +26,20 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/{candidate_id}/notes-facts": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/{candidate_id}/recent-recruitments": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/{candidate_id}/recommendation-cards": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/{candidate_id}/screening-answers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "PATCH /api/candidates/{candidate_id}/call-facts": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PATCH /api/candidates/{candidate_id}/profile-rate": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PATCH /api/candidates/{candidate_id}/work-mode": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/candidates/{candidate_id}/notes-facts/apply": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PUT /api/candidates/{candidate_id}/languages": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

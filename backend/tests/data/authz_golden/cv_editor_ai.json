@@ -26,11 +26,12 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/command": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/confirm-fact": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/cv-ai/selection": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

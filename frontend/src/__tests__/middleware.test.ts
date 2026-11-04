@@ -74,6 +74,27 @@ const validHybridHeadOfRecruitment = makeToken({
 })
 const expiredAdmin = makeToken({ role: "admin", roles: ["admin"], exp: now() - HOUR })
 const validEmployee = makeToken({ role: "employee", roles: ["employee"], exp: now() + HOUR })
+const backOfficeSections = {
+  sourcing: "write",
+  pipeline: "write",
+  delivery: "write",
+  insights: "read",
+  finance: "none",
+  system_admin: "none",
+}
+const validBackOffice = makeToken({
+  role: "back_office",
+  roles: ["back_office"],
+  sa: backOfficeSections,
+  fo: true,
+  exp: now() + HOUR,
+})
+const backOfficeWithoutOrders = makeToken({
+  role: "back_office",
+  roles: ["back_office"],
+  sa: backOfficeSections,
+  exp: now() + HOUR,
+})
 const validBoard = makeToken({
   role: "board",
   roles: ["board"],
@@ -1142,5 +1163,21 @@ describe("lista „Umowy przedwstępne” — role z bramki API", () => {
 
   it("Viewer dostaje /403 — API przedwstępnych mu odmawia", () => {
     expect(destination("/jobs/umowy-przedwstepne", validViewer)).toBe("/403")
+  })
+})
+
+describe("„Back office” (0644): /finance otwiera znacznik `fo`, nie sekcja", () => {
+  it("wchodzi na /finance z uprawnieniem do zamówień", () => {
+    expect(destination("/finance", validBackOffice)).toBe("pass")
+  })
+
+  it("bez znacznika zostaje przy /403, mimo sekcji Delivery", () => {
+    expect(destination("/finance", backOfficeWithoutOrders)).toBe("/403")
+    expect(destination("/contracts", backOfficeWithoutOrders)).toBe("pass")
+  })
+
+  it("znacznik nie otwiera innych tras Finansów", () => {
+    expect(destination("/settings/clients-overview", validBackOffice)).toBe("/403")
+    expect(destination("/contracts/analytics", validBackOffice)).toBe("/403")
   })
 })

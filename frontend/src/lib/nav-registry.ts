@@ -202,7 +202,8 @@ export const NAV_SECTION_META: readonly NavSectionMeta[] = [
   // Moduł „Finanse". Jedna pozycja, bo `/finance` to jedna strona z zakładkami
   // — osobny link „Import MD" prowadziłby do tej samej trasy i otwierał ją na
   // innej zakładce niż podpowiada etykieta.
-  { key: "finance", title: "Finanse", icon: Wallet, section: "finance" },
+  // Bez sekcji produktu: wejście otwiera też samo `orders_work`, bez sekcji Finanse.
+  { key: "finance", title: "Finanse", icon: Wallet },
   { key: "system", title: "System", icon: Settings },
 ];
 

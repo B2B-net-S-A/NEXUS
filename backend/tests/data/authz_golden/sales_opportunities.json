@@ -26,23 +26,24 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "DELETE /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/decision-map": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "DELETE /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/opportunities/{opportunity_id}/history": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/pipelines": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/summary": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/opportunities/{opportunity_id}/decision-map/{person_key}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/archive": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/decision-map": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/move": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/opportunities/{opportunity_id}/restore": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PUT /api/sales/opportunities/{opportunity_id}/contacts/{contact_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

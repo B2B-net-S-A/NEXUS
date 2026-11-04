@@ -26,16 +26,17 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/overview-sla": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/reports/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/reports/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/embed-all": "PDDPDDDDPPPDDDDDDDDDDDDDDDD",
-  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDPPPDDDDDDDDDDDDDDDD"
+  "GET /api/candidates/{candidate_id}/pipelines": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline-stages/{stage_def_id}/scorecard": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/overview-sla": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/reports/funnel": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/reports/time-to-hire": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "PATCH /api/pipeline/{candidate_stage_id}/scorecard": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/jobs/embed-all": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD",
+  "PUT /api/pipeline-stages/{stage_def_id}/scorecard": "PDDPDDDDPPPDDDDDDDDDDDDDDDDD"
  }
 }

@@ -57,6 +57,9 @@ mogły założyć kontraktu, a admin nie miał czego przełączyć. Decyzje Artu
   wiersz zostaje. Zmiana wylogowuje dotknięte konta
   i zostawia wpis w Historii zdarzeń (`rbac.role_permissions`,
   `rbac.user_permissions`).
+- **Rola Back office i `orders_work`** (0644, 04.11.2026): „Moduł Finanse” pociąga
+  `orders_work`, więc jego odebranie zostawia zakładki o zamówieniach.
+  → `rola-back-office-zamowienia-i-umowy.md`
 - **Rola bez wierszy zasiewu** jest liczona funkcją zasiewu z jej zapisanych
   sekcji (start bez migracji nie zamyka Delivery); pierwsza zmiana z ekranu
   zapisuje komplet wierszy. Zasiew: `permission_schema.py` (jedno źródło dla

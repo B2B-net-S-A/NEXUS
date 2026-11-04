@@ -31,6 +31,19 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
     "finance_module",
     // „Ludzie w NEXUSIE” (D2): Płace domyślnie u Finansów.
     "payroll",
+    // 04.11.2026: zakładki o zamówieniach poza „Modułem Finanse”.
+    "orders_work",
+  ],
+  // 0644: „Back office” — zamówienia i umowy, kwoty przy rekordzie.
+  back_office: [
+    "delivery_view",
+    "clients_edit",
+    "contracts_orders_edit",
+    "contract_status",
+    "b2b_signature_confirmation",
+    "amounts_view",
+    "amounts_edit",
+    "orders_work",
   ],
   head_of_recruitment: [],
   delivery_lead: [
@@ -64,7 +77,7 @@ const EXPECTED_DEFAULTS: Record<UserRole, Permission[]> = {
 const sorted = (values: Iterable<string>) => [...values].sort();
 
 describe("katalog uprawnień", () => {
-  it("ma siedemnaście pozycji w pięciu grupach, w kolejności ekranu", () => {
+  it("ma osiemnaście pozycji w pięciu grupach, w kolejności ekranu", () => {
     expect(PERMISSIONS.map((permission) => permission.label)).toEqual([
       "Klienci, kontrakty i zamówienia: podgląd",
       "Klienci: dodawanie i edycja",
@@ -83,11 +96,12 @@ describe("katalog uprawnień", () => {
       "Sprzedaż: prowadzenie szans i kartoteki firm",
       "Raporty godzin: akceptacja całej firmy",
       "Wyniki firmy: podsumowania przychodu i marży",
+      "Zamówienia: zmiany, PDF-y, import MD",
     ]);
     expect(
       PERMISSION_GROUPS.map((group) => [group.label, group.permissions.length]),
     ).toEqual([
-      ["Klienci i kontrakty", 5],
+      ["Klienci i kontrakty", 6],
       ["Rekrutacje", 1],
       ["Pieniądze", 4],
       ["Ludzie", 5],

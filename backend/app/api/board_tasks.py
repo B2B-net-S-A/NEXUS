@@ -710,7 +710,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
     people_rows = (
         await new_person_setup.load_rows_safely(db) if can_decide_proposals else []
     )
-    # Finanse nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
+    # Finanse i Back office nie przekazują CV — lista „Twoje CV w drodze” ich nie dotyczy.
     transit = (
         None
         if _finance_only(current_user)
@@ -855,7 +855,7 @@ async def build_board_tasks(db: AsyncSession, current_user: User) -> BoardTasksR
 
 
 def _finance_only(user: User) -> bool:
-    return user.get_all_roles() == {UserRole.finance}
+    return bool(user.get_all_roles() & {UserRole.finance, UserRole.back_office})
 
 
 def _pair(row: board_flow.PairRow) -> FlowPairRow:

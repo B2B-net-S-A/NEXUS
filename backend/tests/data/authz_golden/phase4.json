@@ -26,16 +26,17 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/saved-searches/{search_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/match-history/{job_id}/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/saved-searches": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/saved-searches/{search_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/match-history": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/saved-searches": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/saved-searches/migrate-semantics": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/saved-searches/{search_id}/viewed": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/saved-searches/{search_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "GET /api/match-history/{job_id}/{candidate_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/saved-searches": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "PATCH /api/saved-searches/{search_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/match-history": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/saved-searches": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/saved-searches/migrate-semantics": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/saved-searches/{search_id}/viewed": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "GET /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "PATCH /api/shortlist/{entry_id}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/jobs/{job_id}/shortlist": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/shortlist/{entry_id}/promote": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

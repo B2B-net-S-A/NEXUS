@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/candidate-search/jobs/{job_id}/candidates/{candidate_id}/verifications": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

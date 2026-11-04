@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "POST /api/candidates/{candidate_id}/blacklist": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/candidates/{candidate_id}/blacklist/remove": "PDPPDDDDPPPPDDDDDDDDDDDDDDD"
+  "POST /api/candidates/{candidate_id}/blacklist": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/candidates/{candidate_id}/blacklist/remove": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD"
  }
 }

@@ -131,6 +131,7 @@ def create_access_token(
     roles: Optional[list[str]] = None,
     authorization_version: int = 1,
     section_access: Mapping[str, str] | None = None,
+    finance_orders: bool = False,
 ) -> str:
     """Create a JWT access token.
 
@@ -163,6 +164,10 @@ def create_access_token(
         # Signed UX snapshot for Next middleware. Backend authorization always
         # resolves the current database policy independently on each request.
         payload["sa"] = dict(section_access)
+    if finance_orders:
+        # Ten sam podpisany snapshot UX: `orders_work` otwiera `/finance` bez
+        # sekcji Finanse. Claim dodawany tylko gdy True, jak ``fpc``.
+        payload["fo"] = True
     if force_password_change:
         payload["fpc"] = True
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=ALGORITHM)

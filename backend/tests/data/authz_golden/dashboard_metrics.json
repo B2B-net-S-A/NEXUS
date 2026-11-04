@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPPP",
-  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPPP"
+  "GET /api/dashboard-metrics/catalog": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP",
+  "POST /api/dashboard-metrics/evaluate": "PPPPPPDDPPPPPPPPPPPPDPPPPPPP"
  }
 }

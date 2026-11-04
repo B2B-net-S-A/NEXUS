@@ -128,9 +128,12 @@ def test_named_permissions_migration_seeds_only_roles_known_at_0410() -> None:
     assert "automation" not in migration.ROLES_AT_0410
     # „Ludzie w NEXUSIE” (0455) dokłada rolę „Pracownik”, a 0490 „Radę
     # nadzorczą” — obie po 0410.
-    assert set(migration.ROLES_AT_0410) | {"automation", "employee", "board"} == set(
-        catalog.ROLES
-    )
+    assert set(migration.ROLES_AT_0410) | {
+        "automation",
+        "employee",
+        "board",
+        "back_office",
+    } == set(catalog.ROLES)
     frozen = schema.seed_sql(migration.ROLES_AT_0410)
     assert "('automation')" not in frozen
     assert "('automation')" in schema.SEED_SQL

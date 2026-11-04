@@ -997,15 +997,15 @@ async def load_flow(
 async def load_finance(
     db: AsyncSession, user: User, *, now: Optional[datetime] = None
 ) -> Optional[FinanceBlock]:
-    """Zadania Finansów — rola Finanse z uprawnieniem „Moduł Finanse”.
+    """Zadania Finansów i Back office — ich rola z uprawnieniem do zamówień.
 
     Admin ma to uprawnienie domyślnie, ale tej pracy nie wykonuje; jego pulpit
     pokazuje stan systemu.
     """
 
-    if not user.has_role(UserRole.finance):
+    if not user.has_any_role(UserRole.finance, UserRole.back_office):
         return None
-    if not has_permission(user, ProductAction.finance_module):
+    if not has_permission(user, ProductAction.orders_work):
         return None
     now = now or datetime.now(timezone.utc)
     block = FinanceBlock()

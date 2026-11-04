@@ -26,14 +26,15 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
-  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDBBDDDDDDDB",
-  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDBBBDBBBBDBBBDDDDDDB",
-  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDDB",
-  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDBBBDDDBDDDDDDDDDDDD",
-  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDDDDDDDDDDB"
+  "DELETE /api/clients/{client_id}/one-pagers/{one_pager_id}": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
+  "GET /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDBBDDDDDDDBB",
+  "GET /api/clients/{client_id}/one-pagers": "BBDBBDDDBBBDBBBBDBBBDDDDDDBB",
+  "GET /api/clients/{client_id}/one-pagers/{one_pager_id}/download": "BBDBBDDDBBBDBBBBDBBBDDDDDDBB",
+  "POST /api/clients/{client_id}/one-pagers": "BDDBDDDDBBBDDDBDDDDDDDDDDDDB",
+  "PUT /api/clients/{client_id}/contract-terms": "BBDBDDDDBBBDDDDDDDDDDDDDDDBB"
  }
 }

@@ -107,6 +107,7 @@ describe("central section access matrix", () => {
       [
         "admin",
         "automation",
+        "back_office",
         "delivery_lead",
         "finance",
         "talent_community_manager",

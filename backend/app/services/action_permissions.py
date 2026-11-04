@@ -46,6 +46,7 @@ class ProductAction(StrEnum):
     sales_edit = "sales_edit"
     timesheets = "timesheets"
     company_results = "company_results"
+    orders_work = "orders_work"
 
 
 class ActionAccess(IntEnum):
@@ -82,6 +83,7 @@ _SEEDED_PERMISSIONS = frozenset(ProductAction(key) for key in catalog.SEEDED_KEY
 _GENERATOR_DEFAULTS: dict[UserRole, ActionAccess] = {
     UserRole.admin: ActionAccess.manage,
     UserRole.finance: ActionAccess.manage,
+    UserRole.back_office: ActionAccess.manage,
     UserRole.head_of_recruitment: ActionAccess.manage,
     UserRole.delivery_lead: ActionAccess.manage,
     UserRole.talent_community_manager: ActionAccess.manage,

@@ -26,18 +26,19 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/activities/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/activities/tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/sales/activities/{activity_id}/transcript": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "PATCH /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/activities/tasks/complete": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/activities/{activity_id}/done": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/sales/activities/{activity_id}/reopen": "PDDDDDDDDDDDDDDDDDDDDDDDDDD"
+  "DELETE /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/meetings": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/tasks": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/sales/activities/{activity_id}/transcript": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "PATCH /api/sales/activities/{activity_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities/tasks/complete": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities/{activity_id}/done": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/sales/activities/{activity_id}/reopen": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD"
  }
 }

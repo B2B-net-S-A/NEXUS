@@ -26,18 +26,19 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/email-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "GET /api/email-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/email-templates/{template_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/email-templates": "PDPPDDDDPPPPDDDDDDDDDDDDDDD",
-  "POST /api/email-templates/seed": "PDDDDDDDDDDDDDDDDDDDDDDDDDD",
-  "POST /api/email-templates/{template_id}/preview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/email-templates/{template_id}/send": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/emails/preview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/emails/send": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/email-templates/{template_id}": "PDPPDDDDPPPPDDDDDDDDDDDDDDD"
+  "DELETE /api/email-templates/{template_id}": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "GET /api/email-templates": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/email-templates/{template_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/email-templates": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD",
+  "POST /api/email-templates/seed": "PDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+  "POST /api/email-templates/{template_id}/preview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/email-templates/{template_id}/send": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/emails/preview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/emails/send": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PUT /api/email-templates/{template_id}": "PDPPDDDDPPPPDDDDDDDDDDDDDDDD"
  }
 }

@@ -26,10 +26,11 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "POST /api/recommendations/prepare-client-proposal": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/recommendations/send-candidate-shortlist-email": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

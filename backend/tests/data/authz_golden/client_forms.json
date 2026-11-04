@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/candidates/stages/{stage_id}/client-form/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/candidates/stages/{stage_id}/client-form/fill": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "PUT /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "GET /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/candidates/stages/{stage_id}/client-form/docx": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/candidates/stages/{stage_id}/client-form/fill": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "PUT /api/candidates/stages/{stage_id}/client-form": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

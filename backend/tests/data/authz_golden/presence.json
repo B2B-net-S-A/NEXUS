@@ -26,9 +26,10 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPPDP"
+  "GET /api/presence/{resource_type}/{resource_id}/viewers": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP"
  }
 }

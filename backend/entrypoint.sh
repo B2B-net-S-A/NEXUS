@@ -166,6 +166,9 @@ _ENUM_STATEMENTS = [
     # 0490: rola „Rada nadzorcza” — lustro
     # `app/services/board_role_schema.ENUM_DDL`.
     "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'board'",
+    # 0644: rola „Back office” — lustro
+    # `app/services/back_office_role_schema.ENUM_DDL`.
+    "ALTER TYPE userrole ADD VALUE IF NOT EXISTS 'back_office'",
     # „Ludzie w NEXUSIE” (0457): typy powiadomień modułów kadrowych — lustro
     # `app/services/hr_notification_schema.ENUM_DDL`.
     "ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'hr_leave_requested'",
@@ -1462,7 +1465,7 @@ _COLUMN_STATEMENTS = [
                role IN ('admin','head_of_recruitment','delivery_lead','talent_community_manager','finance','tac','recruiter','sourcer','user','trainee','automation')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results', 'orders_work')
            ),
            CONSTRAINT ck_rbac_role_action_permissions_access CHECK (
                access IN ('none','view','generate','manage')
@@ -1476,7 +1479,7 @@ _COLUMN_STATEMENTS = [
            updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
            PRIMARY KEY (user_id, action),
            CONSTRAINT ck_rbac_user_action_overrides_action CHECK (
-               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results')
+               action IN ('b2b_contract_generator', 'delivery_view', 'clients_edit', 'contracts_orders_edit', 'contract_status', 'b2b_signature_confirmation', 'recruitment_manage', 'amounts_view', 'amounts_edit', 'finance_module', 'people_admin', 'payroll', 'equipment', 'cases', 'sales_view', 'sales_edit', 'timesheets', 'company_results', 'orders_work')
            ),
            CONSTRAINT ck_rbac_user_action_overrides_access CHECK (
                access IN ('none','view','generate','manage')
@@ -7437,7 +7440,13 @@ _DATA_STATEMENTS = [
            ('board', 'delivery', 'none'),
            ('board', 'insights', 'read'),
            ('board', 'finance', 'none'),
-           ('board', 'system_admin', 'none')
+           ('board', 'system_admin', 'none'),
+           ('back_office', 'sourcing', 'write'),
+           ('back_office', 'pipeline', 'write'),
+           ('back_office', 'delivery', 'write'),
+           ('back_office', 'insights', 'read'),
+           ('back_office', 'finance', 'none'),
+           ('back_office', 'system_admin', 'none')
        ) AS defaults(role, section, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_section_permissions
@@ -7496,7 +7505,8 @@ _DATA_STATEMENTS = [
            ('trainee', 'b2b_contract_generator', 'none'),
            ('automation', 'b2b_contract_generator', 'none'),
            ('employee', 'b2b_contract_generator', 'none'),
-           ('board', 'b2b_contract_generator', 'none')
+           ('board', 'b2b_contract_generator', 'none'),
+           ('back_office', 'b2b_contract_generator', 'manage')
        ) AS defaults(role, action, access)
        WHERE NOT EXISTS (
            SELECT 1 FROM rbac_role_action_permissions

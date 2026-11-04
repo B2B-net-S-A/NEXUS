@@ -3225,7 +3225,7 @@ async def export_generated_contracts_xlsx(
         user_names=user_names,
         job_recruiters=job_recruiters,
         include_free_text=current_user.has_role(UserRole.admin)
-        or current_user.has_role(UserRole.finance),
+        or current_user.has_any_role(UserRole.finance, UserRole.back_office),
     )
     return Response(
         content=data,

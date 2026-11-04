@@ -26,21 +26,22 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDP",
-  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDP"
+  "DELETE /api/pipeline/stages/share-token/{token}": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "GET /api/pipeline/history/{candidate_id}/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/job/{job_id}/moves": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/kanban/{job_id}": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/my-next-steps": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/overview": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/stages": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "POST /api/pipeline/bulk-move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/claim": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/move": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/screening": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP",
+  "POST /api/pipeline/stages/{stage_id}/share-token": "PPPPPPDDPPPPPPPPPPPDDPPPPDPP"
  }
 }

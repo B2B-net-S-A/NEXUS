@@ -26,13 +26,14 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPPPDPPPPDP",
-  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
+  "GET /api/dashboard/kpis": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/pipeline-funnel": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/dashboard/recent-activity": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/dashboard/recent-hires": "PPPPPPDDPPPPPPPPPPPPDPPPPDPP",
+  "GET /api/dashboard/stats": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
  }
 }

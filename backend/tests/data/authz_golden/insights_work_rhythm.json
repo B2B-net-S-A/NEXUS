@@ -26,12 +26,13 @@
   "recruiter+equipment",
   "recruiter+cases",
   "board",
-  "finance-finance_module"
+  "finance-finance_module",
+  "back_office"
  ],
  "routes": {
-  "GET /api/insights/work-rhythm": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/insights/work-rhythm/day": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "GET /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDD",
-  "PUT /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDD"
+  "GET /api/insights/work-rhythm": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/insights/work-rhythm/day": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "GET /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD",
+  "PUT /api/insights/work-rhythm/rules": "PDPDDDDDDPDPDDDDDDDDDDDDDDDD"
  }
 }
