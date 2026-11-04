@@ -7,7 +7,7 @@
  * w widoku „CV obok”, a oba trzymały wspólny stan tekstu.
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
   ClipboardList,
@@ -295,6 +295,7 @@ export function NotesList({
   onOpenCard,
   groupByMonth = false,
   initialVisible,
+  aboveList,
 }: {
   notes: any[];
   recruitments?: any[];
@@ -330,6 +331,8 @@ export function NotesList({
   groupByMonth?: boolean;
   /** Tyle najnowszych notatek (bez przypiętych), reszta za „Pokaż starsze (M)”. */
   initialVisible?: number;
+  /** Treść nad listą, która słucha filtra rekrutacji (debrief w „Rozmowach”). */
+  aboveList?: (recruitment: NoteRecruitmentFilter) => ReactNode;
 }) {
   const notes = useMemo(
     () =>
@@ -841,6 +844,8 @@ export function NotesList({
           ) : null}
         </div>
       ) : null}
+
+      {aboveList?.(effectiveFilter)}
 
       {listed.length === 0 ? (
         <div className="py-6 text-center text-sm text-muted-foreground">

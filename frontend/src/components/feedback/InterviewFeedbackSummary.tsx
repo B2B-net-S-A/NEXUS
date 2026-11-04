@@ -70,9 +70,9 @@ export function isDebriefRow(row: InterviewFeedbackRow): boolean {
   return row.feedback_source === "candidate_side" && row.offer_acceptance != null;
 }
 
-const IMPRESSION_TO_OUTCOME: Record<number, DebriefOutcome> = { 5: "good", 3: "medium", 1: "bad" };
+export const IMPRESSION_TO_OUTCOME: Record<number, DebriefOutcome> = { 5: "good", 3: "medium", 1: "bad" };
 
-function formatWhen(iso: string | null | undefined): string | null {
+export function formatWhen(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -86,6 +86,14 @@ function formatWhen(iso: string | null | undefined): string | null {
   });
 }
 
+/** Pytania klienta z wpisu, po jednym w wierszu. */
+export function clientQuestionLines(row: InterviewFeedbackRow): string[] {
+  return (row.client_questions ?? "")
+    .split("\n")
+    .map((q) => q.trim())
+    .filter(Boolean);
+}
+
 /**
  * Cały zapisany debrief na profilu kandydata (04.10.2026). Do tej pory karta
  * pokazywała go polami starego formularza: bez akceptacji oferty, warunku
@@ -94,10 +102,7 @@ function formatWhen(iso: string | null | undefined): string | null {
 export function DebriefFeedbackCard({ row }: { row: InterviewFeedbackRow }) {
   const outcome =
     row.overall_impression != null ? IMPRESSION_TO_OUTCOME[row.overall_impression] : undefined;
-  const questions = (row.client_questions ?? "")
-    .split("\n")
-    .map((q) => q.trim())
-    .filter(Boolean);
+  const questions = clientQuestionLines(row);
   const interviewAt = formatWhen(row.calendar_event_start);
   const savedAt = formatWhen(row.updated_at);
   const meta = [

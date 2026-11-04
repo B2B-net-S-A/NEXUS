@@ -34,6 +34,7 @@ import { useToast } from "@/components/Toast";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import EmailThreadList from "@/components/emails/EmailThreadList";
+import { ClientInterviewNotes } from "@/components/feedback/ClientInterviewNotes";
 import CandidateChatTab from "@/components/v2/pages/CandidateChatTab";
 import {
   FilePreviewContent,
@@ -306,6 +307,17 @@ export function HistoryTab({
       onOpenCard={setOpenCard}
       groupByMonth
       initialVisible={NOTES_FIRST_PAGE}
+      aboveList={
+        activityView === "notes"
+          ? (recruitment) => (
+              <ClientInterviewNotes
+                candidateId={candidateId}
+                recruitments={recruitments}
+                jobFilter={recruitment}
+              />
+            )
+          : undefined
+      }
     />
   );
 

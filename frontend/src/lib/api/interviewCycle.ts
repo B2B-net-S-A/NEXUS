@@ -149,7 +149,7 @@ export const interviewCycleApi = {
   clientQuestions: (jobId: number) =>
     api
       .get<ClientQuestion[]>("/api/interview-cycle/client-questions", {
-        params: { job_id: jobId, limit: 50 },
+        params: { job_id: jobId, limit: 200 },
       })
       .then((r) => r.data),
   allClientQuestions: (jobId: number) =>

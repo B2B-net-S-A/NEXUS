@@ -450,6 +450,13 @@
    "home": "Rekrutacje → Zakończone"
   },
   {
+   "id": "n.client-interview",
+   "opis": "Debrief i pytania klienta po rozmowie, także po odrzuceniu",
+   "file": "components/feedback/ClientInterviewNotes.tsx",
+   "marker": "Po rozmowie u klienta",
+   "home": "Notatki → Rozmowy, nad listą"
+  },
+  {
    "id": "r.feedback",
    "opis": "Feedback po rozmowach",
    "file": "components/v2/candidate-profile/RecruitmentsTab.tsx",

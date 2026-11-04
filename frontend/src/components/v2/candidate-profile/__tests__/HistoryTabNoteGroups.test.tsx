@@ -18,12 +18,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiGet = vi.fn();
 const apiPost = vi.fn();
+const listFeedback = vi.fn();
 const showInfo = vi.fn();
 const showError = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   __esModule: true,
   default: { get: (...a: unknown[]) => apiGet(...a), post: (...a: unknown[]) => apiPost(...a) },
+  api: { get: (...a: unknown[]) => apiGet(...a) },
+  interviewFeedbackApi: { list: (...a: unknown[]) => listFeedback(...a) },
   extractErrorMsg: () => "Błąd serwera",
 }));
 vi.mock("@/components/Toast", () => ({
@@ -110,6 +113,8 @@ function respond(groupCounts: Record<string, number>, items: object[] = NOTES) {
     Promise.resolve(
       url.includes("/timeline")
         ? { data: { timeline: TIMELINE } }
+        : url.includes("/client-questions")
+        ? { data: [] }
         : url.includes("/recommendation-cards")
         ? {
             data: {
@@ -173,9 +178,32 @@ beforeEach(() => {
   useAuthStore.setState({ user: { id: 5, role: "recruiter" } } as never);
   respond({ talks: 40, contact: 3, delivery: 1, email: 1, automat: 9 });
   apiPost.mockResolvedValue({ data: { id: 99 } });
+  listFeedback.mockResolvedValue({ data: [] });
 });
 
 describe("Notatki — filtry po rodzaju", () => {
+  it("debrief stoi nad listą w „Rozmowach”, a w innych filtrach go nie ma", async () => {
+    const user = userEvent.setup();
+    listFeedback.mockResolvedValue({
+      data: [
+        {
+          id: 116,
+          job_id: 10,
+          feedback_source: "candidate_side",
+          offer_acceptance: "yes",
+          client_questions: "Co to piramida testów?",
+        },
+      ],
+    });
+    renderTab();
+    const card = await screen.findByRole("article", { name: /Po rozmowie u klienta/ });
+    expect(card).toHaveTextContent("Co to piramida testów?");
+    expect(await screen.findByText("Szuka projektu z Javą 21.")).toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /Delivery Lead/ }));
+    await screen.findByText("Dopisz do CV projekt bankowy.");
+    expect(screen.queryByRole("article", { name: /Po rozmowie u klienta/ })).not.toBeInTheDocument();
+  });
+
   it("zakładki niosą liczniki z serwera, a „Rozmowy” pokazują tylko notatki z rozmów", async () => {
     renderTab();
 
