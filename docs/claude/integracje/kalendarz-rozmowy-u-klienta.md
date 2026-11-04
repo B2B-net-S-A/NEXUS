@@ -93,3 +93,18 @@ Rozmowa u klienta → Telefon ≤30 min → Debrief`. Raport:
   a potwierdzenie wniosku odwołuje wpis o tej samej godzinie
   (`interview_slots._cancel_same_hour_entries`). Spotkania z Outlooka
   z uczestnikami zostają, jak przy przełożeniu (`replaceable_interviews`).
+- **„Zmień termin” przy rozmowie** (zgłoszenie 04.11.2026): klient przełożył
+  rozmowę na przyszły tydzień, prep dało się przełożyć z panelu, rozmowy nie.
+  Edycję miał tylko właściciel, a DL rekrutacji na „Szczegółach” dostawał 404.
+  Przycisk stoi w panelu kandydata i w doku osoby
+  (`components/calendar/cycle/RescheduleInterview.tsx`), zapis idzie przez
+  `POST /api/interview-cycle/events/{id}/reschedule`. Nowy termin dostaje **to
+  samo wydarzenie**, więc prepy, telefon i debrief zostają przy tej rundzie.
+  Mogą to zrobić ludzie pary: właściciel, DL rekrutacji, rekruter kandydata
+  i HoR/admin (`_interview_move_refusal`, `can_reschedule` w odczycie wydarzenia).
+  **Nie zamieniaj tego na `_ensure_pair_writer`**: `ensure_job_membership`
+  przepuszcza każdego rekrutera, a zmiana idzie do cudzego kalendarza. Cudze
+  spotkanie z Outlooka bez wniosku o terminy zostaje u organizatora (409), bo
+  mogą w nim być osoby spoza firmy. Przełożyć można tylko rozmowę przed nami.
+  Przełożenie zdejmuje „Odpisz klientowi” (także przy PATCH z Tygodnia), bo
+  gotowy tekst podawał stary termin; `client_replied_at` zostaje puste.

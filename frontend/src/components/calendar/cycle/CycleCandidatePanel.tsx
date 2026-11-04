@@ -5,6 +5,7 @@ import { ArrowUpRight, Video } from "lucide-react";
 
 import { PrepEditButtons } from "@/components/calendar/cycle/PrepEditButtons";
 import { PrepResponseChip } from "@/components/calendar/cycle/PrepResponseChip";
+import { useInterviewEvent } from "@/lib/api/interviewCycle";
 import {
   Sheet,
   SheetBody,
@@ -47,6 +48,7 @@ import { ClientQuestions } from "./ClientQuestions";
 import { CycleStepper } from "./CycleStepper";
 import { Prep2SkipControls } from "./Prep2Skip";
 import { Prep2FollowupFromPrep1, PrepStepReview } from "./PrepStepReview";
+import { InterviewRescheduleButton } from "./RescheduleInterview";
 
 const CHIP: Record<AgendaEntry["kind"], string> = {
   prep: "bg-primary/10 text-primary",
@@ -343,6 +345,9 @@ function PairEventRow({
     Boolean(entry.from_nexus) &&
     !past &&
     entry.event_id != null;
+  // Rozmowa należy do jej właściciela: DL dostawał na „Szczegółach” błąd.
+  const interviewEvent = useInterviewEvent(entry.kind === "interview" ? entry.event_id : null);
+  const detailsBlocked = interviewEvent.data?.can_open_details === false;
   return (
     <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5", past && !debrief && "opacity-60")}>
       <div className="min-w-0 flex-1">
@@ -452,7 +457,19 @@ function PairEventRow({
             }
           />
         ) : null}
-        {entry.kind !== "call" && entry.event_id != null && !nexusPrepAhead ? (
+        {entry.kind === "interview" && entry.event_id != null && !past ? (
+          <InterviewRescheduleButton
+            eventId={entry.event_id}
+            onEdit={() =>
+              onAction({
+                type: "reschedule_interview",
+                pair: entry,
+                eventId: entry.event_id as number,
+              })
+            }
+          />
+        ) : null}
+        {entry.kind !== "call" && entry.event_id != null && !nexusPrepAhead && !detailsBlocked ? (
           <button
             type="button"
             onClick={() => onAction({ type: "open_event", eventId: entry.event_id as number })}

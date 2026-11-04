@@ -40,6 +40,17 @@ vi.mock("@/components/calendar/cycle/PrepEditButtons", () => ({
   ),
 }));
 
+vi.mock("@/components/calendar/cycle/RescheduleInterview", () => ({
+  InterviewRescheduleButton: ({ onEdit }: { onEdit: () => void }) => (
+    <button type="button" onClick={onEdit}>
+      Zmień termin
+    </button>
+  ),
+  RescheduleInterviewDialog: ({ eventId }: { eventId: number }) => (
+    <div data-testid="reschedule-interview-dialog">{eventId}</div>
+  ),
+}));
+
 vi.mock("@/components/calendar/cycle/PrepResponseChip", () => ({
   PrepResponseChip: ({ eventId }: { eventId: number }) => (
     <span data-testid={`prep-response-${eventId}`}>Kandydat przyjął</span>
@@ -124,6 +135,41 @@ describe("DockInterviewCycle", () => {
     expect(rescheduleProps.current).toEqual(
       expect.objectContaining({ eventId: 701, prepNo: 1, mode: "cancel", pair: PAIR }),
     );
+  });
+
+  it("zaplanowana rozmowa ma „Zmień termin” — klient przełożył, a prep dało się przełożyć sam (04.11.2026)", () => {
+    const withIds = steps(
+      { slots: "done", choice: "done", interview: "scheduled" },
+      "2031-10-08T08:00:00.000Z",
+    ).map((s) => (s.key === "interview" ? { ...s, event_id: 702 } : s));
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: withIds })}
+        pair={PAIR}
+        readOnly={false}
+        onDebrief={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Zmień termin" }));
+
+    expect(screen.getByTestId("reschedule-interview-dialog")).toHaveTextContent("702");
+  });
+
+  it("tylko do odczytu: bez „Zmień termin” przy rozmowie", () => {
+    const withIds = steps({ interview: "scheduled" }, "2031-10-08T08:00:00.000Z").map((s) =>
+      s.key === "interview" ? { ...s, event_id: 702 } : s,
+    );
+    render(
+      <DockInterviewCycle
+        badge={badge({ steps: withIds })}
+        pair={PAIR}
+        readOnly
+        onDebrief={() => {}}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Zmień termin" })).toBeNull();
   });
 
   it("tylko do odczytu: bez wierszy z akcjami prepu", () => {

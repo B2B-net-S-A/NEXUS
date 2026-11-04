@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Literal, Optional
 from zoneinfo import ZoneInfo
@@ -40,7 +40,8 @@ from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.calendar_access import user_can_view_event
+from app.api.calendar import move_client_interview
+from app.api.calendar_access import user_can_mutate_event, user_can_view_event
 from app.api.candidate_access import user_has_candidate_read
 from app.api.recruitment_access import (
     CalendarWriteAccess,
@@ -54,7 +55,7 @@ from app.api.section_access import PIPELINE_SECTION_DEPENDENCIES
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.scheduling import business_today
-from app.models.calendar_event import CalendarEvent, EventType
+from app.models.calendar_event import CalendarEvent, EventStatus, EventType
 from app.models.client_interview_slot_request import (
     ClientInterviewSlotRequest,
 )
@@ -389,6 +390,11 @@ class InterviewEventOut(BaseModel):
     end: Optional[datetime] = None
     # Debrief da się zapisać dopiero od rozpoczęcia rozmowy (``PUT …/debrief``).
     started: bool
+    # „Zmień termin” w panelu: rozmowa przed nami i osoba z pary.
+    can_reschedule: bool = False
+    # „Szczegóły” otwierają wydarzenie kalendarza: DL, który nie jest właścicielem
+    # rozmowy, dostawał tam błąd (``user_can_view_event``).
+    can_open_details: bool = False
 
 
 class ClientQuestionJobOut(BaseModel):
@@ -1043,13 +1049,20 @@ async def get_interview_event(
     if event.job_id is not None:
         await ensure_job_read_access(db, current_user, event.job_id)
     start = _event_start_utc(event)
+    started = start <= datetime.now(timezone.utc)
     return InterviewEventOut(
         id=event.id,
         candidate_id=event.candidate_id,
         job_id=event.job_id,
         start=start,
         end=event.end_time,
-        started=start <= datetime.now(timezone.utc),
+        started=started,
+        can_reschedule=(
+            not started
+            and event.status == EventStatus.scheduled
+            and await _interview_move_refusal(db, event, current_user) is None
+        ),
+        can_open_details=user_can_view_event(event, current_user),
     )
 
 
@@ -1347,6 +1360,17 @@ class ClientInterviewOut(BaseModel):
     end: Optional[datetime] = None
 
 
+class ClientInterviewRescheduleIn(BaseModel):
+    """„Zmień termin” rozmowy; bez długości zostaje ta, którą rozmowa miała."""
+
+    start: datetime
+    duration_minutes: Optional[int] = Field(
+        None,
+        ge=client_interview_entry.MIN_DURATION_MINUTES,
+        le=client_interview_entry.MAX_DURATION_MINUTES,
+    )
+
+
 class PairDebriefIn(DebriefIn):
     """Pytania z rozmowy, której nie ma w kalendarzu NEXUSA — ``held_on``
     zakłada odbytą rozmowę (bez godziny: 9:00)."""
@@ -1470,6 +1494,102 @@ async def create_client_interview(
         created_by=current_user.id,
         held=False,
         now=now,
+    )
+    out = ClientInterviewOut(
+        event_id=event.id, start=event.start_time, end=event.end_time
+    )
+    await db.commit()
+    return out
+
+
+async def _interview_move_refusal(
+    db: AsyncSession, event: CalendarEvent, user: User
+) -> Optional[HTTPException]:
+    """Dlaczego ta osoba nie przełoży tej rozmowy (``None`` = może).
+
+    Rozmowę przekładają ludzie pary: jej właściciel, Delivery Lead rekrutacji
+    i rekruter kandydata, jak prep od 17.10.2026 (``prep_editor_ids``). Członek
+    zespołu nie wystarcza, bo ``ensure_job_membership`` przepuszcza każdego
+    rekrutera od 23.09.2026, a zmiana idzie do cudzego kalendarza.
+
+    Cudze spotkanie z Outlooka zostaje u organizatora: mogą w nim być osoby
+    spoza firmy. Blokada z potwierdzonego wniosku uczestników nie ma."""
+    from app.services.m365.calendar import M365_SOURCE
+
+    if user_can_mutate_event(event, user):
+        return None
+    job = await db.get(Job, event.job_id) if event.job_id is not None else None
+    pair = (event.candidate_id, event.job_id)
+    recruiters = await interview_slots.default_recruiter_ids(db, [pair])
+    editors = {job.delivery_lead_id if job else None, recruiters.get(pair)}
+    if job is None or not operational_owner_ids(user) & editors:
+        return HTTPException(
+            status_code=403,
+            detail="Termin tej rozmowy mogą zmienić: jej właściciel, Delivery Lead "
+            "rekrutacji i rekruter kandydata.",
+        )
+    if event.external_source != M365_SOURCE:
+        return None
+    blockade = await db.scalar(
+        select(ClientInterviewSlotRequest.id)
+        .where(ClientInterviewSlotRequest.event_id == event.id)
+        .limit(1)
+    )
+    if blockade is not None:
+        return None
+    return HTTPException(
+        status_code=409,
+        detail=(
+            "To spotkanie z Outlooka organizuje ktoś inny i mogą w nim być "
+            "osoby spoza firmy. Termin zmieni jego organizator. W NEXUSIE "
+            "nic nie zostało zmienione."
+        ),
+    )
+
+
+@router.post(
+    "/interview-cycle/events/{event_id}/reschedule",
+    response_model=ClientInterviewOut,
+)
+async def reschedule_client_interview(
+    event_id: int,
+    body: ClientInterviewRescheduleIn,
+    current_user: CalendarWriteAccess,
+    db: AsyncSession = Depends(get_db),
+) -> ClientInterviewOut:
+    """Klient przełożył rozmowę: nowy termin TEGO SAMEGO wydarzenia, więc prepy,
+    telefon po rozmowie i debrief zostają przy tej rundzie (04.11.2026)."""
+    event = await _load_interview_event(db, event_id, current_user)
+    refusal = await _interview_move_refusal(db, event, current_user)
+    if refusal is not None:
+        raise refusal
+    await client_interview_entry.lock_pair(
+        db, candidate_id=event.candidate_id, job_id=event.job_id
+    )
+    await db.refresh(event)
+    now = datetime.now(timezone.utc)
+    if event.status != EventStatus.scheduled:
+        raise HTTPException(
+            status_code=409,
+            detail="Ta rozmowa jest odwołana albo zakończona, nie ma czego przekładać.",
+        )
+    previous_start = _event_start_utc(event)
+    if previous_start <= now:
+        raise HTTPException(
+            status_code=409,
+            detail="Rozmowa już się zaczęła. Nowy termin dodaj osobnym wnioskiem.",
+        )
+    start = client_interview_entry.validate_planned_start(body.start, now=now)
+    if start <= now:
+        raise HTTPException(status_code=422, detail="Ten termin już minął.")
+    if body.duration_minutes is not None:
+        length = timedelta(minutes=body.duration_minutes)
+    elif event.end_time is not None:
+        length = event.end_time - event.start_time
+    else:
+        length = timedelta(minutes=client_interview_entry.DEFAULT_DURATION_MINUTES)
+    await move_client_interview(
+        db, event, current_user, start=start, end=start + length
     )
     out = ClientInterviewOut(
         event_id=event.id, start=event.start_time, end=event.end_time
