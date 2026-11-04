@@ -33,5 +33,19 @@ odczytać tekstu z pliku CV.” i zgłoszenie z portalu przepadało.
 - **Odmowa `/from-cv` ma ślad w logu:** `[from-cv] brak tekstu: <plik .doc, 26 zn.>, format .doc, 90112 B`.
   Tylko kształt nazwy, format z bajtów i rozmiar, bo nazwa pliku CV to zwykle imię i nazwisko.
 
-`cv_text_backfill` nadal oznacza binarny `.doc` jako `legacy_doc` i go nie czyta, więc CV
-już leżące w bazie bez tekstu nie odzyskują się same po tej zmianie.
+## CV już leżące w bazie (`cv_text_backfill`, 04.11.2026)
+
+Do tej zmiany backfill oznaczał binarny Word jako końcowy `legacy_doc`, a `.docx`
+bez tekstu jako końcowy `empty`, więc takie CV nie wracały do odczytu.
+
+- **`legacy_doc` już nie powstaje i nie jest końcowy.** Wiersze ze starym znacznikiem
+  same wracają do zakresu backfillu. `empty` zostaje końcowy, więc te `.docx` wymagają
+  biegu z `--retry-outcomes empty`.
+- **Word bez tekstu po odczycie dostaje `error`, nie `empty`.** `extract_text` oddaje `""`
+  także wtedy, gdy LibreOffice'a nie ma, był zajęty albo padł, a `error` wraca po odroczeniu.
+  RTF i HTML pod nazwą `.doc` (`sniff_extension` daje `None`) dostają końcowe `empty`.
+- **Sam kod niczego nie czyta.** Fazę `candidates_cv_text` wołał sync Traffita, a ten nie
+  działa od 14.10.2026, więc odczyt to ręczny bieg `scripts/backfill_cv_text` z obrazu
+  z LibreOffice'em (bez niego Word dostanie `error`).
+- **Koszt biegu:** tekst trafia do kolejki indeksu (`record_bulk_reindex`), czyli do Voyage,
+  gdy działa worker. Bieg nie uruchamia parsowania pól LLM ani zdarzeń auto-dopasowania.

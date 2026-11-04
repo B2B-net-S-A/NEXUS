@@ -89,7 +89,7 @@ trzy tryby z 21.09 (Baza / Wyszukiwanie / Z treści requestu).
   z 10.08), a ekstraktor wybierał parser po NAZWIE: 3 320 PDF-ów zapisanych
   jako `*.docx` dostało terminalny znacznik `empty`. Format rozpoznaje
   `cv_text_extractor.sniff_extension` (pierwsze bajty); znaczniki
-  `empty/unsupported_format/legacy_doc` bez flagi `sniffed` dostają jedną
+  `empty/unsupported_format` bez flagi `sniffed` dostają jedną
   ponowną próbę. **Tekst SKLEJONY** (średnia „słowa” > 12 znaków,
   `cv_text_extractor.looks_glued`; 1 581 CV 23.09.2026, prawie same PDF-y
   z ciasnym kerningiem) PDF czyta drugi raz z `x_tolerance=1` — tylko jako
